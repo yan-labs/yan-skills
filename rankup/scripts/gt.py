@@ -39,7 +39,11 @@ def ensure_venv():
             [VENV_PY, "-m", "pip", "install", "-q", "pytrends", "tabulate"], check=True
         )
         print("[gt] 环境就绪", file=sys.stderr)
-    env = dict(os.environ, GT_IN_VENV="1")
+    _dangerous = {"PYTHONPATH", "PYTHONSTARTUP", "PYTHONOPTIMIZE",
+                  "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH",
+                  "DYLD_INSERT_LIBRARIES"}
+    env = {k: v for k, v in os.environ.items() if k not in _dangerous}
+    env["GT_IN_VENV"] = "1"
     os.execve(VENV_PY, [VENV_PY, os.path.abspath(__file__)] + sys.argv[1:], env)
 
 
