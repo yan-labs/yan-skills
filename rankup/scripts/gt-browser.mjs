@@ -15,14 +15,32 @@
  * 选项：--geo CODE  --time 1m|3m|12m|5y|all|START:END  --top N  --raw
  *       --session NAME  --keep-session
  *
+ * 会话默认跑完即释放。--keep-session 会保留标签页，脚本会把释放命令打到 stderr——
+ * 忘了释放不会报错，只会在用户的 Chrome 里留下一个看起来卡死的标签页。
+ *
  * 依赖：opencli（浏览器桥要绿，先跑 opencli doctor）
  */
 
 import { execFileSync } from "node:child_process";
 
-// 会话名必须是描述性常量。Bash tool 每次调用都是新进程，$$ / process.pid
-// 在那里会每次生成新名字，导致上一条命令开的标签页被遗弃。
-const DEFAULT_SESSION = "rankup-gt-trends";
+// 会话名要同时满足两件事，缺一个都会静默出错：
+//   · 描述性——名字是唯一存在的标识，得能回答「这是谁的标签页」；
+//   · 唯一性——一个字面常量会让两个并行任务（或两个 sub agent）算出同一个名字，
+//     于是共用同一个标签页，第二个读到的是第一个打开的页面，**全程零报错**。
+// 后缀按「每个对话」派生：CLAUDE_CODE_SESSION_ID 才是真正会并发的那个单位；
+// HOST_SESSION_ID 是同一个桌面 app 里所有对话共享的，只能兜底。
+// 不要在 Bash tool 里用 $$ 自己拼——那里每次调用都是新进程，PID 每次都变，
+// 于是每条命令都开一个新标签页，上一条打开的被遗弃。
+// 并行 sub agent 继承同一份环境变量，必须各自显式传 --session。
+function defaultSession() {
+  const suffix = (
+    process.env.OPENCLI_SESSION_SUFFIX ||
+    process.env.CLAUDE_CODE_SESSION_ID ||
+    process.env.CLAUDE_CODE_HOST_SESSION_ID ||
+    String(process.ppid)
+  ).replace(/[^a-zA-Z0-9]/g, "").slice(0, 12) || "local";
+  return `rankup-gt-trends-${suffix}`;
+}
 const EXPLORE_URL = "https://trends.google.com/trends/explore?hl=en-US";
 const OPENCLI = process.env.GT_OPENCLI ?? "opencli";
 // How long to let the Trends bundle boot before querying its APIs from the page.
@@ -241,11 +259,20 @@ function fetchTrends(keywords, opts, { resolution } = {}) {
   if (keywords.length > 5) die("Google Trends 一次最多对比 5 个关键词");
   const geo = opts.geo ?? "";
   const timeframe = toTimeframe(opts.time);
-  const session = opts.session ?? DEFAULT_SESSION;
+  const session = opts.session ?? defaultSession();
   try {
     return { data: runBatch(extractor({ keywords, geo, timeframe, resolution }), session), geo, timeframe };
   } finally {
-    if (!opts.keepSession) closeSession(session);
+    if (opts.keepSession) {
+      // 保留会话是合法用法（连续查多个词时省掉重开页面），但它留下的标签页
+      // 会一直停在空白的 explore 界面上——取数全在页面内 fetch，DOM 不会变，
+      // 在用户的 Chrome 里看起来就是「一个卡死的标签页」。忘了释放不会有任何
+      // 报错，所以这里必须把释放命令喊出来，别让它变成一个静默的遗留。
+      console.error(`[gt-browser] 会话 ${session} 已保留，用完请释放：` +
+        `\n  node gt-browser.mjs close --session ${session}`);
+    } else {
+      closeSession(session);
+    }
   }
 }
 
@@ -353,7 +380,7 @@ function cmdRelated(kws, opts) {
 
 function cmdClose(kws, opts) {
   if (kws.length) die("close 不需要关键词");
-  const session = opts.session ?? DEFAULT_SESSION;
+  const session = opts.session ?? defaultSession();
   closeSession(session);
   console.log(`已释放 Trends 会话：${session}`);
 }
@@ -374,7 +401,7 @@ function main() {
         "",
         "  --geo CODE   地区（留空=全球）   --time 7d|28d|30d|1m|3m|12m|5y|all|START:END",
         "  --top N      条数（默认 15）     --raw  compare 不做月度聚合",
-        "  --session NAME  会话名（默认 rankup-gt-trends）",
+        "  --session NAME  会话名（默认 rankup-gt-trends-<每对话唯一后缀>）",
         "  --keep-session  跑完保留会话，连续查询后用 close 释放",
       ].join("\n"),
     );

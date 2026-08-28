@@ -16,8 +16,10 @@
   --region CODE  hot 的地区（默认 US；不支持 CN）
   --limit N      hot 显示条数（默认 20）
   --via ROUTE    取数路由：browser（默认）/ pytrends / auto
-  --session NAME  browser 会话名（默认 rankup-gt-trends）
+  --session NAME  browser 会话名（默认 rankup-gt-trends-<每对话唯一后缀>）
   --keep-session  browser 跑完保留会话，连续查询后用 close 释放
+                  （默认跑完即释放；保留时释放命令会打到 stderr——忘了释放不报错，
+                   只会在你的 Chrome 里留下一个停在 explore 页、看起来卡死的标签页）
 
 路由说明：
   browser  走 gt-browser.mjs：OpenCLI 驱动已登录 Chrome，在 trends.google.com

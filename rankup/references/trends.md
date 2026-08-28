@@ -133,7 +133,15 @@ python3 $GT compare "keyword" --geo JP --time 7d --keep-session
 python3 $GT close
 ```
 
-单条查询默认仍会在结束后关闭会话；`--session NAME` 可为并行任务指定独立会话名。
+单条查询默认跑完即释放会话。**`--keep-session` 之后一定要记得 `close`**——
+它留下的标签页会一直停在空白的 explore 界面上（取数全在页面内 fetch，DOM 不会变），
+在用户的 Chrome 里看起来就是「一个卡死的标签页」，而漏掉释放**不会有任何报错**。
+脚本会把释放命令打到 stderr，看到就照着跑。
+
+`--session NAME` 可为并行任务指定独立会话名。默认会话名已经带每对话唯一后缀
+（`rankup-gt-trends-<后缀>`），但**同一个对话里 fan-out 的多个 sub agent 继承同一份
+环境变量、会算出同一个名字**——那种情况必须各自显式传 `--session`，否则它们共用
+一个标签页，第二个读到的是第一个打开的页面，且全程零报错。
 
 ### KD 难度估算
 
