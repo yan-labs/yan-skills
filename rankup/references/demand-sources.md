@@ -507,10 +507,18 @@ node scripts/demand/game-platform-monitor.mjs --language de,pl,ja,ar,ru
 | 源 | 拿什么 | 取数方式 | 需登录 | 脚本 |
 |---|---|---|---|---|
 | 站群反查 | 同一主体运营的其它候选域名 + 事实字段（共同指纹 / 发现路径 / 回访状态） | 纯 HTTP 读首页 HTML | 否 | `scripts/demand/site-network.mjs --domain <域名> --confirm` |
+| Reverse AdSense | 共用同一 AdSense Publisher ID 的所有域名 | OpenCLI 驱动 sitedata.dev | 是（SiteData 会员） | `scripts/sitedata.mjs --domain <域名> --report adsense` |
 
 ```bash
 node scripts/demand/site-network.mjs --domain <种子域名> --confirm --max 10
 ```
+
+**Reverse AdSense 是 `site-network.mjs` 的互补手段**：`site-network.mjs` 从首页 HTML 刮指纹，
+对不挂 AdSense 的站无效；`sitedata.mjs --report adsense` 走 SiteData 的 Reverse AdSense 数据库，
+只要目标域名的 `ads.txt` 声明过 Publisher ID 就能查到所有共用该 ID 的域名——这是 strong 级证据，
+且 Ahrefs / Similarweb / Semrush 都没有这个能力。**两者一起跑**：先 `site-network.mjs` 拿指纹，
+再 `sitedata.mjs --report adsense` 拿 AdSense 关联，合流去重。
+【实测 2026-09-04，`toolify.ai`：pub-4273367302905582 DIRECT → songmeaning.io、toolify.ai、coloringbook.ai】
 
 脚本只采集不裁定（2026-08-30 起不再输出 strength/confirmed，也不默认过滤弱行）：
 每行给出发现路径、共同指纹、回访状态（`revisit=fetch_failed` 是「这次没看到」，
@@ -731,6 +739,7 @@ keywordtool.io 那一档仍无脚本——AI 手动做或用 `/anysearch` 补 Am
    ↓ ④ 这个站到底多大、流量从哪来
    backlink/scripts/similarweb-query.mjs            # 总访问量、渠道构成、相似站
    backlink/scripts/semrush-overview.mjs            # 自然流量、引荐域、关键词库
+   scripts/sitedata.mjs --domain <域名>             # 第三方流量校验（免费、不扣配额）+ Reverse AdSense 站群关联
    # 这两家还有哪些面板能力、哪些是死路 → provider-capabilities.md（实测测绘，先查表再开浏览器）
    ↓ ⑤ 这个方向在涨还是在跌
    scripts/gt.py                                    # Google Trends
