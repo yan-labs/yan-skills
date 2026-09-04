@@ -290,6 +290,23 @@ DuckDuckGo 有自己的爬虫 `DuckDuckBot`（User-Agent: `DuckDuckBot/1.1`）�
 上线后第一件事是对首页提交「请求编入索引」，把搜索引擎对该域名的旧记忆（停放页、旧站）
 尽快覆盖掉。这件事越早越好，且**必须用正确的资源做**——见下一节。
 
+### 请求编入索引的操作细节
+
+**GSC**：URL 检查工具 → 输入首页 URL → 等待实时测试 → 点击「请求编入索引」。
+点击后 GSC 会跑一个 **1–2 分钟的实时抓取测试**（页面上有进度条），通过后才显示
+「已请求编入索引」。**不要在测试跑完前关闭页面或点其他 URL**。
+如果实时测试失败（例如 noindex、robots 阻止），会给出具体原因——先修再重试。
+
+**Bing**：Webmaster Tools → URL Submission → 在文本框中输入 URL（每行一个，
+一次最多 10 条），点击 Submit。Bing 不做实时测试，提交后立刻确认。
+**自动化陷阱**：Bing 的 URL Submission 文本框是 React 控件，
+`el.value = '...'` 不会触发 React 的 state 更新，看起来有值但提交时为空。
+必须用 `Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set`
+设值后再 `dispatchEvent(new Event('input', {bubbles: true}))` 才能生效。【实测 2026-09-03】
+
+**推荐 URL 清单**：首页 + 所有平台页 + about 页。不需要提交 sitemap 里的每一条——
+首页请求编入索引足以让爬虫发现 sitemap 并抓取其余页面。
+
 ## 6. 提交 sitemap
 
 ```bash

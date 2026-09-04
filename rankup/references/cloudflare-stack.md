@@ -254,6 +254,31 @@ wrangler email routing rules list <domain>        # 验证规则
 wrangler email routing dns get <domain>           # 验证 DNS 记录
 ```
 
+**路径 B：Cloudflare API。** Wrangler CLI 和 Dashboard 都不可用时（浏览器连不上、
+wrangler 认证失败），用 API 直接操作。需要 Global API Key 或有 `Zone > Email Routing
+Addresses > Edit` 权限的 scoped token。
+
+```bash
+ZONE_ID="<zone_id>"
+# 启用 Email Routing（DNS 记录已存在则直接激活，否则需先添加）
+curl -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/enable" \
+  -H "X-Auth-Email: <email>" -H "X-Auth-Key: <global_key>" \
+  -H "Content-Type: application/json"
+
+# 查看状态（enabled / status 字段）
+curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing" \
+  -H "X-Auth-Email: <email>" -H "X-Auth-Key: <global_key>"
+
+# 列出转发规则
+curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/rules" \
+  -H "X-Auth-Email: <email>" -H "X-Auth-Key: <global_key>"
+```
+
+**实测陷阱**：Dashboard 上 Email Routing 的「启用/禁用」开关有时点击无响应——
+routing 显示「已禁用」但 DNS 记录和规则都在。此时 API `POST .../enable`
+能立刻把 `enabled` 翻成 `true`、`status` 变为 `ready`。
+如果 Dashboard 开关不动，别反复点——直接走 API。【实测 2026-09-03】
+
 **冲突风险**：`enable` 会写入 Cloudflare 自己的 MX 记录。如果域名已有 MX
 （Google Workspace / Zoho 等），启用前先确认不会抢走现有邮箱的收件。
 
@@ -262,6 +287,25 @@ wrangler email routing dns get <domain>           # 验证 DNS 记录
 
 **地址只有一个约定：`hello@<domain>`**，不用 `contact@` / `admin@` / `info@`。
 详见 `lifecycle.md` 段 5 批 B 第 26 条的完整操作指南与注意事项。
+
+## 8.7 Cloudflare 的 AI 爬虫阻止（robots.txt 注入）
+
+Cloudflare 有**两个独立开关**会向 `robots.txt` 注入 AI 爬虫的 Disallow 规则，
+它们的名字容易混淆，且**默认都是开启的**——新建的 zone 会自动阻止 AI 训练爬虫。
+对 SEO/GEO 站来说这是反向操作：AI 搜索引擎（Perplexity、ChatGPT Search、
+Google AI Overview）的爬虫与训练爬虫共用 User-Agent，阻止训练同时阻止了被引用。
+
+两个开关的位置和含义：
+
+| 开关 | 位置 | 含义 | 应设为 |
+|---|---|---|---|
+| 阻止 AI 训练自动程序 | Security → Bots → Bot Protection | 向 robots.txt 注入 `User-agent: GPTBot` 等 AI 训练爬虫的 Disallow | **不阻止（允许爬网程序）** |
+| 管理您的 robots.txt | Security → Bots → Managed Content Protection | Cloudflare 托管 robots.txt，会追加 Managed Content 段 | **禁用 robots.txt 配置**（让站点自己的 robots.txt 生效） |
+
+**两个都要改**，只改一个仍然会有注入。改完后 `curl <site>/robots.txt` 验证输出干净、
+没有 `# Cloudflare Managed Content` 段。【实测 2026-09-03】
+
+**API 替代**：目前这两个开关没有公开的 zone-level API 端点，只能通过 Dashboard 操作。
 
 ## 9. 部署
 

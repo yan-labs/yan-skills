@@ -71,6 +71,13 @@
 每一级向下的**唯一理由**是「上一级确实不存在」，不是「我对下一级更熟」。
 沙箱浏览器不在这个阶梯上——它没有登录态，用它查需要登录的面板必然拿到错误数据。
 
+**Cloudflare 特别提示**：Wrangler CLI 认 `CLOUDFLARE_EMAIL` + `CLOUDFLARE_API_KEY`（Global Key）
+或 `CLOUDFLARE_API_TOKEN`（scoped token）环境变量，**配好后不需要 `wrangler login`**。
+段 5 密集操作 CF（DNS、Email Routing、zone 设置），先把环境变量配进 `~/.zshenv`，
+后面 wrangler 命令和 `curl` API 调用都直接用。Dashboard 上某些开关偶尔点击无响应
+（实测 Email Routing 启用开关），此时 API 能立刻生效——遇到 Dashboard 不动别反复点，
+直接走 API。【实测 2026-09-03】
+
 **这个阶梯管「取数」，不替代「亲眼看」。** 任何调研在动用任何一级之前，先去 Google、Bing 与目标市场的
 本地引擎把词搜一遍，记第一页的页面类型——数据平台给的是模型外推，首页是搜索引擎此刻真正端给用户的东西。
 公开搜索结果不需要登录态，**这是少数可以用沙箱浏览器的场景**，但地区与语言必须显式指定。

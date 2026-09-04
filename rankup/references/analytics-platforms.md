@@ -141,7 +141,18 @@ SEO 工具，核心能力是反向链接分析。在 Rankup 里用它：
 与 `backlink` Skill 的关系：`backlink` Skill 驱动 Ahrefs 做盘点和执行，
 Rankup 负责项目初始化和维持监控覆盖。
 
-### 自动化
+### 两条路：GSC 导入（优先）与手动创建
+
+**路径 A（优先）：从 GSC 导入。** 如果 GSC 已验证该站点，用 Ahrefs Dashboard 的
+「Import from GSC」一步完成创建 + 验证 + Site Audit 启用。这是最快路径：
+不需要单独创建项目、不需要单独验证所有权、不需要手动开 Site Audit。
+操作：Ahrefs Dashboard → 右上角「+Add」或空状态的 Import → 选择 Google 账号授权 →
+在站点列表中**只勾选目标站点**（默认全选，务必取消其余的）→ 确认导入。
+导入完成后项目立刻 active，Site Audit 默认启用。
+**注意**：导入授予 Ahrefs 对 GSC 数据的长期 OAuth 读取权限——与 Bing 导入 GSC 同理，
+用户须知晓这一点。不想授权就走路径 B。【实测 2026-09-03】
+
+**路径 B：手动创建 + 验证。** 脚本走这条路：
 
 ```bash
 # 查看 Dashboard 上的项目列表
@@ -160,7 +171,7 @@ node <rankup-skill-dir>/scripts/ahrefs-setup.mjs enable-wa --site example.com
 node <rankup-skill-dir>/scripts/ahrefs-setup.mjs enable-wa --site example.com --project-id 12345678
 ```
 
-### 所有权验证
+### 所有权验证（路径 B）
 
 项目创建后处于「冻结」状态。验证方式（任选一种）：
 
@@ -176,13 +187,25 @@ node <rankup-skill-dir>/scripts/ahrefs-setup.mjs enable-wa --site example.com --
 
 Ahrefs 自有的流量追踪脚本，独立于 GA4。Dashboard「总访问量」列需要它才会显示数据。
 
-追踪脚本：
+追踪脚本（**一律延迟加载，与 GA4 同理**）：
 
 ```html
+<!-- 同步版（Ahrefs 官方文档给的，不要用） -->
 <script async src="https://analytics.ahrefs.com/analytics.js" data-key="<DATA_KEY>"></script>
+
+<!-- 延迟版（实际使用这个，requestIdleCallback 回退 setTimeout） -->
+<script>
+(function(){var f=function(){var s=document.createElement('script');
+s.async=1;s.src='https://analytics.ahrefs.com/analytics.js';
+s.dataset.key='<DATA_KEY>';document.head.appendChild(s)};
+typeof requestIdleCallback==='function'?requestIdleCallback(f):setTimeout(f,3500)})();
+</script>
 ```
 
 `<DATA_KEY>` 由 `enable-wa` 命令输出。这是公开值。
+延迟加载对 WA 数据采集没有影响（会话级数据，晚几秒不丢），LCP 零影响。
+**验证**：部署后在 Ahrefs Web Analytics 设置页点「Recheck installation」，
+看到「Script installed」即可——`curl` grep 只证代码在，不证数据流向正确。【实测 2026-09-03】
 
 > **键必须与目标项目逐字核对，别的项目的键不会报任何错。**
 > 实测过一次事故：站点埋的 `data-key` 属于同账号下的另一个项目。
@@ -221,10 +244,10 @@ Project ID、measurementId、appId、`data-key`、埋码位置——这些**逐�
 □ 0. GA4：控制台建媒体资源 → 拿 Measurement ID → gtag / Zaraz 注入 → 线上 grep 到 G- ID + 实时报告有会话（预览域即可）
 □ 1. Clarity：clarity-setup.mjs create → 拿到 ID → 写进 <head>
 □ 2. Firebase：firebase projects:create → firebase apps:create web → 记录 config
-□ 3. Ahrefs：ahrefs-setup.mjs create → ahrefs-setup.mjs verify（GSC 自动验证）
-□ 4. Ahrefs WA：ahrefs-setup.mjs enable-wa → 拿到 data-key → 写进 <head>
+□ 3. Ahrefs：GSC 已接入 → Dashboard「Import from GSC」一步完成创建+验证+Site Audit（优先）；否则 ahrefs-setup.mjs create → verify
+□ 4. Ahrefs WA：ahrefs-setup.mjs enable-wa → 拿到 data-key → 写进 <head>（requestIdleCallback 延迟加载，同 GA4）
 □ 5. 部署站点（确认追踪代码上线）
-□ 6. 去各平台确认数据开始采集
+□ 6. 去各平台确认数据开始采集（Ahrefs WA 用设置页「Recheck installation」验证）
 ```
 
 完成任一步骤后，**立刻回写到 `.rankup/integrations.md`** 打 ✅ 并附证据和日期。`rankup review` 会逐项线上实测验证这张清单——不记就等于没做。详见 [`lifecycle.md`](lifecycle.md) 段 5 接入清单。

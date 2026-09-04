@@ -717,6 +717,29 @@ TDK 与内链检查覆盖**全站每一个 URL** 而非抽样；`is-agentic.mjs 
 - 用户已购或候选的域名（**域名购买本身在第三方注册商完成，不在本段代买**）。
 - 用户对第三方账号（搜索平台、分析平台、站长工具）的可用性说明。
 
+### 前提：Cloudflare 凭据与操作优先级
+
+段 5 密集操作 Cloudflare（DNS、Email Routing、zone 设置）。**一次性配好凭据，后面全程省事**。
+
+**Wrangler 环境变量**（配一次，所有项目通用）：
+
+```bash
+# ~/.zshenv（所有 shell 都加载，包括非交互式脚本）
+export CLOUDFLARE_EMAIL="<账号邮箱>"
+export CLOUDFLARE_API_KEY="<Global API Key>"    # 37 位十六进制
+# 或者用 scoped API Token（更安全，但需要覆盖所有 zone）
+# export CLOUDFLARE_API_TOKEN="<token>"         # 40 字符
+```
+
+配好后 `wrangler whoami` 直接认证，不需要 `wrangler login`（浏览器 OAuth）。
+同一组变量也可以用于 `curl` 调 Cloudflare API（Global Key 用 `X-Auth-Email` + `X-Auth-Key`，
+scoped token 用 `Authorization: Bearer`，**两种 header 不能混用，混用报 6003 错误但错误信息极具误导性**）。
+
+**操作优先级：API > CLI > 浏览器。** 段 5 涉及的 Cloudflare 操作（Email Routing 启用、
+DNS 记录、zone 设置），优先用 API 或 `wrangler` CLI。浏览器是最后手段——
+实测 Dashboard 上的 Email Routing 开关和 AI 爬虫设置有时点击无响应，
+API 能立刻生效。只有没有公开 API 端点的设置（如 AI 爬虫阻止的两个开关）才走 Dashboard。【实测 2026-09-03】
+
 ### 必做动作
 
 **5.1 批 A：域名无关的接入，在预览域接好并验证**
@@ -828,11 +851,28 @@ TDK 与内链检查覆盖**全站每一个 URL** 而非抽样；`is-agentic.mjs 
     wrangler email routing dns get <domain>                  # 7. 验证 DNS 记录已自动配好
     ```
 
+    **API 退路**（wrangler CLI 不可用或 Dashboard 开关无响应时）：
+
+    ```bash
+    # 启用 Email Routing
+    curl -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/enable" \
+      -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" \
+      -H "Content-Type: application/json"
+    # 查看状态
+    curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing" \
+      -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY"
+    # 列出规则
+    curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/rules" \
+      -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY"
+    ```
+
     注意事项：
     - **`enable` 会自动配 MX、SPF 和 DKIM DNS 记录**——如果域名已有 MX（比如用着 Google Workspace），
       启用前先确认不会冲突，否则会中断现有邮箱收件。
     - **目标地址需要验证**：`addresses create` 之后，目标邮箱会收到一封确认邮件，
       点了才能用作转发目标。同一个 Cloudflare 账号下已验证过的地址**跨域名共用**，不需要重新验证。
+    - **Dashboard 开关可能无响应**：实测 Email Routing 的「启用/禁用」按钮偶尔点击无效——
+      routing 显示「已禁用」但 DNS 记录和规则都在。此时用 API `POST .../enable` 能立刻生效。【实测 2026-09-03】
     - **这只解决收件**。如果需要用 `hello@<domain>` 发信（不只是收），
       需要 Google Workspace / Zoho / Fastmail 等付费邮箱服务。
       对于内容站，通常只需要收件（接外链联络、接用户反馈），发件走个人邮箱即可。
@@ -853,7 +893,7 @@ TDK 与内链检查覆盖**全站每一个 URL** 而非抽样；`is-agentic.mjs 
 | 搜索平台 | Bing Webmaster | 微软账号 | Bing/Yahoo/DuckDuckGo 一侧的收录。**有站 80% 流量来自这里。** **用 HTML meta 验证，不要用「从 GSC 导入」**（那是给 Bing 一个对 Google 账号的长期 OAuth）。sitemap 用 `webmaster-sitemap.mjs bing submit` |
 | 搜索平台 | Yandex Webmaster | Yandex 账号 | 全球第五大搜索引擎，俄罗斯 60%+ 份额。所有站点都接——即使不做俄语市场，Yandex 的行为因素分析数据也有参考价值。用 HTML meta 验证（`yandex-verification`），爬虫 UA 是 `YandexBot`，确认 `robots.txt` 没误拦。Yandex 也是 IndexNow 共同创建者，推送已覆盖。详见 `search-platforms.md`「步骤 6：Yandex Webmaster」 |
 | 搜索平台 | Naver Search Advisor | Naver 账号 | **有站英语市场做得好，流量却几乎全部来自韩国。** Naver 在韩国的地位相当于百度 + 小红书 + 大众点评 + 抖音的合体，占韩国搜索流量的主导份额。虽然 IndexNow 能被动推送，但站长工具的收录状态、搜索分析、网站诊断只有注册后才有。用 HTML meta 验证，爬虫 UA 是 `Yeti`，确认 `robots.txt` 没误拦。详见 `search-platforms.md`「步骤 5：Naver Search Advisor」 |
-| 外链视角 | Ahrefs Webmaster Tools（免费站长版） | Ahrefs 账号 + 所有权验证 | 免费看自己的引荐域名与 rel 分布。`ahrefs-setup.mjs` |
+| 外链视角 | Ahrefs Webmaster Tools（免费站长版） | Ahrefs 账号 + 所有权验证 | 免费看自己的引荐域名与 rel 分布。**GSC 已接入时用 Dashboard「Import from GSC」一步完成创建+验证+Site Audit 启用（优先）**；否则 `ahrefs-setup.mjs create` → `verify`。详见 [`analytics-platforms.md`](analytics-platforms.md)「两条路：GSC 导入（优先）与手动创建」 |
 | 站点体检 | Ahrefs Site Audit | 同上 | 全站抓取的第二双眼睛：重定向链、内链 404、孤儿页。`ahrefs-site-audit.mjs report <id> <section>`；边界见 [`seo-box.md`](seo-box.md)「Ahrefs AWT 免费档」 |
 | 品牌邮箱 | Cloudflare Email Routing `hello@` | Cloudflare 账号 | 见第 26 条 |
 | 受众忠诚度 | Preferred Sources 引导按钮 | 无 | 引导用户标记站点为 Preferred Source，被标记站点 CTR 翻倍（2026-08 新增自定义按钮） |
@@ -863,6 +903,11 @@ TDK 与内链检查覆盖**全站每一个 URL** 而非抽样；`is-agentic.mjs 
 
 27. 把索引开关翻开：正式域名的 HTML 不再输出 `noindex`，`robots.txt` 不再 `Disallow: /`；
     `curl` 正式域名首页与一个内页核实。
+    **同时关掉 Cloudflare 的 AI 爬虫阻止**（两个独立开关，新 zone 默认开启）：
+    ① Security → Bots → "阻止 AI 训练自动程序" → 不阻止（允许爬网程序）；
+    ② Security → Bots → "管理您的 robots.txt" → 禁用 robots.txt 配置。
+    改完 `curl <site>/robots.txt` 验证无 `# Cloudflare Managed Content` 段。
+    详见 [`cloudflare-stack.md`](cloudflare-stack.md) §8.7。
 28. **重跑段 4 闸门 1、2、4**：确认 robots 类「设计」项转绿、canonical 指向正式域名、`is-agentic` 分数不低于预览域基线。
 29. **提交首页请求编入索引**（GSC「网址检查 → 请求编入索引」，Bing「URL 提交」）。
     域名有「前世」（5.2 第 10 条）时，**这是放开索引后的第一件事**——

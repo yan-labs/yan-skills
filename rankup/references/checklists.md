@@ -191,6 +191,7 @@
 | IndexNow | 密钥文件正文逐字节等于密钥，首次推送已被接受并记下条数与 HTTP 状态 | `.rankup/integrations.md` | `indexnow-submit.mjs`。**密钥不可达时整批被丢弃而接口照样回 200** | 动了 URL |
 | 两边 sitemap 已提交 | GSC 与 Bing 都提交过，记的是**快照日期**不是实时值 | `.rankup/integrations.md` | `webmaster-sitemap.mjs <gsc\|bing> submit` | 动了 URL |
 | **`hello@<domain>` 可收信且三处一致** | Email Routing 转发规则存在、收过一封测试邮件；JSON-LD `contactPoint.email`、`/about`、外链联络三处是同一个字符串，且只有 `hello@` 这一个地址 | 线上 HTML + `wrangler email routing rules list` | [`cloudflare-stack.md`](cloudflare-stack.md) §8.6 | 一次 |
+| **Cloudflare AI 爬虫阻止已关闭** | `curl <site>/robots.txt` 无 `# Cloudflare Managed Content` 段；CF dashboard 两个开关都已关（① Security → Bots → "阻止 AI 训练自动程序" → 不阻止；② Security → Bots → "管理您的 robots.txt" → 禁用）。**新建 zone 默认开启**，不关会阻止 AI 搜索引擎爬虫 | `.rankup/integrations.md` | [`cloudflare-stack.md`](cloudflare-stack.md) §8.7 | 一次 |
 | **索引已放开并复核** | 正式域名首页与内页 `curl` 无 `noindex`、robots 无 `Disallow: /`；段 4 闸门 1、2、4 重跑后「设计」项转绿 | `.rankup/audit.md` | 翻索引开关，重跑三行 | 一次 |
 | **首页已请求编入索引** | GSC 与 Bing 各一条提交记录；域名 `has_history: true` 时这是放开索引后的**第一件事** | `.rankup/integrations.md` | GSC 网址检查 → 请求编入索引；Bing URL 提交 | 一次 |
 | 索引推送焊进出荷命令 | 项目自己的 ship 命令末段带索引推送，**脚本在项目仓库内而不是指向 Skill 目录** | 项目仓库 | 见 [`search-platforms.md`](search-platforms.md)「挂进发布流程」。这是静默收尾动作：漏了不会有任何东西变红 | 动了 URL |
