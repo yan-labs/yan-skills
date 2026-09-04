@@ -196,7 +196,8 @@
 |---|---|---|
 | **GSC(真实点击,最高优先)** | claude-in-chrome 扩展操作用户真实 Chrome:`list_connected_browsers` 非空 → `select_browser` → `tabs_create` → 导航 performance 报告;每页行数调 100 逐维度读 | 扩展需在 Chrome 侧边栏用同账号登录后才配对;`find` 的 ref 点击自定义下拉可能不生效,改坐标点击 |
 | **Google Suggest(真实输入,免费无限)** | `curl --retry 3 --retry-all-errors ${HTTP_PROXY:+-x "$HTTP_PROXY"} "https://suggestqueries.google.com/complete/search?client=firefox&oe=utf-8&ie=utf-8&hl=<hl>&gl=<gl>&q=<enc>"` | **oe/ie=utf-8 必带**,否则非拉丁文字结果丢失;`[512]` subtype = 高量词;空结果本身就是"无需求"的裁决 |
-| **哥飞 KD(难度+SERP 盘面)** | `GET https://seo.web.cafe/kd/api/v1/kd?keyword=&gl=`，使用服务商要求的认证凭据；或使用可用的 KD 工具 | 仅英文词;额度可能共享;凭据重置会使旧值作废。凭据只放用户级 Secret 系统，Skill 和项目仓库只记录名称、用途与存放位置 |
+| **哥飞 SEO Agent 搜索量核实(Google Ads 级精度)** | `seo-webcafe.mjs chat --ask "查一下 <词> 美国的月搜索量，以及全球搜索量"`；返回分国家/全球月均量、趋势、竞争度、CPC | 强制登录(需 `SEO_WEBCAFE_COOKIE`);消耗 Agent 积分;适合单词验证,批量仍走 Semrush。**数据与 Google Ads Keyword Planner 一致**(2026-09-04 `ai image generator` 实测 US 823K / Global 2.24M 完全吻合),精度远高于 `kd` 的 `keywordVolume` |
+| **哥飞 KD(难度+SERP 盘面)** | `GET https://seo.web.cafe/kd/api/v1/kd?keyword=&gl=`，使用服务商要求的认证凭据；或使用可用的 KD 工具 | 仅英文词;额度可能共享;凭据重置会使旧值作废。凭据只放用户级 Secret 系统，Skill 和项目仓库只记录名称、用途与存放位置。**注意：`kd` 的 `keywordVolume` 已被证伪(差 19–58 倍),需要月搜量时优先用上面的 SEO Agent 搜索量核实** |
 | **哥飞 On-Page 体检** | `POST https://seo.web.cafe/audit/api/analyze` body `{url,keyword}`,header `X-AUDIT-Token`(token 内嵌在 /audit/ 页 meta,403 时重抓页面刷新) | 对阿拉伯文词数统计是假阳性(漏计),阿语页"内容过少"警告忽略 |
 | **哥飞其余工具(MINE/TRANSLATE/WHY/VALUE)** | 走 OAuth session,无法无头自动化;VALUE 是纯前端计算器 | KD 的认证方式不代表其他工具也可复用 |
 | **PageSpeed 网页版(lab + field 两套)** | `node <rankup>/scripts/pagespeed.mjs plan <url> --strategy both` 出链接,再在浏览器里打开 `pagespeed.web.dev` 读数 | **零 key 零配额**(2026-08-31 起停用带 key 的 PSI API)。跑分只在标签页真的可见时才渲染得完,后台标签页会一直停在 Running analysis;跑不出来**不等于**没有数据。本地 lighthouse median-of-N 仍可做同环境"修复前"基线,绝对值不可跨环境比 |

@@ -306,6 +306,32 @@ node scripts/seo-webcafe.mjs chat --ask "审阅 https://example.com ……"
 
 **不采纳的要写下理由**，否则下次会重开同一场争论。
 
+### SEO Agent 可以查关键词搜索量，数据等同 Google Ads Keyword Planner
+
+【实测 2026-09-04】直接在对话里让 SEO Agent 查某个关键词的月搜索量，它会调用内部的搜索量核实工具（`搜索量核实` / `搜索量核实（全球）`），返回分国家和全球的月均搜索量、近 3 月趋势、广告竞争度、顶部 CPC。
+
+实测 `ai image generator`：
+
+| 口径 | 美国月均 | 全球月均 |
+|---|---|---|
+| SEO Agent | 823,000 | 2,240,000 |
+| Google Ads Keyword Planner（同期） | 823,000 | 2,240,000 |
+
+两个数字完全一致，说明 SEO Agent 背后拉的是 Google Ads 的搜索量数据库，不是 `kd` 端点那个已被证伪的估算模型。
+
+**和 `kd` 的月搜量是两套东西。** `kd` 的 `keywordVolume` 在日文词上被证伪过（差 19–58 倍），但 SEO Agent 的搜索量核实工具走的是 Google Ads 原始数据，精度等级不同。需要可信的月搜量时，优先用 SEO Agent 对话查，不要只看 `kd` 的摘要行。
+
+用法：
+
+```
+# 直接在 chat 里问
+node scripts/seo-webcafe.mjs chat --ask "查一下 <关键词> 美国的月搜索量，以及全球搜索量"
+```
+
+返回内容包含：月均搜索量、近 3 月趋势（涨/跌/平稳 + 百分比）、广告竞争度（0–100）、顶部 CPC 范围。比 `kd` 的单个 `keywordVolume` 数字丰富得多，且和 Semrush 不同的是**不消耗 Semrush 配额**。
+
+**限制**：强制登录（需 `SEO_WEBCAFE_COOKIE`），每次查询消耗 Agent 积分；批量查词不如 Semrush 脚本高效，适合单词验证或少量词的精确量级确认。
+
 ### 读 `kd` 的输出：月搜量必须配捕获率一起看
 
 `kd` 返回的 `keywordTrend` 里有一个 `ratio` —— **首位结果实际拿到的流量 ÷ 名义月搜量**。
@@ -352,9 +378,13 @@ KD、引用域中值、盘面构成三项照常返回，读起来一切正常—
 "KD 容易 + 盘面松"当成绿灯直接开工。
 
 **难度分从来不隐含量。** 一个没人搜的词当然不难做，低 KD 在零量词上是必然结果，
-不是机会信号。要量就必须去有量的数据源拿：
+不是机会信号。要量就必须去有量的数据源拿——优先 SEO Agent 对话（Google Ads 级精度，零 Semrush 配额），少量词直接问；批量走 Semrush 脚本：
 
 ```bash
+# 单词精确量：SEO Agent 对话（Google Ads 级数据，见上方「SEO Agent 可以查关键词搜索量」）
+node scripts/seo-webcafe.mjs chat --ask "查一下 <关键词> 美国的月搜索量，以及全球搜索量"
+
+# 批量查词：Semrush
 node backlink/scripts/semrush-keyword.mjs --kw "a,b,c" --db us
 ```
 
