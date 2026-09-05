@@ -181,8 +181,7 @@ CLOSED + 无 assignee + 无 in-progress + 无 active/resume-ready 自动化租�
 
 - claim block 必须存在、排在 lease 之前、身份完全一致，且不被 lease 更新覆盖；
 - `heartbeatAt < expiresAt`；三个时间门用工单系统的 UTC；
-- **budget 的 `used` 跨所有恢复轮次累计，永不清零**；任一非 null limit
-  达到或超过即预算耗尽；
+- **budget 的 `used` 跨所有恢复轮次累计，永不清零**；limit 仅填写用户或权威自动化合同明确给出的硬上限，未设置为 null，内部估算不得写成 limit；有效非 null limit 达到或超过才算预算耗尽；
 - status 只允许 `active` / `resume-ready` / `blocked` / `complete` / `released`；
   前两种必须有非空 bounded next action 且 release 三字段全为 null；
 - `released` 必须有 UTC `releasedAt`、非空 `releasedBy`，reason 限于

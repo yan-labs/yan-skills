@@ -6,36 +6,15 @@
 
 ## 1. Goal 合同
 
-每个用户任务**只保留一个 active goal**。phase、重试、subagent 都不另建 goal。
+普通任务使用运行状态文件；仅当用户或系统明确要求持久 Goal 时才创建，一个任务最多一个 active goal。phase、重试和 subagent 不另建 goal。
 
-objective 用 1–3 句、最多 600 字符描述最终可判定结果，必须含五部分：
+objective 用 1–3 句、最多 600 字符写清可判定终态、客观验证、归属/隐私/环境限制，以及用户或权威自动化合同明确设置的上限。未设置的上限记为 null，不自行设定任务级硬停止次数、时长或 token 预算，也不添加固定 stop phrase。
 
-1. **Measurable end state** —— 精确的产品/任务终态；
-2. **Proof** —— 点名的客观 gate 和要求的证据等级（见 `evidence-and-verification.md`）；
-3. **Constraints** —— 归属、隐私、分支、成本、环境、发布边界；
-4. **Caps** —— 最大迭代数、修复回合、耗时、token、批准的外部花费；
-5. **Stop phrase** —— 逐字写进 objective 末尾：
-   `Stop after <max-iterations> iterations or <max-repair-cycles> repair cycles, whichever comes first.`
+迭代数、修复回合、耗时和花费持续累计，用于检查进展和调整策略；内部估算只作 checkpoint 阈值。相同失败签名重复三次时，停止原样重试，调查并选择新的可测试路径；仍有安全下一步时继续，不能按估算耗尽宣布 blocked。
 
-**为什么 stop phrase 必须写进 goal 文本本身**：独立 checker 只读 goal 文本。
-上限不进 goal，就等于对 checker 而言这个 loop 根本没有刹车。
+任务必要的付费验证可自动执行，不额外索要授权；优先复用现有结果和账户，重复失败必须先调查并调整策略，不能无限重复付费请求。此规则不包含充值、购买订阅或变更套餐。用户明确设置的费用和执行上限始终有效，不得自行抬高。
 
-默认预算：
-
-| Budget | Default |
-| --- | ---: |
-| iterations | 10 |
-| repair cycles | 6 |
-| elapsed | 240 分钟 |
-| tokens | 任务级设定，写进 checkpoint |
-| 增量外部花费 | 0，除非明确批准 |
-
-phase 表、通用规则、验收矩阵写进状态文件，**不复制进 objective**。
-goal 是终点声明，不是第二份计划文件。
-不得在运行中未经授权抬高任何上限。
-
-所有非 goal 的闭环检查全部通过之后，最后一次状态 mutation 才是把 goal 标记完成，
-随后只做只读确认。
+phase 表和验收矩阵保存在状态文件，goal 只描述终点。只有所有交付和验证条件都成立，才将显式创建的 goal 标记完成。
 
 ## 2. Subagent 预算
 

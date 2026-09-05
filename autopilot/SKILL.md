@@ -18,7 +18,7 @@ description: |
 
 用户调用 autopilot 意味着：**授权 AI 完全自主地完成整套流程**——
 调查、实现、部署、E2E 验证、代码 review、二次部署、二次验证、收尾。
-不需要中途确认，不允许跳过任何阶段，不允许半途而废。
+不需要中途确认，不允许跳过必要阶段或把未完成包装为完成。用户说“发版”“发布”“上线”未限定范围时，默认自动发布当前项目所有适用发布面；先检查和验证，结果逐项回读，不扩到无关项目。用户明确限制始终优先。
 
 ---
 
@@ -49,77 +49,18 @@ npx skills update autopilot -g -y
 
 ---
 
-## Loop 强制执行规则 (CRITICAL · 最高优先级)
+## 执行与恢复规则（CRITICAL）
 
-**调用 autopilot = 必须启动 loop。没有例外。**
+调用 autopilot 授权持续推进任务，不等于授权创建持久 Goal，也不要求先安排唤醒才允许工作。
 
-这条规则的优先级高于一切其他考量。不管任务看起来多简单、多紧急、多"显然可以一口气做完"，
-autopilot 的执行模型就是 loop + agent-mode，不是"在单次 turn 里连续做完所有事情"。
+- 默认采用 **state-only**：先把目标、阶段、验证条件和有界下一步写入 `progress.md`，然后在当前轮直接执行可推进工作。多个阶段可在同一轮完成，按阶段更新状态。
+- 只有用户或系统明确要求持久 Goal 时，才采用 **explicit-goal**：创建或恢复该任务唯一的 Goal；不得因调用本技能、无人值守或等待部署而隐式创建。
+- 只有确实需要跨轮等待或恢复时，使用当前平台实际可用的调度能力。CI／部署等待按项目规则安排当前任务唯一的定时恢复，登记目标任务及下一次运行时间后结束当前轮；不以前台反复查询代替恢复。
+- 缺少调度工具不会阻止当前仍可执行的工作。确实需要等待且无法恢复时，记录准确状态和恢复阻碍，不声称定时已安排或任务已完成。
+- 恢复后读取同一状态文件，继续尚未完成的有界动作。不要从头重建任务，不启动第二个 controller。
+- 状态文件中的 `loop-goal` 是完成条件文本，不代表已经创建平台 Goal；explicit-goal 才记录实际 Goal 身份。
 
-### 硬性阻断门
-
-Step 2（计划）完成后、第一行实现代码之前，**必须调用 ScheduleWakeup 启动 loop**。
-这是一个不可跳过的检查点：
-
-```
-Step 1: 快速调查 ─── 可以在当前 turn 内完成
-Step 2: 拆解计划 ─── 可以在当前 turn 内完成
-                ╔══════════════════════════════════════════════╗
-                ║  ⛔ GATE: 必须在这里调用 ScheduleWakeup     ║
-                ║  传入 loop-goal 作为 prompt                  ║
-                ║  不调用 = 不允许进入 Step 3                   ║
-                ╚══════════════════════════════════════════════╝
-Step 3: 执行 ─── 在 loop 回调中执行，不是在当前 turn 中继续
-Step 4: 收尾 ─── 在最后一次 loop 迭代中完成
-```
-
-### ScheduleWakeup 调用规范
-
-在 Claude Code 中，启动 loop 的方式是调用 ScheduleWakeup：
-
-```
-ScheduleWakeup({
-  delaySeconds: 60,
-  reason: "autopilot: starting loop for <简短任务描述>",
-  prompt: "<loop-goal 的完整内容，包含所有 phase 的完成判定>"
-})
-```
-
-- `delaySeconds`: 首次启动用 60（最短），后续按实际需要调整（等部署用 270，等 CI 用更长）
-- `prompt`: 必须包含完整的 loop-goal，这样每次 loop 唤醒时都能重新评估完成状态
-- 每轮 loop 结束时，如果 loop-goal 未达成，再次调用 ScheduleWakeup 继续下一轮
-
-### 禁止行为（绝对不允许）
-
-<prohibited-behaviors>
-  <behavior id="single-turn-execution">
-    在单次 turn 里连续执行多个 phase 而不启动 loop。
-    这是最常见的违规模式：agent 觉得"反正都能做完"，
-    就在一个 turn 里从头干到尾，跳过了 loop 的分阶段迭代。
-    后果：context 满了就停，不会自动续；中间结果堆主 context 加速 compaction；
-    失去跨迭代恢复能力；maker-checker 分离无法实施。
-  </behavior>
-  <behavior id="loop-defer">
-    "先做完这几步，等需要的时候再启动 loop"。
-    loop 不是可选的加速手段，它是 autopilot 的执行骨架。
-    Plan 一完成就必须进入 loop，不存在"先做一点再 loop"。
-  </behavior>
-  <behavior id="main-context-execution">
-    在主 context 里直接读写大量代码文件而不派 subagent。
-    主循环只编排 + 串结论；实际 coding/验证/review 全部派 subagent。
-  </behavior>
-</prohibited-behaviors>
-
-### 自检清单
-
-在声称进入 Step 3 执行阶段之前，必须能回答"是"：
-
-- [ ] progress.md 已创建且包含所有 phase 的初始状态 ⏳？
-- [ ] loop-goal 已定义且可客观判定？
-- [ ] **ScheduleWakeup 已调用**（不是"打算调用"，是"已经调用了"）？
-- [ ] 当前 turn 没有开始执行任何 phase 的实际工作？
-
-如果第三项是"否"，停下来，现在就调用 ScheduleWakeup。
+进入执行前核对：状态文件存在、完成条件可验证、下一步具体。调度登记只在确需恢复时检查；Goal 身份只在 explicit-goal 模式检查。
 
 ---
 
@@ -158,8 +99,8 @@ ScheduleWakeup({
     <name>Hard Stop — loop 必须有刹车</name>
     每个 loop 必须有明确的停止条件：
     - 成功停止：loop-goal 的所有条件满足
-    - 失败停止：连续 3 次同一阶段失败 → 报告原因并停止
-    - 安全停止：iteration 上限（默认 10 轮）或 token 预算耗尽
+    - 重复失败：同一失败签名连续三次 → 停止原样重试，调查并改换可测试的策略；仍有安全下一步时继续
+    - 任务停止：用户明确的上限已到，或调查证明没有安全可执行下一步；不自设任务硬停止预算
     没有刹车的 loop 会空转到被外部杀掉——这不是停止，是崩溃。
   </principle>
 
@@ -262,7 +203,7 @@ ScheduleWakeup({
 
 ## 平台适配
 
-autopilot 运行在不同产品上时，使用不同的 loop 命令：
+autopilot 默认通过状态文件推进；需要跨轮恢复时使用当前平台能力，持久 Goal 另受明确请求约束：
 
 <platform-detection>
   <platform id="claude-code">
@@ -274,17 +215,15 @@ autopilot 运行在不同产品上时，使用不同的 loop 命令：
     </description>
   </platform>
   <platform id="codex">
-    <loop-command>/goal</loop-command>
-    <goal-command>/goal [完成条件描述]</goal-command>
+    <loop-command>state-only + 当前任务定时恢复</loop-command>
+    <goal-command>仅 explicit-goal 模式：/goal [完成条件描述]</goal-command>
     <description>
-      Codex 中使用 /goal 驱动目标迭代。
+      Codex 仅在用户或系统明确要求持久 Goal 时使用 /goal；否则使用运行状态和当前任务定时恢复。
       /goal 持续运行直到声明的条件成立，由独立的 checker model 验证完成。
     </description>
   </platform>
   <fallback>
-    如果无法确定平台，优先尝试 /loop。
-    关键区别：/goal 有独立 checker 验证完成（Codex 内建），
-    /loop 需要自己在 loop body 里检查完成条件。
+    平台未知时先检查实际工具，不猜测命令。继续 state-only 的可执行工作；需要恢复时再选择可用调度能力。两种模式都必须执行完整客观验收。
   </fallback>
 </platform-detection>
 
@@ -295,7 +234,7 @@ autopilot 运行在不同产品上时，使用不同的 loop 命令：
 <workflow>
   <step id="scope">快速调查，理解任务实际涉及什么（2-5 分钟）</step>
   <step id="plan">分类任务 → 拆解为 XML 阶段 → 选 skill → 定 loop 目标 → 初始化 state file</step>
-  <step id="execute">loop/goal（外层驱动目标）+ agent-mode（内层按阶段派 subagent）→ 全程无人值守</step>
+  <step id="execute">运行状态（explicit-goal 仅在明确请求时）+ agent-mode（内层按阶段派 subagent）→ 全程无人值守</step>
   <step id="report">输出收尾总结 + 所有 phase 完成标记</step>
 </workflow>
 
@@ -320,13 +259,12 @@ autopilot 运行在不同产品上时，使用不同的 loop 命令：
 - 一批只共享标签/模块/症状，没有共享精确根因和同一条验证链；
 - 出现第二个 maker 或第二个 landing owner，或本机租约回读不一致；
 - 想用 mock/fixture 关闭用户报告的缺陷，或用兜底成功宣称历史根因已证实；
-- goal 没有 proof/constraints/cap，或 checkpoint 没有有界的下一步动作；
+- 任务目标没有 proof/constraints，未记录用户明确的上限，或 checkpoint 没有有界的下一步动作；
 - 同一失败签名重复三次而策略没有真正改变，或 A→B→A 无新证据来回摆；
 - staging 含任务外路径、远端回读不含交付 SHA，或出现任何 force-push 倾向；
 - 学习规则没有证据/eval/独立 checker 就要改权威规则文件。
 
-命中红旗时：**先写最终 checkpoint，再停止**。不得靠延长 turn、重复等待或
-"最后再看一眼"绕过刹车。
+命中红旗时：先记录 checkpoint，停止有问题的操作或原样重试，检查可安全继续的替代路径。仍有有界下一步时继续；只有用户上限已到或证据证明没有安全路径时才结束任务并报告未完成部分。不得靠重复等待或无变化的重试绕过保护。
 
 ---
 
@@ -597,7 +535,9 @@ review 后按 diff 实际影响面分类，**不是无脑重跑一整轮**，也
 ## Budgets
 | iterations | repair cycles | elapsed | tokens | external cost |
 |-----------|---------------|---------|--------|---------------|
-| 0/10      | 0/6           | 0/240m  | 0/…    | 0/0           |
+| 0/null    | 0/null        | 0/null  | 0/null | 0/null        |
+
+每项为 used/limit；limit 仅填写用户或权威自动化合同明确设置的上限，未设置为 null。
 
 ## Phase Status
 | Order | Phase ID | Skill | Maker/Checker | Objective Gate | Status | Evidence (含 L0-L4 等级) |
@@ -645,71 +585,37 @@ wait 与状态检查次数 | context compaction 次数
 ### 2g. 定义 Loop 目标（Goal 合同）
 
 从所有阶段的 `<done-when>` 合成一个可判定的 loop 目标。
-**一个任务只保留一个 active goal**，phase、重试、subagent 都不另建 goal。
-objective 控制在 1-3 句、600 字符以内，必须含五部分：
+只有用户或系统明确要求持久 Goal 时才创建；普通 autopilot 请求使用本次运行的状态文件，不隐式创建 Goal。显式创建时一个任务只保留一个 active goal，phase、重试、subagent 都不另建。
+objective 控制在 1-3 句、600 字符以内，写清：
 
-1. **Measurable end state** —— 精确的产品/工单终态
-2. **Proof** —— 点名的客观 gate 和要求的证据等级（L2 还是 L3）
-3. **Constraints** —— 归属、隐私、分支、成本、环境、发布边界
-4. **Caps** —— 迭代数 / 修复回合 / 耗时 / token / 批准的外部花费
-5. **Stop phrase** —— 逐字附在 objective 末尾：
-   `Stop after <max-iterations> iterations or <max-repair-cycles> repair cycles, whichever comes first.`
+1. **Measurable end state** —— 可判定的任务终态。
+2. **Proof** —— 客观验证和所需证据。
+3. **Constraints** —— 归属、隐私、分支、环境和用户明确的限制。
+4. **User caps** —— 仅记录用户或权威自动化合同明确设置的上限；没有则标为未设置，不编造 token、次数或时长硬上限。
 
-**stop phrase 必须写进 goal 文本本身**：独立 checker 只读 goal 文本，
-上限不进 goal，就等于对 checker 而言这个 loop 根本没有刹车。
+迭代、修复次数和耗时持续记账，用于检查进展和换策略，不自行作为停止条件。当前任务必要的付费验证自动执行，无需额外授权；先复用证据和现有账户，重复失败先调查，禁止无限重复付费请求。此规则不授权充值、订阅购买或套餐变更。用户明确上限始终有效。
 
-默认预算：iterations 10 / repair cycles 6 / elapsed 240min / 外部花费 0（除非批准）。
-运行中不得未经授权抬高任何上限。
-
-phase 表、通用规则、验收矩阵写进 `progress.md`，**不复制进 objective**——
-goal 是终点声明，不是第二份计划文件。完整预算契约见 `references/execution-budget.md`。
+phase 表、验收矩阵写进 `progress.md`，不复制进 objective。完整契约见 `references/execution-budget.md`。
 
 ---
 
 ## Step 3: 执行
 
-### 3a. 启动 Loop（强制阻断门 — 见"Loop 强制执行规则"）
+### 3a. 启动执行并按需恢复
 
-**这一步是执行的硬前提，不是可选项。Step 2 完成后、任何 phase 实际工作之前，必须先完成这一步。**
+按 Step 2g 记录 controller 模式：
 
-根据平台使用对应命令：
+- **state-only（默认）**：直接按 `progress.md` 执行当前有界动作，不调用 /goal，也不先安排空唤醒。
+- **explicit-goal**：仅当用户或系统明确请求持久 Goal 时创建或恢复唯一 Goal，并保存其身份；随后执行同一阶段流程。
 
-<loop-start>
-  <claude-code>
-    调用 ScheduleWakeup 启动 loop：
-    ```
-    ScheduleWakeup({
-      delaySeconds: 60,
-      reason: "autopilot: starting loop for <任务摘要>",
-      prompt: "<完整 loop-goal，逐字粘贴 Step 2g 定义的内容>"
-    })
-    ```
-    调用后当前 turn 立即结束。不要在调用 ScheduleWakeup 之后继续执行 phase 工作。
-    后续所有 phase 工作在 loop 回调中进行。
-  </claude-code>
-  <codex>
-    调用 /goal，条件 = Step 2g 定义的 loop-goal。
-    Codex 的独立 checker model 验证完成条件。
-  </codex>
-</loop-start>
+每个阶段结束后更新状态和证据，继续无依赖工作。确需跨轮等待时才安排当前任务唯一的调度并结束当前轮。Claude Code 使用实际可用的 ScheduleWakeup／loop；Codex 使用任务 heartbeat 或项目支持的恢复机制。不得因工具名称缺失阻塞当前可执行步骤，也不得把 Goal 与另一个定时 controller 同时作为重复驱动源。
 
-**调用后的行为**：ScheduleWakeup 调用后，当前 turn 的唯一允许动作是向用户输出一句确认：
-"Autopilot loop 已启动，目标：<loop-goal 摘要>。"然后结束 turn，等待 loop 唤醒。
+恢复轮读取原状态文件、核对当前阶段与归属，执行有界下一步；阶段全部满足时进入 Step 4 收尾。
 
-**每轮 loop 回调中的行为**：
-1. 读 progress.md 恢复状态
-2. 确认当前未完成的 phase
-3. 用 Agent tool 派 subagent 执行当前 phase
-4. 根据 subagent 结果更新 progress.md
-5. 如果 loop-goal 未达成，调用 ScheduleWakeup 继续下一轮
-6. 如果 loop-goal 达成，进入 Step 4 收尾
+### 3b. 状态驱动与 Agent-Mode
 
-### 3b. Loop + Agent-Mode 铁律
-
-这两个 **必须成对使用，全程贯穿**，缺一不可：
-
-- **loop/goal（外层）**：围绕 `<loop-goal>` 迭代，未达成不停
-- **agent-mode（内层）**：每个阶段翻成自包含 brief 派 subagent 执行
+- **外层状态**：围绕记录的完成条件持续推进；默认 state-only，explicit-goal 仅在明确请求时使用。
+- **内层执行**：按阶段将独立任务委派给 subagent；maker、checker 和验收职责保持分离。
 
 执行拓扑：
 
@@ -919,11 +825,11 @@ phase 失败时，必须按这个顺序处理——不能跳过分类直接重�
     - external-blocker → 降级（feature flag 关闭 + issue 留说明）
   </step>
   <step order="5">
-    中止条件（任一触发即停）：
-    - 同一 phase 连续失败 3 次且每次都换了策略
-    - 达到 iteration 上限（默认 10 轮）
-    - 遇到 external-blocker 且无降级路径
-    → 停止 loop，输出：已尝试的所有方案 + 每次失败原因 + 建议下一步
+    中止条件：
+    - 用户或权威自动化合同明确设置的上限已到
+    - 有界调查证明没有安全可执行的下一步或降级路径
+    同一失败签名连续三次时停止原样重试，重新调查和选择策略；次数本身不终止任务。
+    → 真实中止时记录已尝试方案、证据和具体未完成部分；不包装为完成
   </step>
 </failure-protocol>
 
@@ -1037,7 +943,7 @@ autopilot 不硬编码项目规则——它在 Step 1 调查阶段读取项目�
    没有残留的任务自有未提交 diff 或未推送 commit；
 5. 至少一条学习决定走完晋升门、被带理由拒绝，或被标为 run-specific；
 6. 改了 skill 就跑结构校验；
-7. 所有非 goal 审计通过之后，才把 goal 标记完成并终态回读。
+7. 所有交付审计通过之后：state-only 将运行状态标记完成并回读；explicit-goal 才将已记录的 Goal 标记完成并回读。收尾绝不为了满足检查而创建 Goal。
 
 **绝不把 subagent 的一句 "done" 当作审计证据。**
 

@@ -109,7 +109,7 @@ run-specific / 证据不足 / 不可泛化 / 与既有规则重复 / 无客观 g
 5. 至少一条学习决定走完了完整晋升门、被带理由拒绝，或被标为 run-specific；
 6. 改了 skill 就跑结构校验；
 7. 跑最终审计脚本（若有）；纯 research / verify-only 且无持久交付时必须显式声明该豁免；
-8. 所有非 goal 审计通过之后，才把 controller goal 标记完成，并终态回读。
+8. 所有交付审计通过之后，state-only 模式仅将运行状态标记完成并回读；只有用户或系统明确请求并已创建 Goal 的 explicit-goal 模式，才将该 Goal 标记完成并回读。不得在收尾补建 Goal。
 
 **绝不把 subagent 的一句"done"当作审计证据。**
 

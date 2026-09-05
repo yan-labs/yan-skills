@@ -378,7 +378,7 @@ Autopilot 根据分类结果加载对应模板，用调查发现填充具体内�
 <scope-checklist type="deploy">
   - 确认当前分支状态和待部署 diff
   - 检查 CI/CD pipeline 状态
-  - 确认目标环境（test / main / 指定服务）
+  - 按用户明确范围确定目标；仅说“发版”“发布”“上线”时，默认当前项目所有适用发布面及其约定环境，不询问范围，不扩到无关项目
   - 检查是否有待运行的迁移
 </scope-checklist>
 
