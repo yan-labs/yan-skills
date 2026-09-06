@@ -359,6 +359,9 @@ GitHub App 授权必须由用户本人在控制台点，安装时选 **Only sele
 - **REST API 不可用**：`/accounts/<id>/builds/workers/<worker>/builds` 实测始终返回 0 条；`wrangler deployments list` 只能靠时间戳对应；构建状态以控制台为准。
 - **幽灵依赖坑**：apps/web 直接 import 只在 packages/ui 声明的包（如 `sonner`），本地能过、Cloudflare `pnpm install --frozen-lockfile` 后解析失败。接入前必须在 `mktemp -d` 做干净克隆验证：`git clone --depth 1 + pnpm install --frozen-lockfile + pnpm -C apps/<site> run build` 全部通过，所有直接 import 的包都要在本包 package.json 声明。
 - **实测耗时**：Pages 静态站约 50 秒，Worker（TanStack Start）约 58 秒；Node 26.8.1 可用。
+- **push 后不要手动 wrangler deploy**：push 之后不要在自动构建完成前手动执行 `wrangler pages deploy` / `wrangler deploy`。实测：手动上传会抢占同分支生产部署，排队中的 Git 自动构建被标记 skipped（日志停在 "Starting build..."）。这不是 Git 集成坏了，去控制台对那条 skipped 记录点"重试部署"即可。Pages 一次自动构建约 1 分钟，Workers 约 1 分钟，push 后等 3 到 5 分钟再看。
+- **用 wrangler 查状态，不用浏览器**：Pages 项目用 `pnpm -C apps/<site> exec wrangler pages deployment list --project-name <项目>`，Source 列是 commit hash 的就是 Git 自动构建，Status 为 Idle 表示排队、Active 表示当前生产。Workers Builds 没有 wrangler 命令，`wrangler deployments list` 只能看版本与时间，构建成功与否要看控制台 `/workers/services/view/<worker>/production/builds`。
+- **GitHub App 接入，看不到 Webhooks**：Cloudflare 与仓库的连接走 GitHub App，仓库 Settings → Webhooks 里看不到条目，属正常。
 
 ### 9.2 应急兜底：本地 `wrangler deploy`
 
