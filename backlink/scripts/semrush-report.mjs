@@ -1102,7 +1102,7 @@ function parsePositions(lines) {
     rows.push({
       keyword: head[head.length - 1] ?? null,
       position: Number(rankCells[0]), serpFeatures: rankCells.length > 1 ? Number(rankCells[1]) : null,
-      traffic: Number(tail[0]), trafficPercent: tail[1],
+      traffic: parseCompact(tail[0]), trafficPercent: tail[1],
       volume: parseCompact(tail[2]), kd: UNAVAILABLE.test(kdRaw) ? null : Number(kdRaw),
       url: lines[i],
     });
@@ -1251,6 +1251,12 @@ function parseBacklinksList(lines) {
 }
 
 if (flags['self-test']) {
+  // Live crystals.com positions renders 5.3K; Number() silently turned it into NaN/null.
+  const compactTraffic = parsePositions(['crystals', 'C', '1', '9', '5.3K', '9.54', '40.5K', '50', 'www.crystals.com/']);
+  if (compactTraffic.rows[0]?.traffic !== 5300) throw new Error('compact organic traffic regression');
+  if (parseCompact('584') !== 584 || parseCompact('—') !== null || parseCompact(null) !== null) {
+    throw new Error('organic traffic integer or unknown regression');
+  }
   const parsed = parsePages([
     'URL', '流量', '流量变化', '流量 (%)', '关键词', '大型语言模型提示', '引荐域名', '主要关键词', '意图', 'Sortable',
     'example.com/page-a', 'Generate SEO Brief', '12', '+3', '40', '8', '0', '2', 'alpha', 'I',

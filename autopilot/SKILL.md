@@ -888,39 +888,24 @@ autopilot 不硬编码项目规则——它在 Step 1 调查阶段读取项目�
 
 ### 4b. Cleanup Gate（CRITICAL · 未通过不得声明完成）
 
-任务代码、部署、E2E 和 review 全部完成后，必须执行 cleanup phase。`progress.md` 是恢复用的
-临时状态，不是仓库交付物；任务结束却把它和诊断文件留在仓库根目录，说明任务没有真正收口。
-
-按下面顺序执行，顺序不能颠倒：
+完成本任务适用且已授权的实现、验证和交付后，执行 cleanup phase。交付终点以用户请求和项目明确授权为准；未授权提交、推送或部署时，对应检查记为 N/A，不为通过门槛扩大权限。
 
 1. **先证明成果不会丢失**
-   - 查看 `git status --short --untracked-files=all`，区分任务文件、用户文件和其他并发任务文件。
-   - 有代码改动时，确认本任务 commit 已推到目标远端分支；例如目标为 `test` 时，
-     `git log origin/test..HEAD` 必须为空，且 `git merge-base --is-ancestor <task-commit> origin/test`
-     必须成功。
-   - 发现有效但未推送的 commit 时，先按项目保护分支规则 push/rebase，再清理。
-     无法推送时必须 hard-stop 并保留 worktree，报告抢救路径；绝不能为了“清理干净”删除成果。
-
-2. **清理所有任务自有临时文件和产物**
-   - 删除 `progress.md`、任务专用 `progress-*.md`、临时 plan/state 文件。
-   - 删除一次性诊断脚本、`tmp-*`、`cw-*.json`、日志导出、下载的 workflow artifact、
-     临时截图、测试输出、scratchpad 内容和其它只为本轮调查/验证生成的文件。
-   - 用户明确要求的交付物、正式测试、正式文档和已纳入提交的可重放证据不是临时产物，必须保留。
-   - 只删除能证明由本任务创建的路径；禁止使用宽泛 glob 或删除其他并发任务/用户的未跟踪文件。
-   - `progress.md` 最后删除，因为前面的清理失败时仍需要它恢复现场。
-
+   - 用 `git status --short --untracked-files=all` 区分任务文件、用户文件和其他并发任务文件。
+   - 已授权远端交付时，push/rebase 遵守项目规则；fetch 后用 `git merge-base --is-ancestor <task-commit> <remote-target>` 回读成果是否已进入目标分支。
+   - 推送失败先调查恢复路径，继续可独立完成的工作；保留成果及 worktree，如实报告远端交付未完成。仅本地交付不要求推送。
+2. **只清理任务自有临时文件**
+   - 文件是否临时以项目约定和创建用途为准，不按文件名判断。项目指定的长期状态（包括 `progress.md`）、正式文档、测试、可重放证据和用户交付物必须保留并更新。
+   - 只删除能证明由本任务创建、明确用于临时诊断且已无恢复用途的文件；不得使用宽泛 glob 或删除其他任务/用户的文件。
+   - 临时恢复状态最后清理；前面失败时保留它以便恢复。
 3. **清理隔离 worktree 和临时分支**
-   - 只清理本任务自己创建的独立 worktree，绝不删除共享主工作目录。
-   - 在主仓库执行 `git worktree remove "$WORKTREE_DIR" --force`，然后删除本任务临时分支并
-     `git worktree prune`。使用 `--force` 的前提是上一步已经证明没有未推送 commit 或需保留改动。
-   - 没有创建独立 worktree 时明确标记 N/A，不得为了满足格式去删除当前工作树。
+   - 只清理本任务创建且已无待保留成果的 worktree/分支；先用 `git worktree remove`，不得用强制删除绕过未交付成果检查。
+   - 未创建 worktree，或它仍承载本地交付成果时，删除项记为 N/A 并注明保留用途；不得删除共享主工作目录。
+4. **回读结果**
+   - 用 `git status --short --untracked-files=all`、`git worktree list` 和 `git branch --list` 复核适用的清理项。
+   - 本地交付成果、长期状态和其他人的改动可以保留，不能当作未清理垃圾。
 
-4. **客观复核清理结果**
-   - 再次运行 `git status --short --untracked-files=all`，确认没有本任务遗留路径。
-   - `git worktree list` 和 `git branch --list` 不得再出现本任务 worktree/临时分支。
-   - 其他人的改动可以继续存在，但必须在报告里明确标为非本任务所有，不能擅自删除。
-
-只有上述四步全部通过，才允许输出 `✓ PHASE cleanup COMPLETE` 并进入最终报告。
+上述适用检查通过后，才允许输出 `✓ PHASE cleanup COMPLETE`；清理完成不等于失败的远端交付已完成。
 
 ### 4c. 复盘与规则晋升（每个任务强制，包括干净跑通的任务）
 
@@ -938,9 +923,9 @@ autopilot 不硬编码项目规则——它在 Step 1 调查阶段读取项目�
 
 1. 每个计划内 phase 已完成或有理由充分的 N/A；
 2. 每个目标项/工单有独立的事故身份、证据、评论和终态决定（用一次权威快照读取）；
-3. 每个交付 SHA 都是目标远端分支的 ancestor，且被 Delivery Ledger 归因；
+3. 已授权远端交付时，每个交付 SHA 都是目标远端分支的 ancestor，且被 Delivery Ledger 归因；
 4. 每个交付 commit 的 diff 都落在精确文件清单内、清单每个文件都被覆盖、
-   没有残留的任务自有未提交 diff 或未推送 commit；
+   已授权提交/推送的成果均已交付；仅本地交付允许保留未提交 diff 或本地 commit；
 5. 至少一条学习决定走完晋升门、被带理由拒绝，或被标为 run-specific；
 6. 改了 skill 就跑结构校验；
 7. 所有交付审计通过之后：state-only 将运行状态标记完成并回读；explicit-goal 才将已记录的 Goal 标记完成并回读。收尾绝不为了满足检查而创建 Goal。
@@ -959,7 +944,7 @@ autopilot 不硬编码项目规则——它在 Step 1 调查阶段读取项目�
   <item>Commit hash</item>
   <item>Issue 最终记录：URL、关闭状态、实施方案/验证证据/最终效果已回填的复核结论（如适用）</item>
   <item>所有 phase 的 ✓ 完成标记清单</item>
-  <item>Cleanup 证据：临时文件/产物已清理，worktree/临时分支已删除或 N/A，远端提交已确认</item>
+  <item>Cleanup 证据：临时文件/产物已清理，worktree/临时分支已删除或 N/A，远端提交已确认或因仅本地交付记为 N/A</item>
   <item>iterations 次数 + 失败回溯记录</item>
   <item>未完成项 + 原因（如有）</item>
 </report-template>
