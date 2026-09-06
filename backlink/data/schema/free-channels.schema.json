@@ -73,6 +73,11 @@
         "rejectReason": { "type": ["string", "null"] },
         "lastVerifiedAt": { "type": "string", "format": "date" },
         "verifiedBy": { "type": ["string", "null"], "description": "GitHub handle of whoever last verified. Optional; omit rather than inventing." },
+        "notes": {
+          "type": "string",
+          "minLength": 5,
+          "description": "One-liner provenance for a field that isn't self-evident from evidence.what — e.g. where captcha's value came from, or that a mismatch found during a real submission was just corrected here. Omit rather than pad; do not restate what evidence.what already says."
+        },
         "evidence": {
           "type": "object",
           "additionalProperties": false,

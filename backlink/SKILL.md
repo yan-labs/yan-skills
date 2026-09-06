@@ -3948,6 +3948,20 @@ upsert` + `transition`, with evidence for `submitted`/`public`/`indexed`/
 eligible and gets submitted to again. Writing back is part of finishing the
 batch, not an optional follow-up.
 </rule>
+<rule id="fix-data-on-mismatch">
+The ledger records what a project did; `data/submission-targets.json` and
+`data/free-channels.json` record what a channel **is**, and that second layer
+goes stale the same way the first one does. Every time a real submission shows
+the recorded gates or fields were wrong — a site the record marks open-form
+now demands a login, a `captcha` the record calls `none` actually challenges
+you, a channel the record calls free turns out to gate the useful path behind
+payment, the route redirects somewhere new, or the site is dead — correcting
+that record is part of finishing the run, not a follow-up. Fix the field
+before the batch ends, append the date and what was observed to `notes`, and
+run `scripts/validate-data.mjs` before you call the run done. A record left
+wrong is not a neutral gap: the next selection reads it as true and repeats
+the same mistake against the same site.
+</rule>
 <rule id="anchor-policy">
 Anchor text is the brand, the product name, or the naked canonical URL. Never
 request dofollow treatment, never repeat a commercial exact-match anchor across

@@ -29,7 +29,8 @@
         "method": "anonymous-http",
         "what": "Every anchor across six published pages on both hosts was read from raw HTML; body links carried rel=nofollow throughout while the byline did not.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (anonymous-http), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "write-as",
@@ -54,7 +55,8 @@
         "method": "browser-dom",
         "what": "Published page rendered a real anchor with rel=nofollow and carried no robots meta tag.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (browser-dom), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "rentry-co",
@@ -80,7 +82,8 @@
         "method": "browser-dom",
         "what": "Published page emitted an anchor with no rel attribute, and the document head carried a noindex robots meta.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (browser-dom), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "atabook-guestbooks",
@@ -112,7 +115,8 @@
         "method": "both",
         "what": "Eleven placements published and then re-read over anonymous cookie-less HTTP; each rendered rel=\"noopener noreferrer ugc\", and the hosting boards carried no robots meta.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=passive confirmed by this record's own evidence (both), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "statshow",
@@ -140,7 +144,8 @@
         "method": "browser-dom",
         "what": "Nine anchors to the subject domain in the rendered DOM, some with no rel attribute at all, on a page serving robots index,follow.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (browser-dom), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "domain-glass",
@@ -170,7 +175,8 @@
         "method": "browser-dom",
         "what": "Twenty anchors to the subject domain in the rendered DOM with a mix of rel values including bare anchors, on an index,follow page.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (browser-dom), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "sitelike-org",
@@ -195,7 +201,8 @@
         "method": "anonymous-http",
         "what": "One anchor to the subject domain present in raw HTML with rel='external nofollow noopener'; no robots meta on the page.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (anonymous-http), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "hypestat",
@@ -220,7 +227,8 @@
         "method": "browser-dom",
         "what": "Rendered DOM contained zero anchors to the subject domain and the page served robots noindex,follow.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (browser-dom), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "htmlcommentbox",
@@ -245,7 +253,8 @@
         "method": "browser-dom",
         "what": "One embedding rendered a real human comment thread in the browser with zero spam-term hits, while plain HTTP returned only 2439 characters of page text and could not see the stream at all.",
         "publicUrl": "https://solarcircuits.neocities.org/guestbook"
-      }
+      },
+      "notes": "captcha unknown — not probed 2026-09-07"
     },
     {
       "id": "supertools-rundown",
@@ -269,7 +278,8 @@
         "method": "both",
         "what": "Raw HTML grepped for recaptcha/hcaptcha/turnstile/sitekey returned nothing, no login wording and no price in script-stripped visible text, and a headless browser pass showed a reachable Tally form.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (both), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "dofollow-tools",
@@ -294,7 +304,8 @@
         "method": "both",
         "what": "Step-1 form fields render in raw HTML; script-stripped visible text contains no price and no login requirement; no CAPTCHA sitekey string anywhere in the source.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha unknown — not probed 2026-09-07"
     },
     {
       "id": "legacy-php-directory-script",
@@ -318,7 +329,8 @@
         "method": "anonymous-http",
         "what": "Three hosts served byte-similar submit.php markup with identical field names; a service-name CAPTCHA search returned false on all three while two exposed IMAGEHASH and CAPTCHA form fields.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha unknown — not probed 2026-09-07"
     },
     {
       "id": "qualityinternetdirectory",
@@ -342,7 +354,8 @@
         "method": "anonymous-http",
         "what": "submit.php returned 200 with a free tier in script-stripped visible text, no price, and neither modern CAPTCHA service strings nor legacy CAPTCHA/IMAGEHASH field names.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (anonymous-http), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "brownbook",
@@ -366,7 +379,8 @@
         "method": "both",
         "what": "Homepage and add-business step 1 rendered in a browser with no login wall, no price and no CAPTCHA strings or legacy CAPTCHA field names in source.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (both), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "aitoolsguide",
@@ -390,7 +404,8 @@
         "method": "both",
         "what": "Submission form present in source; script-stripped visible text carried no price and no login requirement; neither modern CAPTCHA service strings nor legacy CAPTCHA/IMAGEHASH field names were found.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (both), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "ainavhub",
@@ -414,7 +429,8 @@
         "method": "both",
         "what": "Submission form present in source; script-stripped visible text carried no price and no login requirement; neither modern CAPTCHA service strings nor legacy CAPTCHA/IMAGEHASH field names were found.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (both), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "llmrelevance",
@@ -439,7 +455,8 @@
         "method": "both",
         "what": "Submission form present in source; script-stripped visible text carried no price and no login requirement; neither modern CAPTCHA service strings nor legacy CAPTCHA/IMAGEHASH field names were found.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (both), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "activesearchresults",
@@ -463,7 +480,8 @@
         "method": "both",
         "what": "Submission form present in source; script-stripped visible text carried no price and no login requirement; neither modern CAPTCHA service strings nor legacy CAPTCHA/IMAGEHASH field names were found.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (both), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "toolai",
@@ -488,7 +506,8 @@
         "method": "browser-dom",
         "what": "Free form fillable without login; the paid plan panel states dofollow and priority review as its paid features, implying the free listing is nofollow.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (browser-dom), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "openpr",
@@ -519,7 +538,8 @@
         "method": "browser-dom",
         "url": "https://www.openpr.com/news/4606409/middle-east-data-center-construction-investment-to-reach-usd",
         "what": "Ran document.querySelectorAll on the rendered page: 127 anchors total, outbound anchor hosts were only twitter/facebook/linkedin/google (all rel=nofollow), consentmanager.net and einbock.com (both no rel). The author domain arizton.com appeared four times in document.body.innerText and zero times in any href. Cross-checked against a second unrelated release (/news/4606405) which carried the same einbock.com anchor, confirming it is a sitewide advertiser rather than an author link."
-      }
+      },
+      "notes": "captcha=interactive confirmed by this record's own evidence (browser-dom), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "blogengage",
@@ -540,7 +560,8 @@
         "method": "browser-dom",
         "url": "https://blogengage.com/",
         "what": "Navigating to blogengage.com in a browser lands on https://gomining.com with the title \"Bitcoin superapp - mining, earning and using BTC | GoMining\". There is no blog directory left at this domain — the site was resold, not merely rebranded."
-      }
+      },
+      "notes": "captcha unknown — not probed 2026-09-07"
     },
     {
       "id": "valine-comment-engine",
@@ -575,7 +596,8 @@
         "method": "both",
         "what": "On noisedaohang.netlify.app/tougao a submission of our own published instantly with no moderation queue (comment count 4651 to 4652) and rendered TWO anchors to the submitted domain — the nickname anchor built from the 网址 field and the bare URL in the body — both rel=\"noopener\" with no nofollow, on a page carrying no robots meta. A plain HTTP fetch of the same URL returns 9766 bytes with zero outbound anchors and no comment markup.",
         "publicUrl": "https://noisedaohang.netlify.app/tougao/"
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (both), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "wordpress-open-comment-form",
@@ -604,7 +626,8 @@
         "method": "anonymous-http",
         "what": "Of 19 URLs handed over as no-login comment targets, 7 served an open native WordPress comment form (id=\"commentform\" + wp-comments-post.php) with no login wording; 6 of those also carried Akismet, and 1 exposed no name=\"url\" field.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=passive confirmed by this record's own evidence (anonymous-http), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "reciprocal-link-gated-directory",
@@ -633,7 +656,8 @@
         "method": "both",
         "what": "seektool.ai/submit exposes a 2-field form (website, url) with no CAPTCHA and no login. After adding <a href=\"https://seektool.ai\" rel=\"noopener\"> to the subject site's footer and deploying, the served homepage HTML carried the anchor and the form POSTed to /api/submit — which answered 500 four times running with the page rendering \"Server error, please try again later\".",
         "publicUrl": "https://seektool.ai/submit"
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (both), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "arithmetic-and-slider-botcheck-directories",
@@ -664,7 +688,8 @@
         "what": "thenextai.com/submit-ai-tool/ accepted 10 filled fields (name, url, category, pricing, short/full description, logo, email, tags) with no account and no third-party CAPTCHA, then required #captchaInput. aig123.com/site-submit exposes a full Chinese directory form with no account and a slider captcha declared as captcha-type=\"slider\".",
         "publicUrl": "https://www.thenextai.com/submit-ai-tool/"
       },
-      "rejectReason": "Submission requires answering a self-hosted bot check (arithmetic question or slider). This Skill does not complete bot detection, regardless of how trivial the challenge is. Every other field is automatable — fill them and hand the final step to the site owner."
+      "rejectReason": "Submission requires answering a self-hosted bot check (arithmetic question or slider). This Skill does not complete bot detection, regardless of how trivial the challenge is. Every other field is automatable — fill them and hand the final step to the site owner.",
+      "notes": "captcha=interactive confirmed by this record's own evidence (browser-dom), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "catch-all-soft-404-directory",
@@ -693,7 +718,8 @@
         "method": "both",
         "what": "Probed /submit, /submit-tool, /submit-ai-tool, /add-tool, /new, /post plus an invented /zzz-control-<random> across 43 directory domains; seven answered 200 on the control path. Confirmed in a real browser on toolspedia.io: /zzz-control-91827 RESOLVES TO https://toolspedia.io/ and renders the homepage, and /submit renders a byte-identical DOM (same title, 2 forms, 499 inputs). Neither path carries a submission surface.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha unknown — not probed 2026-09-07"
     },
     {
       "id": "10015-product-finder",
@@ -727,7 +753,8 @@
         "method": "browser-dom",
         "what": "Submitted a browser-tools site (category Productivity, pricing Free, tags Tools / Text Generator / PDF / Typography / Privacy) through the two-step form on 2026-08-20. The page then rendered: Thanks for submitting your product! \"<product name>\" has been submitted successfully. — alongside a standard-review notice of 3-4 months.",
         "publicUrl": null
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (browser-dom), not derived from submission-targets gates — 2026-09-07 audit"
     },
     {
       "id": "github-repo",
@@ -757,7 +784,8 @@
         "method": "anonymous-http",
         "what": "Fetched the public repo page and read the rel attribute off every anchor pointing at the linked site. 46 anchors total, all carrying nofollow.",
         "observedAt": "2026-08-22"
-      }
+      },
+      "notes": "captcha=none confirmed by this record's own evidence (anonymous-http), not derived from submission-targets gates — 2026-09-07 audit"
     }
   ]
 }

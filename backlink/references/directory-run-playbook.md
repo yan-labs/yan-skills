@@ -119,7 +119,27 @@ node scripts/ledger.mjs transition --file ... --id <id> --state submitted --evid
 
 ---
 
-## 六、跑完之后的复核（不要采信驱动器的汇报）
+## 六、实测与记录不符：本轮改回数据，不留给下一轮
+
+台账记的是这个项目做过什么；`data/submission-targets.json` 和
+`data/free-channels.json` 记的是那个渠道**是什么样**，这一层同样会过期。
+本轮如果观察到实测结果和记录对不上，改数据是收尾的一部分，不是"下次有空再说"：
+
+| 实测观察 | 该改哪个字段 |
+|---|---|
+| 记录说 open-form / account:none，实测要登录 | `account`（free-channels）或 `gates`（submission-targets，去掉 `open-form`、加 `account`） |
+| 记录说 `captcha: none`，实测出现验证码 | `captcha`（改成 `passive` / `interactive`，视挑战是否需要人工） |
+| 记录说免费，实测有价值的路径只在付费档后面 | `payment`（改成 `optional` / `required`），必要时把整条移进 `paid-platforms.json` |
+| 提交入口换了地址 | `route`（submission-targets）或 `homepage`（free-channels） |
+| 站点已经打不开、被转卖、内容换了 | `status` 改 `dead`，`id` 保留不回收 |
+
+改完在 `notes` 追加一句：日期 + 观察到了什么（例如「2026-09-07 实测：登录墙已出现，此前记录的
+open-form 过期」），然后跑一遍 `scripts/validate-data.mjs` 再收工。不回写等于让下一轮在同一个坑里
+再摔一次——参见 `write-back-or-repeat` 和 `fix-data-on-mismatch`。
+
+---
+
+## 七、跑完之后的复核（不要采信驱动器的汇报）
 
 驱动器说「done」不是证据。至少做三件事：
 
@@ -130,7 +150,7 @@ node scripts/ledger.mjs transition --file ... --id <id> --state submitted --evid
 
 ---
 
-## 七、跑一轮的合理规模
+## 八、跑一轮的合理规模
 
 **宁可 8 个做扎实，不要 16 个做潦草。**
 清单里标 `route-unverified` 的（没人真正看过提交入口背后是什么）**不要在本轮花掉**——

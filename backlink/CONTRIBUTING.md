@@ -66,6 +66,14 @@ step with no wall says nothing about step two, and a step literally named
 something like "submission type" is usually where the free/paid choice lives.
 Record such a channel as `unverified`, not `live`.
 
+**Records go stale the same way lists elsewhere do.** If a real submission run
+shows a field here no longer matches what you actually saw — a gate appeared
+that the record doesn't list, a `captcha` value that was `none` now challenges
+you, a `payment` that was free now gates the useful path — fixing the record is
+part of finishing that run, not a separate task for later. See
+`fix-data-on-mismatch` in `SKILL.md` and the write-back section of
+`references/directory-run-playbook.md`.
+
 ## What a good contribution looks like
 
 Ranked by how much they help:

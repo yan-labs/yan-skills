@@ -47,6 +47,11 @@
   project's own ledger knows what that project has already sent. After the run,
   write every result back into the ledger — a run whose outcome never lands
   there is invisible to the next selection and gets submitted to again.
+- If what you actually observed during a submission does not match what
+  `data/submission-targets.json` or `data/free-channels.json` says (a gate,
+  a captcha, a payment requirement, a route, a dead site), correct that
+  record before the run ends and re-run `scripts/validate-data.mjs` — see
+  `fix-data-on-mismatch` in `SKILL.md`.
 - Never call a link follow, indexed, authoritative, or traffic-producing without
   direct evidence for that exact claim.
 - Respect robots.txt, terms, rate limits, paid-plan boundaries, and account scope.

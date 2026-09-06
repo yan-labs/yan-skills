@@ -51,6 +51,7 @@ for (const c of free.channels) {
   if (!isDate(c.lastVerifiedAt)) err(at, 'lastVerifiedAt 必须是 YYYY-MM-DD');
   if (!c.evidence || !METHOD.has(c.evidence.method)) err(at, 'evidence.method 必须是 browser-dom / anonymous-http / both');
   if (!c.evidence?.what || c.evidence.what.length < 10) err(at, 'evidence.what 太短：写清楚**看到了什么**，不是「测过了」');
+  if ('notes' in c && (typeof c.notes !== 'string' || c.notes.length < 5)) err(at, 'notes 太短或类型不对——写清楚字段值的来源，或本轮改回了什么');
 
   // —— 语义层：证据要撑得住断言 ————————————————————————————
   // 「没有 rel」= dofollow，是这张表里最有价值也最容易被凭空写上去的一条。
