@@ -50,10 +50,24 @@
  *   --file <path>    read targets from this JSON instead of the Skill's
  *                    data/submission-targets.json (tests, dry experiments)
  *   --ledger <path>  exclude domains already tracked in a project ledger file
- *                    (any state >= submitted). The ledger is the project's own
+ *                    (any state >= submitted, plus rejected — see
+ *                    --include-rejected). The ledger is the project's own
  *                    record of what it has already sent — the Skill database is
  *                    shared, and "submitted" is always project-scoped.
- *   --stats          print the cohort × payment matrix and exit
+ *                    Defaults to `.backlink/ledger.json` relative to the
+ *                    current working directory, so running this from inside a
+ *                    project picks it up with no flag at all. A missing file
+ *                    only warns (nothing submitted yet, or the wrong cwd) —
+ *                    it never fails the selection.
+ *   --include-rejected  also keep domains the ledger marked `rejected`
+ *                    (login-required, paid-only, dead, ...). Default: skip
+ *                    them too, same as submitted-or-later. Only pass this once
+ *                    you have re-read the record's notes and confirmed
+ *                    whatever made it rejected no longer applies.
+ *   --stats          print the cohort × payment matrix and exit. When a ledger
+ *                    is present (default path or --ledger), also prints how
+ *                    many rows it excluded and, for rejected ones, a
+ *                    reason-by-reason count.
  */
 
 import fs from 'node:fs';
@@ -65,8 +79,9 @@ helpGuard(import.meta.url);
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FILE = join(HERE, '..', 'data', 'submission-targets.json');
+const DEFAULT_LEDGER = join(process.cwd(), '.backlink', 'ledger.json');
 
-const a = { cohort: [], kind: [], freeOnly: false, paidOk: false, maxAge: null, limit: Infinity, format: 'table', stats: false, unattended: false, minTraffic: null, unmeasured: false, ledger: null, file: FILE };
+const a = { cohort: [], kind: [], freeOnly: false, paidOk: false, maxAge: null, limit: Infinity, format: 'table', stats: false, unattended: false, minTraffic: null, unmeasured: false, ledger: DEFAULT_LEDGER, includeRejected: false, file: FILE };
 for (let i = 2; i < process.argv.length; i++) {
   const f = process.argv[i];
   const v = () => process.argv[++i];
@@ -81,6 +96,7 @@ for (let i = 2; i < process.argv.length; i++) {
   else if (f === '--min-traffic') a.minTraffic = Number(v());
   else if (f === '--unmeasured') a.unmeasured = true;
   else if (f === '--ledger') a.ledger = v();
+  else if (f === '--include-rejected') a.includeRejected = true;
   else if (f === '--file') a.file = v();
   else if (f === '--stats') a.stats = true;
   else { process.stderr.write(`unknown flag ${f}\n`); process.exit(2); }
@@ -95,6 +111,67 @@ const all = JSON.parse(fs.readFileSync(a.file, 'utf8')).targets;
  *  一律算「未测/无数字」——它可能是没测过、数据源明说没有数据、或采集没完成，
  *  分辨这三者要看 traffic.evidence，脚本不替 AI 下这个判断。 */
 const measuredVisits = (t) => (t.traffic && typeof t.traffic.monthlyVisits === 'number' ? t.traffic.monthlyVisits : null);
+
+const SUBMITTED_OR_LATER = new Set(['submitted', 'public', 'indexed', 'rel_verified']);
+const domainOfUrl = (url) => new URL(url).hostname.replace(/^www\./, '');
+
+/** 记录最后一次进入 rejected 状态时写的 note，没有就退化成一个占位原因，
+ *  好让 --stats 的按 reason 计数不会因为缺 note 而整段消失。 */
+const rejectedReasonOf = (record) => {
+  const entry = [...(record.history || [])].reverse().find((h) => h.state === 'rejected' && h.note);
+  return entry ? entry.note : (record.evidence?.note || 'unspecified');
+};
+
+/**
+ * 项目台账排除层：读一次 `<project>/.backlink/ledger.json`（或 --ledger 指的那份），
+ * 把 submitted 及之后状态、以及（默认）rejected 的域名收集成 Set/Map。
+ * 文件不存在只警告，不报错——项目可能还没发过任何一条。
+ */
+function loadLedgerExclusions(path, includeRejected) {
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(path, 'utf8'));
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      process.stderr.write(`ledger: no file at ${path} — nothing excluded (not submitted anything yet, or wrong cwd)\n`);
+      return null;
+    }
+    throw err;
+  }
+  const records = data.records || [];
+  const submittedDomains = new Set(records.filter((r) => SUBMITTED_OR_LATER.has(r.state)).map((r) => domainOfUrl(r.url)));
+  const rejectedByDomain = new Map();
+  if (!includeRejected) {
+    for (const r of records) {
+      if (r.state !== 'rejected') continue;
+      const domain = domainOfUrl(r.url);
+      if (!rejectedByDomain.has(domain)) rejectedByDomain.set(domain, rejectedReasonOf(r));
+    }
+  }
+  return { submittedDomains, rejectedByDomain };
+}
+
+/** 按台账过滤一批 target，返回过滤后的数组，并把排除计数（submitted/rejected
+ *  以及 rejected 按 reason 的计数）附在返回值上，供 --stats 复用。 */
+function excludeByLedger(targets, exclusions) {
+  if (!exclusions) return { targets, submittedExcluded: 0, rejectedExcluded: 0, reasonCounts: {} };
+  let submittedExcluded = 0;
+  let rejectedExcluded = 0;
+  const reasonCounts = {};
+  const kept = targets.filter((t) => {
+    if (exclusions.submittedDomains.has(t.domain)) { submittedExcluded++; return false; }
+    if (exclusions.rejectedByDomain.has(t.domain)) {
+      rejectedExcluded++;
+      const reason = exclusions.rejectedByDomain.get(t.domain);
+      reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+      return false;
+    }
+    return true;
+  });
+  return { targets: kept, submittedExcluded, rejectedExcluded, reasonCounts };
+}
+
+const ledgerExclusions = loadLedgerExclusions(a.ledger, a.includeRejected);
 
 if (a.stats) {
   const rows = {};
@@ -116,6 +193,16 @@ if (a.stats) {
     process.stdout.write(`${c.padEnd(17)}${String(r.total).padStart(5)}${String(r.open).padStart(9)}${String(r.optional).padStart(11)}${String(r.required).padStart(11)}${String(r.unknown).padStart(9)}${String(r.tNum).padStart(12)}${String(r.tNoNum).padStart(11)}${String(r.tNone).padStart(12)}\n`);
   }
   process.stdout.write(`\nNone of these rows has a published link yet — they are routes, not placements.\n`);
+  if (ledgerExclusions) {
+    const { submittedExcluded, rejectedExcluded, reasonCounts } = excludeByLedger(all, ledgerExclusions);
+    process.stdout.write(`\n已按台账排除 ${submittedExcluded + rejectedExcluded} 个（其中 submitted ${submittedExcluded}、rejected ${rejectedExcluded}）\n`);
+    if (rejectedExcluded) {
+      process.stdout.write(`rejected 排除原因计数：\n`);
+      for (const [reason, n] of Object.entries(reasonCounts).sort((x, y) => y[1] - x[1])) {
+        process.stdout.write(`  ${String(n).padStart(4)}  ${reason}\n`);
+      }
+    }
+  }
   process.exit(0);
 }
 
@@ -148,21 +235,10 @@ if (a.maxAge != null) {
   const cutoff = Date.now() - a.maxAge * 86_400_000;
   out = out.filter((t) => Date.parse(t.lastProbedAt) >= cutoff);
 }
-if (a.ledger) {
-  const SUBMITTED_OR_LATER = new Set(['submitted', 'public', 'indexed', 'rel_verified']);
-  try {
-    const ledgerData = JSON.parse(fs.readFileSync(a.ledger, 'utf8'));
-    const submitted = new Set(
-      (ledgerData.records || [])
-        .filter((r) => SUBMITTED_OR_LATER.has(r.state))
-        .map((r) => new URL(r.url).hostname.replace(/^www\./, ''))
-    );
-    const before = out.length;
-    out = out.filter((t) => !submitted.has(t.domain));
-    process.stderr.write(`ledger: excluded ${before - out.length} already-submitted domain(s)\n`);
-  } catch (err) {
-    if (err.code !== 'ENOENT') throw err;
-  }
+if (ledgerExclusions) {
+  const { targets, submittedExcluded, rejectedExcluded } = excludeByLedger(out, ledgerExclusions);
+  out = targets;
+  process.stderr.write(`已按台账排除 ${submittedExcluded + rejectedExcluded} 个（其中 submitted ${submittedExcluded}、rejected ${rejectedExcluded}）\n`);
 }
 out = out.slice(0, a.limit);
 

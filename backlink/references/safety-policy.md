@@ -40,6 +40,13 @@
   See [acquisition-doctrine.md](acquisition-doctrine.md).
 - Do not use hidden reciprocal links, temporary eligibility pages, or cloaking.
 - Do not resubmit an unconfirmed target; investigate its public state first.
+- Before selecting any batch, read the project's `.backlink/ledger.json` and skip
+  every domain already at submitted or later, plus rejected domains by default
+  (`--include-rejected` only after confirming the rejection reason no longer
+  applies). The Skill's target database is shared across projects; only the
+  project's own ledger knows what that project has already sent. After the run,
+  write every result back into the ledger — a run whose outcome never lands
+  there is invisible to the next selection and gets submitted to again.
 - Never call a link follow, indexed, authoritative, or traffic-producing without
   direct evidence for that exact claim.
 - Respect robots.txt, terms, rate limits, paid-plan boundaries, and account scope.

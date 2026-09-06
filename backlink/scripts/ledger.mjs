@@ -158,6 +158,20 @@ if (command === 'init') {
       process.stdout.write(`${tr}  ${t.cohort.padEnd(16)} ${t.domain.padEnd(30)} ${t.route}${pay}\n`);
     }
   }
+} else if (command === 'domains') {
+  // 供别的脚本（targets-select.mjs 的 --ledger）和人复用：只要域名列表，不要整条记录。
+  const wanted = flags.states ? new Set(flags.states.split(',').map((s) => s.trim()).filter(Boolean)) : null;
+  if (wanted) {
+    for (const s of wanted) if (!STATES.includes(s)) throw new Error(`Unknown state: ${s}. Known: ${STATES.join(', ')}`);
+  }
+  const domains = new Set(
+    ledger.records
+      .filter((r) => !wanted || wanted.has(r.state))
+      .map((r) => new URL(r.url).hostname.replace(/^www\./, ''))
+  );
+  const fmt = flags.format || 'table';
+  if (fmt === 'json') printJson({ states: wanted ? [...wanted] : 'all', domains: [...domains].sort() });
+  else for (const d of [...domains].sort()) process.stdout.write(`${d}\n`);
 } else {
-  throw new Error(`Unknown command: ${command}. Known: init, upsert, transition, list, stats, remaining`);
+  throw new Error(`Unknown command: ${command}. Known: init, upsert, transition, list, stats, remaining, domains`);
 }

@@ -8,6 +8,18 @@
 
 ---
 
+## 零、选目标前先读台账
+
+每次选目标前必须读项目 `.backlink/ledger.json`。已 submitted 及之后状态
+（`public`、`indexed`、`rel_verified`）的域名不再提交；rejected 的域名默认
+也跳过，只有 notes 里写明的复活条件确认已满足，才用 `--include-rejected`
+重新打开。`scripts/targets-select.mjs` 默认就从当前工作目录下的
+`.backlink/ledger.json` 读这份排除名单，不需要额外传参——在项目目录里跑
+它就够了。
+
+同样重要的是收尾:**每次提交结束必须 `ledger.mjs upsert` + `transition` 把
+结果写回台账**，否则下次选目标就会重复选中同一个域名、重复提交。
+
 ## 一、动手前必须拿到的两样东西
 
 **1. 站主的显式授权，而且要问到具体粒度。**

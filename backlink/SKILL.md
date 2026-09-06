@@ -146,7 +146,10 @@ backlink/
 │   │                               staging is safe family-wide, pressing submit is not,
 │   │                               and the two must never share a flag. Re-checks for a
 │   │                               challenge that appeared since staging, and refuses.
-│   ├── ledger.mjs                  candidate → … → indexed → rel_verified; stats + remaining
+│   ├── ledger.mjs                  candidate → … → indexed → rel_verified; stats +
+│   │                               remaining + domains (submitted/public/… → a
+│   │                               plain domain list, for targets-select --ledger
+│   │                               and anyone else who just needs the exclusion set)
 │   ├── discovery-queue.mjs         recursive competitor/commenter expansion
 │   ├── harvest-commenters.mjs      pull commenter domains off an article
 │   ├── third-party-list-ingest.mjs someone else's list → screened leads + diff
@@ -169,7 +172,10 @@ backlink/
 │   ├── lib-cohort.mjs              ★ the shared cohort/gate vocabulary — targets-select,
 │   │                               validate-data, probe and merge all read it. Change a
 │   │                               cohort name here, not in four places.
-│   ├── targets-select.mjs          pick ONE batch: --cohort open | captcha | … ; --ledger excludes submitted
+│   ├── targets-select.mjs          pick ONE batch: --cohort open | captcha | … ;
+│   │                               reads the project ledger by default (submitted-
+│   │                               or-later AND rejected excluded, no flag needed;
+│   │                               --include-rejected to reopen a dead one on purpose)
 │   ├── paid-platform-registry.mjs  merge a harvest into the paid registry
 │   ├── harvest-*.{sh,mjs}          bulk table extraction from logged-in dashboards
 │   └── harvest.browser.js          generic virtual-scroll table extractor: rebuilds rows
@@ -3858,8 +3864,9 @@ node scripts/ledger.mjs stats --file .backlink/ledger.json
 node scripts/ledger.mjs remaining --file .backlink/ledger.json --min-traffic 100
 node scripts/ledger.mjs remaining --file .backlink/ledger.json --cohort open --free-only
 
-# Select next batch, excluding already-submitted domains
-node scripts/targets-select.mjs --cohort open --min-traffic 100 --ledger .backlink/ledger.json
+# Select next batch — reads .backlink/ledger.json by default (relative to
+# cwd) and excludes submitted-or-later AND rejected domains with no flag needed
+node scripts/targets-select.mjs --cohort open --min-traffic 100
 ]]></cmd>
 <evidence-bar>
 `submitted`, `public`, `indexed`, and `rel_verified` each require an evidence
@@ -3922,6 +3929,24 @@ Do not automatically resubmit an unconfirmed target. Never retry an ambiguous
 final action — one where the submit happened and the result was not observed.
 Check the account backend, then the mailbox, then the public page. That state is
 `outcome-unknown`, and it is not a failure.
+</rule>
+<rule id="check-ledger-before-selecting">
+Before selecting any batch, read the project's own `.backlink/ledger.json`.
+A domain already at `submitted` or later (`public`, `indexed`, `rel_verified`)
+is not selected again — the Skill's target database is shared across every
+project, so "already submitted" is only ever true per-project, and only the
+project's ledger knows it. `rejected` domains are skipped by the same default;
+reopen one only after re-reading its notes and confirming the reason no longer
+holds, via `--include-rejected`. `scripts/targets-select.mjs` does this
+automatically from `.backlink/ledger.json` relative to the working directory —
+running it from inside the project is enough, no flag required.
+</rule>
+<rule id="write-back-or-repeat">
+A run that ends without writing its results back into the ledger (`ledger.mjs
+upsert` + `transition`, with evidence for `submitted`/`public`/`indexed`/
+`rel_verified`) is a run the next selection cannot see. The domain stays
+eligible and gets submitted to again. Writing back is part of finishing the
+batch, not an optional follow-up.
 </rule>
 <rule id="anchor-policy">
 Anchor text is the brand, the product name, or the naked canonical URL. Never
