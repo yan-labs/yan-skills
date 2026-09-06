@@ -604,6 +604,19 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 5. **`manifest.json` 必须逐个引用，且引用的文件必须真实存在**。
    脚手架自带的 manifest 常常指向不存在的 `logo192.png`／`logo512.png`，
    并留着框架自己的名字——它是 Android 添加到主屏时用户看到的东西。
+5b. **`manifest.json` 的 `display` 按站点类型分情况判，不要照抄脚手架默认的 `standalone`。**
+    判据一句话：问「用户把它装成 PWA 之后，能在里面完成什么」，答不出来就不做。
+    - **网站本身有可用功能**（在线工具、SaaS、有登录态的产品）：可以做 standalone PWA——
+      `display: "standalone"`、补 maskable 图标、`theme_color` 与页面 meta 一致。
+    - **纯官网／营销站／给桌面或移动客户端引流的落地页／内容站**：不做 PWA——
+      manifest 照样保留（favicon、`theme_color`、Android 书签图标仍靠它读取），
+      但 `display` 设为 `"browser"`，不注册 service worker，页面上不出现浏览器的
+      「安装应用」「添加到主屏」一类安装提示。
+    - 【实测】曾有一个给 macOS 桌面客户端引流的纯营销官网，按脚手架默认配置生成了
+      `display: "standalone"` 的 manifest，结果 Chrome 把这个官网当成可安装 PWA，
+      弹出「在应用中打开」与图标更新一类对话框；装出来的「应用」和真正的桌面客户端
+      同名同图标，用户装完才发现只是个网页壳，体验不升反降。Lighthouse 已经移除
+      PWA 评分项，Google 排名也不看站点是否可安装为 PWA，去掉 standalone 没有 SEO 损失。
 
 **B. 每页的词、文案与元数据**
 
@@ -667,6 +680,7 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 | A3 | 图标是矢量重绘的，**没有直接拿生成模型的位图缩小** | 同上 |
 | A4 | 整套图标一次做齐，逐个预览域 200 | curl 各路径 |
 | A5 | `manifest.json` 的每一条引用都命中真实文件，**没有指向不存在的尺寸** | curl 各路径 |
+| A5b | `manifest.json` 的 `display` 按站点类型判过：站点本身有可用功能才 `standalone`；纯官网/营销站/引流落地页/内容站强制 `browser`，未注册 service worker，预览域没有出现安装提示 | `.rankup/integrations.md` |
 | B6 | 每个进 sitemap 的页面在 `keywords.md` 有「URL ↔ 目标短语」一行，短语是原字符串 | `.rankup/keywords.md` |
 | B7 | 无关区块已改客户端加载或交互门控注入；`--density-only` top15 里没有 UI 控件词；若用交互门控，无头零输入下 SSR 不含该区块、单击后出现 | 密度输出 + 无头测试 |
 | B8 | 全站 title / description / `og:image` 三样逐页互不重复；每页至少一张真实 `<img>`；`og:image` 尺寸声明是真值 | seo-audit `--json` |
@@ -678,7 +692,7 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 
 ### 输出
 
-- 完整图标集与 `manifest.json`，且全部经预览域 200 校验。
+- 完整图标集与 `manifest.json`，且全部经预览域 200 校验；`manifest.json` 的 `display` 已按站点类型（有可用功能 vs 纯营销/引流/内容站）判过，不是照抄脚手架默认值。
 - `.rankup/keywords.md`（页面 ↔ 目标短语登记）
 - 上线前闸门八行（0 站点身份 / 1 技术 SEO / 2 TDK / 3 关键词密度 / 4 GEO·AI Agent 就绪度 / 4b GEO 内容形状 / 5 哥飞 AI 审阅 / 6 性能·CWV）逐行的通过证据，按上表落进 `.rankup/audit.md`、`.rankup/agentic/`、`.rankup/baseline.md`、`.rankup/evidence/`。
 - `is-agentic.mjs scan --save` 产出的基线报告；哥飞 AI 审阅与 `is-agentic` 发现的采纳/拒绝记录，拒绝项附理由。
@@ -687,6 +701,7 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 ### 完成门禁
 
 图标集每个文件预览域返回 `200` 且 `manifest.json` 的引用全部命中真实文件；标记经过 16px 实测；
+`manifest.json` 的 `display` 按站点类型判过，纯营销/引流/内容站的预览域没有出现浏览器安装提示；
 每个页面登记了目标短语且密度测的就是那个字符串；无关区块不在 SSR 文本里；
 全站 title / description / `og:image` 逐页独立且每页有真实图片；`llms.txt` 与 sitemap 一致；
 上线前闸门八行（0–6 + 4b）全部在预览域核验通过，且每行都留下了表中要求的证据文件；
