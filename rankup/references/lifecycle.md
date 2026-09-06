@@ -821,7 +821,10 @@ API 能立刻生效。只有没有公开 API 端点的设置（如 AI 爬虫阻�
 **5.4 部署到正式域名并真实线上验证（原阶段 7）**
 
 17. 部署前确认精确 Git SHA、目标环境、bindings、待执行迁移、域名和回滚点。
-18. 先完成迁移与依赖检查，再使用 Wrangler 部署指定环境。
+18. **默认部署路径是 Cloudflare Git 集成**（Pages 用「Git 存储库连接」，Worker 用 Workers Builds）：
+    在控制台连好后 push 到 `main` 即自动构建部署，配置模板与实测坑见
+    [`cloudflare-stack.md`](cloudflare-stack.md) §9。**不写 GitHub Actions 部署 workflow**——
+    本地 `wrangler deploy` 只作应急兜底，两者并存时以 Cloudflare 自动构建的 deployment 为准。
 19. 上传完成后等待部署进入可服务状态，并从真实域名验证 SSR HTML、静态资源、API、D1、R2 上传/读取、鉴权和支付回调（**live 凭证**）。
 20. 对边缘缓存或传播延迟进行有界重试，并用版本标识、响应头或实际内容确认服务的是新版本。
 21. 检查日志与错误率，保存部署标识、时间、验证证据和回滚命令。

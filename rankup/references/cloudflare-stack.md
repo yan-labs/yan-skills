@@ -309,7 +309,52 @@ Google AI Overview）的爬虫与训练爬虫共用 User-Agent，阻止训练同
 
 ## 9. 部署
 
-部署命令应来自项目锁定的脚本或 Wrangler 配置，不在不知道环境的情况下猜测命令。典型顺序：
+**默认方式是 Cloudflare 原生 Git 集成，不写 GitHub Actions 部署 workflow。** 原因：GitHub Actions
+免费额度用完就断（已因账单问题整批失败过），而 Cloudflare 的构建额度对站点这个量级几乎用不完。
+仓库里不应该出现给网站部署用的 `.github/workflows/*.yml`（跑测试、lint 的 workflow 不受此限）。
+本地 `pnpm -C apps/<site> run deploy`（`wrangler deploy` / `wrangler pages deploy`）只作应急兜底；
+Git 集成的自动构建与本地手动部署两条路径并存时，**以 Cloudflare 自动构建产生的 deployment 为准**。
+**没有”额度用完自动切换”这种机制**，不要向用户承诺。
+
+### 9.1 接入方式：Git 存储库连接 / Workers Builds
+
+控制台路径：Workers & Pages → 选中项目 → Settings → 构建（Build）→ Git 存储库「连接」。
+GitHub App 授权必须由用户本人在控制台点，安装时选 **Only select repositories**（不要整个组织）。
+
+**Pages 项目（纯静态站）**：
+
+| 配置项 | 值 |
+|---|---|
+| Production branch | `main` |
+| Root directory | 留空 |
+| Build command | `pnpm install --frozen-lockfile && pnpm -C apps/<site> run build` |
+| Build output directory | `apps/<site>/<outdir>` |
+| 环境变量 | `NODE_VERSION`、`PNPM_VERSION`（对齐 `package.json` 的 `packageManager`） |
+| Build watch paths | include `apps/<site>/**`、`pnpm-lock.yaml` |
+
+**Workers Builds（TanStack Start / SSR）**：
+
+| 配置项 | 值 |
+|---|---|
+| Branch | `main` |
+| Root directory | 留空 |
+| Build command | `pnpm install --frozen-lockfile && pnpm -C apps/<site> run build` |
+| Deploy command | `pnpm -C apps/<site> exec wrangler deploy --config wrangler.jsonc` |
+| 环境变量 | `NODE_VERSION`、`PNPM_VERSION`（同上） |
+| Build watch paths | include `apps/<site>/**`、`packages/**`、`pnpm-lock.yaml` |
+
+【实测 2026-09-06，某 pnpm monorepo（Node 26，pnpm 10.33.4）】Pages 项目连接后
+自动触发首次构建，50 秒内成功，Node 26 可用；Worker 项目连接后**不会自动触发构建**，
+需要一次命中 watch paths 的 push 才会构建。项目内如已有该仓库自己的部署实测记录文档，
+优先参考它，不要跨项目硬编码路径。
+
+**Git 集成缺少的东西，不要以为它会自动做**：不会跑冒烟测试、不会自动回滚、不会跑 IndexNow。
+回滚用控制台的 Rollback 或 `wrangler rollback`；IndexNow 在确认发布成功后本地手动跑
+`scripts/indexnow-submit.mjs`。
+
+### 9.2 应急兜底：本地 `wrangler deploy`
+
+只在 Git 集成不可用（临时调试、Git 集成尚未连上）时使用，不作为常态部署路径：
 
 1. 检查工作树和精确提交。
 2. 运行类型检查、测试和生产构建。
@@ -319,7 +364,7 @@ Google AI Overview）的爬虫与训练爬虫共用 User-Agent，阻止训练同
 6. 等待目标部署实际进入可服务状态。
 7. 执行下一节的 live verification。
 
-Wrangler 报“上传成功”只证明产物送达某个控制面步骤，不证明 custom domain、生效版本、bindings 或业务路径正常。
+Wrangler 报”上传成功”只证明产物送达某个控制面步骤，不证明 custom domain、生效版本、bindings 或业务路径正常。
 
 ## 10. Live verification：真实线上验证
 
