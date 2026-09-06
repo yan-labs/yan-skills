@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-08-21T17:54:19.298Z",
+  "updatedAt": "2026-09-06",
   "channels": [
     {
       "id": "telegraph",
@@ -430,7 +430,8 @@
       "indexable": true,
       "howToPublish": "可见文本里出现 $ 0，与免费档一致",
       "traps": [
-        "Reviewed listing, so submitting is not publishing — verify the live listing before recording any rel."
+        "Reviewed listing, so submitting is not publishing — verify the live listing before recording any rel.",
+        "2026-09-06 videocatch run: submitted via /submit (Tool Name=VideoCatch, Website URL, Category=Productivity — no Video category available, Starting Price=Free, contact hello@videocatch.org). Confirmation text: \"Submission received — We review submissions within 48 hours ... Submission and review are always free.\" Status kept unverified until the live listing (with rel) is publicly confirmed — a review-queue confirmation is not a publish confirmation."
       ],
       "status": "unverified",
       "lastVerifiedAt": "2026-08-18",
