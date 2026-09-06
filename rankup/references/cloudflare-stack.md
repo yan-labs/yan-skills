@@ -352,6 +352,14 @@ GitHub App 授权必须由用户本人在控制台点，安装时选 **Only sele
 回滚用控制台的 Rollback 或 `wrangler rollback`；IndexNow 在确认发布成功后本地手动跑
 `scripts/indexnow-submit.mjs`。
 
+#### 9.1.1 实测注意（2026-09-06）
+
+- **Workers Builds 连接不自动构建**：Pages 连接后立即自动构建；Workers Builds 连接后不会自动触发，需一次命中 watch paths 的 push。Pages 里被 watch paths 排除的 commit 显示 skipped，属正常。
+- **控制台路径**：Worker 部署列表 `/workers/services/view/<worker>/production/deployments`；构建历史 `/workers/services/view/<worker>/production/builds`（「部署」标签页内「前往构建历史」）；单次构建详情页顶部标题右侧有「重试构建」按钮。
+- **REST API 不可用**：`/accounts/<id>/builds/workers/<worker>/builds` 实测始终返回 0 条；`wrangler deployments list` 只能靠时间戳对应；构建状态以控制台为准。
+- **幽灵依赖坑**：apps/web 直接 import 只在 packages/ui 声明的包（如 `sonner`），本地能过、Cloudflare `pnpm install --frozen-lockfile` 后解析失败。接入前必须在 `mktemp -d` 做干净克隆验证：`git clone --depth 1 + pnpm install --frozen-lockfile + pnpm -C apps/<site> run build` 全部通过，所有直接 import 的包都要在本包 package.json 声明。
+- **实测耗时**：Pages 静态站约 50 秒，Worker（TanStack Start）约 58 秒；Node 26.8.1 可用。
+
 ### 9.2 应急兜底：本地 `wrangler deploy`
 
 只在 Git 集成不可用（临时调试、Git 集成尚未连上）时使用，不作为常态部署路径：
