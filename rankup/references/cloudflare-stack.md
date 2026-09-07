@@ -330,7 +330,7 @@ GitHub App 授权必须由用户本人在控制台点，安装时选 **Only sele
 | Build command | `pnpm install --frozen-lockfile && pnpm -C apps/<site> run build` |
 | Build output directory | `apps/<site>/<outdir>` |
 | 环境变量 | `NODE_VERSION`、`PNPM_VERSION`（对齐 `package.json` 的 `packageManager`） |
-| Build watch paths | include `apps/<site>/**`、`pnpm-lock.yaml` |
+| Build watch paths | include `apps/<site>/*`、`apps/<site>/**/*`、`pnpm-lock.yaml` |
 
 **Workers Builds（TanStack Start / SSR）**：
 
@@ -341,7 +341,7 @@ GitHub App 授权必须由用户本人在控制台点，安装时选 **Only sele
 | Build command | `pnpm install --frozen-lockfile && pnpm -C apps/<site> run build` |
 | Deploy command | `pnpm -C apps/<site> exec wrangler deploy --config wrangler.jsonc` |
 | 环境变量 | `NODE_VERSION`、`PNPM_VERSION`（同上） |
-| Build watch paths | include `apps/<site>/**`、`packages/**`、`pnpm-lock.yaml` |
+| Build watch paths | include `apps/<site>/*`、`apps/<site>/**/*`、`packages/**`、`pnpm-lock.yaml` |
 
 【实测 2026-09-06，某 pnpm monorepo（Node 26，pnpm 10.33.4）】Pages 项目连接后
 自动触发首次构建，50 秒内成功，Node 26 可用；Worker 项目连接后**不会自动触发构建**，
@@ -359,7 +359,7 @@ GitHub App 授权必须由用户本人在控制台点，安装时选 **Only sele
 - **REST API 不可用**：`/accounts/<id>/builds/workers/<worker>/builds` 实测始终返回 0 条；`wrangler deployments list` 只能靠时间戳对应；构建状态以控制台为准。
 - **幽灵依赖坑**：apps/web 直接 import 只在 packages/ui 声明的包（如 `sonner`），本地能过、Cloudflare `pnpm install --frozen-lockfile` 后解析失败。接入前必须在 `mktemp -d` 做干净克隆验证：`git clone --depth 1 + pnpm install --frozen-lockfile + pnpm -C apps/<site> run build` 全部通过，所有直接 import 的包都要在本包 package.json 声明。
 - **实测耗时**：Pages 静态站约 50 秒，Worker（TanStack Start）约 58 秒；Node 26.8.1 可用。
-- **push 后不要手动 wrangler deploy**：push 之后不要在自动构建完成前手动执行 `wrangler pages deploy` / `wrangler deploy`。实测：手动上传会抢占同分支生产部署，排队中的 Git 自动构建被标记 skipped（日志停在 "Starting build..."）。这不是 Git 集成坏了，去控制台对那条 skipped 记录点"重试部署"即可。Pages 一次自动构建约 1 分钟，Workers 约 1 分钟，push 后等 3 到 5 分钟再看。
+- **skipped 构建的真实原因（2026-09-07 用 API 确认更正）**：此前记录"手动 wrangler deploy 抢占排队中的自动构建导致 skipped"是错误归因。真实原因是 Cloudflare Pages 的 build watch paths 不匹配 `apps/<site>/**` 这种写法——单独的 `**` 通配符不会命中该目录下的一级文件，导致对应 commit 被判定为不在 watch 范围内而 skipped。改成 `apps/<site>/*` + `apps/<site>/**/*`（一级文件 + 更深层级都覆盖）后重试构建即可成功。手动 `wrangler deploy`/`wrangler pages deploy` 与 Git 自动构建各自生成独立的 deployment 记录，并存时以后完成的那次为准，不会导致对方被标记 skipped。配置与重试都可走 Pages API（`source.config.path_includes` 改 watch paths、`deployments/<id>/retry` 重试构建），不必开浏览器。Pages 一次自动构建约 1 分钟，Workers 约 1 分钟，push 后等 3 到 5 分钟再看。
 - **用 wrangler 查状态，不用浏览器**：Pages 项目用 `pnpm -C apps/<site> exec wrangler pages deployment list --project-name <项目>`，Source 列是 commit hash 的就是 Git 自动构建，Status 为 Idle 表示排队、Active 表示当前生产。Workers Builds 没有 wrangler 命令，`wrangler deployments list` 只能看版本与时间，构建成功与否要看控制台 `/workers/services/view/<worker>/production/builds`。
 - **GitHub App 接入，看不到 Webhooks**：Cloudflare 与仓库的连接走 GitHub App，仓库 Settings → Webhooks 里看不到条目，属正常。
 
