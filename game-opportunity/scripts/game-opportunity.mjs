@@ -820,6 +820,7 @@ function demandOverlay(o, planData, globalRows, countryRows) {
       const global = globalByKeyword.get(normalizeName(keyword)) ?? {};
       const dbs = uniq([
         ...candidate.mandatoryCountryDbs,
+        'us',
         ...Object.entries(global.byCountry ?? {}).filter(([, volume]) => Number(volume) > 0).map(([db]) => db.toLowerCase()),
       ]);
       return dbs.map((db) => {
@@ -1289,6 +1290,10 @@ function selfTest() {
     const deRow = overlayRows.find((row) => row.gl === 'de');
     if (usRow.semrushVolume !== 0 || usRow.status === 'not-queried') throw new Error('测得为零被误标');
     if (deRow.semrushVolume !== null || deRow.status !== 'not-queried' || 'noData' in deRow) throw new Error('未查询市场被默认成有数据');
+    const unavailableRows = demandOverlay(o,
+      { candidates: [{ entityId: 'unavailable', names: ['Unavailable'], urls: [], keywords: ['unavailable'], mandatoryCountryDbs: [], discoveryMarkets: [] }] },
+      [{ keyword: 'unavailable', volume: null, globalVolume: null, byCountry: null, status: 'metrics_unavailable' }], []).candidates[0].keywords;
+    if (unavailableRows.length !== 1 || unavailableRows[0].gl !== 'us' || unavailableRows[0].status !== 'metrics_unavailable') throw new Error('无国家分布的未测词丢失 US 状态');
     if (!challengePageTitle('Just a moment...')) throw new Error('Cloudflare 验证页识别失败');
     if (![f.candidates, f.report, f.latestJson, f.latestMd].every(exists)) throw new Error('报告产物不完整');
     const reportJson = readJson(f.candidates);

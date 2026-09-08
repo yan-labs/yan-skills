@@ -393,21 +393,65 @@ function parseItchCells(html) {
 async function sourceItch(o) {
   const path = o.path || '/games/newest';
   const out = [];
-  for (let p = 1; p <= o.pages && out.length < o.count; p++) {
-    const sep = path.includes('?') ? '&' : '?';
-    const res = await get(`https://itch.io${path}${sep}page=${p}&format=json`, { Accept: 'application/json' });
-    const j = await res.json();
-    const html = typeof j === 'string' ? j : (j.content || '');
-    for (const c of parseItchCells(html)) {
-      // itch 也有 genre 字段，抓不到就算了
-      out.push(rec('itch.io', c.name, c.url,
-        { gameId: c.gameId, author: c.author, price: c.price, summary: c.summary,
-          genre: c.genre, platform: c.platform }));
-      if (out.length >= o.count) break;
+  try {
+    for (let p = 1; p <= o.pages && out.length < o.count; p++) {
+      const sep = path.includes('?') ? '&' : '?';
+      const res = await get(`https://itch.io${path}${sep}page=${p}&format=json`, { Accept: 'application/json' });
+      const j = await res.json();
+      const html = typeof j === 'string' ? j : (j.content || '');
+      for (const c of parseItchCells(html)) {
+        // itch 也有 genre 字段，抓不到就算了
+        out.push(rec('itch.io', c.name, c.url,
+          { gameId: c.gameId, author: c.author, price: c.price, summary: c.summary,
+            genre: c.genre, platform: c.platform }));
+        if (out.length >= o.count) break;
+      }
+      await sleep(o.sleep);
     }
-    await sleep(o.sleep);
+    return out;
+  } catch (error) {
+    if (!/HTTP 429\b/.test(String(error?.message ?? error))) throw error;
   }
-  return out;
+
+  // itch 的公开 JSON 偶发按请求 UA 限流；真实浏览器能读取同一份公开列表。
+  const session = sessionName('demand-itch');
+  const run = async (args) => (await execFileP('opencli', args, { maxBuffer: 32 * 1024 * 1024 })).stdout;
+  const rows = [];
+  const extractor = `(()=>({rows:[...document.querySelectorAll('[data-game_id]')].map((cell)=>{const text=(node)=>node?.textContent?.replace(/\\s+/g,' ').trim()||null;const title=cell.querySelector('.game_title a');const summary=cell.querySelector('.game_text');return {gameId:Number(cell.dataset.game_id)||null,url:title?.href||null,name:text(title),author:text(cell.querySelector('.game_author a')),price:text(cell.querySelector('.price_value')),summary:summary?.getAttribute('title')||text(summary),genre:text(cell.querySelector('.game_genre')),platform:text(cell.querySelector('.game_platform'))}}).filter((row)=>row.url&&row.name)}))()`;
+  const close = async () => { try { await run(['browser', session, 'close']); } catch { /* 已关闭 */ } };
+  requireBrowserBridge();
+  try {
+    for (let p = 1; p <= o.pages && rows.length < o.count; p++) {
+      const sep = path.includes('?') ? '&' : '?';
+      const url = `https://itch.io${path}${sep}page=${p}`;
+      await run(['browser', session, '--window', 'isolated', 'open', url]);
+      let payload = null;
+      const deadline = Date.now() + 15000;
+      do {
+        await sleep(800);
+        try {
+          const raw = await run(['browser', session, 'eval', extractor]);
+          const start = raw.indexOf('{'), end = raw.lastIndexOf('}');
+          payload = start < 0 ? null : JSON.parse(raw.slice(start, end + 1));
+        } catch { payload = null; }
+      } while (!Array.isArray(payload?.rows) && Date.now() < deadline);
+      if (!Array.isArray(payload?.rows)) throw new Error(`浏览器未能读取 itch 列表：${url}`);
+      rows.push(...payload.rows);
+    }
+  } catch (error) {
+    const scene = captureBrowserScene(session, 'itch-browser-fallback');
+    recordSource({ source: 'itch.io', status: 'browser_error', rawCount: 0, error: String(error?.message ?? error), scene });
+    writeManifest(`died: ${String(error?.message ?? error).slice(0, 200)}`);
+    throw error;
+  } finally {
+    await close();
+  }
+  const result = rows.slice(0, o.count).map((c) => rec('itch.io', c.name, c.url,
+    { gameId: c.gameId, author: c.author, price: c.price, summary: c.summary, genre: c.genre, platform: c.platform }));
+  const evidence = saveEvidence('itch-browser-fallback.json', { rows: result });
+  recordSource({ source: 'itch.io', status: 'ok', rawCount: result.length, transport: 'browser-fallback', evidence });
+  writeManifest('completed');
+  return result;
 }
 
 // ---------- poki ----------
