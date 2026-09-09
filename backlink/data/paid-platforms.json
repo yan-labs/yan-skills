@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-22T16:00:00.000Z",
+  "updatedAt": "2026-09-09T00:00:00.000Z",
   "note": "被观察到用于投放的平台登记表；sitesHit 越高越说明它真的在被使用",
   "platforms": {
     "microlaunch.net": {
@@ -13,7 +13,18 @@
       "placements": [
         "21st.dev@2025-02-19"
       ],
-      "totalUrls": 5
+      "totalUrls": 5,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 49,
+          "votes": 5,
+          "submitterNote": "目录提交 免费 | 适合独立开发者和小型 SaaS 产品推广 | 流量和 DR 还不错",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://microlaunch.net/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "aiquerytool.com": {
       "tier": "unverified",
@@ -178,7 +189,18 @@
         "imagefree.net@2026-03-20",
         "imagefree.net@2026-03-21"
       ],
-      "totalUrls": 364
+      "totalUrls": 364,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 50,
+          "votes": 4,
+          "submitterNote": "价格19.9不贵(同时获取aitoolhub.net)的24条外链 || 另见: GPTDemo.net — https://www.gptdemo.net/gpt/add-tool (rank 462, votes 1)",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://www.gptdemo.net/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "aitoolhub.net": {
       "tier": "link-package",
@@ -198,7 +220,18 @@
         "imagefree.net@2026-03-20",
         "imagefree.net@2026-03-21"
       ],
-      "totalUrls": 444
+      "totalUrls": 444,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 324,
+          "votes": 1,
+          "submitterNote": "",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://www.aitoolhub.net/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "toolatlas.io": {
       "tier": "unverified",
@@ -242,7 +275,18 @@
         "fontvibe.ai@2026-04-20",
         "fontvibe.ai@2026-04-21"
       ],
-      "totalUrls": 16
+      "totalUrls": 16,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 3,
+          "votes": 44,
+          "submitterNote": "有真实流量，能够带来付费用户，价格 99 美元。 | 权重高，反馈快 | 提交表单直接填工具名 + URL + 描述，人工审核。可选付费推广位（$99），基础收录不用钱 | 性价比高，可以带来很多真实流量 | 收费，页面数量多，很多 AI 长尾词 | 价格合理，自然流量 | 付费提交，约 99 美元。AI 工具目录流量大，适合做收录和外链。 | 首选的付费导航站之一，收录速度快 | 付费, 99刀, 值得, 会被抓去toolify的网站抓取自动收录, 变相等于多买了些外链 | 收费，99 美刀，哥飞工具评价值 250 美刀 | 流量不错 | 有一定作用,但是现在自带流量有点少了 | 全球第二大的导航站，有付费用户，性价比较高 | AI的应用产品在这里可以看到很多排名，能弄到这里的外链权重会非常好。 | 99美金，权重高 | 大家都知道的 | 高dr付费外链，会被其他爬虫爬取 | 国内最大的AI导航站 | AI站点提交 99刀 | 适合 AI 工具展示，可获得 AI 目录流量 | 不必多言 | 这个是收费的，但是流量较大，收录快，能带量 | 能够持续带来流量",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://www.toolify.ai/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "seopxl-organic-boost-lab.shop": {
       "tier": "spam-net",
@@ -421,7 +465,18 @@
         "eimg.ai@2026-07-18",
         "eimg.ai@2026-07-19"
       ],
-      "totalUrls": 12
+      "totalUrls": 12,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 14,
+          "votes": 14,
+          "submitterNote": "只要需求是真实的，且产品做得不错，就能够带来付费订单，价格 69 美元。 | 首选的付费导航站之一，价格优惠，而且DR事 | 能带来付费用户的导航站，有付费用户，性价比较高 | 性价比很高",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://creati.ai/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "launchitx.com": {
       "tier": "unverified",
@@ -435,7 +490,18 @@
         "eimg.ai@2026-07-18",
         "eimg.ai@2026-07-19"
       ],
-      "totalUrls": 26
+      "totalUrls": 26,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 338,
+          "votes": 1,
+          "submitterNote": "免费",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://launchitx.com/projects/submit",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "bestfor.ai": {
       "tier": "unverified",
@@ -461,7 +527,18 @@
       "placements": [
         "eimg.ai@2026-07-18"
       ],
-      "totalUrls": 6
+      "totalUrls": 6,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 52,
+          "votes": 4,
+          "submitterNote": "收录快，权重高",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "showmebest.ai",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "bai.tools": {
       "tier": "unverified",
@@ -475,7 +552,18 @@
         "eimg.ai@2026-07-18",
         "eimg.ai@2026-07-19"
       ],
-      "totalUrls": 8
+      "totalUrls": 8,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 70,
+          "votes": 3,
+          "submitterNote": "$19.9",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "bai.tools",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "mossai.org": {
       "tier": "unverified",
@@ -508,7 +596,18 @@
         "tryonr.com@2026-01-09",
         "tryonr.com@2026-01-10"
       ],
-      "totalUrls": 94
+      "totalUrls": 94,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 53,
+          "votes": 4,
+          "submitterNote": "免费",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "http://mossai.org/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "iuu.ai": {
       "tier": "free-with-account",
@@ -522,7 +621,18 @@
         "eimg.ai@2026-07-18",
         "eimg.ai@2026-07-19"
       ],
-      "totalUrls": 8
+      "totalUrls": 8,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 66,
+          "votes": 3,
+          "submitterNote": "便宜/性价比高/效果超预期",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://iuu.ai/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "ai.keenchase.com": {
       "tier": "unverified",
@@ -548,7 +658,18 @@
       "placements": [
         "eimg.ai@2026-07-19"
       ],
-      "totalUrls": 3
+      "totalUrls": 3,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 71,
+          "votes": 3,
+          "submitterNote": "$9.9, 也可免费提交",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "aistage.net",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "www3.wind.ne.jp": {
       "tier": "unverified",
@@ -653,7 +774,18 @@
       "placements": [
         "gridmakerapp.com@2026-07-27"
       ],
-      "totalUrls": 3
+      "totalUrls": 3,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 113,
+          "votes": 2,
+          "submitterNote": "互换链接，审核很快",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://lovableapp.org/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "fiverr-seo-for-small-businesses.site": {
       "tier": "spam-net",
@@ -701,7 +833,18 @@
         "what": "On /submit the launch flow offers a free \"Queue\" option (~30 day review) alongside a paid \"VIP Pass\" ($10, 24h review) and further optional paid add-ons (backlink, sidebar ads, bundle) all itemized with prices.",
         "sourceUrl": "https://huntscreens.com/submit",
         "checkedAt": "2026-08-19"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 131,
+          "votes": 2,
+          "submitterNote": "免费",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://huntscreens.com/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "founderleague.com": {
       "tier": "unverified",
@@ -994,7 +1137,18 @@
         "topview.ai@2024-04-09",
         "topview.ai@2024-04-11"
       ],
-      "totalUrls": 13
+      "totalUrls": 13,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 21,
+          "votes": 10,
+          "submitterNote": "$47 | 能带来付费用户的导航站，有付费用户，性价比较高 | 高质量导航站 | AI目录 免费 | 几乎很多高流量网站都能看到这个外链",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://topai.tools",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "autoais.com": {
       "tier": "unverified",
@@ -1038,7 +1192,18 @@
         "tryonr.com@2026-01-08",
         "tryonr.com@2026-01-10"
       ],
-      "totalUrls": 273
+      "totalUrls": 273,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 84,
+          "votes": 3,
+          "submitterNote": "",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://submitaitools.org/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "startupaideas.com": {
       "tier": "unverified",
@@ -1068,7 +1233,18 @@
         "tryonr.com@2026-01-05",
         "tryonr.com@2026-01-07"
       ],
-      "totalUrls": 39
+      "totalUrls": 39,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 211,
+          "votes": 1,
+          "submitterNote": "",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://goodaitools.com",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "soravideo.art": {
       "tier": "unverified",
@@ -1096,7 +1272,18 @@
         "analook.com@2026-06-17",
         "gingiris.tools@2026-06-18"
       ],
-      "totalUrls": 0
+      "totalUrls": 0,
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 200,
+          "votes": 1,
+          "submitterNote": "",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://submitdirs.com/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "submitsaas.com": {
       "tier": "link-package",
@@ -1613,7 +1800,18 @@
         "what": "Read the live /pricing page: identical template to 600.tools/devhub.best network — 'free $0 ... 180+ days wait', 'listing $9.9 ($14.9)', 'featured $19.9 ($39.9)'.",
         "sourceUrl": "https://dirs.cc/pricing",
         "checkedAt": "2026-08-19"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 279,
+          "votes": 1,
+          "submitterNote": "",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://dirs.cc/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "featuredtool.com": {
       "tier": "paid-listing",
@@ -1627,7 +1825,18 @@
         "what": "Read the live /pricing page: identical template to the 600.tools/dirs.cc network — 'free $0 ... 180+ days wait', 'listing $9.9 ($14.9)', 'featured $19.9 ($39.9)'.",
         "sourceUrl": "https://featuredtool.com/pricing",
         "checkedAt": "2026-08-19"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 173,
+          "votes": 1,
+          "submitterNote": "",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://featuredtool.com/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "firsto.co": {
       "tier": "paid-listing",
@@ -1641,7 +1850,18 @@
         "what": "Read the live /pricing page: 'Free Launch $0/launch, get your product listed for free, but be ready to wait. 5 slots...', 'Professional Mini Review $199', 'Public review $399'.",
         "sourceUrl": "https://firsto.co/pricing",
         "checkedAt": "2026-08-19"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 122,
+          "votes": 2,
+          "submitterNote": "免费提交",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://firsto.co",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "genify.dev": {
       "tier": "paid-listing",
@@ -1739,7 +1959,18 @@
         "what": "Read the live /pricing page: 'Free Launch $0/launch 20 slots weekly Current queue time: ~100 weeks' vs 'Premium Launch $9.9 $19/launch Skip the wait. Launch next Monday'.",
         "sourceUrl": "https://openhunts.com/pricing",
         "checkedAt": "2026-08-19"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 190,
+          "votes": 1,
+          "submitterNote": "$9.9，自助操作，不需要审核",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "openhunts.com",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "prolinkdirectory.com": {
       "tier": "unverified",
@@ -1795,7 +2026,18 @@
         "what": "Read the live /advertise page (sponsored blog post $199->$99, sidebar ad $199/mo, product card $99/mo, newsletter $59/issue) and /submit, which redirects to a free account sign-in with no price shown.",
         "sourceUrl": "https://startupbase.io/advertise",
         "checkedAt": "2026-08-19"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 65,
+          "votes": 3,
+          "submitterNote": "免费，需要审核 | 目录提交 免费 || 另见: StartupBase — https://startupbase.io/submit (rank 426, votes 1)",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://startupbase.io/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "startupdope.com": {
       "tier": "link-package",
@@ -1851,7 +2093,18 @@
         "what": "On /submit the page lists a \"Free Listing $0\" option and a \"$129 (one-time fee)\" option side by side, with an FAQ item confirming free listings are offered.",
         "sourceUrl": "https://aitools.inc/submit",
         "checkedAt": "2026-08-19"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 128,
+          "votes": 2,
+          "submitterNote": "高DR高流量，免费提交",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://aitools.inc/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "antdirectory.com": {
       "tier": "paid-listing",
@@ -1879,7 +2132,18 @@
         "what": "Homepage shows \"Submit or Sponsor Your AI Tool\" with a free \"Submit a Tool\" link and a \"Sponsor Your Tool — $250/mo\" paid option.",
         "sourceUrl": "https://bestofai.com/",
         "checkedAt": "2026-08-19"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 393,
+          "votes": 1,
+          "submitterNote": "",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://bestofai.com/tool/add",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "bunity.com": {
       "tier": "paid-listing",
@@ -1907,7 +2171,18 @@
         "what": "The homepage's inline launch-submission widget offers a free \"Schedule free launch\" button plus an optional \"+ Homepage feature, skip queue & newsletter shoutout ($39)\" checkbox.",
         "sourceUrl": "https://ctrlalt.cc/",
         "checkedAt": "2026-08-19"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 129,
+          "votes": 2,
+          "submitterNote": "可免费发布",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://ctrlalt.cc/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "deeplaunch.io": {
       "tier": "paid-listing",
@@ -1921,7 +2196,18 @@
         "what": "The /pricing page lists a Free tier (backlink required, 2-day review) alongside four paid tiers (One-Time Pro, Monthly Promotion, Featured Listing, Ultimate) with listed discounted prices, confirmed by the /submit FAQ noting free submissions take 48h review while paid ones get immediate review.",
         "sourceUrl": "https://deeplaunch.io/pricing",
         "checkedAt": "2026-08-19"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 108,
+          "votes": 2,
+          "submitterNote": "高dr的导航站收录速度快,可以免费提交需添加徽章，付费免徽章",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "deeplaunch.io",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "directory-free.com": {
       "tier": "paid-listing",
@@ -1963,7 +2249,18 @@
         "what": "On /submit/ the page states \"Submitting to Launching Next is free, but if you want your startup to be considered for publication within 1-business day, we offer a $99 upgrade on the next page.\"",
         "sourceUrl": "https://www.launchingnext.com/submit/",
         "checkedAt": "2026-08-19"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 97,
+          "votes": 3,
+          "submitterNote": "免费，可能有推广 | 目录提交 免费 | 可免费提交，付费加速或推广为可选项。",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://www.launchingnext.com/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "nocodefounders.com": {
       "tier": "paid-listing",
@@ -2061,7 +2358,18 @@
         "what": "/submit-product describes a 3-step flow (free sign-in, AI-assisted draft, then \"Pay & go live: One-time $10 fee. Published immediately with a do-follow link and featured placement\") — no way to publish without paying.",
         "sourceUrl": "https://techbasedirectory.com/submit-product",
         "checkedAt": "2026-08-19"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 399,
+          "votes": 1,
+          "submitterNote": "10$ 目录提交",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://techbasedirectory.com/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "theresanaiforthat.com": {
       "tier": "paid-listing",
@@ -2075,7 +2383,18 @@
         "what": "first-party pricing page: Website Only $49 one-time (permanent listing, 100-1000 est. clicks, basic analytics, $100 PPC bonus); Maximum Exposure $347 one-time (everything in Website Only + 700-10000+ clicks, newsletter to 2.5M+ subscribers, priority review, $300 PPC bonus). Custom plans available. First-time launch on TAAFT gets up to $300 PPC bonus.",
         "sourceUrl": "https://theresanaiforthat.com/launch/",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 2,
+          "votes": 57,
+          "submitterNote": "最具性价比的 AI 导航网站，流量够大，且价格不贵，只需要 49 美金。 | AI 目录里权重最高的一家。免费提交手动审核，通过就进库； | 付费提交。AI 用户很集中，适合做精准曝光和外链。 | AI 导航站龙头，付费 | 首选的付费导航站之一，群友多次推荐认证 | 一次性 $49，官方承诺永久收录；适合 AI 产品获取高流量垂直目录曝光，新站必提交。 | 收费，两个套餐，49 刀的和 349 刀的，哥飞工具评价值 429 美刀 | 访问、注册、付费的用户比提交到其他导航站的更多，性价比高 | 性价比最高,人工审核严格,如果产品可以,会有一个月左右的持续流量! | 全球最大的导航站，有付费用户，性价比极高 | 价格适中，有真实流量，审核严格，还会帮你找一些网站存在的问题 | 流量大， 可以带来一些点击 | SEO 友好，会带来大量真实 AI 用户 | 性价比之王 49 刀 | 全球最大的导航站平台，能真正的给页面带来用户 | AI目录 免费排队/付费加速 | 仅49刀的价格就能提交，冷启动能带来较多精准流量 | 付费外链里投产比最高的1条了，有真实的用户 | 这是很多大佬赚到第...",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://theresanaiforthat.com/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "peerpush.com": {
       "tier": "paid-listing",
@@ -2089,7 +2408,18 @@
         "what": "first-party pricing page: Standard Launch $39 one-time (instant live, permanent listing link, indexed by search/AI/community, auto-generated videos, +10 points, Full Visibility analytics); Launch + 7d Promotion $89 one-time (was $129, everything in Standard + 7 days featured, ~20K impressions, +20 points); Launch + 30d Promotion $229 one-time (was $499, everything in Standard + 30 days featured, ~100K impressions, +40 points); Free $0 (wait behind paid users). Outbid board from $5. DR72, 843K monthly visits, 8.3M AI assistant reads/30d.",
         "sourceUrl": "https://peerpush.com/pricing",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 89,
+          "votes": 3,
+          "submitterNote": "有真实流量的导航站，39刀 | 成功率高",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://peerpush.com/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "uneed.best": {
       "tier": "paid-listing",
@@ -2103,7 +2433,18 @@
         "what": "first-party pricing page: Free waiting line closed. Skip the line $29.99 one-time (choose launch date); Fast-track $14.99 one-time (~14 days slot); Relaunch $15 (existing products). All include do-follow backlink from 75DR domain, homepage visibility. Also: Uneed Pro $99/yr or $139 monthly (Discord, lists, vote multiplier). Advertising: Auto-Submit 100+ dirs $249, Newsletter $399, Premium Spot from $197, Main ad $297/mo (sold out). Review $147.",
         "sourceUrl": "https://www.uneed.best/pricing",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 25,
+          "votes": 10,
+          "submitterNote": "月访问量 171.9k，排队免费发布 | 高dr有流量，免费+付费，15美金 | 有真实流量的导航站，30刀 | 免费目录提交 要排队 | 适合新产品发布和早期用户获取 | 流量和 DR 还不错",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://www.uneed.best/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "toolpilot.ai": {
       "tier": "paid-listing",
@@ -2117,7 +2458,18 @@
         "what": "first-party submit and advertise pages: Free listing (backlink/badge mandatory). Upgrade to Premium Listing $39/mo + $199 one-time setup. Homepage Big Ad $199/mo (sold out). Categories Banner $199/mo. Guest Post $299. Social Media Boost and Newsletter coming soon. Community-reported $99 not found on current public pages.",
         "sourceUrl": "https://www.toolpilot.ai/pages/advertise-with-us",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 35,
+          "votes": 6,
+          "submitterNote": "高DR高流量，免费提交 | 高dr，免费+付费，99美金 | AI目录 免费 || 另见: ToolPilot — https://www.toolpilot.ai/pages/submit-your-ai-tool (rank 434, votes 1)",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://www.toolpilot.ai/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "aitoptools.com": {
       "tier": "paid-listing",
@@ -2131,7 +2483,18 @@
         "what": "first-party advertise.aitoptools.com: Standard $69 one-time (full profile page, category/tag placement, user reviews, permanent listing, 24-48h live, do-follow backlinks from DR55+ site); 100+ Directory Submissions $299 one-time (everything in Standard + submit to 100+ hand-picked directories, comprehensive report, save 50+ hours); Homepage Featured $478/mo (everything in Standard + homepage hero, boosted visibility badge, newsletter feature, priority category listing). 500K+ monthly visitors.",
         "sourceUrl": "https://advertise.aitoptools.com/",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 83,
+          "votes": 3,
+          "submitterNote": "有真实流量的导航站，69刀",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://aitoptools.com/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "betalist.com": {
       "tier": "paid-listing",
@@ -2145,7 +2508,18 @@
         "what": "first-party /advertise page: Sponsorship $4,999/mo (homepage banner, newsletter 60k+ subscribers, social media coverage); Boost from $99/week or $199/mo (homepage placement, newsletter slot). Submit page requires login — cannot confirm base listing price from public pages. 24,000+ startups featured.",
         "sourceUrl": "https://betalist.com/advertise",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 26,
+          "votes": 9,
+          "submitterNote": "收费，流量/DR尚可，价格不贵 | 早期产品收录，老牌目录 | 创业产品目录 免费排队/付费加速 | 创业项目、技术产品适合 | 适合新网站、AI 工具和初创产品早期曝光 || 另见: BetaList — https://betalist.com/ (rank 343, votes 1)",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "betalist.com",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "somi.ai": {
       "tier": "paid-listing",
@@ -2159,7 +2533,18 @@
         "what": "first-party /pricing page: Fast Track Launch $9 one-time (was $19, permanent listing, lifetime backlink, edit rights, public review, 1 image + 1 video link); Growth Accelerator $29 one-time (was $59, everything in Fast Track + standard support, 3 images, unlimited release updates, detailed review); Spotlight Pro $199 one-time (everything in Growth Accelerator + guaranteed newsletter spotlight, priority review, full page content control, 5 images + video upload). 40K+ monthly visitors, 10.5K newsletter subscribers.",
         "sourceUrl": "https://somi.ai/pricing",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 101,
+          "votes": 2,
+          "submitterNote": "性价比高，只需要$19",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "somi.ai",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "gptbot.io": {
       "tier": "paid-listing",
@@ -2173,7 +2558,18 @@
         "what": "first-party /submit-ai-tool page: Fast Track $29 one-time (fast listing within 48 hours, full refund if rejected, do-follow backlink, verified tool badge, ongoing listing while eligible, higher visibility). Free submission also available but without expedited review. Tax may be added at checkout. NSFW tools not accepted.",
         "sourceUrl": "https://gptbot.io/submit-ai-tool",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 192,
+          "votes": 1,
+          "submitterNote": "$29",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "gptbot.io",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "nxgntools.com": {
       "tier": "paid-listing",
@@ -2187,7 +2583,18 @@
         "what": "site down (ERR_CONNECTION_CLOSED on 2026-08-22). Cannot verify first-party pricing. Community reports $19 (2 votes).",
         "sourceUrl": "https://nxgntools.com",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 104,
+          "votes": 2,
+          "submitterNote": "19",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "www.nxgntools.com",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "aiapps.com": {
       "tier": "paid-listing",
@@ -2201,7 +2608,18 @@
         "what": "first-party /submit page: Listed $4.99/mo or $39/year (full review page, logo, direct link, edit anytime, cancel anytime); Verified $12/mo or $99/year (everything in Listed + verified badge, media, multiple categories); Featured $99/mo or $990/year (everything in Verified + top of category, homepage featured, monthly traffic report, 7-day money-back). All subscription-based — listing page stays up but link paused if cancelled. 2,100+ tools listed. 24h review.",
         "sourceUrl": "https://www.aiapps.com/submit/",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 194,
+          "votes": 1,
+          "submitterNote": "$9.9",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "aiapps.com",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "finetools.ai": {
       "tier": "paid-listing",
@@ -2215,7 +2633,18 @@
         "what": "first-party /submit page: Paid Submission $9.9/submission (one-time); Free Submission also available. Submit form requires login, only needs Website URL — title and description auto-fetched.",
         "sourceUrl": "https://finetools.ai/submit",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 197,
+          "votes": 1,
+          "submitterNote": "$9.9",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "finetools.ai",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "allinai.tools": {
       "tier": "paid-listing",
@@ -2229,7 +2658,18 @@
         "what": "/pricing returns 500 Internal Server Error, /submit returns 404 (2026-08-22). Homepage links to /pricing with '50%' discount label but backend is broken. Cannot verify first-party pricing. Community reports $49.9 with coupon GEFEI for 10% off (1 vote).",
         "sourceUrl": "https://allinai.tools/pricing",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 358,
+          "votes": 1,
+          "submitterNote": "AI导航站，DR65，付费49.9，Dofollow,优惠码 GEFEI 享9折",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://allinai.tools",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "launchigniter.com": {
       "tier": "link-package",
@@ -2243,7 +2683,18 @@
         "what": "first-party /pricing page: Basic Launch $12 one-time (1 week homepage, lifetime dofollow backlink DR74, no badge required, no wait); Pro Launch $15 one-time (everything in Basic + lifetime dofollow from StartupTrusted DR53 + lifetime dofollow from SaaSGrow DR55 — 3 backlinks total). Free launch available on SaaSGrow.app and StartupTrusted (badge required). Sidebar permanent featured spot also available. Directory Submission Service from $99 (30-100+ directories).",
         "sourceUrl": "https://launchigniter.com/pricing",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 269,
+          "votes": 1,
+          "submitterNote": "付 15 美元可以获得包括SaaSGrow.app 以及StartupTrusted 在内的三个高dr 外链",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://launchigniter.com/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "aitoolly.com": {
       "tier": "paid-listing",
@@ -2257,7 +2708,18 @@
         "what": "first-party /submit page: Two one-time packages — Listing $49.99 (directory listing); Listing + Video $69.99 (directory listing + English launch video after publication). Separate /pricing page shows AI Chat membership ($0/$9.9/$19.9 monthly), unrelated to tool submission. Community-reported $15.9 no longer matches current pricing.",
         "sourceUrl": "https://aitoolly.com/submit",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 41,
+          "votes": 5,
+          "submitterNote": "流量/DR尚可，涨价了 | $15.9, 也可免费提交",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "aitoolly.com",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "toolfolio.com": {
       "tier": "paid-listing",
@@ -2271,7 +2733,18 @@
         "what": "web.cafe 悬赏帖 1 票。JsonChao 称最近3个月新崛起的品牌导航站，有付费用户，性价比尚可。",
         "sourceUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 333,
+          "votes": 1,
+          "submitterNote": "最近3个月新崛起的品牌导航站，有付费用户，性价比尚可",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "toolfolio.com",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "twelve.tools": {
       "tier": "paid-listing",
@@ -2285,7 +2758,18 @@
         "what": "first-party pricing page: Free $0 (1 dofollow, 72h review, backlink to their site required on homepage/footer); PRO $36 one-time ($25.20 with pre-applied coupon FROGDR, 30% off). PRO includes: 3 dofollow links, 24h review, featured on homepage, permanent links, no backlink required. Secure Stripe checkout, VAT included.",
         "sourceUrl": "https://twelve.tools/pricing",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 31,
+          "votes": 7,
+          "submitterNote": "免费提交需挂徽章 | 免费，需要挂互联，网站权重很高 | 高流量，高DR | 收录快，现在是验证了反链就给收录 | 高dr有流量，免费+付费，25美金 | 工具导航站，免费，DR高",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://twelve.tools/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "startupfa.me": {
       "tier": "paid-listing",
@@ -2299,7 +2783,18 @@
         "what": "first-party pricing page: Verified Free (add badge, reviewed within 7 days, 10+ do-follow backlinks, featured badge); Highlight $19/mo (instant delivery, boost visibility, no badge required); Spotlight $149/mo (instant delivery, maximum exposure, permanent homepage placement, priority positioning). All paid plans include premium badge and auto-verification.",
         "sourceUrl": "https://startupfa.me/pricing",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 23,
+          "votes": 10,
+          "submitterNote": "免费工具站，有一定权重，挂徽章后一周内通过 | 免费，自助操作，不需要审核 | 免费提交需挂徽章 | 高DR高流量，免费提交 | 免费档即给 Dofollow，首页挂个 verification badge 等 7 天审核即可。 | 高dr有流量，免费+付费，19美金",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://startupfa.me/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "dang.ai": {
       "tier": "paid-listing",
@@ -2313,7 +2808,18 @@
         "what": "pricing page behind login wall (/login?next=/pricing). Submit also requires sign-in. Homepage and public pages show no pricing. Community reports $50 (13 votes, multiple independent sources) but first-party verification not possible without account.",
         "sourceUrl": "https://dang.ai",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 12,
+          "votes": 15,
+          "submitterNote": "免费提交需挂徽章，DR 81 | 免费提交，高流量，高DR | 高dr有流量，免费+付费，50美金 | 358K  免费提交需要放徽章排队 | AI目录 免费/付费加速 | 免费提交、审核严（有反链验证门槛），通过即代表站方认可，dofollow 已索引，含 logo/截图/完整描述，品牌展示最完整",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://dang.ai",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "fazier.com": {
       "tier": "paid-listing",
@@ -2327,7 +2833,18 @@
         "what": "first-party pricing page: Basic Free (badge required, 30-day review); Lite $29 (was $39, one-time, publish now, homepage featured, social promotion, no backlink required); Premium $49 (was $69, one-time, everything in Lite + 15-day platform promotion, DR82+ dofollow backlink, premium badge, PH launch checklist); Super $119 (was $149, one-time, top homepage placement 15 days, featured across platform).",
         "sourceUrl": "https://fazier.com/submit",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 8,
+          "votes": 16,
+          "submitterNote": "收费/免费，流量/DR尚可，价格不贵 | 免费提交需挂徽章 | $19 | 高DR高流量，免费提交 | DR82，老牌AI目录站，缺点目前排期长 | 收录比较高,真人投票, 非常好的导航站, 免费和付费都有 | 86K 免费提交 需要放徽章 | 免费、权重高 | 目录提交 免费 | 流量和 DR 还不错",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://fazier.com/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "similarlabs.com": {
       "tier": "paid-listing",
@@ -2341,7 +2858,18 @@
         "what": "web.cafe 悬赏帖 1 票。召唤兽称免费提交需挂徽章。",
         "sourceUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 191,
+          "votes": 1,
+          "submitterNote": "免费提交需挂徽章",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://similarlabs.com/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "navfolders.com": {
       "tier": "paid-listing",
@@ -2355,7 +2883,18 @@
         "what": "web.cafe 悬赏帖 1 票。山南见曦称高 DR 导航站收录速度快，免费需挂徽章，付费免徽章。",
         "sourceUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 201,
+          "votes": 1,
+          "submitterNote": "高dr的导航站收录速度快,可以免费提交需添加徽章，付费免徽章",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://navfolders.com/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "codecanyon.net": {
       "tier": "paid-listing",
@@ -2369,7 +2908,18 @@
         "what": "web.cafe 悬赏帖 1 票。路漫漫报 DR91，需上架商品（代码/模板），在简介里加网站链接。非传统目录。",
         "sourceUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 524,
+          "votes": 1,
+          "submitterNote": "DR91，操作简单：需要上架一个商品，代码、模板等，在商品简介里加上自己的网站。",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://codecanyon.net/",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     },
     "gumroad.com": {
       "tier": "paid-listing",
@@ -2383,7 +2933,18 @@
         "what": "web.cafe 悬赏帖 1 票。路漫漫报 DR92，需上架商品并在简介中加网站链接。非传统目录。",
         "sourceUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
         "checkedAt": "2026-08-22"
-      }
+      },
+      "communityBoards": [
+        {
+          "board": "webcafe-bounty-wlhmhdaoqg",
+          "rank": 525,
+          "votes": 1,
+          "submitterNote": "DR92，同codecanyon.net，需要上架一个商品，在商品简介里加上自己的网站。",
+          "boardUrl": "https://new.web.cafe/ask/bounty/wlhmhdaoqg",
+          "boardEntryUrl": "https://gumroad.com",
+          "capturedAt": "2026-09-09"
+        }
+      ]
     }
   }
 }

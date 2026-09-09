@@ -27,6 +27,19 @@ node ../../rankup/scripts/webcafe-forum.mjs bounty wlhmhdaoqg \
 字段与全站接口地图见 [`../../rankup/references/webcafe-forum.md`](../../rankup/references/webcafe-forum.md)。
 **注意那是只读的**——脚本对该站只发 GET，绝不解锁/支付/提交。
 
+**2026-09-09 把整张榜单打回数据集**：`submission-targets.json` 的 target 定义和
+`paid-platforms.json` 的每个平台条目上都可以带 `communityBoards[]`——每条记
+`board`（榜单 id，这份榜单固定是 `webcafe-bounty-wlhmhdaoqg`）、`rank`（按票排
+序的名次）、`votes`（票数）、`submitterNote`（提交者理由原文，多人重复提交时
+合并去重，截断到 500 字）、`boardUrl`（帖子本身）、`boardEntryUrl`（榜单条目里
+写的原始 URL）、`capturedAt`（抓取日期）。它只是「多少人推荐在这提交」的排序信
+号，不是外链证据——不能替代 `evidence`/`status` 该有的探测。取数走本节前面的
+`webcafe-forum.mjs bounty wlhmhdaoqg --transport browser --json`；回写时按域名
+（不带 scheme/www）匹配已有条目追加 `communityBoards`，榜单里有但数据集没有的
+域名，按 `status: "unverified"` 补一条新 target（`sourceList` 仍写
+`"web.cafe bounty wlhmhdaoqg"`），解析不出域名或不是外链平台的条目（纯描述性
+文字如「导航站」「各种可以带链接的论坛」）不硬塞，弃掉。
+
 
 ## Tools Share dashboard
 

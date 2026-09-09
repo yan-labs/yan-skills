@@ -254,6 +254,47 @@
               ]
             }
           }
+        },
+        "communityBoards": {
+          "type": "array",
+          "description": "Community leaderboards that mentioned this domain — provenance and ranking signal, not evidence. A row here says 'this many voters recommended submitting here', never 'this link was placed'.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "board",
+              "rank",
+              "votes"
+            ],
+            "properties": {
+              "board": {
+                "type": "string",
+                "description": "Source board id, e.g. webcafe-bounty-wlhmhdaoqg."
+              },
+              "rank": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "votes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "submitterNote": {
+                "type": "string",
+                "description": "Submitter's own reasoning, verbatim, truncated to 500 chars."
+              },
+              "boardUrl": {
+                "type": "string"
+              },
+              "boardEntryUrl": {
+                "type": "string",
+                "description": "URL as originally written in the board entry."
+              },
+              "capturedAt": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     }
