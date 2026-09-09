@@ -108,7 +108,7 @@ SKILL.md 段 6 与取数纪律只一行指回本文件，改脚本入口时只�
 | SERP 排名归因 | 某个词的排名盘面归因 | `scripts/seo-webcafe.mjs serp` | 「为什么是他排第一」 |
 | 本地零配额计算 | `kgr` / `string`（TDK 长度）/ `money`（收入目标拆解）/ `email`，支持 `--batch`，**只出数值不出评级** | `scripts/seo-webcafe.mjs kgr\|string\|money\|email` | 「算下 KGR」「TDK 超长没」 |
 | 需求翻译 / 需求挖掘机 / 起名核域名 | `translateSearch`（字段 `query`）· `mineSearch`（字段 `keyword`）· `domainIntent`→`domainName`→`domainCheck` | `scripts/seo-webcafe.mjs` 对应子命令 | 「帮我想个站名」「这词换成英文怎么搜」 |
-| Google Trends | 热度对比、地区分布、相关飙升词、每日热搜；含 1h/4h/1d 短时窗口（小时级曲线，验证刚出现的新词）；默认走浏览器路由，零 venv | `scripts/gt.py`（取数层 `scripts/gt-browser.mjs`） | 「XX 和 YY 哪个更火」「今天在搜什么」 |
+| Google Trends | 热度对比、地区分布、相关飙升词、每日热搜；含 1h/4h/1d 短时窗口（小时级曲线，验证刚出现的新词）；2026-09-09 切到新版 Explore UI（`trends.google.com/explore`）路由，零 venv；旧版（`/trends/explore` + pytrends）归档在 `scripts/archive/gt-v1/`，不算独立能力入口 | `scripts/gt.py`（取数层 `scripts/gt-browser.mjs`） | 「XX 和 YY 哪个更火」「今天在搜什么」 |
 | 搜索量 / KD / CPC（Semrush） | 分国家量与 KD，**外加全球合计 `globalVolume`**；同国家最多 100 词 `--bulk --db <cc>`（**bulk 下 `globalVolume`/`byCountry` 恒 null**） | `backlink/scripts/semrush-keyword.mjs` | 「这词一个月多少量」 |
 | **词根批量扩词（Similarweb）** | 一个种子词扩出整页关键词，四个 tab：`phraseMatch` / `relatedKeywords`（量最大）/ `trending` / `questions`。这是 `demand-discovery.md` 那条「1,309 词根 → 97,681 词」流水线的**入口**（2026-08-28 落地） | `backlink/scripts/similarweb-keywords.mjs` | 「帮我扩词」「我只有一个词根」 |
 | **整包扩词 + 聚簇（Semrush）** | Keyword Magic 整包导出 + Topics 聚簇（实测种子 `nonogram` → 20.1K 词 / 201 页）。与上一行互补：那个给广度，这个给簇 | `backlink/scripts/semrush-report.mjs --report keyword-magic` | 「这个主题一共有多少词」「帮我分组」 |
@@ -279,9 +279,11 @@ rankup 只判「什么时候发、发多少」（SKILL.md 段 6 一行指回这�
 
 盘点时间 2026-08-30，对照磁盘实际文件：
 
-- `rankup/scripts/` 顶层 **22 个可执行 `.mjs` + `gt.py`**，另有 4 个不单独作为能力入口的文件：
+- `rankup/scripts/` 顶层 **27 个可执行 `.mjs` + `gt.py`**（2026-09-09 复查），另有 4 个不单独作为能力入口的文件：
   `lib-scene.mjs`、`webcafe-transport.mjs`、`webcafe-rsc.mjs`（库）与 `gt-browser.mjs`（`gt.py` 的取数层，
   可直接跑但一般由 `gt.py` 转发）；两个 `.browser.js` 是注入页面的载荷，不单独运行；
+  `rankup/scripts/archive/gt-v1/`（旧版 Google Trends 路由，2026-09-09 归档）**不算独立能力
+  入口**，不计入这个数字——新版接口失效时的对拍兜底，见 `trends.md`；
 - `rankup/scripts/demand/` **24 个可执行 + 1 个公共库**（2026-09-02 加 `suggest.mjs`）；
 - `rankup/references/` 顶层 **23 个 md**（3.0 新增 `discipline.md`、`monetization.md`），另加
   `experiences/` **6 个**（合计 27），
