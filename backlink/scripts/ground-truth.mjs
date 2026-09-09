@@ -42,7 +42,7 @@
  * 无论哪条路，结束时都 close 会话（绝不 cleanup），stderr 一律过 redactSecrets。
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -811,7 +811,23 @@ async function main() {
   process.exitCode = exitCode;
 }
 
-const invokedAsScript = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+// Node 的 ESM 加载器对 import.meta.url 做了 realpath 解析（软链接 -> 真实路径），
+// 但 process.argv[1] 保留调用者敲的原始路径（可能仍是符号链接，如
+// ~/.claude/skills/backlink/scripts/... -> yan-skills/backlink/scripts/...）。
+// 只用 path.resolve 比较会永远不相等，main() 因此从未被调用，进程零输出零报错
+// 直接以 exit code 0 退出——实测经由 skill 的软链接路径调用时复现过这个静默失败，
+// 极易被误判成「这个词没有数据」。这里对 process.argv[1] 也做一次 realpathSync
+// 抹平软链接差异，调用失败（文件不存在等）时退回原始 resolve 结果，不让这个
+// 兼容性修复本身引入新的启动异常。
+const invokedPath = (() => {
+  if (!process.argv[1]) return null;
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return path.resolve(process.argv[1]);
+  }
+})();
+const invokedAsScript = invokedPath === fileURLToPath(import.meta.url);
 if (invokedAsScript) {
   main().catch((error) => {
     // 历史事故：error.message 带出过令牌。stderr 也必须过 redactSecrets。

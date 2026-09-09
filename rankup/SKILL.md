@@ -2,7 +2,7 @@
 name: rankup
 description: 网站从零到一与长期增长的总控 Skill。用于新建网站、SaaS、工具站或内容站，规划或初始化 TanStack Start Monorepo，使用 Cloudflare Workers、D1、R2 部署全栈应用，接入支付，执行 SEO、内容、外链、上线验证和持续迭代；也负责 Google Trends 查询、关键词难度（KD）估算与选词工作流；2026 AI 搜索范式（AI Overviews、AI Mode、Preferred Sources、Discover 独立算法、Information Gain、引用优先于排名）；AI Agent 就绪度评分（is-agentic、agent readiness、llms.txt、MCP 可发现性、AI 代理优化）。用户提到 rankup、rankup init、rankup check、环节闸门、检查清单、checklist、"现在该做什么"、"到哪一步了"、"这个环节能不能过"、"本轮还差什么"、建站、网站改版、搜索流量、GSC、排名、关键词、CTR、索引、网站增长，或提到 谷歌趋势、Google Trends、搜索热度、热度对比、搜索趋势、trending、"XX 和 YY 哪个更火"、"今天美国/日本在搜什么"、每日热搜、"这个词能不能做站"、"哪个市场/国家有机会"、帮我选 SEO 关键词、选词、选品调研、市场探测、挖需求、找需求、需求挖掘、找方向、找选题、"最近有什么能做的"、"找几个关键词"、"挖个新词的工具站"、"看看有什么游戏站能做"、竞品调研、榜单调研、差评挖掘、反查谁在赚钱、关键词难度、KD、竞争度、SERP 分析、"这个词难不难做"、"做这个词要多少外链"，或提到 哥飞、web.cafe、哥飞论坛、哥飞的朋友们、悬赏、悬赏问答、经验帖、"群里怎么说的"、"社群里有没有讲过"、"论坛里搜一下"、"哥飞说过什么"、哥飞.ai，或提到 AI 搜索优化、AI Overviews、AI Mode、被 AI 引用、AEO、GEO、Preferred Sources、Discover 优化、Google 算法更新、核心更新、spam 更新、Information Gain，或提到 AI Agent 就绪度、is-agentic、agent readiness、llms.txt、对 AI 代理友好、AI 代理优化、agent-friendly、agentic score 时使用。也覆盖用户真正会打出来的模糊说法：我想让流量涨一点、今天弄下 SEO、帮我看看这个站有什么问题、优化一下我的网站、流量掉了、排名没了、是不是被 K 了、怎么一直不收录、新页面多久能进索引、提交 sitemap、IndexNow、站慢不慢、跑个性能、Core Web Vitals、PageSpeed、Lighthouse、全站内链失效、TDK、标题描述怎么写、关键词密度、能不能上线了、上线前还差什么、帮我搞点外链、外链、反链、去哪发外链、抓一下后台数据、导出报表、数据面板、这站没有 API、访客不注册、没人付费、定价怎么定、要不要上多语言、hreflang、发个 Product Hunt、跑一下小游戏监测。也覆盖：词根、扩词、扩词树、占位链接、占位文案、变现、PayPal、域名黑历史、域名前世、单语种、hello@、"这个域名能不能用"、"看下这批数据有没有能做的关键词"、"调研一下这个词"、"review 一下我的站"、"数据检测平台都接入了吗"、"把 Ahrefs 的检验结果都修了"、"我们开始执行这个项目的计划"、"一步步来"、"调研一下这关键词"、"我们做个网站吧"、"我们做个内页吧"、"把这个关键词做成内页"、"看一下 GEO 有没有问题"、"SEO 有没有问题"、"把这个经验写进 rankup"、"记下来更新到源码里"、"帮我生成 logo"、配图、封面、og 图、"写一下这页的文案"、"AI 味太重"、"帮我改稿"、"语言结构理顺"、"文案怎么写才有人点"、"用户为什么不买"、"Reddit 上怎么说"、"X 上有没有人讨论"、社区验证、社区调研、"做个好看的页面"、设计参考、组件库参考、"Hero 怎么设计"、"landing page 怎么排"、动画效果、动效、页面设计灵感、21st.dev。
 metadata:
-  version: "3.2.0"
+  version: "3.3.0"
 ---
 
 # Rankup 3.0
@@ -68,6 +68,7 @@ metadata:
 |---|---|
 | 用户给的任何词都是**词根**：先直接搜，再扩成树（面板相关词 + Google/Bing/DDG 下拉；叶子再扩，最多两层；叶子月量低于阈值或 KD 高于阈值就停） | 用户给的是方向不是答案，一个词查完就下结论会漏掉整棵树 |
 | 筛子：月量太低且 CPC 低 = 否；KD 低好上手 | 量低又没人出价，说明没人为它付钱 |
+| **Semrush / Similarweb 报的月量必须用 Google Trends 锚点法交叉验证**：默认锚点 `gpts`（美国实测约 5,400/月，KD 77，2026-09-09 Semrush 实测），量级差 10 倍以上再换同量级第二锚点；每轮都要重拉一次锚点自己的 12 个月曲线取均值校准，不能沿用旧均值或只看最近几周（`references/trends.md`「〇·六」） | 面板对刚起量的新词有滞后、对头部通用词又容易估得偏宽，本轮实测两个方向的偏差都到过 6–14 倍（`ai headshot generator` 报 22,200 被两次独立锚点判定只有 0.07–0.18 倍；`ugc ads ai` 报 210 被判定低估到 1.4–3.3 倍）；不交叉验证就是直接把面板的方向性误差当结论用 |
 | **社区验证是必走的一条腿**：Reddit / X / YouTube / B 站近 14 天讨论量。取数走兄弟 Skill：`/agent-reach`（先 `agent-reach doctor --json` 看各平台后端，再按 `research.md` 阶段 5 的命令组跑）、`/anysearch` 批量网页搜索、`/deep-research` 只做定性背景；rankup 自带的只有 `reddit-wishes.mjs` 与 `hn-signals.mjs`；搜索侧用 `scripts/gt.py compare <词> --time 1d`（Trends 过去 1 小时 / 4 小时 / 1 天的小时级曲线，新词单独查不和大词同框） | 数据平台只有 28 天窗口，昨天火起来的看不到；Trends 的 now 区间是唯一能看到小时级的公开源；论坛热度是第一手的，帖子一星期内炸开面板上还是 0 |
 | 亲眼看 SERP，用页面类型核实**真实意图** | 宠物诊断那次：词看着是工具需求，首页全是兽医内容，做工具就错了 |
 | 空结果先核 manifest：429 / CAPTCHA / 超时都产出 0 条 | 采集失败 ≠ 没需求，把失败读成结论是最贵的错 |
