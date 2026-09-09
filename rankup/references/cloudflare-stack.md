@@ -318,8 +318,49 @@ Git 集成的自动构建与本地手动部署两条路径并存时，**以 Clou
 
 ### 9.1 接入方式：Git 存储库连接 / Workers Builds
 
+**优先用脚本走 API，不开浏览器。** 下面的控制台路径只在 GitHub App 还没装到目标 org/user
+（一次性 OAuth 授权，API 做不到）时才需要，装完之后新项目全程走 `cf-builds-connect.mjs`；
+判据见 [`discipline.md`](discipline.md) 五「有 API/CLI 且有凭据就不开浏览器」。
+
 控制台路径：Workers & Pages → 选中项目 → Settings → 构建（Build）→ Git 存储库「连接」。
 GitHub App 授权必须由用户本人在控制台点，安装时选 **Only select repositories**（不要整个组织）。
+
+#### API 路线（Workers Builds，已验证 2026-09-10）
+
+用 `node scripts/cf-builds-connect.mjs --help` 看完整参数；`--dry-run` 只打印将要调用的
+端点与 payload（密钥隐去）。前提仍是 GitHub App 已装到目标 org/user 且勾了目标仓库——这一步
+没有 API，只需做一次，做完之后同一个 org 下的所有仓库都不用再开浏览器。
+
+**端点链**（脚本内部按顺序调用）：
+
+1. `GET /accounts/{account_id}/workers/services/{worker}` 取 `default_environment.script_tag`。
+2. `PUT /accounts/{account_id}/builds/repos/connections` 建仓库连接，拿 `repo_connection_uuid`。
+   需要 `provider_account_id`（GitHub org/user 的数字 id，不是登录名）；脚本用 `gh api
+   orgs/<owner>` / `gh api users/<owner>` 猜，猜不出就去已接过的姊妹项目跑一遍
+   `GET /accounts/{account_id}/builds/workers/{script_tag}/triggers` 抄 `repo_connection` 字段。
+3. `POST /user/tokens` 新建窄权限 build token：Workers Scripts Write、Account Settings
+   Read、User Details Read；绑自定义域名（`custom_domain` / `route`）时再加 Workers Routes
+   Write，`resources` 限定到那一个 zone，不给全账号权限。
+4. `POST /accounts/{account_id}/builds/tokens` 把上一步的 token 登记为该 Worker 专属的
+   build token，拿 `build_token_uuid`。
+5. `POST /accounts/{account_id}/builds/triggers` 建 trigger：`external_script_id`
+   （即 script_tag）、`repo_connection_uuid`、`build_token_uuid`、`branch_includes`、
+   `root_directory`、`build_command`、`deploy_command`、`path_includes`/`path_excludes`。
+6. `PATCH /accounts/{account_id}/builds/triggers/{trigger_uuid}/environment_variables`
+   写构建变量（`NODE_VERSION`、`PNPM_VERSION`，对齐 `package.json` 的 `packageManager`）。
+
+**watch 排除清单**（`--path-exclude`，避免文档/设计改动触发无谓构建）：
+`.rankup/**`、`**/*.md`、`.claude/**`、`.design/**`。
+
+**permission groups 的坑**：账号级权限组（Workers Scripts Write / Account Settings Read /
+Workers Routes Write）在 `GET /accounts/{account_id}/tokens/permission_groups`；用户级权限组
+（User Details Read）在另一个端点 `GET /user/tokens/permission_groups`——两者不在同一张列表
+里，混着查会报「找不到权限组」。
+
+**连接后不会自动构建**：与下方 9.1.1 的实测一致，Workers Builds 连接成功不会触发首次构建，
+需要一次命中 watch paths 的 push，或手动调 `POST
+/accounts/{account_id}/builds/triggers/{trigger_uuid}/builds` 触发一次来验证。首次构建实测
+51–82 秒成功。
 
 **Pages 项目（纯静态站）**：
 

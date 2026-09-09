@@ -136,6 +136,17 @@ opencli browser "$S" eval '(async()=>{ /* fetch(..., {credentials:"include"}) */
 **判据：这个页面用无痕窗口打开，还是不是同一个东西？** 不是，就必须走用户的浏览器。
 未安装：`npx skills add yan-labs/yan-skills --skill opencli -g -y`。
 
+**反过来同样是硬规则：目标平台有 API 或 CLI、且本机已有凭据能证明（`wrangler whoami`、
+`gh auth status` 一类能给出肯定结果的命令），一律走 API/CLI，禁止开浏览器去后台点。**
+只有两种情况例外，且只做那一步就退回 API：API 确实不覆盖某个操作；或需要一次性 OAuth /
+App 安装授权（只能由用户本人在浏览器里点一次，例如给某个 GitHub org 装 Cloudflare 的
+Workers & Pages GitHub App）。反面例子：给站点接 Cloudflare Workers Builds Git 集成，
+早期做法是让 agent 去控制台点「连接仓库」「新建 token」「建 trigger」，改成全程用
+Cloudflare API（服务查询 → 仓库连接 → 建窄权限 build token → 建 trigger → 写构建环境
+变量）之后，同样的接入不再需要打开浏览器，唯一仍需人工点一次的只有 GitHub App 装到 org
+这一步。判断「该不该开浏览器」先自问一句：这件事有没有对应的 API 端点或官方 CLI 子命令，
+本机的凭据够不够权限——够，就不是「登录态」问题，是「懒得查 API 文档」问题。
+
 | 你要做什么 | 读 `opencli` Skill 的 |
 |---|---|
 | 会话命名、标签页归属、「我的页面被抢了」 | `references/session-laws.md` |
