@@ -157,7 +157,7 @@ python3 rankup/scripts/archive/gt-v1/gt.py compare higgsfield manus --via pytren
 
 | 路由 | 怎么取的 | 现状 |
 |---|---|---|
-| 新版（**主用**，`gt.py` 默认） | OpenCLI 打开新版 explore 页，读页面自己发出的 `batchexecute` 内部 RPC 响应（见下方「新版接口勘探」） | 主用。要求 `opencli doctor` 绿 |
+| 新版（**主用**，`gt.py` 默认） | OpenCLI 打开新版 explore 页，然后**在这个页面的上下文里同源打旧版 REST 接口**（`api/explore` + `api/widgetdata/{multiline,comparedgeo,relatedsearches}`）；兜底才是读页面自己发出的 `batchexecute` RPC / 表格 DOM（见下方「新版接口勘探」） | 主用。要求 `opencli doctor` 绿 |
 | 旧版 browser（归档） | OpenCLI 打开旧版 `/trends/explore`，在页面上下文里 fetch `api/explore` + `api/widgetdata/*` | 归档兜底，`archive/gt-v1/` |
 | 旧版 pytrends（归档） | 匿名 HTTP 打旧版 widget 接口，无凭据，429 是常态 | 仅归档版支持，新版路由不再提供 `--via pytrends`（会报错并指向归档版） |
 
@@ -423,98 +423,130 @@ python3 $GT compare "<新词>" --geo JP --time 1d   # 按国家看
 ## 新版接口勘探（2026-09-09）
 
 Google Trends 新版 Explore UI（`https://trends.google.com/explore?...`）不再暴露旧版那套
-公开可读的 widget REST 接口（`/trends/api/explore` + `/trends/api/widgetdata/*`）。**实测确认**：
+公开可读的匿名 widget REST 接口，改用 Google 通用的 `batchexecute` RPC 框架。但**在页面
+自己的上下文里同源 fetch 时，旧版 REST 接口依然可用**——这是本轮（第四轮修订）把三条命令
+全部改成 REST 主路的依据。以下全部是【实测】。
 
-- **URL 参数编码不变**：`q`（逗号分隔关键词）、`geo`、`date`、`hl` 三个跟旧版完全一致，
-  实测 `?q=higgsfield&geo=US&date=today 5-y` 在新版页面上正确显示成 "United States · Past
-  5 years"。`cat`（类目）、`gprop`（搜索类型）沿用旧版参数名，未逐一单独实测，标记为
-  【推测：沿用旧版命名】。
-- **取数机制换成了 Google 通用的 `batchexecute` RPC 框架**：所有 widget 数据都走
-  `POST https://trends.google.com/_/TrendsUi/data/batchexecute?rpcids=<ID>&f.sid=...`，
-  响应是 `)]}'` 反 XSSI 前缀 + 分块编码，真正数据在 `["wrb.fr","<rpcid>","<JSON 字符串>",...]`
-  三元组里，且是**双重 JSON 编码**（要 `JSON.parse` 两次）。请求体（`f.req`）里带一段
-  ~2500 字符的签名 blob（【实测】用页面上下文抓过一次真实请求体核对过），推断是服务端
-  为这次查询状态签发的 token，本工具**不重建这段请求**，而是打开这次查询本身的 explore
-  页，让页面自己把请求发出去，从**页面自身**读回去（见下一条），数据来源仍然是
-  「用户已登录 Chrome 亲自发起的同源请求」。
-- **取数点（2026-09-09 二次修订）：从「读 opencli 网络记录」改成「页面内 fetch/XHR
-  抓包」，region 改成 DOM 解析**。最初实现靠 `opencli browser <session> network` 读取
-  「已经发生的请求」，这条命令在本机【实测】反复返回空列表（用非 Trends 站点也复现过），
-  见下方「已解决问题」。改用的办法：在页面上下文里包一层 `window.fetch` /
-  `XMLHttpRequest`，把命中 `batchexecute` 的请求体/响应体存进 `window.__gtCapture`，
-  再用 `eval` 把这个数组读出来解码（`gt-browser.mjs` 里的 `INSTALL_CAPTURE_JS` /
-  `pollCapture`）。**但这条路对 `qrLOJd`（地区分布）几乎必然抓不到**——【实测反复验证】
-  `qrLOJd` 几乎总是在 `open` 命令返回、抓包壳子装上之前就已经发出并完成，不是「时序竞
-  争偶尔输」，是这个 widget 的请求天生比任何「open 之后再 eval」的时序都快。所以
-  `region` 命令**不走抓包，改走 DOM 解析**：地区列表本身渲染在 `tr[data-geo-code]`
-  表格行里（`aria-label="kw: N"` 单关键词，或 `"kw1: N%, kw2: M%"` 多关键词——后者是
-  「同一地区内几个词的相对份额，和为 100」，语义跟旧版/单关键词的独立 0-100 值不同，
-  已经在 `region` 输出里加了这条注），滚动可见后直接读 DOM，配合
-  `button[aria-label="Go to next page"]` 翻页凑够 `--top N`。`compare`（`g4kJzf`）和
-  `related`（`fXqlme`）两个 widget 会在抓包壳子装上之后才发请求，走抓包路由，manifest
-  里记 `dataPath: capture`（region 记 `dataPath: dom`）。
-- **抓包也不是 100% 稳**：【实测】即使是 compare/related，个别整页加载仍会在壳子装好前
-  把请求发完——同一份代码同一个查询，多次真实运行里观察到的样子是「反复调大单次等待
-  没用，但整页重开常常就好」，猜测是 JS bundle 命中浏览器缓存后执行快到抢先。因此重试
-  策略是**重开整页**（最多 4 轮，`openRounds` 记进 manifest），不是加长单次超时——
-  4 轮下让「每轮独立约 50% 概率被抢跑」的失败率压到个位数百分比，仍不够就如实报空，
-  证据目录里的截图能证明「页面数据其实是好的，只是没抓到请求」。
-- **实测确认的三个 rpcid**（higgsfield / manus 两词反复验证，拿到真实数据后解出结构）：
-  - `qrLOJd` = 地区热度分布（interest by region）——**不走抓包，走 DOM 解析**，见上。
-  - `g4kJzf` = 热度对比曲线（interest over time）。响应结构比最初勘探记的**多包一层**
-    【实测，二次核对修正】：`[[[keyword, ?, ?, ?, [[value, roundedValue,
-    [[startEpoch],[endEpoch]], flag, ?], ...]], ...]]`——外层是只有一个元素的数组，
-    包着「每关键词一条」的那个数组；脚本对两种形态（多包一层 / 不多包）都做了兼容解包。
-  - `fXqlme` = 相关查询（top + rising）。响应结构：`[[keyword, arrayA, arrayB]]`，只支持
-    单关键词。**Top/Rising 映射已从【推测】转【实测】**：在页面 DOM 上直接核对过区块标题
-    文字——「Top queries」区块 = 0-100 常规相关度 + 涨跌幅列（对应 `arrayB`/`entry[2]`），
-    「Rising queries」区块 = 全部标 Breakout/百分比涨幅（对应 `arrayA`/`entry[1]`，value
-    大量逼近/等于 5000 是封顶哨兵），跟经典 Google Trends API 的语义一致，不再是推断。
-  - 另有 `UZBRtc`（4-5MB，推测是地图色块的几何数据，不取）、`DqDTgb`/`Tnt4U`（初始加载即触发，
-    推测是 widget 配置/token 引导调用，未解出结构，不在取数路径上）——都标记为【推测】。
-- **懒加载不止 related 一项，但没有统一规律**：【实测，反复验证】`qrLOJd`（地区分布）
-  初始加载几秒内即触发，不需要滚动；`fXqlme`（相关查询）明确需要真实滚动到底才触发；
-  `g4kJzf`（热度曲线）【实测，二次修正】大多数情况下**不需要滚动**，settle 等待期间
-  （抓包壳子装好后几秒内）就会自己发出，脚本因此对 compare 不再做滚动等待，只做一次性
-  轮询+失败重开整页（见上），对 related 仍然做「真实滚动（`opencli scroll`，不是
-  `eval` 硬改 `scrollTop`）→ 轮询抓包壳子里出现目标 rpcid」。**`eval` 硬改
-  `div.scrollTop` 在这版新 UI 上被证伪**：赋值后经常原样弹回、不触发任何懒加载，
-  必须用 opencli 的 `scroll` 命令（真实滚轮事件）才能移动视口。
-- **已解决问题（原「未解决问题 2」，opencli 侧）**：`opencli browser <session> network`
-  这条读取命令在本次勘探中【实测】反复出现「页面上数据其实已经正确渲染出来了（截图能
-  看到真实的 region 列表 "1-5 of 87"），但 `network --since` 列出的 entries 是空的」——
-  用同一批 fetch/XHR 打非 Trends 的站点（`httpbin.org`）复现过同样的空结果，说明这不是
-  Trends 专属问题，是 opencli 网络抓包本身不稳定。**解法**：不再依赖 `network` 命令，
-  改成页面内 fetch/XHR 抓包（compare/related）+ DOM 解析（region），两条路都不经过
-  opencli 的 CDP 网络记录层，绕开了这个不稳定点。
-- **未解决问题（Google 侧，遗留）**：勘探期间（连续对同一批关键词打了十几次 explore 页
-  之后）新版页面出现过"连查询词的 chip 都长时间不渲染"的卡滞现象，怀疑是触发了 Google
-  对该账号/网络的软限流或异常检测，性质与旧版遇到 429 类似，但表现不是标准 HTTP 429，
-  而是页面停在加载态。**这不是本工具的 bug**，意味着短时间内高频调用新版路由可能被
-  降级，工作流里要控制调用频率、间隔几秒到几十秒，撞上就等几分钟。
-- **已知限制**：region 命令翻页读 DOM 时用 `--role button --name "Go to next page"
-  --nth 0` 定位翻页按钮，假定它在 DOM 里排第一个（因为地区表格通常先于「Commonly
-  searched queries」的翻页按钮挂载）。`--top` 传得很大、需要翻很多页、且页面在翻页
-  期间又新挂载了别的分页控件时，`--nth 0` 可能定位到错的按钮——`--top 15` 这种常规
-  用量下（3 页以内）没观察到这个问题，大批量用量下如果 region 输出行数不对，先怀疑这里。
-- **未解决问题（related 命令，最不稳的一个，2026-09-09 收尾时仍未彻底解决）**：
-  `related` 同时踩了两个坑——(1) `fXqlme` 抓包和 `qrLOJd` 一样有概率被"原生 fetch/XHR
-  引用抢跑"问题命中（不是每次，命中率没有精确测出，实测中反复出现过）；(2) 更麻烦的是
-  【实测，2026-09-09】**opencli 的 `scroll` 命令本身在部分整页加载里完全不生效**——
-  连续多次 `scroll down --amount 5000`（含 `--window foreground`）后，用
-  `document.querySelectorAll('h3')` 探测都拿不到「Top queries」/「Rising queries」
-  标题，说明「Commonly searched queries」区块压根没被触发挂载；但同一个会话换个方式
-  等待更长时间后，标题**有时**会自己挂载出来（`h3count` 从 0 变成 2），挂载之后
-  内部的查询行仍可能长时间保持空表格（`tr` 只有表头，没有数据行）。这三层现象叠加
-  （抓包抢跑 / 滚动不生效 / 挂载后仍空表）导致 `related` 目前在自动化里是**三条命令
-  里最容易拿到空结果的一个**，即使页面本身最终会正常渲染出数据（本次收尾验证中，
-  同一个 `higgsfield` 单词在更早的手工探测里明确渲染出过真实的 Top/Rising 词表，
-  证明数据链路整体是通的，问题在自动化触发的时序/可靠性上，不是取数逻辑错了）。
-  `gt-browser.mjs` 已经做了两层兜底（抓包失败 → DOM 兜底 → DOM 也空则如实报错 +
-  留证据目录），但**没有把成功率提到可接受水平**——**这是本轮遗留给下一次迭代的
-  头号问题**，建议方向：查 opencli `scroll` 命令在这类虚拟滚动（`overflow:auto` 但
-  `scrollTop` 赋值不生效）页面上到底是怎么派发事件的，或者换成能强制组件挂载的其它
-  手段（如缩小视口高度、编辑 CSS 强制展开、或直接等一个更长的固定时长再探测）。
+### 结论先行：现在三条命令怎么取数
+
+| 命令 | 主路（dataPath: `rest`） | 兜底 | 实测耗时 |
+|---|---|---|---|
+| `compare` | `GET /trends/api/widgetdata/multiline`（widget `TIMESERIES`） | batchexecute 抓包 `g4kJzf`（dataPath: `capture`） | 26s（含开页） |
+| `region` | `GET /trends/api/widgetdata/comparedgeo`（widget `GEO_MAP`） | 表格 DOM + 「Go to next page」翻页（dataPath: `dom`） | 12s，一次拿全量（实测 250 行） |
+| `related` | `GET /trends/api/widgetdata/relatedsearches`（widget `RELATED_QUERIES`） | 表格 DOM（dataPath: `dom`，隐藏标签页里恒空） | 7-8s |
+
+两步都在 trends.google.com 的页面上下文里同源 fetch（带用户已登录的 cookie）：
+
+1. `GET /trends/api/explore?hl=en-US&tz=0&req=<JSON>`，
+   `req = {comparisonItem:[{keyword, geo, time}, ...], category, property}`
+   → 响应带 `)]}'` 前缀，去掉到第一个 `{` 后是 `{widgets:[{id, request, token}, ...]}`。
+2. `GET /trends/api/widgetdata/<multiline|comparedgeo|relatedsearches>?hl=en-US&tz=0&req=<widget.request>&token=<widget.token>`
+   → 同样带前缀，去掉后即可 `JSON.parse`。
+
+`--resolution` 通过直接改 `widget.request.resolution`（`COUNTRY`/`REGION`/`CITY`）实现。
+`RELATED_TOPICS`（相关主题）仍然恒回空 `rankedList`（接口把脚本会话标成
+`USER_TYPE_SCRAPER`），跟归档版记录一致，本工具不提供相关主题。
+
+### related 长期取不到数的**真正根因**（三轮修订、95 分钟白烧之后才定位到）
+
+【实测，2026-09-09 直接在页面上验证】opencli 驱动的标签页在本机环境里
+`document.visibilityState === "hidden"`——即使用了 `--window foreground`、`tab select`
+把它选成活动标签、`document.hasFocus()` 已经返回 `true`，它**仍然是 hidden**
+（Chrome 窗口被别的窗口遮挡或最小化就会这样，macOS 的窗口遮挡检测会把渲染器标为不可见）。
+
+隐藏标签页里 Chrome **完全停掉渲染生命周期**，实测到的四个后果，每一个都单独致命：
+
+1. `requestAnimationFrame` 一次都不回调（注册后 4 秒内计数器恒为 0）。
+2. `IntersectionObserver` 一条记录都不投递——回调不跑，`takeRecords()` 也是 0。
+3. 页面内部滚动容器（`div.Jh24Ne`，`overflow-y:auto`，scrollHeight 2036 / clientHeight 636）
+   的计算样式是 **`scroll-behavior: smooth`**，而平滑滚动动画由渲染生命周期驱动，于是
+   `pane.scrollTop = pane.scrollHeight` **赋值之后同步读回来仍然是 0**，永远滚不动。
+   把 `pane.style.scrollBehavior = "auto"` 强制成瞬时滚动之后，同一行赋值立刻生效
+   （scrollTop 0 → 1400.5）。**这就是前几轮「eval 硬改 scrollTop 无效」「opencli scroll
+   无效」两个互相矛盾的观察的统一解释**：不是滚错了对象，是平滑滚动动画没人推。
+4. 页面隐藏超过 5 分钟后，Chrome 的 intensive throttling 把 `setTimeout` 压到 **1 次/分钟**。
+   于是「页内循环滚动 + `await new Promise(r=>setTimeout(...))` 等待」的 eval 必然撞
+   opencli 的 115s CDP 硬超时（`cdp_timeout`），连现场状态都读不回来——上一版 related
+   每失败一次要烧近 3 分钟，就是这么烧掉的。
+
+「Commonly searched queries」（Top queries / Rising queries）这一块的数据请求就挂在
+IntersectionObserver 上。所以在隐藏标签页里，**块的 DOM 骨架会挂载**（`h3` 标题拿得到、
+空表格在、右上角两个 Download CSV 按钮也在），但**数据永远不会加载**。
+因此：
+
+- **「加长等待」这个方向从原理上就走不通**，不是等得不够久。
+- **「点 Download CSV 读文件」也走不通**：那两个按钮的实际 DOM 是
+  `<button ... disabled="" aria-label="Download top queries CSV">`——**它们是 disabled 的**，
+  因为下面没有数据。实测点击（`button.click()`）不发任何请求、不创建 blob、不触发
+  `<a download>`、`~/Downloads` 里也不落文件。CSV 按钮只有在数据已经加载出来时才可用，
+  所以它**不是**绕过懒加载的入口，反而是懒加载有没有成功的一个现成探针。
+- 唯一走得通的是**绕开页面渲染**，直接在页面上下文里打 REST 接口。
+
+### related 的响应结构与 Top / Rising 归属
+
+`relatedsearches` 响应：`{ default: { rankedList: [ <Top>, <Rising> ] } }`，恒为 2 条。
+
+- **`rankedList[0]` = Top queries**：`formattedValue` 是 0-100 的整数字符串（`"100"`/`"13"`）。
+- **`rankedList[1]` = Rising queries**：`formattedValue` 是 `"Breakout"` 或 `"+3,450%"`。
+
+【实测，higgsfield / manus 各 5 次，10/10 成功，单次 1.0-2.5 秒】归属由数据自证（一张全是
+0-100、一张全是 Breakout/百分比），并与页面上「Top queries」/「Rising queries」两个 `h3`
+标题的语义一致。注意 Top 与 Rising 的列义不同、没有可比性，所以 `gt.py related` 的输出把
+两张表分开出（Top 出 `value` 列 = 0-100 相对热度，Rising 出 `growth` 列 = 涨幅），
+不硬凑成同一组列。取 `formattedValue` 而不是 `value`：Rising 的 `value` 是原始涨幅整数
+（Breakout 时是哨兵大数），`formattedValue` 才是页面上真正显示的那个字符串。
+
+### 工程规则（写进脚本，别再踩）
+
+- **任何等待都放在 Node 侧**（`msleep`），页内 `eval` 一律写成同步的、立刻返回的。
+  隐藏标签页里的定时器不可信；一个 4 秒的 settle 有时要等 60 秒。
+- **要滚动就先 `style.scrollBehavior = "auto"`**，否则赋值 `scrollTop` 无效。
+  滚动现在只用于让截图证据好看、让 region 的 DOM 兜底能读到行，**不再承担
+  「触发懒加载」的职责**（在隐藏标签页里它做不到这件事）。
+- **失败预算要短**：`related` 单条从开页到报错 ≤ 45 秒（实测成功路径 7-8 秒）。
+  REST 最多重试 2 次，每次 eval 25 秒超时；两次都不行就做一次同步 DOM 兜底探测，然后如实报错。
+- **失败要可判读**：manifest 记 `dataPath`（`rest`/`capture`/`dom`/`none`）、`restTries`、
+  `restErr`、`scrolled`、`lazyBlocksLoaded`、`elapsedMs`。`restErr` 里的 HTTP 429/302
+  是 Google 侧限流；「没有 RELATED_QUERIES widget」通常是这个词太冷、Google 本来就不给。
+
+### batchexecute 抓包路由（现在只当兜底，记录保留）
+
+新版页面自己发的请求是
+`POST https://trends.google.com/_/TrendsUi/data/batchexecute?rpcids=<ID>&f.sid=...`，
+响应是 `)]}'` 反 XSSI 前缀 + 分块编码，真正数据在 `["wrb.fr","<rpcid>","<JSON 字符串>",...]`
+三元组里且是**双重 JSON 编码**。请求体 `f.req` 里带一段 ~2500 字符的签名 blob，本工具不重建。
+抓法是在页面上下文里包一层 `window.fetch` / `XMLHttpRequest`（`INSTALL_CAPTURE_JS`）。
+已实测确认的 rpcid：
+
+- `qrLOJd` 地区热度分布——几乎总是在抓包壳子装上之前就发完，抓不到（现在走 REST）。
+- `g4kJzf` 热度曲线——compare 的兜底路由。**注意【实测，本轮】它也不是稳的**：本轮
+  compare 连开 4 轮整页、`capturedVia` 全 `null`，一条都没抓到，正是这次把 compare
+  也改成 REST 主路的直接原因。解码后结构是
+  `[[[keyword, ?, ?, ?, [[value, roundedValue, [[startEpoch],[endEpoch]], flag, ?], ...]], ...]]`
+  （比最初勘探记的多包一层，脚本对两种形态都兼容解包）。
+- `fXqlme` 相关查询——**在隐藏标签页里永远不会发出**（挂 IntersectionObserver），
+  脚本已不再尝试抓它。
+- `UZBRtc`（4-5MB，【推测】地图色块几何数据，不取）、`DqDTgb`/`Tnt4U`（初始加载即触发，
+  【推测】widget 配置/token 引导调用，未解出结构，不在取数路径上）。
+
+- **已解决（opencli 侧）**：`opencli browser <session> network` 读取命令在本机【实测】
+  反复返回空列表（用 `httpbin.org` 也复现过），不是 Trends 专属问题。解法是不依赖它，
+  改用页内抓包 / DOM / REST，三条路都不经过 opencli 的 CDP 网络记录层。
+
+### 未解决问题 / 已知限制
+
+- **Google 侧软限流（遗留）**：短时间内高频打新版 explore 页，页面会停在加载态、
+  查询词 chip 都不渲染；REST 接口对应的表现是 HTTP 429/302。**这不是本工具的 bug**，
+  工作流里要控制调用频率、间隔几秒到几十秒，撞上就等几分钟。
+- **相关主题（RELATED_TOPICS）拿不到**：恒回空 `rankedList`，见上。确实要主题时让用户
+  在前台标签页里自己看。
+- **标签页可见性依赖【推测】**：本轮所有结论都是在「Chrome 窗口被遮挡 → 标签页 hidden」
+  这个状态下测的。如果哪天 Chrome 窗口真的在前台可见，渲染生命周期恢复，新版页面的
+  懒加载 widget 应该会正常加载，DOM 兜底也会有数——但本轮**没有在可见窗口下验证过**，
+  标记为【推测】。REST 主路不受这件事影响，两种状态下都能用。
+- **region 的 DOM 兜底翻页按钮定位**：用 `--role button --name "Go to next page" --nth 0`，
+  假定它在 DOM 里排第一。只在 REST 失败时才会走到，`--top 15` 这种常规用量（3 页以内）
+  没观察到问题。现在 REST 一次拿全量（实测 250 行），这条兜底基本不会被触发。
 
 ## 旧版 explore 页每一块与归档版 gt.py 的对应（2026-09-03 逐块实跑，仅归档版适用）
 

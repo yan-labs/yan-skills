@@ -216,7 +216,7 @@ node scripts/sessions.mjs --project-root . --days 14 --new-only --dump
 > 所以「拿到了吗」不能看状态码，要看正文空不空——脚本用 `access` 字段区分
 > 「没登录 / 答题期封存 / 要花钱解锁 / 拿全了」四种，**绝不自动解锁**（那要花钱）。
 
-**`scripts/gt.py`** — Google Trends。热度对比、地区分布、相关飙升词、每日热搜四个子命令，首次运行自动建 venv 装 pytrends。配套 [`references/trends.md`](rankup/references/trends.md) 里有三套工作流：小语种市场探测、把模糊方向收敛成真能做站的词、新兴趋势捕捉。
+**`scripts/gt.py`** — Google Trends。热度对比、地区分布、相关飙升词、每日热搜四个子命令，默认浏览器路由（驱动已登录 Chrome），`--via pytrends` 已停用指向 `scripts/archive/gt-v1/`。配套 [`references/trends.md`](rankup/references/trends.md) 里有三套工作流：小语种市场探测、把模糊方向收敛成真能做站的词、新兴趋势捕捉。
 
 **`scripts/demand/` 一整组（24 个脚本，含 3.0 新增的 `suggest.mjs` 三引擎下拉联想）** — 需求挖掘取数，配套 [`references/demand-sources.md`](rankup/references/demand-sources.md) 那张源 → 脚本路由表；**另有十余个没有脚本的手工源**（差评矿、用户原话、CT 子域名监控等），底账见 [`references/capability-map.md`](rankup/references/capability-map.md)。
 

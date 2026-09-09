@@ -31,13 +31,40 @@
  * 或单关键词时 `aria-label="kw: N"`），滚动到可见后直接读 DOM 文本，配合
  * `button[aria-label="Go to next page"]` 翻页拿够 topN 条。这是**证据确认可靠**的路径，
  * 不是退而求其次的兜底——见 trends.md「新版接口勘探」一节的完整记录。
- * compare（g4kJzf）与 related（fXqlme）两个 widget 都在抓包壳子装上之后才发请求
- * （尤其 fXqlme 需要真实滚动触发懒加载），走抓包路由（dataPath: capture）。
+ * compare（g4kJzf）走抓包路由（dataPath: capture）。
+ *
+ * === related：2026-09-09 四次修订，彻底放弃「滚动 → 懒加载」这条路 ===
+ * 【实测，本轮直接在页面上验证，这是之前三轮全部失败的真正根因】opencli 驱动的标签页
+ * 在本机环境里 `document.visibilityState === "hidden"`（即使 `--window foreground`、
+ * `tab select` 之后、`document.hasFocus()` 已经是 true，仍然是 hidden——Chrome 窗口被
+ * 遮挡/最小化就会这样）。隐藏标签页里 Chrome **完全停掉渲染生命周期**：
+ *   · `requestAnimationFrame` 一次都不回调（实测 4 秒内 __raf 恒为 0）；
+ *   · `IntersectionObserver` 一条记录都不投递（实测回调没跑、takeRecords() 也是 0）；
+ *   · 内部滚动容器的 `scroll-behavior` 是 `smooth`，而平滑滚动动画由渲染生命周期驱动，
+ *     所以 `pane.scrollTop = pane.scrollHeight` **赋值后同步读回来仍然是 0**，永远滚不动
+ *     （把 `style.scrollBehavior = "auto"` 强制成瞬时滚动之后，同一行赋值立刻生效：
+ *     scrollTop 0 → 1400.5）；
+ *   · 页面隐藏超过 5 分钟后 `setTimeout` 被 intensive throttling 压到 1 次/分钟，
+ *     于是「页内滚动 + setTimeout 等待」的循环 eval 必然撞 opencli 的 115s CDP 硬超时。
+ * 「Top queries / Rising queries」这块的数据请求就是挂在 IntersectionObserver 上的：
+ * 块的 DOM 骨架（h3 标题 + 空表格 + 两个 disabled 的 Download CSV 按钮）确实会挂载，
+ * 但**数据永远不会加载**——所以之前「加长等待」的方向从原理上就走不通，
+ * 「点 Download CSV 读文件」也走不通（按钮 `disabled=""`，因为它下面没有数据）。
+ *
+ * 换的路子：**旧版 REST 接口在新版页面上依然可用**【实测，10/10 成功，单次 1-2.5 秒】。
+ * 在同一个 trends.google.com 页面上下文里同源 fetch：
+ *   GET /trends/api/explore?hl&tz&req=<JSON>            → widgets[]，取 id=RELATED_QUERIES
+ *   GET /trends/api/widgetdata/relatedsearches?req=<widget.request>&token=<widget.token>
+ *       → { default: { rankedList: [ TOP, RISING ] } }
+ * 这条路不依赖滚动、不依赖可见性、不依赖懒加载，也不依赖抓包时序，是目前唯一
+ * 稳定的 related 取数路径（dataPath: rest）。DOM 解析保留成最后兜底（dataPath: dom），
+ * 但在隐藏标签页里它基本永远是空的，不再为它付滚动/等待的时间。
  *
  * 实测确认的三个 rpcid（higgsfield/manus 两词，多次真实请求验证）：
  *   qrLOJd  地区热度分布——**不走抓包，走 DOM 解析**（见上）
  *   g4kJzf  热度对比曲线——抓包路由，通常在 settle 等待期间已经发出
- *   fXqlme  相关查询（top + rising）——抓包路由，**懒加载**，须真实滚动到底触发
+ *   fXqlme  相关查询（top + rising）——**在隐藏标签页里永远不会发出**（挂在
+ *           IntersectionObserver 上，见上）。改走旧版 REST 接口，本脚本不再抓这个 rpcid
  *   UZBRtc  地图色块的几何数据（choropleth shape），体积达 4-5MB，本脚本不取
  *   DqDTgb / Tnt4U 初始加载时一起触发，推测是 widget 配置/token 引导调用，
  *           未逐字节解出结构，不在本脚本的取数路径上——标记为【推测】，不影响功能。
@@ -109,9 +136,15 @@ const SETTLE_MS = 4000;
 // 等抓包壳子里出现目标 rpcid 的最长时间/轮询间隔。
 const CAPTURE_TIMEOUT_MS = 15000;
 const CAPTURE_POLL_MS = 1000;
-// related 懒加载：真实滚动（不是 eval 硬改 scrollTop）触发的最多尝试次数。
-const SCROLL_ATTEMPTS = 8;
+// === 页内等待的硬规则【实测，2026-09-09】===
+// 标签页是隐藏的（见文件头），隐藏超过 5 分钟后 Chrome 把 setTimeout 压到 1 次/分钟。
+// 所以**任何等待都必须放在 Node 侧**（msleep）：页内 eval 一律写成同步的、立刻返回的，
+// 绝不在 eval 里 `await new Promise(r=>setTimeout(...))` 循环——那必然撞 opencli 的
+// 115s CDP 硬超时，连现场状态都读不回来（上一版 related 每次失败要烧近 3 分钟就是这个）。
 const SCROLL_WAIT_MS = 2500;
+// related 走 REST 路：单次 eval 的超时 + 重试轮数。整条命令（开页 + 取数）预算 ≤ 45s。
+const REST_EVAL_TIMEOUT_MS = 25_000;
+const REST_TRIES = 2;
 // region DOM 翻页：每页 5 条，最多翻的页数上限（防止 topN 传得离谱时无限翻页）。
 const REGION_MAX_PAGES = 20;
 
@@ -248,16 +281,18 @@ const INSTALL_CAPTURE_JS = `(()=>{
   return {installed: true};
 })()`;
 
-function openExploreWithCapture(session, url) {
+function openExploreWithCapture(session, url, { settleMs = SETTLE_MS } = {}) {
   const commands = JSON.stringify([
     { cmd: "open", args: { url } },
     { cmd: "eval", args: { js: INSTALL_CAPTURE_JS } },
-    // `wait time` 在已知的 opencli 版本里不准，用页内定时器代替（见旧版脚本同款注释）。
-    { cmd: "eval", args: { js: `(async()=>{await new Promise(r=>setTimeout(r,${SETTLE_MS}));return true})()` } },
   ]);
   try {
     opencliRaw(["browser", session, "--window", "foreground", "batch", "--commands", commands]);
     openAttempted = true;
+    // settle 等待放在 **Node 侧**：页内 `setTimeout` 在隐藏标签页里会被 Chrome 的
+    // intensive throttling 压到 1 次/分钟（【实测】），上一版把它写成页内定时器，
+    // 于是一个 4 秒的 settle 有时要等 60 秒，还会把整条 eval 拖进 CDP 硬超时。
+    if (settleMs > 0) msleep(settleMs);
   } catch (e) {
     const msg = (e.stderr || e.message || "").toString();
     fail("opencli-open-failed", `打开 explore 页失败：${msg.trim().slice(0, 400)}`, { stderr: msg.slice(0, 2000) });
@@ -282,32 +317,56 @@ function pollCapture(session, rpcid, { timeoutMs = CAPTURE_TIMEOUT_MS, intervalM
 }
 
 /**
- * 真实滚动（opencli 的 scroll 命令，模拟真实滚轮事件），不是 eval 硬改 scrollTop——
- * 【实测证伪】后者在这版新 UI 上经常不生效（div.scrollTop 赋值后原样弹回），
- * 前者能真正移动视口并触发懒加载渲染，见 trends.md「新版接口勘探」。
+ * === 滚动，2026-09-09 四次修订：只剩「同步滚一次」，不再有滚动等待循环 ===
+ *
+ * 【实测】新版 Explore 页的 `<html>` 根本不滚动
+ * （`document.scrollingElement.scrollHeight === clientHeight`），真正的滚动容器是页面
+ * 内部一个 `overflow-y:auto` 的 div（本机实测类名 `Jh24Ne`，scrollHeight 2036 /
+ * clientHeight 636-692）。opencli 的 `scroll` 命令滚的是窗口/根元素，对这一页无效。
+ *
+ * 但**光找对容器还不够**，这是之前三轮都卡死的地方：该容器的 `scroll-behavior` 计算值是
+ * `smooth`，平滑滚动动画由渲染生命周期驱动，而 opencli 标签页是 `visibilityState:"hidden"`
+ * 的，渲染生命周期整个停摆（rAF 一次都不回调）——于是 `pane.scrollTop = pane.scrollHeight`
+ * 赋值后**同步读回来仍然是 0**，看起来就像「滚不动」。修法是先把 `style.scrollBehavior`
+ * 强制成 `"auto"`：【实测】同一行赋值立刻生效，scrollTop 从 0 变成 1400.5（到底）。
+ *
+ * 第二条硬规则：eval 里**不准有 setTimeout 等待**（见上方常量区注释）。所以这个函数是
+ * 纯同步的一次性调用，需要等就由 Node 侧 msleep 之后再调一次。
+ *
+ * 注意：滚动只能让块的 DOM 骨架进入视口，**不能**让它加载数据——数据挂在
+ * IntersectionObserver 上，隐藏标签页里永远不回调。滚动现在只用来让 region 的表格
+ * 和截图证据好看一点，不再承担「触发懒加载」的职责。
  */
-function realScrollDown(session, times = 3) {
-  for (let i = 0; i < times; i++) {
-    try {
-      opencliRaw(["browser", session, "scroll", "down", "--amount", "3000"]);
-    } catch { /* 页面还没就绪，继续 */ }
-    msleep(SCROLL_WAIT_MS);
+const SCROLL_PANES_JS = `(()=>{
+  var out = [], all = document.querySelectorAll("div,main,section");
+  for (var i = 0; i < all.length; i++) {
+    var e = all[i];
+    if (e.scrollHeight <= e.clientHeight + 50) continue;
+    var s = getComputedStyle(e);
+    if (s.overflowY !== "auto" && s.overflowY !== "scroll") continue;
+    e.style.scrollBehavior = "auto";      // 关键：不改成 auto，隐藏标签页里 scrollTop 永远回弹到 0
+    e.scrollTop = e.scrollHeight;
+    out.push({ top: Math.round(e.scrollTop), height: e.scrollHeight });
   }
-}
+  var se = document.scrollingElement;
+  if (se && se.scrollHeight > se.clientHeight + 50) {
+    se.style.scrollBehavior = "auto";
+    se.scrollTop = se.scrollHeight;
+    out.push({ top: Math.round(se.scrollTop), height: se.scrollHeight });
+  }
+  return { panes: out.length, moved: out.some(function(p){ return p.top > 0; }),
+    top: out.reduce(function(a,p){ return Math.max(a, p.top); }, 0),
+    height: out.reduce(function(a,p){ return Math.max(a, p.height); }, 0) };
+})()`;
 
-/**
- * 滚动 + 轮询，直到抓包壳子里出现目标 rpcid 或用完预算。超时不当成硬错误：把
- * scrolled/attempts 如实记进 manifest，取数仍然继续，让上层用「没取到 vs 没需求」的
- * 框架去判读。
- */
-function scrollUntilCapture(session, rpcid) {
-  for (let attempt = 1; attempt <= SCROLL_ATTEMPTS; attempt++) {
-    const got = pollCapture(session, rpcid, { timeoutMs: 1, intervalMs: 1 });
-    if (got) return { scrolled: true, attempts: attempt };
-    realScrollDown(session, 1);
+/** 把所有可滚动容器同步滚到底。永远不抛；返回 { scrolled, top, height, panes }。 */
+function scrollPanesToBottom(session) {
+  try {
+    const r = firstJson(opencliRaw(["browser", session, "eval", SCROLL_PANES_JS], { timeout: 30_000 }));
+    return { scrolled: !!r?.moved, top: r?.top ?? null, height: r?.height ?? null, panes: r?.panes ?? 0 };
+  } catch {
+    return { scrolled: false, top: null, height: null, panes: 0 };
   }
-  const got = pollCapture(session, rpcid, { timeoutMs: CAPTURE_TIMEOUT_MS, intervalMs: CAPTURE_POLL_MS });
-  return got ? { scrolled: true, attempts: SCROLL_ATTEMPTS + 1 } : { scrolled: false, attempts: SCROLL_ATTEMPTS };
 }
 
 /**
@@ -381,7 +440,7 @@ function evidenceScene(dir, session) {
  * 开页+装抓包壳子 → 等 settle → （related 额外滚动到底）→ 抓指定 rpcid 的响应 →
  * 落证据 → 关会话。取数失败/为空都不下结论，现场留给判读者。
  */
-function runCaptureQuery(kws, opts, { rpcid, needScroll = false }) {
+function runCaptureQuery(kws, opts, { rpcid }) {
   const geo = opts.geo ?? "";
   const timeframe = toTimeframe(opts.time);
   const session = opts.session ?? defaultSession();
@@ -389,10 +448,12 @@ function runCaptureQuery(kws, opts, { rpcid, needScroll = false }) {
   const url = exploreUrlFor(kws, geo, timeframe, opts);
   const kwSlug = kws.join("_").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 60) || "kw";
   let stopReason = "completed";
-  let scrollInfo = { scrolled: null, attempts: 0 };
   let decoded = null;
   let capturedVia = null;
   let openRounds = 0;
+  let restBody = null;
+  let restErr = null;
+  let dataPath = "capture";
   // 抓包壳子装的时机跟页面自己发这个 widget 请求的时机是一场赛跑：多数情况下壳子能
   // 在请求发出前装好，但【实测，2026-09-09】即使同一个查询、同一套代码，个别整页
   // 加载会在壳子装好前就把请求发完（怀疑是 JS bundle 命中浏览器缓存、执行快到抢先），
@@ -400,25 +461,39 @@ function runCaptureQuery(kws, opts, { rpcid, needScroll = false }) {
   // 而不是加长单次等待。4 轮下（每轮独立同分布地"抢先"的概率若约 50%）失败概率
   // 压到 6% 左右，足够实用；仍然失败就如实把 openRounds/scrolled 记进 manifest，
   // 交给证据判读，不由脚本自己下"没有数据"的结论。
-  // 懒加载路径（related）单轮本来就慢（真实滚动 + 长轮询），round 数給少一点，
-  // 不然 4 轮 × 50s 会撞外层调用方的超时；非懒加载路径（compare）单轮便宜，多给几轮。
-  // related（needScroll）只给 1 轮抓包：抓不到就有 DOM 兜底顶上（见 cmdRelated），
-  // 把时间预算留给更可靠的那条路，而不是在抓包上重复赌概率。
-  const MAX_OPEN_ROUNDS = needScroll ? 1 : 4;
+  // related 已经有自己的生命周期（runRelated，抓包 + DOM 同一次滚动里一起探），
+  // 这里实际只服务 compare（g4kJzf，非懒加载，单轮便宜，多给几轮）。
+  const MAX_OPEN_ROUNDS = 4;
   try {
+    // === REST 主路【2026-09-09 四次修订】===
+    // 抓包路由跟 related 踩的是同一个坑：隐藏标签页渲染生命周期停摆，widget 的请求
+    // 可能压根不发（本轮实测 compare 连开 4 轮整页、capturedVia 全 null）。旧版
+    // /trends/api/widgetdata/multiline 在同一个页面上下文里同源打就能拿到完整曲线，
+    // 不依赖页面有没有把 widget 渲染出来，所以改成 REST 优先、抓包兜底。
+    openExploreWithCapture(session, url, { settleMs: 0 });
+    openRounds = 1;
+    const rest = fetchRestWidget(session, kws, geo, timeframe, opts, "TIMESERIES", "multiline");
+    if (rest.ok) {
+      restBody = rest.body;
+      restErr = null;
+      try {
+        writeFileSync(join(dir, "raw-multiline.json"), rest.body + "\n");
+      } catch { /* 落盘失败不影响判读 */ }
+      try {
+        writeFileSync(join(dir, `trends-${kwSlug}.json`), JSON.stringify({ keywords: kws, geo, timeframe, dataPath: "rest", restBody: JSON.parse(rest.body) }, null, 2) + "\n");
+      } catch { /* 同上 */ }
+      dataPath = "rest";
+      return { decoded: null, restBody, dataPath, geo, timeframe, evidenceDir: dir, session, capturedVia: null };
+    }
+    restErr = rest.err;
+
     let cap = null;
     while (!cap && openRounds < MAX_OPEN_ROUNDS) {
       openRounds++;
       openExploreWithCapture(session, url);
-      if (needScroll) {
-        scrollInfo = scrollUntilCapture(session, rpcid);
-      } else {
-        // 非懒加载 widget（如 g4kJzf）不靠滚动触发，靠等：一次性给够时间窗，
-        // 等不到就整页重开（见上），而不是死等更久——死等对"被抢跑"的场景没用。
-        cap = pollCapture(session, rpcid, { timeoutMs: 8000, intervalMs: 800 });
-        continue;
-      }
-      cap = pollCapture(session, rpcid);
+      // g4kJzf 不靠滚动触发，靠等：一次性给够时间窗，等不到就整页重开（见上），
+      // 而不是死等更久——死等对"被抢跑"的场景没用。
+      cap = pollCapture(session, rpcid, { timeoutMs: 8000, intervalMs: 800 });
     }
     if (cap) {
       capturedVia = cap.via;
@@ -430,7 +505,7 @@ function runCaptureQuery(kws, opts, { rpcid, needScroll = false }) {
     try {
       writeFileSync(join(dir, `trends-${kwSlug}.json`), JSON.stringify({ keywords: kws, geo, timeframe, rpcid, decoded }, null, 2) + "\n");
     } catch { /* 同上 */ }
-    return { decoded, geo, timeframe, evidenceDir: dir, session, capturedVia };
+    return { decoded, restBody, dataPath, geo, timeframe, evidenceDir: dir, session, capturedVia };
   } catch (e) {
     stopReason = e?.stopReason || "error";
     e.evidenceDir = dir;
@@ -441,7 +516,9 @@ function runCaptureQuery(kws, opts, { rpcid, needScroll = false }) {
       writeManifest(dir, {
         script: "gt-browser",
         route: "v2-explore",
-        dataPath: "capture",
+        // rest = 旧版 REST 接口（主路）；capture = batchexecute 抓包兜底
+        dataPath,
+        restErr,
         keywords: kws,
         geo,
         timeframe,
@@ -450,9 +527,8 @@ function runCaptureQuery(kws, opts, { rpcid, needScroll = false }) {
         rpcid,
         capturedVia,
         openRounds,
-        scrolled: scrollInfo.scrolled,
-        scrollAttempts: scrollInfo.attempts,
-        lazyBlocksLoaded: scrollInfo.scrolled === true,
+        scrolled: null,
+        lazyBlocksLoaded: null,
         stopReason,
         finishedAt: new Date().toISOString(),
       });
@@ -481,12 +557,45 @@ function runRegionQuery(kws, opts, topN) {
   const seen = new Map(); // geoCode -> {name, values: Map(kw->num)}
   let scrolled = false;
   let pages = 0;
+  let dataPath = "dom";
+  let restTries = 0;
+  let restErr = null;
   try {
-    // region 不需要抓包壳子，但仍走同一个 open+settle 入口，保持行为一致（前台窗口、
-    // 同样的 settle 等待），只是第二个 eval（装抓包壳子）对 region 无害地空跑。
+    // region 不需要抓包壳子，但仍走同一个 open 入口，保持行为一致（前台窗口）；
+    // 第二个 eval（装抓包壳子）对 region 无害地空跑。
     openExploreWithCapture(session, url);
-    realScrollDown(session, 1);
-    scrolled = true;
+    scrolled = scrollPanesToBottom(session).scrolled;
+
+    // === REST 主路：/trends/api/widgetdata/comparedgeo【2026-09-09 四次修订】===
+    // DOM 路要靠页面把地区表格渲染出来 + 点「Go to next page」翻页，一次只能拿 5 行，
+    // 而且在隐藏标签页里随时可能是空的。REST 一次就把**全部**地区拿回来，
+    // 语义跟 DOM 完全一致（多关键词时 value 也是「同地区内的相对份额，和为 100」）。
+    // --resolution 通过 reqPatch 直接改 widget.request.resolution，
+    // 取值 COUNTRY / REGION / CITY（旧版归档脚本同款命名）。
+    const resMap = { country: "COUNTRY", region: "REGION", city: "CITY" };
+    const reqPatch = opts.resolution ? { resolution: resMap[String(opts.resolution).toLowerCase()] || String(opts.resolution).toUpperCase() } : null;
+    const rest = fetchRestWidget(session, kws, geo, timeframe, opts, "GEO_MAP", "comparedgeo", { reqPatch });
+    restTries = rest.tries;
+    restErr = rest.err;
+    if (rest.ok) {
+      let geoRows = [];
+      try {
+        geoRows = JSON.parse(rest.body)?.default?.geoMapData || [];
+      } catch { geoRows = []; }
+      for (const g of geoRows) {
+        if (!g?.geoCode) continue;
+        const values = new Map();
+        kws.forEach((k, i) => values.set(k, Number(g.value?.[i] ?? 0)));
+        seen.set(g.geoCode, { name: g.geoName || g.geoCode, values });
+      }
+      if (seen.size) {
+        dataPath = "rest";
+        try {
+          writeFileSync(join(dir, "raw-comparedgeo.json"), rest.body + "\n");
+        } catch { /* 落盘失败不影响判读 */ }
+        return { seen, geo, timeframe, evidenceDir: dir, session };
+      }
+    }
 
     const readRowsJs = `(()=>{
       var trs = [].slice.call(document.querySelectorAll("tr[data-geo-code]"));
@@ -562,7 +671,10 @@ function runRegionQuery(kws, opts, topN) {
       writeManifest(dir, {
         script: "gt-browser",
         route: "v2-explore",
-        dataPath: "dom",
+        // rest = 旧版 REST 接口（主路，一次拿全量）；dom = 表格 DOM + 翻页兜底
+        dataPath,
+        restTries,
+        restErr,
         keywords: kws,
         geo,
         timeframe,
@@ -593,7 +705,26 @@ function widgetEmptyExit(evidenceDir, whatFor, reasonLine) {
 function cmdCompare(kws, opts) {
   if (!kws.length) die("compare 需要至少 1 个关键词，最多 5 个");
   if (kws.length > 5) die("Google Trends 一次最多对比 5 个关键词");
-  const { decoded, geo, timeframe, evidenceDir } = runCaptureQuery(kws, opts, { rpcid: "g4kJzf", needScroll: false });
+  const { decoded, restBody, dataPath, geo, timeframe, evidenceDir } = runCaptureQuery(kws, opts, { rpcid: "g4kJzf" });
+
+  // === REST 主路：/trends/api/widgetdata/multiline ===
+  // 结构【实测，2026-09-09】：{default:{timelineData:[{time:"<epoch秒>", formattedTime,
+  // value:[每个关键词一个 0-100 整数], hasData:[...], formattedValue:[...]}, ...]}}
+  // 关键词顺序与请求里的 comparisonItem 顺序一致，直接按下标取。
+  if (dataPath === "rest") {
+    let timeline = [];
+    try {
+      timeline = JSON.parse(restBody)?.default?.timelineData || [];
+    } catch { timeline = []; }
+    const rows = timeline.map((pt) => [
+      pt.time ? new Date(Number(pt.time) * 1000).toISOString().slice(0, 10) : (pt.formattedAxisTime || ""),
+      ...kws.map((_, i) => (pt.value?.[i] == null ? "" : String(pt.value[i]))),
+    ]);
+    if (!rows.length) widgetEmptyExit(evidenceDir, "热度对比曲线（multiline，REST）");
+    printCompare(kws, geo, timeframe, rows);
+    return;
+  }
+
   // 【实测，2026-09-09】g4kJzf 解码后的真实结构比最初勘探时记的多包一层：
   // `[[[keyword, ?, ?, ?, [[value,...],...]], ...]]`——外层多一个只有一个元素的
   // 数组包着真正的「每关键词一条」数组。旧假设（decoded 直接就是那个数组）来自勘探
@@ -621,6 +752,11 @@ function cmdCompare(kws, opts) {
     rows.push([date, ...vals]);
   }
   if (!rows.length) widgetEmptyExit(evidenceDir, "热度对比曲线（g4kJzf，解析后为空）");
+  printCompare(kws, geo, timeframe, rows);
+}
+
+/** compare 的输出（REST 主路与抓包兜底共用，两条路解析出来的 rows 形状一样）。 */
+function printCompare(kws, geo, timeframe, rows) {
   console.log(`## 热度对比：${kws.join(" vs ")}`);
   console.log(scopeLine(geo, timeframe));
   console.log(mdTable(["date", ...kws], rows));
@@ -657,77 +793,224 @@ function cmdRegion(kws, opts) {
 }
 
 /**
- * related 的 DOM 兜底：fXqlme 抓包路由跟 qrLOJd 一样，会在某些整页加载里怎么都抓不到
- * ——不是滚动没到位（【实测】DOM 里 h3「Top queries」/「Rising queries」标题已经挂载），
- * 是这次请求本身走了抓包壳子装上之前就缓存好的原生 fetch/XHR 引用，壳子天生看不到。
- * 抓包在 cmdRelated 里失败后，退化到直接读表格 DOM：`Top queries`/`Rising queries` 标题
- * 下面的表格行，第 2 列是查询词，第 3 列是「Search interest: N」（Top）或
- * 「Breakout」/百分比涨幅（Rising）。跟 region 的 DOM 兜底同一套「真实滚动 + 轮询」骨架。
+ * === related 主路：旧版 REST 接口（dataPath: rest）【实测，2026-09-09 四次修订】===
+ *
+ * 新版页面的相关查询 widget（rpcid `fXqlme`）挂在 IntersectionObserver 上，而 opencli
+ * 标签页是隐藏的、渲染生命周期停摆，IO 永远不回调 —— 所以它在自动化里**永远拿不到**
+ * （完整根因见文件头）。但旧版那对 REST 接口在 trends.google.com 的页面上下文里
+ * **依然可用**（同源 fetch，带用户已登录的 cookie）：
+ *
+ *   1) GET /trends/api/explore?hl=en-US&tz=0&req=<JSON>
+ *      req = {comparisonItem:[{keyword, geo, time}], category, property}
+ *      响应带 `)]}'` 前缀，去掉后是 {widgets:[{id, request, token}, ...]}，
+ *      取 id === "RELATED_QUERIES" 的那个。
+ *   2) GET /trends/api/widgetdata/relatedsearches?hl=en-US&tz=0&req=<widget.request>&token=<widget.token>
+ *      响应同样带前缀，去掉后是 { default: { rankedList: [ TOP, RISING ] } }。
+ *
+ * 【实测，higgsfield / manus 各 5 次，10/10 成功，单次 1.0-2.5 秒】rankedList 恒为 2 条，
+ * **下标 0 = Top queries**（formattedValue 是 0-100 的整数，如 "100"/"13"），
+ * **下标 1 = Rising queries**（formattedValue 是 "Breakout" 或 "+3,450%"）——
+ * 语义由数据本身自证，并与页面上「Top queries / Rising queries」两块标题对得上。
+ *
+ * 注意：这条路**只解决 related**。旧版 RELATED_TOPICS 仍然恒回空（接口把脚本会话标成
+ * USER_TYPE_SCRAPER），跟归档版记录一致，本命令不提供相关主题。
  */
-function runRelatedDom(kws, opts) {
+/**
+ * 通用：在 trends.google.com 的页面上下文里打旧版那对 REST 接口，取某个 widget 的原始响应。
+ *
+ *   1) GET /trends/api/explore?hl=en-US&tz=0&req=<JSON>  → {widgets:[{id, request, token}, ...]}
+ *   2) GET /trends/api/widgetdata/<path>?req=<widget.request>&token=<widget.token>
+ *
+ * 两个响应都带 `)]}'` 反 XSSI 前缀，去掉到第一个 `{` 为止即可 JSON.parse。
+ * 全同步风格的 promise 链，页内没有任何 setTimeout（隐藏标签页里定时器会被压到
+ * 1 次/分钟，见常量区注释）。失败统一 catch 成 {ok:false, err}，不让 eval 抛。
+ *
+ * widgetId / path 的对应【实测，2026-09-09】：
+ *   TIMESERIES      → multiline        （热度曲线，compare）
+ *   GEO_MAP         → comparedgeo      （地区分布，region）
+ *   RELATED_QUERIES → relatedsearches  （相关查询，related）
+ * RELATED_TOPICS（相关主题）仍然恒回空 rankedList，跟归档版记录一致，本脚本不用它。
+ */
+function restWidgetJs(kws, geo, timeframe, opts, widgetId, path, reqPatch = null) {
+  const req = {
+    comparisonItem: kws.map((k) => ({ keyword: k, geo: geo || "", time: timeframe })),
+    category: Number(opts.category) || 0,
+    property: normalizeProperty(opts.property),
+  };
+  const exploreApi =
+    "https://trends.google.com/trends/api/explore?hl=en-US&tz=0&req=" +
+    encodeURIComponent(JSON.stringify(req));
+  return `(function(){
+  function strip(t){ var i = t.indexOf("{"); return i < 0 ? t : t.slice(i); }
+  return fetch(${JSON.stringify(exploreApi)}, {credentials:"include"})
+    .then(function(r){ if(!r.ok) throw new Error("explore HTTP " + r.status); return r.text(); })
+    .then(function(t){
+      var d = JSON.parse(strip(t));
+      var w = (d.widgets || []).filter(function(x){ return x.id === ${JSON.stringify(widgetId)}; })[0];
+      if (!w) throw new Error("explore 响应里没有 ${widgetId} widget");
+      var patch = ${JSON.stringify(reqPatch)};
+      if (patch) for (var k in patch) w.request[k] = patch[k];
+      var u2 = "https://trends.google.com/trends/api/widgetdata/${path}?hl=en-US&tz=0&req="
+        + encodeURIComponent(JSON.stringify(w.request)) + "&token=" + encodeURIComponent(w.token);
+      return fetch(u2, {credentials:"include"}).then(function(r2){
+        if (!r2.ok) throw new Error("${path} HTTP " + r2.status);
+        return r2.text();
+      });
+    })
+    .then(function(t2){ return {ok:true, body: strip(t2)}; })
+    .catch(function(e){ return {ok:false, err: String((e && e.message) || e)}; });
+})()`;
+}
+
+/**
+ * 跑 restWidgetJs，最多 tries 次（重试之间在 **Node 侧** msleep）。永远不抛。
+ * 返回 { ok, body, err, tries }。
+ */
+function fetchRestWidget(session, kws, geo, timeframe, opts, widgetId, path, { tries = REST_TRIES, reqPatch = null } = {}) {
+  const js = restWidgetJs(kws, geo, timeframe, opts, widgetId, path, reqPatch);
+  let err = null;
+  let used = 0;
+  while (used < tries) {
+    used++;
+    let r = null;
+    try {
+      r = firstJson(opencliRaw(["browser", session, "eval", js], { timeout: REST_EVAL_TIMEOUT_MS }));
+    } catch (e) {
+      err = `eval 失败/超时：${String(e?.message || e).slice(0, 200)}`;
+    }
+    if (r?.ok && r.body) return { ok: true, body: r.body, err: null, tries: used };
+    if (r && r.ok === false) err = String(r.err || "unknown").slice(0, 300);
+    if (used < tries) msleep(1500);
+  }
+  return { ok: false, body: null, err, tries: used };
+}
+
+/**
+ * 把 relatedsearches 的响应体解成两张表。
+ * 【实测】rankedList[0] = Top（formattedValue 是 0-100 整数），[1] = Rising（Breakout/百分比）。
+ * 取 formattedValue 而不是 value：Rising 的 value 是原始涨幅整数（Breakout 时是哨兵大数），
+ * formattedValue 才是页面上真正显示的那个字符串，直接可读、也不需要再猜封顶阈值。
+ */
+function parseRelatedRest(body) {
+  let d;
+  try {
+    d = JSON.parse(body);
+  } catch (e) {
+    fail("rest-decode-failed", `解析 relatedsearches 响应失败：${String(e.message || e).slice(0, 200)}`, { head: String(body).slice(0, 300) });
+  }
+  const lists = d?.default?.rankedList || [];
+  const pick = (i) =>
+    (lists[i]?.rankedKeyword || [])
+      .map((k) => [String(k.query ?? ""), String(k.formattedValue ?? k.value ?? "")])
+      .filter((r) => r[0]);
+  return { top: pick(0), rising: pick(1) };
+}
+
+/**
+ * DOM 兜底（dataPath: dom）：REST 两次都失败时才走。锚点是数值单元格上的 data-* 属性
+ * （`<div class="GaWfqe" aria-label="Search interest: 100" data-query="ai"
+ * data-search-interest="100">`），按 `[data-query][data-search-interest]` 找行，
+ * 天然跳过表头与 `aria-live` 占位行。Top / Rising 的归属用页面上的区块标题文字判定。
+ *
+ * 【实测，本轮】在隐藏标签页里这条路基本恒空——块的骨架挂载了，数据永远不来。
+ * 保留它只是为了「万一哪天标签页真的是可见的」，而且它只是一次同步 eval，成本可忽略，
+ * **不再为它做任何滚动等待循环**。
+ */
+const RELATED_DOM_PROBE_JS = `(()=>{
+function __sect(re){
+  var h = [].slice.call(document.querySelectorAll("h3")).filter(function(e){ return re.test(e.textContent); })[0];
+  if (!h) return null;
+  var n = h.parentElement;
+  for (var j = 0; j < 8 && n; j++) { if (n.querySelector("table")) break; n = n.parentElement; }
+  return n;
+}
+function __rows(n){
+  if (!n) return [];
+  return [].slice.call(n.querySelectorAll("tr")).map(function(tr){
+    var d = tr.querySelector("[data-query][data-search-interest]");
+    if (!d) return null;
+    var tds = tr.querySelectorAll("td");
+    return {
+      query: d.getAttribute("data-query"),
+      value: d.getAttribute("data-search-interest"),
+      change: (tds[3] ? tds[3].innerText : "").replace(/\\s+/g, " ").replace(/^(south|north)\\s*/, "").trim()
+    };
+  }).filter(Boolean);
+}
+var __t = __rows(__sect(/Top queries/i)), __g = __rows(__sect(/Rising queries/i));
+return { top: __t, rising: __g,
+  h3: [].slice.call(document.querySelectorAll("h3")).map(function(e){ return e.textContent.trim(); }) };
+})()`;
+
+/**
+ * related 的完整生命周期【2026-09-09 四次修订】：
+ *   开页（同时装抓包壳子，纯粹是为了跟 compare 共用一个入口）→ 同步滚一次（只为截图证据）
+ *   → REST 取数（最多 REST_TRIES 次，每次一个 eval）→ 还不行才做一次 DOM 兜底探测
+ *   → 落证据 → 关会话。
+ * 预算：开页 ~20s + settle 4s + REST 1-3s ≈ 30s；最坏（REST 两次都超时）也被
+ * `REST_EVAL_TIMEOUT_MS` 卡住，整条命令不会像上一版那样一失败就烧掉近 3 分钟。
+ */
+function runRelated(kws, opts) {
   const geo = opts.geo ?? "";
   const timeframe = toTimeframe(opts.time);
   const session = opts.session ?? defaultSession();
   const dir = newEvidenceDir("gt-browser");
   const url = exploreUrlFor(kws, geo, timeframe, opts);
-  let stopReason = "completed";
-  let scrolled = false;
-  const sections = { top: [], rising: [] };
-  try {
-    openExploreWithCapture(session, url); // 装抓包壳子对 DOM 兜底无害，跳过即可
-    const readTablesJs = `(()=>{
-      var h3s = [].slice.call(document.querySelectorAll("h3")).filter(function(e){return /Top queries|Rising queries/.test(e.textContent);});
-      function rowsFor(h3){
-        var c = h3.closest("div");
-        var hops = 0;
-        while (c && c.querySelectorAll("tr").length < 2 && c.parentElement && hops < 8) { c = c.parentElement; hops++; }
-        var trs = c ? [].slice.call(c.querySelectorAll("tr")) : [];
-        return trs.map(function(tr){
-          var tds = tr.querySelectorAll("td");
-          if (tds.length < 3) return null;
-          var rank = (tds[0].textContent || "").trim();
-          if (!/^\\d+$/.test(rank)) return null; // 跳过表头行
-          var query = (tds[1].textContent || "").trim();
-          var valueCell = tds[2];
-          var bar = valueCell.querySelector("[aria-label]");
-          var al = bar ? bar.getAttribute("aria-label") || "" : "";
-          var text = (valueCell.textContent || "").trim();
-          return { query: query, al: al, text: text };
-        }).filter(Boolean);
-      }
-      var out = { top: [], rising: [] };
-      h3s.forEach(function(h3){
-        var key = /Rising/.test(h3.textContent) ? "rising" : "top";
-        out[key] = rowsFor(h3);
-      });
-      return out;
-    })()`;
+  const kwSlug = kws.join("_").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 60) || "kw";
 
-    const got = pollUntil(
-      () => {
-        realScrollDown(session, 1);
-        const raw = opencliRaw(["browser", session, "eval", readTablesJs]);
-        const parsed = firstJson(raw);
-        const total = (parsed?.top?.length || 0) + (parsed?.rising?.length || 0);
-        return total > 0 ? parsed : null;
-      },
-      { timeoutMs: 60000, intervalMs: SCROLL_WAIT_MS },
-    );
-    scrolled = !!got;
-    if (got) {
-      for (const r of got.top || []) {
-        const m = r.al.match(/Search interest:\s*(\d+)/i);
-        sections.top.push([r.query, m ? m[1] : r.text.replace(r.query, "").trim() || "0"]);
-      }
-      for (const r of got.rising || []) {
-        const isBreakout = /breakout/i.test(r.text) || /breakout/i.test(r.al);
-        sections.rising.push([r.query, isBreakout ? "Breakout" : (r.text.replace(r.query, "").trim() || r.al || "0")]);
+  let stopReason = "completed";
+  let dataPath = "none";
+  let restTries = 0;
+  let restErr = null;
+  let scrolled = false;
+  let domH3 = null;
+  const sections = { top: [], rising: [] };
+  const t0 = Date.now();
+  try {
+    // related 走 REST，只需要「页面已经落在 trends.google.com 同源上下文」，
+    // 不需要等 widget 起来，所以 settle 直接给 0（省掉 4 秒）。
+    openExploreWithCapture(session, url, { settleMs: 0 });
+    scrolled = scrollPanesToBottom(session).scrolled;
+
+    const rest = fetchRestWidget(session, kws, geo, timeframe, opts, "RELATED_QUERIES", "relatedsearches");
+    restTries = rest.tries;
+    restErr = rest.err;
+    if (rest.ok) {
+      try {
+        writeFileSync(join(dir, "raw-relatedsearches.json"), rest.body + "\n");
+      } catch { /* 落盘失败不影响判读，manifest 会记录 */ }
+      const parsed = parseRelatedRest(rest.body);
+      if (parsed.top.length || parsed.rising.length) {
+        sections.top = parsed.top;
+        sections.rising = parsed.rising;
+        dataPath = "rest";
+      } else {
+        restErr = "REST 返回了合法响应但两张榜都是空的（Google 侧没给数据）";
       }
     }
+
+    if (dataPath === "none") {
+      // 一次性 DOM 兜底探测（同步 eval，不做任何滚动等待循环）。
+      try {
+        const dom = firstJson(opencliRaw(["browser", session, "eval", RELATED_DOM_PROBE_JS], { timeout: 30_000 }));
+        domH3 = dom?.h3 ?? null;
+        const t = (dom?.top || []).map((r) => [String(r.query), String(r.value ?? ""), r.change || ""]);
+        const g = (dom?.rising || []).map((r) => [String(r.query), String(r.value ?? ""), r.change || ""]);
+        if (t.length || g.length) {
+          sections.top = t;
+          sections.rising = g;
+          dataPath = "dom";
+        }
+      } catch { /* DOM 兜底失败就保持 none，证据目录里有截图 */ }
+    }
+
     try {
-      writeFileSync(join(dir, "raw-fXqlme-dom.json"), JSON.stringify(sections, null, 2) + "\n");
-    } catch { /* 落盘失败不影响判读 */ }
-    return { sections, geo, timeframe, evidenceDir: dir, session };
+      writeFileSync(
+        join(dir, `trends-${kwSlug}.json`),
+        JSON.stringify({ keywords: kws, geo, timeframe, dataPath, sections, restTries, restErr }, null, 2) + "\n",
+      );
+    } catch { /* 同上 */ }
+    return { sections, dataPath, geo, timeframe, evidenceDir: dir, session, restErr };
   } catch (e) {
     stopReason = e?.stopReason || "error";
     e.evidenceDir = dir;
@@ -738,20 +1021,30 @@ function runRelatedDom(kws, opts) {
       writeManifest(dir, {
         script: "gt-browser",
         route: "v2-explore",
-        dataPath: "dom",
+        // rest = 旧版 REST 接口（主路）；dom = 页面表格兜底；none = 两条都没拿到。
+        dataPath,
         keywords: kws,
         geo,
         timeframe,
         session,
         exploreUrl: url,
-        rpcid: "fXqlme",
-        domTopRows: sections.top.length,
-        domRisingRows: sections.rising.length,
+        restEndpoint: "/trends/api/widgetdata/relatedsearches",
+        restTries,
+        restErr,
+        // scrolled 只说明「滚动容器动了」，跟能不能取到数已经没有因果关系了
+        // （related 走 REST，不依赖滚动）——留着是为了对拍截图里看到的画面。
         scrolled,
+        // 新版懒加载块在隐藏标签页里永远不会加载数据（IntersectionObserver 不回调），
+        // 所以这一项现在只反映「DOM 兜底有没有读到行」，正常情况下就是 false。
+        lazyBlocksLoaded: dataPath === "dom",
+        domH3,
+        topRows: sections.top.length,
+        risingRows: sections.rising.length,
+        elapsedMs: Date.now() - t0,
         stopReason,
         finishedAt: new Date().toISOString(),
       });
-    } catch { /* 同上 */ }
+    } catch { /* manifest 写不进也不能拦住关会话 */ }
     if (opts.keepSession) {
       console.error(`[gt-browser] 会话 ${session} 已保留，用完请释放：\n  node gt-browser.mjs close --session ${session}`);
     } else {
@@ -762,62 +1055,41 @@ function runRelatedDom(kws, opts) {
 
 function cmdRelated(kws, opts) {
   if (kws.length !== 1) die("related 只支持单个关键词");
-  const capture = runCaptureQuery(kws, opts, { rpcid: "fXqlme", needScroll: true });
-  const entry = Array.isArray(capture.decoded) ? capture.decoded.find((e) => e[0] === kws[0]) || capture.decoded[0] : null;
+  const { sections, dataPath, geo, timeframe, evidenceDir, restErr } = runRelated(kws, opts);
 
-  let topList = null;
-  let risingList = null;
-  let geo = capture.geo;
-  let timeframe = capture.timeframe;
-  let evidenceDir = capture.evidenceDir;
-  let dataPath = "capture";
-
-  if (entry) {
-    // entry[1]：value 接近/等于 5000 的封顶型数组 → 飙升（Rising，含 Breakout）
-    // entry[2]：value 0-100 的常规相关度数组 → 高频（Top）
-    // 【实测确认，2026-09-09】页面上「Top queries」区块 = 0-100 常规刻度 + 涨跌幅列，
-    // 「Rising queries」区块 = 全部标 Breakout/百分比涨幅，与经典 API 语义一致，
-    // 直接在页面 DOM 里核对过标题文字，不再是推断。
-    risingList = entry[1];
-    topList = entry[2];
-  } else {
-    // 抓包没抓到——不代表没数据，fXqlme 跟 qrLOJd 一样偶尔会在壳子装好前就把原生
-    // fetch/XHR 引用缓存走，壳子看不到。退化到直接读页面表格 DOM。
-    const dom = runRelatedDom(kws, opts);
-    geo = dom.geo;
-    timeframe = dom.timeframe;
-    evidenceDir = dom.evidenceDir;
-    dataPath = "dom";
-    if (dom.sections.top.length || dom.sections.rising.length) {
-      topList = dom.sections.top;
-      risingList = dom.sections.rising;
-    }
-  }
-
-  if (!topList?.length && !risingList?.length) {
+  if (!sections.top.length && !sections.rising.length) {
     widgetEmptyExit(
       evidenceDir,
-      "相关查询（fXqlme）",
-      "相关查询为空——这块是懒加载的，抓包与 DOM 兜底都没取到；如果 manifest 里 scrolled=false，先看是不是滚动没触发到底，不要直接读成零相关词。",
+      "相关查询（/trends/api/widgetdata/relatedsearches）",
+      `相关查询为空——REST 主路和 DOM 兜底都没取到${restErr ? `（最后一次失败：${restErr}）` : ""}。` +
+        "先看 manifest 里的 restErr：HTTP 429/302 是 Google 侧限流（隔几分钟重试）；" +
+        "「没有 RELATED_QUERIES widget」通常是这个词太冷、Google 本来就不给相关查询。" +
+        "别直接读成零相关词。",
     );
   }
+
   console.log(`## 相关查询：${kws[0]}`);
-  console.log(scopeLine(geo, timeframe));
+  console.log(`\n> 范围：${geo || "全球"} · ${timeframe} · Top 是 0-100 相对搜索热度，Rising 是区间内涨幅（Breakout = 涨幅超出可测量范围）\n`);
   if (dataPath === "dom") {
-    console.log("> 注：本次走 DOM 兜底取数（抓包没拿到这次的请求），数值来自页面渲染文本，非原始接口值。\n");
+    console.log("> 注：本次走 DOM 兜底取数（REST 接口没取到），数值来自页面渲染的 data-* 属性，只覆盖两张表的当前页（各 10 条）。\n");
   }
   const topN = Number(opts.top || 15);
-  const sections = [
-    ["飙升 Rising（对应页面「Rising queries」区块，含 Breakout）", risingList],
-    ["高频 Top（对应页面「Top queries」区块，value 0-100 相对热度）", topList],
+  // 两张表的列义本来就不同，所以表头分开写，不硬凑成同一组列：
+  // Top 是 0-100 的相对搜索热度，Rising 是涨幅（Breakout / +N%），没有可比性。
+  const groups = [
+    ["飙升 Rising（对应页面「Rising queries」区块，含 Breakout）", sections.rising, "growth"],
+    ["高频 Top（对应页面「Top queries」区块，0-100 相对热度）", sections.top, "value"],
   ];
-  for (const [label, list] of sections) {
+  for (const [label, list, valueHeader] of groups) {
     console.log(`### ${label}`);
-    if (!Array.isArray(list) || !list.length) {
+    const rows = Array.isArray(list) ? list.slice(0, topN) : [];
+    if (!rows.length) {
       console.log("（无数据）\n");
       continue;
     }
-    console.log(mdTable(["query", "value"], list.slice(0, topN).map(([q, v]) => [q, String(v)])));
+    // DOM 兜底给的是 3 列（query / value / change），REST 主路给 2 列。
+    const headers = rows[0].length >= 3 ? ["query", "value", "change"] : ["query", valueHeader];
+    console.log(mdTable(headers, rows));
     console.log();
   }
 }
@@ -868,8 +1140,9 @@ function main() {
         "  --session NAME  会话名（默认 rankup-gt-trends-<每对话唯一后缀>）",
         "  --keep-session  跑完保留会话，连续查询后用 close 释放",
         "",
-        "取数机制：compare/related 抓页面自身发出的 batchexecute 请求（fetch/XHR 抓包壳子）；",
-        "region 直接解析地区表格 DOM（不走抓包，见脚本头注释）。",
+        "取数机制：compare 抓页面自身发出的 batchexecute 请求（fetch/XHR 抓包壳子）；",
+        "region 直接解析地区表格 DOM；related 在页面上下文里打旧版 REST 接口",
+        "（/trends/api/explore + /trends/api/widgetdata/relatedsearches，见脚本头注释）。",
         "旧版（/trends/explore）路由已归档：rankup/scripts/archive/gt-v1/",
       ].join("\n"),
     );
