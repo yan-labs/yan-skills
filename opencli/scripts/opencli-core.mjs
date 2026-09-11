@@ -17,6 +17,134 @@ import { appendFileSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync 
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 
+/* ------------------------------------------------------------------ *
+ * 限流 / 降级判据
+ * ------------------------------------------------------------------ *
+ * 规则表放在文件最顶上，方便以后直接在这个数组里加一行，不用去翻整个文件。
+ *
+ * 背景：配额站（Semrush / Similarweb）的限流、设备上限、降级渲染全是
+ * HTTP 200 + DOM 齐全，只是数据没来——`opencli daemon logs` 和访问日志的
+ * `bytes` 字段都分不出来，只有页面原文能分。2026-08-28 实测抓到的降级
+ * 形态是：标题正常显示 `Dashboards`，指标全是 `n/a`，页面上还留着一个
+ * 没被解析的 i18n key `state.undefined`（详见 SKILL.md 第七节、
+ * `captureSample` 的注释）。设备上限那次是原生 `alert`，把 JS 线程堵死，
+ * 文案本身没能实测记录下来，只留下了「配额站上出现原生 dialog」这一个
+ * 结构性信号。
+ *
+ * `detectDegradation` 是纯函数，不碰浏览器、不做 IO——方便直接单测。
+ * 每条规则标了来源：「实测」是真的抓到过样本，「文档」是按 SKILL.md 和
+ * 用户反馈整理的已知措辞，样本不够时先当第一版规则用，抓到真样本后
+ * 再回来收紧或改成「实测」。
+ *
+ * `siteKeys` 为 `null`/未写表示所有站点都适用；否则只在列出的配额站
+ * key（`QUOTA_SITES` 里的 `key`）上生效——例如设备上限规则依赖「原生
+ * dialog」这个信号，只在配额站上出现才是已知问题，普通站弹一个
+ * confirm/alert 太常见，不能当限流证据用。
+ */
+export const DEGRADATION_RULES = [
+  {
+    kind: 'degraded-render',
+    siteKeys: ['semrush'],
+    source: '实测 2026-08-28（sem.3ue.co 降级页抓样，SKILL.md 第七节记录原文）',
+    detect(text) {
+      const hasLeakedKey = /state\.undefined/.test(text);
+      const naCount = (text.match(/\bn\/a\b/gi) || []).length;
+      // 两个信号都要有：单独出现 n/a 不算数（正常报表里某几格是 n/a 很常见），
+      // 单独出现 state.undefined 也不够——实测样本是两者同时出现。
+      if (hasLeakedKey && naCount >= 3) {
+        return [
+          '未解析的 i18n key: state.undefined',
+          `指标疑似全部 n/a（命中 ${naCount} 次）`,
+        ];
+      }
+      return null;
+    },
+  },
+  {
+    kind: 'device-limit',
+    siteKeys: ['semrush', 'similarweb'],
+    source: '实测 2026-08-28（原生 alert 挡住 eval，逃生路径靠 close，文案本身未逐字记录）',
+    detect(text, meta) {
+      const dialog = meta?.dialogText;
+      if (!dialog) return null;
+      const raw = String(dialog);
+      const evidence = [`配额站上出现原生 dialog: ${raw.slice(0, 200)}`];
+      const knownWording = [
+        /(maximum|max)\D{0,10}(number of\s+)?(devices|sessions|seats)/i,
+        /already (logged in|signed in|active)\b[^.]{0,40}\b(device|session|browser)/i,
+        /(one|1)\s+(device|session)\s+at a time/i,
+      ];
+      if (knownWording.some((re) => re.test(raw))) {
+        evidence.push('命中已知的设备上限措辞');
+      } else {
+        evidence.push('措辞未命中已知列表，仅按「配额站上弹 dialog = 设备上限」这条结构性信号判定，建议人工复核');
+      }
+      return evidence;
+    },
+  },
+  {
+    kind: 'rate-limit',
+    siteKeys: null,
+    source: '文档整理（SKILL.md 第七节 + 用户反馈，尚无实测样本，命中即建议人工复核）',
+    detect(text) {
+      const patterns = [
+        /you(?:'|’)ve reached (?:the|your) (?:daily |monthly |weekly )?limit/i,
+        /usage limit reached/i,
+        /rate limit exceeded/i,
+        /too many requests/i,
+        /request limit exceeded/i,
+        /quota exceeded/i,
+        /you have exceeded the (?:number of )?(?:requests|queries)/i,
+      ];
+      const hit = patterns.find((re) => re.test(text));
+      return hit ? [`命中限流提示短语（正则 ${hit}）`] : null;
+    },
+  },
+  {
+    kind: 'auth',
+    siteKeys: null,
+    source: '文档整理（尚无实测样本）',
+    detect(text) {
+      const patterns = [
+        /please (?:sign|log) in to continue/i,
+        /your session has expired/i,
+        /session expired[^.]{0,20}(?:sign|log) in/i,
+      ];
+      const hit = patterns.find((re) => re.test(text));
+      return hit ? [`命中登录态失效短语（正则 ${hit}）`] : null;
+    },
+  },
+];
+
+// 一次页面文本可能同时踩中多条规则（比如既有 dialog 又有限流短语）。
+// 优先级从高到低：设备上限和登录态是硬信号（结构性证据，误判成本低），
+// 限流短语其次，降级渲染放最后——它只在没有更强信号时才作为兜底结论。
+const DEGRADATION_KIND_PRIORITY = ['device-limit', 'auth', 'rate-limit', 'degraded-render'];
+
+/**
+ * 纯函数：从提取到的页面文本 + 可选元信息判断这次访问是不是限流/降级。
+ *
+ * @param {string} pageText 页面提取文本（`openAndExtract` 拿到的 body/innerText）
+ * @param {{url?: string, siteKey?: string, bytes?: number, dialogText?: string}} [meta]
+ *   `url` 用来按 `quotaSiteOf` 反查站点 key；没有 URL 时可以直接传 `siteKey`。
+ *   `dialogText` 是 `captureSample` 里 `dialog accept` 拿到的原生弹窗文案。
+ * @returns {{degraded: boolean, kind: ('rate-limit'|'device-limit'|'degraded-render'|'auth'|null), evidence: string[]}}
+ */
+export function detectDegradation(pageText, meta = {}) {
+  const text = String(pageText ?? '');
+  const siteKey = meta.siteKey ?? (meta.url ? quotaSiteOf(meta.url)?.key ?? null : null);
+  const hits = new Map();
+  for (const rule of DEGRADATION_RULES) {
+    if (rule.siteKeys && (!siteKey || !rule.siteKeys.includes(siteKey))) continue;
+    const evidence = rule.detect(text, meta);
+    if (evidence && evidence.length) hits.set(rule.kind, evidence);
+  }
+  for (const kind of DEGRADATION_KIND_PRIORITY) {
+    if (hits.has(kind)) return { degraded: true, kind, evidence: hits.get(kind) };
+  }
+  return { degraded: false, kind: null, evidence: [] };
+}
+
 export function parseFlags(argv) {
   const flags = {};
   for (let index = 0; index < argv.length; index += 1) {
@@ -545,7 +673,40 @@ export async function openAndExtract(session, url, expression, options = {}) {
       continue;
     }
     const extracted = results.find((r) => r.cmd === 'eval' && r.index === commands.indexOf(evalStep));
-    if (extracted?.ok && extracted.result != null) return extracted.result;
+    if (extracted?.ok && extracted.result != null) {
+      // 取到内容不等于取到了想要的内容——限流页、设备上限页、降级渲染
+      // 全是 HTTP 200 + 有值的 eval 结果，只是内容不对。所以每次成功都要
+      // 过一遍 detectDegradation，不能只在重试耗尽时才看。
+      const text = typeof extracted.result === 'string' ? extracted.result : JSON.stringify(extracted.result);
+      const verdict = detectDegradation(text, { url, siteKey: site?.key ?? null });
+      if (verdict.degraded) {
+        // 纯观测原则不变：这里不重试、不退避，只是不把它当成功处理——
+        // 调用方拿到 degraded 标记自己决定怎么办（换路由、报给人、还是就此放弃）。
+        const sample = await captureSample(session, `openAndExtract degraded (${verdict.kind}): ${url}`);
+        let parsedUrl = null;
+        try { parsedUrl = new URL(url); } catch { /* 不是合法 URL，site/route 留空 */ }
+        logSiteAccess({
+          ts: new Date().toISOString(),
+          site: parsedUrl?.hostname ?? null,
+          route: parsedUrl?.pathname ?? null,
+          session,
+          action: 'extract',
+          ms: null,
+          ok: true,
+          bytes: text.length,
+          quota: Boolean(site),
+          who: (process.env.CLAUDE_CODE_SESSION_ID || '').slice(0, 12) || null,
+          script: entryScript(),
+          tag: process.env.OPENCLI_ACCESS_TAG || null,
+          pid: process.pid,
+          degraded_kind: verdict.kind,
+          evidence: verdict.evidence,
+          ...(sample ? { sample } : {}),
+        });
+        return { degraded: true, kind: verdict.kind, evidence: verdict.evidence, result: extracted.result };
+      }
+      return extracted.result;
+    }
   }
   // 重试耗尽 = 页面上有东西但不是我们要的东西。这一刻的原文最值钱，
   // 限流页、设备上限页、降级渲染都在这里现形。

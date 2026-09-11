@@ -548,13 +548,37 @@ dialog accept ——唯一能清掉 alert 的命令——排在同一把锁后�
 ```bash
 node <opencli-skill-dir>/scripts/access-report.mjs --since 2h
 node <opencli-skill-dir>/scripts/access-report.mjs --suspicious   # 挑限流样本
+node <opencli-skill-dir>/scripts/access-report.mjs --degraded     # 只看 detectDegradation 判出的那一类，带证据
 ```
 
-**限流的自动判据还没有，因为缺样本**——所以出事那一刻会自动取样存进
-`~/.opencli/logs/samples/`（`openAndExtract` 重试耗尽时触发，也可以自己调
-`captureSample(session, reason)`）。取样是三级降级，每级都带短超时：
-先 `dialog accept`（**原生 alert 的文案只有这里拿得到**，顺手清掉它），
-再 `eval` 取页面原文，都不行就把诊断本身写下来。
+**限流的自动判据在 `opencli-core.mjs` 的 `detectDegradation(pageText, meta)`**，
+是个纯函数，`openAndExtract` 每次拿到 eval 结果都会过一遍，不止在重试耗尽时才看。
+规则表（`DEGRADATION_RULES`，在文件最顶上，方便直接加一行）按站点分：
+
+| kind | 站点 | 判据 | 来源 |
+|---|---|---|---|
+| `degraded-render` | 仅 Semrush | 页面文本同时出现未解析的 i18n key `state.undefined` **和** 3 处以上 `n/a` | 实测 2026-08-28 |
+| `device-limit` | Semrush / Similarweb | 配额站上出现原生 `dialog`（`captureSample` 的 `dialog accept` 拿到文案）；命中「maximum...devices」「already logged in...device」等已知措辞时证据里标出来，没命中也照样判定，只是证据里说明「未命中已知列表，建议人工复核」 | 实测（弹窗存在）+ 措辞未逐字记录 |
+| `rate-limit` | 任意站点 | 命中「you've reached your limit」「rate limit exceeded」「too many requests」等固定短语 | 文档整理，尚无实测样本 |
+| `auth` | 任意站点 | 命中「please sign in to continue」「your session has expired」等登录态失效短语 | 文档整理，尚无实测样本 |
+
+判定为 `degraded` 之后**不自动重试、不自动退避**——`openAndExtract` 把结果包成
+`{ degraded: true, kind, evidence, result }` 返回给调用方，同时在
+`site-access.jsonl` 里追一行带 `degraded_kind` / `evidence` 字段的记录，
+并调用 `captureSample(session, reason)` 留原文样本。调用方拿到 `degraded`
+标记之后自己决定：换路由、报给人看、还是就此放弃；这一层依然是纯观测，
+不替调用方做决定。
+
+新站点或新措辞出现时，直接在 `DEGRADATION_RULES` 里加一条：`siteKeys` 留空
+表示所有站点适用，写成数组就只在列出的配额站 key 上生效（比如 `device-limit`
+只在配额站上生效，因为普通站弹一个 `confirm`/`alert` 太常见，拿它当限流证据
+会大量误判）。`rate-limit` / `auth` 目前是按文档整理的固定短语，还没有实测样本
+校准过，命中之后建议先用 `--degraded` 看一眼证据再决定要不要收紧或放宽。
+
+出事那一刻的原文会自动取样存进 `~/.opencli/logs/samples/`（`openAndExtract`
+判定 degraded、或重试耗尽时都会触发，也可以自己调 `captureSample(session, reason)`）。
+取样是三级降级，每级都带短超时：先 `dialog accept`（**原生 alert 的文案只有这里
+拿得到**，顺手清掉它），再 `eval` 取页面原文，都不行就把诊断本身写下来。
 第一版只会 `eval`——而在最需要它的场景里 eval 自己就挂住了，见上一节。
 
 **为什么 `bytes` 不够、必须留原文**：限流、设备上限、降级渲染全是
@@ -562,10 +586,13 @@ node <opencli-skill-dir>/scripts/access-report.mjs --suspicious   # 挑限流样
 降级形态——标题正常是 `Dashboards`，指标全是 `n/a`，页面上还留着一个
 没被解析的 i18n key `state.undefined`。光看 `bytes` 分不出它和一次正常的小响应。
 
-`--suspicious` 的判据只留三类，每类都说得出为什么值得看：真失败（排除测试桩
-和 Node 警告这类已知噪音）、超时、以及配额站上「成功但几乎没内容」。
+`--suspicious` 的判据留四类，每类都说得出为什么值得看：真失败（排除测试桩
+和 Node 警告这类已知噪音）、超时、配额站上「成功但几乎没内容」（bytes 判据，粗）、
+以及 `degraded_kind` 非空的行（`detectDegradation` 读了页面原文之后判出的
+结论，比 bytes 判据细，两者会有重叠，不去重）。
 第一版判据是「失败或 eval 且 bytes < 200」，实测标出 601/1080 行——
-**判据太松等于没有判据**，没人会去翻一份 55% 都是可疑的清单。收紧后是 2 行。
+**判据太松等于没有判据**，没人会去翻一份 55% 都是可疑的清单。收紧后是 2 行；
+加上 `detectDegradation` 之后是 4 行。
 
 | 症状 | 先看哪里 |
 |---|---|
@@ -615,7 +642,7 @@ node <opencli-skill-dir>/scripts/access-report.mjs --suspicious   # 挑限流样
 | `scripts/session.sh` | Bash tool 侧的同一套：`oc_session <base>`、`oc_session_for <url>`（配额站自动收敛）、`oc_guard_session` 拒绝 `$$` 形状的名字 |
 | `scripts/pressure.mjs` | **开工前的自查：现在能不能动手。** 配额站各有几个标签页（分「我的 / 共享 / 别人的」）、到没到线、tools-share 锁被哪个 pid 拿着多久、那个进程还活着吗，裁决 `go` / `wait` / `stale-lock` / `unknown` 并给出具体动作。`--tool <key>` 只看一个工具，`--json` 机读，退出码 0/2/3/4 可以直接当闸门。**陈旧锁只报告不删**——删别人的锁比等更危险 |
 | `scripts/daemon-restart-safe.mjs` | 重启守护进程的安全版：有采集任务在跑就拒绝（`--force` 可强行），重启后确认桥真的回来，没回来就唤醒 service worker |
-| `scripts/access-report.mjs` | 读 `site-access.jsonl` 做复盘：按路由看频次与 p50/p95、按调用方看是谁开的标签页、`--suspicious` 挑限流样本 |
+| `scripts/access-report.mjs` | 读 `site-access.jsonl` 做复盘：按路由看频次与 p50/p95、按调用方看是谁开的标签页、`--suspicious` 挑可疑行、`--degraded` 只看 `detectDegradation` 判出的限流/降级 |
 | `tests/quota-sites.test.mjs` | 上面那些护栏的纯函数测试，不碰浏览器：`node --test opencli/tests/quota-sites.test.mjs` |
 | `tests/pressure.test.mjs` | `pressure.mjs` 的纯函数测试，会话列表和锁状态全部注入，不碰浏览器 |
 | `scripts/receiver.mjs` | 本地接收端：页面把数据 POST 进项目目录，绕开下载目录。端口按项目根派生、占用即崩、`/ping` 回报 root、`/script` 按白名单喂提取器源码 |

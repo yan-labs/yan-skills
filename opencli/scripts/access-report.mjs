@@ -10,7 +10,8 @@
  *   node access-report.mjs                    # 全部
  *   node access-report.mjs --since 2h         # 最近两小时（也支持 30m / 3d）
  *   node access-report.mjs --site sem.3ue.co  # 只看一个站
- *   node access-report.mjs --suspicious       # 只列可疑行（失败 / payload 异常小）
+ *   node access-report.mjs --suspicious       # 只列可疑行（失败 / 超时 / 配额站空响应 / 限流降级）
+ *   node access-report.mjs --degraded         # 只列 detectDegradation 命中的那一类
  *   node access-report.mjs -f json            # 机器可读
  */
 import { readFileSync, existsSync } from 'node:fs';
@@ -70,11 +71,15 @@ const pct = (arr, p) => {
  * 以及测试桩的 `opencli stub` 会刷出成百上千条失败。判据太松等于没有判据——
  * 没人会去翻一份 55% 都是「可疑」的清单。
  *
- * 现在的判据只留三类，每一类都能说出为什么值得看：
+ * 现在的判据留四类，每一类都能说出为什么值得看：
  *   1. 真失败——排除已知噪音（测试桩、Node 的 UNDICI 警告、session_not_found）
  *   2. 超时——页面没在时限内给出东西，配额站上尤其值得看
- *   3. 配额站上「成功但几乎没内容」——限流和降级渲染都长这样
- * 前两类是硬信号，第三类是软信号，所以只在配额站上算数。
+ *   3. 配额站上「成功但几乎没内容」——限流和降级渲染都长这样（bytes 判据，粗）
+ *   4. `degraded_kind` 非空——`detectDegradation`（opencli-core.mjs）读了页面原文
+ *      判出来的限流/设备上限/降级渲染/登录态失效，是细判据，日志里已经有结论了
+ * 前两类是硬信号，第三类是软信号（只在配额站上算数），第四类比第三类更细——
+ * 有了它之后第三类里一部分行会同时命中第四类，这是预期内的重叠，不去重：
+ * 第三类答的是「bytes 小」，第四类答的是「读了内容之后判定是哪一种」。
  *
  * 噪音源本身也堵掉了两处，所以这条正则现在是兜底而不是主力：测试桩那条改成
  * 在测试里设 OPENCLI_ACCESS_LOG=0（不再往真日志里写），Node 的 UNDICI 警告改成
@@ -82,7 +87,9 @@ const pct = (arr, p) => {
  * 老日志里的噪音还在，所以别删这条正则。
  */
 const NOISE = /opencli stub|UNDICI-EHPA|session_not_found|No active session/i;
+const degraded = data.filter((r) => Boolean(r.degraded_kind));
 const suspicious = data.filter((r) => {
+  if (r.degraded_kind) return true;
   if (!r.ok) {
     if (NOISE.test(r.error || '')) return false;
     return true;
@@ -90,12 +97,24 @@ const suspicious = data.filter((r) => {
   return r.quota && r.bytes !== null && r.bytes < 120;
 });
 
+if (flags.degraded) {
+  for (const r of degraded) {
+    console.log(`${r.ts}  ${String(r.degraded_kind).padEnd(14)}  ${(r.tag || r.script || r.session || '-').padEnd(24)}  ${r.site || '-'}${r.route || ''}`);
+    for (const line of r.evidence || []) console.log(`        - ${line}`);
+  }
+  console.log(`\n共 ${degraded.length} 行 degraded / 总 ${data.length} 行`);
+  process.exit(0);
+}
+
 if (flags.suspicious) {
   for (const r of suspicious) {
-    const why = !r.ok ? (/timed out/i.test(r.error || '') ? '超时' : '失败') : '配额站空响应';
-    console.log(`${r.ts}  ${why.padEnd(6)}  ${String(r.bytes ?? '-').padStart(6)}B  ${(r.tag || r.script || r.session || '-').padEnd(24)}  ${r.site || '-'}${r.route || ''}${r.error ? `\n        ${String(r.error).split('\n')[0].slice(0, 140)}` : ''}`);
+    const why = r.degraded_kind ? `降级:${r.degraded_kind}`
+      : !r.ok ? (/timed out/i.test(r.error || '') ? '超时' : '失败')
+      : '配额站空响应';
+    console.log(`${r.ts}  ${why.padEnd(14)}  ${String(r.bytes ?? '-').padStart(6)}B  ${(r.tag || r.script || r.session || '-').padEnd(24)}  ${r.site || '-'}${r.route || ''}${r.error ? `\n        ${String(r.error).split('\n')[0].slice(0, 140)}` : ''}`);
+    if (r.degraded_kind) for (const line of r.evidence || []) console.log(`        - ${line}`);
   }
-  console.log(`\n共 ${suspicious.length} 行可疑 / 总 ${data.length} 行`);
+  console.log(`\n共 ${suspicious.length} 行可疑 / 总 ${data.length} 行（含 ${degraded.length} 行 degraded）`);
   process.exit(0);
 }
 
@@ -136,5 +155,6 @@ console.log('\n按调用方（复盘「这串标签页是谁开的」；tag > �
 for (const [key, n] of [...byWho].sort((a, b) => b[1] - a[1]).slice(0, 15)) {
   console.log(`${String(n).padStart(7)}  ${key}`);
 }
-console.log(`\n可疑行 ${suspicious.length} 条——用 --suspicious 看明细（真失败 / 超时 / 配额站上的空响应，已排除测试桩等已知噪音）`);
+console.log(`\n可疑行 ${suspicious.length} 条（含 ${degraded.length} 行 degraded）——用 --suspicious 看明细（真失败 / 超时 / 配额站上的空响应 / detectDegradation 判出的限流降级，已排除测试桩等已知噪音）`);
+console.log(`degraded_kind 非空的行单独用 --degraded 看，附带 detectDegradation 给出的证据`);
 console.log(`取样落在 ~/.opencli/logs/samples/，那里才有页面原文——限流和降级渲染都是 HTTP 200，光看 bytes 分不出来`);
