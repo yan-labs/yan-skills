@@ -125,6 +125,13 @@ opencli browser "$S" eval '(async()=>{ /* fetch(..., {credentials:"include"}) */
 写法见 [`seo-webcafe.md`](seo-webcafe.md)「httpOnly 会话」。**eval 体一律包 IIFE**——本环境 eval 上下文跨调用持续，
 重复声明会抛错且那次调用根本没执行。
 
+**Web.Cafe 的具体口径（2026-09-11 修）**：`seo-webcafe.mjs` 已经把这条规则焊进脚本默认行为——
+`serp`/`audit`/`money` 等 session 类命令不用再手动敲上面几行，脚本自己经 OpenCLI 驱动固定会话名
+`webcafe-nav` 跑登录/VIP 档；游客 10/日只在 OpenCLI 不可用或显式 `--guest` 时出现，出现了要在
+stdout 看到醒目警告，不会悄悄发生。`kd` 例外：它走 Bearer 令牌鉴权，与浏览器 Cookie 是两条不
+通用的路径（`/kd/api/v1/kd` 带 Cookie 不带 Bearer 直接 401），登录态体现在生成令牌时的账号上，
+浏览器只用来读真实档位（`/kd/api/me` 带 Cookie）。
+
 ---
 
 ## 五、浏览器与取数：规则在 `opencli` Skill，这里只留判据
@@ -348,11 +355,64 @@ Skill 集合不一样，文档只保证「该用什么」；遇缺就跳过会�
 
 ---
 
-## 十四、占位红线（段 3）
+## 十四、占位红线（段 3 / 段 4 / 段 5）
 
-**任何页面不得出现占位链接（`#`、`javascript:void`、指向不存在页面的 `href`）、占位文案（lorem ipsum、「即将上线」、
-「敬请期待」这类空壳）、占位图片（灰块、示例图、未替换的模板图）。** Google 会把这种页面判成垃圾站，一旦判定，
-后面的 SEO 全白做。宁可整块删掉，也不留一个占位。上线前闸门（段 4）要全站扫一遍，扫描口径在 [`checklists.md`](checklists.md)。
+**任何页面不得出现占位链接、占位文案、占位图片、占位联系方式、占位法律页。** Google 会把这种页面判成垃圾站，
+一旦判定，后面的 SEO 全白做。宁可整块删掉，也不留一个占位——**处置原则是「宁可整块删掉，不留占位」**，
+不允许「先留着，后面再补」。
+
+**这条红线开发期一直有，实际漏法是上线时没人复核。** 段 3 开发时禁令写在这里，但闸门清单和上线前 review
+过去没有把「占位专项复查」列成独立必过项，于是出现「开发时知道不许有占位、上线前没人对着清单专门查一遍」的
+执行缺口——多个站上线后仍被发现有占位超链接、占位文案。因此本条同时是段 3（开发期自查）、段 4（上线前 review，
+逐 URL 复查）、段 5（放开索引前重跑）三处闸门的判据来源，任何一处「过不了」都不许放行到下一段。
+
+### 占位的五个类型
+
+1. **占位链接**：`href="#"`、`href="javascript:void(0)"`（或任何 `javascript:void` 变体）、指向 `example.com` /
+   `example.org` / `example.net` 的链接、指向站内不存在页面（404）的 `href`、锚文本或链接目标是「coming soon」
+   一类的空壳、社交图标 `href="#"`（图标位摆在那但没有真实主页）。
+2. **占位文案**：lorem ipsum、`TODO` / `TBD` / `FIXME` 标记、"Your text here"、单独出现的 "Lorem"、
+   方括号模板变量（如 `[Company]`、`[Product Name]`、`[Your Name]`、`[Address]`）、"Coming soon" /
+   "敬请期待" / "即将上线" 这类空壳文案、未替换的模板变量（如 `{{title}}`、`{{company_name}}`）。
+3. **占位图片**：`placehold.co`、`via.placeholder.com`、`picsum.photos`、`dummyimage.com` 这类占位图床、
+   文件名含 `placeholder` 的图片（如 `placeholder.png`）、空 `src`（`src=""`）、缺图导致 broker/图标位显示
+   浏览器默认破图标。
+4. **占位联系方式**：`your@email.com` 这类模板邮箱、`+1 234 567` / `+1 234 567 8900` 这类模板电话号码。
+5. **占位法律页**：隐私政策 / 服务条款里残留脚手架或模板自带的公司名、地址、示例条款，没有替换成本项目真实信息。
+
+### 检测方法：grep 正则（线上 HTML 与源码都能用）
+
+```bash
+# 占位链接
+grep -noE 'href\s*=\s*"#"|href\s*=\s*"javascript:void\(0?\)?"|href\s*=\s*"[^"]*example\.(com|org|net)[^"]*"' <file-or-html>
+grep -noiE '<a[^>]*>\s*coming soon\s*</a>' <file-or-html>
+
+# 占位文案
+grep -noiE 'lorem ipsum|\b(TODO|TBD|FIXME)\b|your text here|coming soon|敬请期待|即将上线' <file-or-html>
+grep -noE '\[(Company|Company Name|Product|Product Name|Your Name|Address)\]|\{\{\s*[a-zA-Z_.]+\s*\}\}' <file-or-html>
+
+# 占位图片
+grep -noiE 'placehold\.co|via\.placeholder\.com|picsum\.photos|dummyimage\.com' <file-or-html>
+grep -noE 'src\s*=\s*"[^"]*placeholder[^"]*\.(png|jpg|jpeg|svg|webp)"|src\s*=\s*""' <file-or-html>
+
+# 占位联系方式
+grep -noiE 'your@email\.com|\+1[\s.-]*234[\s.-]*567([\s.-]*8?9?0?0?)?' <file-or-html>
+```
+
+对**源码**跑：`grep -rn` 上面每条正则到项目根（排除 `node_modules`、构建产物）。
+对**线上 HTML**跑：按 sitemap 逐 URL `curl` 下来再跑同一批正则，不能只抽查首页——「没人想起来改」的
+往往正是流量最小、review 时最容易被跳过的那一页。
+
+`scripts/seo-audit.mjs` 已把这批正则内置为每页 issues 里的 `PLACEHOLDER_*` 系列 code（源码见脚本内
+`analyzePlaceholders` 函数），跑 `--sitemap` 时自动逐页命中，不需要额外开关；命中即代表这一页有占位，
+不看分级、不看阈值，出现即算数。
+
+### 处置原则
+
+**宁可整块删掉，也不留一个占位。** 内容没准备好就不渲染那个区块，不写占位再等以后回填——「先占位再回填」
+是这条红线实际被踩过的失败模式：占位一旦上线就没人会再回来补，等到被发现时已经是「上线后仍有占位」的既成事实。
+
+上线前闸门（段 4）与放开索引前复查（段 5）要按 sitemap 全站扫一遍，扫描口径在 [`checklists.md`](checklists.md)。
 
 ## 十五、面板与网页操作「对不上」时的回流：先分诊，确认是漂移才改原文档
 

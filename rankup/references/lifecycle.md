@@ -375,6 +375,8 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
    **代码里 grep 不到任何域名字面量**是判据。
 7. **无占位扫描**：全仓库 grep `href="#"`、`example.com`、`lorem`、`待补充`、`placeholder`、
    `Project ready`、`Hello world`，命中的每一处要么换成真实内容要么删掉整个区块——**不允许「先留着」**。
+   完整类型清单与 grep 正则见 [`discipline.md`](discipline.md) 十四。**写页面时不得先写占位再回填**：
+   内容没准备好就不渲染该区块，不写占位等以后补——占位一旦上线大概率没人会再回来补。
 8. **初始化版本控制与远端**（见下「Git 与远端」）。
 9. 将实际结构与初始架构记录对账，不假定模板输出永远不变。
 
@@ -429,7 +431,7 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 | 4 | 产物路径配置已审计（见「脚手架四个坑」第 1 条），部署产物指向的是真实构建目录 | 项目仓库 |
 | 5 | `<html lang>` 是段 2 裁定的语种且多语言站按路由动态设置（`zh-TW` / `zh-HK` 不合并成 `zh`）；title/description/og 是目标语言实文案；404 已本地化；首页是真实落地页 | 项目仓库 |
 | 6 | 域名只存在于一个常量/环境变量里，**全仓库 grep 不到域名字面量**；预览构建输出 `noindex` 与 `Disallow: /`，且这两处都由同一个索引开关控制 | 项目仓库 + 预览域 `curl` |
-| 7 | 无占位扫描零命中：**没有 `href="#"`、`example.com`、lorem、「待补充」、占位图、`Project ready!` / `Hello world`**；页面上每个链接都指向真实目标，每张图都是真实内容 | grep 输出 + 预览域逐页 |
+| 7 | 无占位扫描零命中：**没有 `href="#"`、`example.com`、lorem、「待补充」、占位图、`Project ready!` / `Hello world`**（完整类型与正则见 [`discipline.md`](discipline.md) 十四）；页面上每个链接都指向真实目标，每张图都是真实内容；**没有先写占位再回填的区块**——写页面时内容没备好就不渲染该区块 | grep 输出 + 预览域逐页 |
 | 8 | 远端已建且**私有**（`gh repo view --json isPrivate` 为 true），脚手架状态已推送，`git log origin/HEAD..HEAD` 为空；公开的话 journal 里有用户明说的原话 | `git remote -v` |
 | 9 | 实际结构与 `architecture.md` 已对账，差异要么改代码要么改文档，没有放着不管 | `.rankup/architecture.md` |
 
@@ -686,6 +688,7 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 | B8 | 全站 title / description / `og:image` 三样逐页互不重复；每页至少一张真实 `<img>`；`og:image` 尺寸声明是真值 | seo-audit `--json` |
 | B9 | `llms.txt` 的路径与 sitemap 逐条对得上，没有模板行 | curl + diff |
 | C0–C6 | 上线前闸门八行（含 4b）逐行有证据，落点按 C 节表格。**只跑了命令、没留证据不算过**；预览封锁引起的 robots 类问题标了「设计」 | `audit.md` / `agentic/` / `baseline.md` / `evidence/` |
+| C-占位 | **上线 review 必含占位专项**：按 sitemap 逐 URL grep [`discipline.md`](discipline.md) 十四的正则，零命中；人工抽查首页/定价/关于/联系/法律页每个链接可点、每张图有内容；**本轮 review 必须重跑，不采信上一轮（含段 3 开发期）的结果**——页面在这之间可能又动过 | grep 输出（逐 URL）+ 人工抽查记录进 `.rankup/audit.md` |
 | C10 | 外部工具与 AI 的每条发现都逐条判过；**被否决的都写了理由**，与硬约束冲突的写明冲突的是哪条 | `.rankup/audit.md` |
 | C11 | 分数逼近满分时写了封板声明，剩余建议逐条判「不做」及理由 | `.rankup/audit.md` |
 | C12 | 本段内每一轮页面改动之后都**全套**重跑了 0–6 + 4b，对比数字进了 `experiments.md`；**没有「只重跑某两行」的记录** | `.rankup/experiments.md` |

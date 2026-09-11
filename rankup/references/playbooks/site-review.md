@@ -167,6 +167,7 @@ D1 / D4 的 `mineSearch`、E2 / E5、F5 的 `translateSearch`、F6 的 `worth` �
 | A2 密度单看 | 串行 | `node <rankup>/scripts/seo-audit.mjs --sitemap <sitemap> --density-only` | 1/2/3-gram 密度 | 密度没有「正确值」，只对照「这页声明的短语」是不是同一个字符串 |
 | A3 重定向 | 并行 | 对裸域/www/http/https 四种入口各跑 `curl -sIL -A 'Mozilla/5.0' <入口> \| grep -v 'Connection established' \| grep -iE '^(HTTP/\|location:)'` | 每个入口几跳、每跳是 301 还是 302（滤掉代理那行之后，**剩下几行 `HTTP/` 就是几跳**） | 302/307 出现即记必修（判据 [`../experiences/webcafe-topics.md`](../experiences/webcafe-topics.md) 五）。**忘了 `grep -v 'Connection established'` 会凭空多算一跳**：`HTTP/1.1 200 Connection established` 是 HTTPS 代理隧道的应答，不是目标站的响应，一个零跳首页会被读成 200→200 两跳并误记必修 |
 | A4 全站第二双眼睛 | **波次 2 队列第 1 步**（`ahrefs-nav`） | `node <rankup>/scripts/ahrefs-site-audit.mjs projects` → `node <rankup>/scripts/ahrefs-site-audit.mjs report <id> links`、`… redirects`、`… html-tags`、`… indexability`、`… localization` | 全站内链失效、全站重定向链、TDK、可索引性、hreflang | 站没在 Ahrefs 里验证过所有权 → 这一条标 ⏸（免费 AWT 档只能看自己的站），A1–A3 已经能过闸门 2。会话名固定 `ahrefs-nav`，**不要传 `--session`** |
+| A5 占位专项（硬性红线） | 串行，与 A1 同批产出 | 输入：sitemap URL 列表 + 源码目录。检测：A1 的 `seo-audit.mjs --json` 已内置 `PLACEHOLDER_*` 系列 issue code（正则见 [`../discipline.md`](../discipline.md) 十四），逐页读 `issues` 过滤出 `PLACEHOLDER_` 前缀即可；源码目录另跑一遍同一批正则 `grep -rn`（排除依赖与构建产物） | 输出：逐 URL 命中清单（URL、code、命中次数），零命中才算过；命中的立即处置（换真实内容或删区块），不进「待办」 | `.rankup/audit.md`「占位专项」一节，逐 URL 记录 |
 
 **A1 的 JSON 长什么样（不看这段必然读错）**
 

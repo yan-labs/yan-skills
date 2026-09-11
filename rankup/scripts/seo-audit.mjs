@@ -50,7 +50,10 @@ Options:
   --density-only    Only show keyword density analysis
   --fix-report      Output machine-readable fix suggestions
   --json            Output as JSON
-  -h, --help        Show this help`);
+  -h, --help        Show this help
+
+占位检测（PLACEHOLDER_* issue codes）已内置在每页的 issues 里，
+正则口径见 references/discipline.md 十四，无需单独开关。`);
 }
 
 // ─── Fetch helpers ──────────────────────────────────────────────────────────
@@ -288,7 +291,45 @@ function analyzeIssues(html, url, overview) {
   if (overview.robots && /noindex/i.test(overview.robots))
     push('error', 'NOINDEX', 'robotsにnoindexが設定されています', '意図的でなければnoindexを削除してください');
 
+  // Placeholder（占位专项，正则口径见 references/discipline.md 十四）
+  for (const p of analyzePlaceholders(html)) push('error', p.code, p.observed);
+
   return issues;
+}
+
+// ─── Analysis: Placeholders（占位专项，口径见 references/discipline.md 十四）───
+function analyzePlaceholders(html) {
+  const hits = [];
+  const count = (re) => (html.match(re) || []).length;
+  const addIf = (re, code, label) => {
+    const n = count(re);
+    if (n > 0) hits.push({ code, observed: `${label}：命中 ${n} 处` });
+  };
+
+  // 占位链接
+  addIf(/href\s*=\s*["']#["']/gi, 'PLACEHOLDER_LINK_HASH', 'href="#" 占位链接');
+  addIf(/href\s*=\s*["']javascript:void\(0?\)?["']/gi, 'PLACEHOLDER_LINK_VOID', 'javascript:void 占位链接');
+  addIf(/href\s*=\s*["'][^"']*example\.(com|org|net)[^"']*["']/gi, 'PLACEHOLDER_LINK_EXAMPLE', 'example.com/org 占位链接');
+  addIf(/<a\b[^>]*>\s*coming soon\s*<\/a>/gi, 'PLACEHOLDER_LINK_COMING_SOON', '"coming soon" 占位链接文案');
+
+  // 占位文案
+  addIf(/lorem ipsum/gi, 'PLACEHOLDER_TEXT_LOREM', 'lorem ipsum 占位文案');
+  addIf(/\b(TODO|TBD|FIXME)\b/g, 'PLACEHOLDER_TEXT_TODO', 'TODO/TBD/FIXME 占位标记');
+  addIf(/your text here/gi, 'PLACEHOLDER_TEXT_YOUR_TEXT', '"Your text here" 占位文案');
+  addIf(/\[(Company|Company Name|Product|Product Name|Your Name|Address)\]/gi, 'PLACEHOLDER_TEXT_BRACKET', '方括号模板占位文案（如 [Company]）');
+  addIf(/\bcoming soon\b/gi, 'PLACEHOLDER_TEXT_COMING_SOON', '"Coming soon" 占位文案');
+  addIf(/\{\{\s*[\w.]+\s*\}\}/g, 'PLACEHOLDER_TEXT_TEMPLATE_VAR', '未替换的模板变量（如 {{title}}）');
+
+  // 占位图片
+  addIf(/(placehold\.co|via\.placeholder\.com|picsum\.photos|dummyimage\.com)/gi, 'PLACEHOLDER_IMAGE_SERVICE', '占位图床（placehold.co / via.placeholder / picsum / dummyimage）');
+  addIf(/src\s*=\s*["'][^"']*placeholder[^"']*\.(png|jpg|jpeg|svg|webp)["']/gi, 'PLACEHOLDER_IMAGE_FILENAME', '文件名含 placeholder 的图片');
+  addIf(/<img\b[^>]*\bsrc\s*=\s*["']["'][^>]*>/gi, 'PLACEHOLDER_IMAGE_EMPTY_SRC', '空 src 的 <img>');
+
+  // 占位联系方式
+  addIf(/your@email\.com/gi, 'PLACEHOLDER_CONTACT_EMAIL', 'your@email.com 占位邮箱');
+  addIf(/\+1\s*234[\s.-]*567[\s.-]*(89(0|01)?)?/g, 'PLACEHOLDER_CONTACT_PHONE', '+1 234 567 占位电话');
+
+  return hits;
 }
 
 // ─── Analysis: Keyword Density ──────────────────────────────────────────────
