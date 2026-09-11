@@ -38,7 +38,7 @@
 | 全站逐 URL 的 TDK / 密度 / 结构化 / hreflang 事实 | `.rankup/audit.md` | 逐 URL 表，不是一句总述 |
 | 重定向与内链失效事实 | `.rankup/audit.md` | 每条入口的跳转链 + 状态码 |
 | AITDK 全站报告：抽样 URL 的 Issues 清单 + 未满分标签页清单 | `.rankup/evidence/aitdk-full-<date>/` | 逐 URL 一份报告；不满分/有问题的逐条修完重跑，改不动的写明原因 |
-| 实验室 + 现场性能双读数 | `.rankup/baseline.md` | 三类页面各两套；现场无数据原样记 |
+| PageSpeed 报告：抽样页面 × 移动/桌面的实验室 + 现场双读数 | `.rankup/evidence/pagespeed-<date>/`（原始 JSON + 修复前后对照表）+ `.rankup/baseline.md` | 判据见 [`../checklists.md`](../checklists.md) 段 4 闸门 6：性能分 ≥ 90、CWV 达标，opportunity/diagnostic 逐条必修与 A6 同等；现场无数据原样记 |
 | GEO / AI 就绪度分数与逐项结果 | `.rankup/agentic/<domain>/<date>.json` + 结论进 `audit.md` | 每条 partial/failed 都有采纳或驳回理由 |
 | 词表体检 + 长尾扩展 + SERP 盘面 | `.rankup/keywords.md` | 每个词六项证据齐（量/KD/SERP/意图/链接预算/目标页） |
 | 哥飞 AI 的二次意见 | `.rankup/audit.md`「外部审阅」一节 | 每条建议有采纳/拒绝 + 理由 |
@@ -207,6 +207,7 @@ D1 / D4 的 `mineSearch`、E2 / E5、F5 的 `translateSearch`、F6 的 `worth` �
 |---|---|---|---|---|
 | B1 出清单 | 串行 | `node <rankup>/scripts/pagespeed.mjs plan <首页> <一个工具/功能页> <一个内容页> --strategy both` | 六个 pagespeed.web.dev 链接（三类页面 × 两端）+ 逐项读数清单 + `baseline.md` 的表格列 | 零依赖、零配额，不会失败 |
 | B2 取数 | 串行 | 两条路，按阶段 0.5 的判断选：<br>**人跑**（默认、最可靠）——按 B1 的链接逐个在浏览器里打开，页面自己跑完再读；<br>**脚本采**——`node <rankup>/scripts/pagespeed.mjs collect <同样三个 URL> --strategy both --budget 300`，双证人（截图 + 页面文本）落 `.rankup/evidence/pagespeed-<ts>/`，判读仍由 AI 做 | 每页：现场 CWV + LCP/INP/CLS + **样本量档位** + **作用域（本 URL 还是整个源）**；实验室四项分数 + 指标区 + 跑分环境 | `collect` 报 `tab-hidden` = **标签页没在前台，不是这个站没有数据**——把 Chrome 切到最前重跑，或退回人跑。报 `budget-exhausted` = 慢站还没跑完（实测有站跑满 240 秒仍在跑），加大 `--budget`，**超时同样不等于没有数据**。页面上**现场那一整块不存在 = CrUX 流量不足**，原样抄「现场无数据（流量不足）」进 `baseline.md`——不是 0、不等于通过，留空会在下一轮被读成「查过了没问题」 |
+| B3 逐条必修 | 串行 | 读 B2 页面里的 Opportunities / Diagnostics 两个区块 | 一份逐条清单：每条要么修掉重跑证明消失，要么写明改不动的原因（第三方脚本、平台限制等），登记进 `checks.md` 标 ⏸ | **B 组输出的 opportunity/diagnostic 清单全部进必修列表，与 A6 同等**——分数够了不等于清单可以不看 |
 
 **C 组 · GEO / AI 就绪度**
 
@@ -286,7 +287,7 @@ D1 / D4 的 `mineSearch`、E2 / E5、F5 的 `translateSearch`、F6 的 `worth` �
 | 组 | 判读依据 | 最容易判错的地方 |
 |---|---|---|
 | A · 技术与内容 SEO | [`../seo-box.md`](../seo-box.md)「seo-audit 判读指引」的分级表；闸门判据 [`../checklists.md`](../checklists.md) 段 4 闸门 1/2/3，A6 的判据是段 4 闸门 4c | `fetchError` 当成通过；Ahrefs 与自家脚本不一致时忘了看 Ahrefs 那次抓取的**日期**（日期对不上就不是矛盾）；A6 的 Issues/评分**没有满分/零问题就是必修**，不因为 A1–A5 已经全绿就跳过 |
-| B · 速度 | [`../seo-box.md`](../seo-box.md) 一；闸门 6 判据在 [`../checklists.md`](../checklists.md) | 「现场：无数据」被读成 0 或通过；用通用 90 分当及格线，而闸门要的是**项目自设下限** |
+| B · 速度 | [`../seo-box.md`](../seo-box.md) 一；闸门 6 判据在 [`../checklists.md`](../checklists.md) 段 4「闸门 6」 | 「现场：无数据」被读成 0 或通过；性能分够 90、CWV 达标就不看 opportunity/diagnostic 清单——这两项逐条必修，和 A6 的 Issues 清单同等，不能因为分数已过线就跳过 |
 | C · GEO / AI | [`../seo-growth.md`](../seo-growth.md) 三-B（2026 AI 搜索范式 + AI Agent 就绪度）；内容形态补 `ai-seo` Skill | 把 AEO/GEO 当成另一套技术——Google 的定论是它就是 SEO；`llms.txt` 已被 Google 明确否定为排名信号（见 `seo-growth.md`），别拿它充数；**把缓存报告当即时结果**——`is-agentic scan` 回的是上游缓存，failed 项没用当天的 curl 复核就写成必修项，会凭空造出一条不存在的活 |
 | D · 关键词与长尾 | [`../experiences/webcafe-topics.md`](../experiences/webcafe-topics.md) 一 ~ 二（低 KD ≠ 能做、词龄判据）+ [`../demand-sources.md`](../demand-sources.md) 九·六与十·五；分组与优先级用 `keyword-research` 的框架 | 拿低 KD 直接立项，漏掉「排上去值不值」那第四道闸；只扩词不聚簇，产出一堆孤词 |
 | E · 哥飞二次意见 | [`../seo-webcafe.md`](../seo-webcafe.md)；采纳纪律见 [`../checklists.md`](../checklists.md) 闸门 5 | 把 AI 的建议整段照单全收——**每条都要有采纳或拒绝记录，拒绝附理由** |
