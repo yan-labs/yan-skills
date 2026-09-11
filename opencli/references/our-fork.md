@@ -72,6 +72,24 @@ git log --oneline origin/main..HEAD   # 我们领先上游的部分
 
 ---
 
+### 已知回归与修复：面板反复 toggle 后 eval 静默落回主页面（扩展 1.1.1 修复）
+
+症状：`frames` / `contexts` 都正确列出了跨源 iframe 和它的 execution context，
+但 `eval --frame N`（或缓存 contextId 后走的 `eval --context ID`）读到的是主页面
+内容，不报任何错；跨源 iframe 面板（如 AITDK 侧边面板）开合几次后必现。
+
+根因一句话：扩展只把 contextId 缓存成 `tabId -> contextId`，没记它属于哪个
+flatten 子 session；Chrome 每个子 session 的 context 编号独立，面板 toggle 几次后
+新旧 session 里出现同号 contextId，`Runtime.evaluate({tabId}, ...)` 就撞进了主页面
+的同号 context，且这条路径本身不报错。
+
+修复：扩展 1.1.1 起 context 缓存按 `sessionId` 记录并据此选择 debuggee，监听
+`Target.targetDestroyed` / `targetCrashed` 让失活 session 的缓存立即作废；找不到
+活 session 时返回机器可读错误码 `frame_not_attached`，不再静默回退主页面。
+
+**判据：出现 `frame_not_attached` 错误码，或升级到扩展 ≥ 1.1.1 后症状消失，都说明
+命中的是这个问题；`opencli doctor` 的 Extension 行 < 1.1.1 就仍有这条回归。**
+
 ## 扩展侧改动要手动 reload
 
 这是最容易漏的一步：

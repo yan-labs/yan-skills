@@ -246,6 +246,9 @@ opencli browser "$S" get text 7             # 验证可见的已选标签
 
 ### 跨源 iframe
 
+**需要扩展 ≥ 1.1.1；1.1.0 在面板反复开合后 `eval` 会静默落回主页面**（见
+[`our-fork.md`](our-fork.md) 的「已知回归与修复」一节）。
+
 ```bash
 opencli browser "$S" frames
 # -> [{"index": 0, "url": "https://checkout.stripe.com/...", ...}]
@@ -287,6 +290,7 @@ opencli browser "$S" eval "(() => document.querySelector('input[name=x]')?.value
 | 刚 `state` 完就 `selector_not_found` | 页面变了。`wait selector "..."` 再重试 |
 | 每条命令都 `stale_ref` | 你在复用上一个页面的 ref。重新 `state` |
 | `click` 成功但没反应 | 命中的多半是一个装饰性包装元素，它把点击从真正的目标那里偷走了。用更窄的 `find --css` 打内层元素 |
+| `frames`/`contexts` 都对，`eval --frame`/`--context` 还是读到主页面，面板反复开合后必现 | 扩展 1.1.0 的已知回归（OOPIF context 缓存按 tabId 撞号）。升级扩展到 ≥ 1.1.1 并在 `chrome://extensions` reload；命中会报 `frame_not_attached`。见[`our-fork.md`](our-fork.md) |
 | `type` 看起来打完了但值不对 | 联想框、掩码输入，或 React 受控重渲染。`get value` 验证，加 `keys Enter` 或重打 |
 | `get html` 输出巨大 | 加 `--selector` + `--as json --depth 3 --children-max 20 --text-max 200` |
 | 网络缓存像是过期了 | 调小 `--ttl` 或等它过期。缓存在 `~/.opencli/cache/browser-network/` |

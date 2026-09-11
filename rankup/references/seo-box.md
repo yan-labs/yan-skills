@@ -59,6 +59,8 @@
 | Wappalyzer | ➕ 能力值得要 | **技术栈识别在段 1 的竞品拆解里有真实用途**（对方用什么建站、挂了哪些分析/广告/支付 → 反推变现方式，直接喂 [`lifecycle.md`](lifecycle.md) 6.3 竞品变现分析）。但其 API 是付费 `x-api-key`（实测 2026-08-29），**免费替代见下方「技术栈指纹」一节** |
 
 闸门用时判据见 [`checklists.md`](checklists.md) 4c。
+**2026-09-12 复测通过（扩展 1.1.1，两站 16 个 URL 全部 15/15 section）**——修的是上面那条 1.1.0 已知回归。
+| OpenCLI 扩展 ≥ 1.1.1（1.1.0 下多 section 会报 sidebar button not found） | 1.1.0 有 OOPIF context 缓存撞号的已知回归，面板 toggle 几次后 `eval` 静默落回主页面，脚本表现为定位不到侧栏按钮；升级到 1.1.1 修复，见 opencli skill 的 `references/our-fork.md` |
 
 ### 博客区（4 条）
 

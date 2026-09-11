@@ -102,6 +102,7 @@ opencli doctor
 | 命令成功但窗口/焦点行为与本文档不符 | 跑 `opencli doctor`，看 `Extension` 那行的版本 |
 | 版本 < 1.0.33 | **告诉用户他装的是应用商店版**，需要换成 [yan-labs 的 Release](https://github.com/yan-labs/OpenCLI/releases/latest) 里的 zip，并把商店版移除或停用 |
 | `doctor` 自己就报了这条 | 照它说的做——它会打印下载地址和加载步骤 |
+| `frames`/`contexts` 正常，但 `eval --frame`/`--context` 面板开合几次后静默读到主页面 | 扩展 1.1.0 的已知回归，1.1.1 已修复（`frame_not_attached` 错误码判据）。见 [`references/our-fork.md`](references/our-fork.md) |
 
 `doctor` 会在扩展低于 1.0.33 时主动报这个问题，**不要跳过它的输出**。
 改过扩展源码（或刚拉了新构建）之后要在 chrome://extensions 里对 OpenCLI 点 **reload**——
@@ -681,6 +682,9 @@ browser 与 adapter 都在用户当前窗口开标签页、不切走活动标签
 `--window isolated`、`sessions` 报 windowId / groupTitle / windowFallbackReason——
 **全都只存在于我们的构建里**。商店版默认是前台，装了它本 Skill 的规则会与实际行为不符。
 两个同时装还会一起连上守护进程互相打架。
+
+扩展 1.1.1 修复 OOPIF eval 路由（面板反复开合后 `eval` 静默落回主页面的已知回归），见
+[`references/our-fork.md`](references/our-fork.md)；这里的下载说明还没跟着切新 Release，装好后照第 3 步验证 `doctor` 打出的版本号。
 
 差异清单见 [`references/our-fork.md`](references/our-fork.md)。
 
