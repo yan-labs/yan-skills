@@ -71,7 +71,7 @@ npx skills add yan-labs/yan-skills -g --all
 
 ## `rankup` — 网站全生命周期总控
 
-版本 `3.4.1`。它不重复实现 Wrangler、Stripe 或趋势工具，它负责把这些能力串成一条长期可维护的工作流，并且记住你在每个项目上做过什么。小游戏站另有一条从新词监控、iframe 供给、可玩页面、广告到持续迭代的[专用链路](rankup/references/game-sites.md)。
+版本 `3.5.0`。它不重复实现 Wrangler、Stripe 或趋势工具，它负责把这些能力串成一条长期可维护的工作流，并且记住你在每个项目上做过什么。小游戏站另有一条从新词监控、iframe 供给、可玩页面、广告到持续迭代的[专用链路](rankup/references/game-sites.md)。
 
 登录态数据平台可以直接走薄 CLI，把一次探路沉淀成可续跑清单：
 
@@ -99,7 +99,7 @@ npx @yan-labs/rankup audit similarweb --manifest .rankup/provider-audit/similarw
 | 1 | 调研 | 任何词都是词根：直接搜 → 扩树 → 取量 → 社区验证（Reddit / X / YouTube / B 站近 14 天）→ 亲眼看 SERP 核实意图 → 折成钱；每个词有做/不做的裁决 |
 | 2 | 立项与定位 | 第一目标是拿到流量并选定语种；某语种量大竞争小就**只做单语站**；意图类型决定产品形态与变现方式 |
 | 3 | 建站与开发 | 一律 shadcn monorepo 脚手架 + GitHub 私有仓 + Cloudflare；域名做成一处配置留位；页面上零占位 |
-| 4 | 上线前 SEO/GEO | 在预览域（noindex）上过完八行闸门 + 封板声明；每次页面改动全套重跑 |
+| 4 | 上线前 SEO/GEO | 在预览域（noindex）上过完九行闸门 + 封板声明；每次页面改动全套重跑 |
 | 5 | 上线与接入 | 批 A 域名无关接入 → 域名黑历史裁决 → 绑域名 → 批 B 域名相关接入 → 放开索引，一个不漏 |
 | 6 | 外链 | rankup 只判什么时候发、发多少，执行交给 `backlink` |
 | 7 | 变现与监控 | Stripe + PayPal 先有；监控读数触发回到段 1 开下一棵树 |
@@ -117,7 +117,7 @@ flowchart LR
 1  调研：词根扩树、取量与 KD、社区验证、SERP 意图核实、竞品变现、折成钱
 2  立项与定位：流量第一、语种裁定、意图 → 形态 → 变现、写清「1」的定义与放弃条件
 3  建站与开发：shadcn monorepo 初始化、私有仓、Cloudflare 按需启用、域名留位、hello@ 邮箱、无占位
-4  上线前 SEO/GEO：每页目标词与密度、独立 TDK/OG 含图、llms.txt、八行闸门、封板声明
+4  上线前 SEO/GEO：每页目标词与密度、独立 TDK/OG 含图、llms.txt、九行闸门、封板声明
 5  上线与接入：批 A（GA4、Clarity、CF WA）→ 域名黑历史裁决 → 绑域名 → 批 B（GSC、Bing、Yandex、Naver、IndexNow、Ahrefs、Email Routing）→ 放开索引
 6  外链：节奏按 KD → 引荐域对照表，执行交给 backlink
 7  变现与监控：Stripe + PayPal、广告 / 订阅 / 商店、监控读数触发下一棵树
@@ -133,7 +133,7 @@ flowchart LR
 flowchart TD
   R["1 调研<br/>产出：词根扩树 + 意图核实 + 社区验证 + 链接预算"] --> P["2 立项与定位<br/>语种与形态跟着流量走"]
   P --> B["3 建站与开发<br/>页面模板对准每个词的意图，域名留位"]
-  B --> G["4 上线前 SEO/GEO<br/>在预览域上拿八行闸门量每一页"]
+  B --> G["4 上线前 SEO/GEO<br/>在预览域上拿九行闸门量每一页"]
   G --> L["5 上线与接入<br/>域名定稿、两批接入、放开索引"]
   L --> K["6 外链<br/>投放瞄准段 1 的目标词"]
   K --> M["7 变现与监控<br/>排名与收入回指到具体的词与页面"]
@@ -146,7 +146,7 @@ flowchart TD
 
 ### 上线前的硬闸门（段 4，预览域 noindex）
 
-段 4 里最要紧的是这八行（闸门 0–6 加 4b），全部在预览域上做完，逐行要证据，不是工具清单。域名此时还没定稿，这些检查与域名无关：
+段 4 里最要紧的是这九行（闸门 0–6 加 4b 加 4c），全部在预览域上做完，逐行要证据，不是工具清单。域名此时还没定稿，这些检查与域名无关：
 
 | # | 检查项 | 证明什么 |
 |---|---|---|
@@ -159,7 +159,7 @@ flowchart TD
 | 5 | 哥飞 AI 审阅 | 每条建议有采纳/拒绝记录，拒绝必须附理由 |
 | 6 | 性能 / Core Web Vitals | 首页、工具页、内容页三类都达标，现场数据优先于实验室数据 |
 
-**命令跑了但证据没落进 `.rankup/`，不算通过。** 口头「应该没问题」或控制台一个绿色图标都不算证据，见 [`references/lifecycle.md`](rankup/references/lifecycle.md) 段 4 C 节与 [`references/checklists.md`](rankup/references/checklists.md) 段 4。每次页面改动，这八行全套重跑，不许只重跑改到的两行。
+**命令跑了但证据没落进 `.rankup/`，不算通过。** 口头「应该没问题」或控制台一个绿色图标都不算证据，见 [`references/lifecycle.md`](rankup/references/lifecycle.md) 段 4 C 节与 [`references/checklists.md`](rankup/references/checklists.md) 段 4。每次页面改动，这九行全套重跑，不许只重跑改到的两行。
 
 ### 三个命令，覆盖 90% 的日常
 

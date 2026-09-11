@@ -46,7 +46,7 @@
 | **一次** | 过了就一直过，技术事实不会自己退回去 | 脚手架跑通、zone 生效、远端仓库存在 |
 | **每轮** | **每一轮迭代都必须重跑** | 三方对账、构建全绿、性能基线、迭代记录 |
 | **动了 URL** | 本轮新增或修改了线上可访问的 URL 才必须重跑 | 上线前闸门的 TDK、技术 SEO、IndexNow 推送 |
-| **动了页面** | 本轮改了任何页面的内容、结构或元数据（不一定新增 URL）就必须**全套**重跑 | 段 4 的八行闸门——改一处 TDK 可能带坏密度，改一个区块可能带坏 CLS |
+| **动了页面** | 本轮改了任何页面的内容、结构或元数据（不一定新增 URL）就必须**全套**重跑 | 段 4 的九行闸门——改一处 TDK 可能带坏密度，改一个区块可能带坏 CLS |
 | **会过期** | 依赖的外部数据是易腐品，超过 30 天必须重取 | SERP 快照、关键词裁决、域名黑历史 |
 
 **每轮开工时的第一个动作**：把上一轮标记为「每轮」的 check 全部打回未过，
@@ -144,10 +144,10 @@
 | 回调签名、幂等、错误路径 | 三类各有一次真实验证记录 | `.rankup/integrations.md` | 构造真实回调与重复回调 | 一次 |
 | 四处均未暴露密钥 | 代码、日志、Git、`.rankup/` 扫描都干净 | `.rankup/secrets.md` | 扫描 | 每轮 |
 
-## 段 4 · 上线前 SEO/GEO（预览域 noindex；八行闸门）
+## 段 4 · 上线前 SEO/GEO（预览域 noindex；九行闸门）
 
 说明见 [`lifecycle.md`](lifecycle.md) 段 4。**判据的完整版在那边，本表只是取用口。**
-下表前八行（闸门 0–6 + 4b）对应 C 节那张表；「每页目标词已登记」「无关区块不进 SSR」「每页独立 OG 含图」出自 B 节，
+下表前九行（闸门 0–6 + 4b + 4c）对应 C 节那张表；「每页目标词已登记」「无关区块不进 SSR」「每页独立 OG 含图」出自 B 节，
 「封板声明」出自 C 节后面的第 11 条，「改动即全套重跑」出自第 12 条。
 **改判据要回各自的出处改，别只改这张表。**
 站主原话：「这些东西都必须要走一遍……这是硬性要求」。**只跑了命令、没留下证据不算过这项。**
@@ -167,10 +167,11 @@
 | 闸门 3 · 关键词密度 | 密度在自然区间，且**「声明的短语」与「测量的短语」逐页是同一个字符串** | `.rankup/audit.md` | `seo-audit.mjs --sitemap <url> --density-only`。实测过 8 个页面在构建绿灯下全过，逐页核对才发现每页测的都不是自己声明的短语 | 动了页面 |
 | 闸门 4 · GEO / AI Agent 就绪度 | 有带分数与逐项结果的基线报告，且**每条 `partial`/`failed` 都独立核实过**（成立则改，误报则记驳回理由）；`llms.txt` 存在且与 sitemap 一致 | `.rankup/agentic/<domain>/<date>.json` + 核实结论进 `audit.md` | `is-agentic.mjs scan <domain> --save` | 动了页面 |
 | 闸门 4b · GEO 内容形状（AITDK GEO 标签页） | 每个内容页：≥1 条外部官方来源（`<cite>` + 外链）汇成 Sources 节；≥1 张规格表（`<table>`），半数以上行含有出处的数字；FAQ 问题是 H3；页面节点（SoftwareApplication / WebPage / WebSite）带 `author` + `datePublished` + `dateModified` 且页面有可见 `<time>`；Organization 不输出空 `sameAs` | `.rankup/evidence/aitdk-geo-<date>/` | 扩展只能看当前页、要用户浏览器，脚本跑不了：请用户在 AITDK 扩展 GEO 标签页跑一页贴回报告，再 curl 全站数（**无人值守时只能做 curl 计数这半截**：结果落 `.rankup/evidence/page-audit-<date>/geo-counts.tsv`，状态记 ⬜ 并注明「扩展那半截待用户在场」，不许因为做不了另一半就跳过这一半） `<table>/<blockquote>/<cite>/<h3>/<time>` 与 JSON-LD 字段逐页核。**先分「设计」与「缺口」**：robots 类三项在预览域恒 FAIL（`Disallow: /` 是故意的），段 5 放开索引后才算 | 动了页面 |
+| 闸门 4c · AITDK 全站报告（第三双眼睛） | 按 sitemap 抽样跑 AITDK 全报告：首页 + 每类模板页各至少一个 + 全部法律/关于/联系页；每份报告 Issues 标签页零问题；每个带评分的标签页（以脚本实际输出为准，不编字段名）都是满分。**不满分或有问题的每一条都算必修**，逐条修完重跑，直到全绿满分；改不动的写清为什么改不动，登记进 `checks.md` 标 ⏸，不留空 | `.rankup/evidence/aitdk-full-<date>/`（报告 JSON 路径 + 修复前后对照） | `bash <rankup-skill-dir>/scripts/aitdk-opencli.sh <url>`，见 [`seo-box.md`](seo-box.md)「AITDK 面板全自动取数」。这是与 Google 视角独立的第三双眼睛，看得到自家 `seo-audit.mjs` 漏掉的项，不因为闸门 1–4b 已经全绿就跳过 | 动了页面 |
 | 闸门 5 · 哥飞 AI 审阅 | 每条建议有采纳/拒绝记录，拒绝附理由；**`done` 事件的 `toolCalls`、`rounds`、`charged` 已打印并记录** | `.rankup/audit.md` | `seo-webcafe.mjs chat --ask "审阅 https://<预览域> …"`，见 [`seo-webcafe.md`](seo-webcafe.md) | 动了页面 |
 | 闸门 6 · 性能 / CWV | 首页、工具页、内容页三类都达到**项目自设下限**；实验室与现场数据都记录，不一致以现场为准；**先验仪器再信读数**；预览域现场无数据时如实记「现场无数据（流量不足）」，段 5 在正式域名补 | `.rankup/baseline.md` | `pagespeed.mjs plan <三类页面 URL> --strategy both` 出链接与读数清单，再**在浏览器里打开 pagespeed.web.dev 读数**（2026-08-31 起走网页版，零 key 零配额；也可 `pagespeed.mjs collect …` 采双证人）——**网页版一屏同时给实验室（Lighthouse）与现场（CrUX）**；单跑 Lighthouse 只给实验室，这条闸门只能过一半而表面是绿的。`--strategy both` 另指移动端 + 桌面端都跑。**现场那一块不存在 = CrUX 流量不足，原样记「现场无数据（流量不足）」，不是 0、不等于通过，更别留空**（见 [`seo-box.md`](seo-box.md)「一 · PageSpeed 网页版 → 补上闸门 6 缺的那一半」） | 动了页面 |
 | 封板声明（分数接近满分时） | 剩余建议逐条判「不做」并写理由 | `.rankup/audit.md` | 不封板，团队会持续消耗在零边际收益的项上，而真正的瓶颈动都不动 | 每轮 |
-| **改动即全套重跑** | 本段内（以及段 7 之后）每一次页面改动，上面八行闸门**全部**重跑并留了本轮证据，对比数字进 `experiments.md`；**没有「只重跑第 4、6 行」这类抽样记录** | `.rankup/experiments.md` | `is-agentic.mjs diff` 与 `pagespeed.mjs plan --strategy both` 只是其中两行的对比工具，不是全套 | 动了页面 |
+| **改动即全套重跑** | 本段内（以及段 7 之后）每一次页面改动，上面九行闸门**全部**重跑并留了本轮证据，对比数字进 `experiments.md`；**没有「只重跑第 4、6 行」这类抽样记录** | `.rankup/experiments.md` | `is-agentic.mjs diff` 与 `pagespeed.mjs plan --strategy both` 只是其中两行的对比工具，不是全套 | 动了页面 |
 
 ## 段 5 · 上线与接入
 
@@ -223,7 +224,7 @@
 | **本轮否决的都进了否决清单** | 本轮 pass 掉的词、方向、功能、渠道、域名每个在 `.rankup/rejected.md` 有一行：对象 / 类型 / 日期 / 一句理由 / 复活条件 / 证据链接；只写「不做」不写理由的不算 | `.rankup/rejected.md` | 收尾时对照本轮 `journal/` 与 `iterations.md` 逐条补；被否决的建议同时在 `audit.md` 留理由 | 每轮 |
 | 变现路径按段 2 的裁定接了 | 段 2.2 定的变现方式（广告 / 单次付费 / 订阅 / 商店）至少一条在线上真实可用，有一笔真实交易或一次真实结算记录 | `.rankup/integrations.md` | 路由与判据见 [`monetization.md`](monetization.md) | 一次 |
 | 线上技术信号已核实 | 改了什么就在线上核过什么，不是本地看着对 | `.rankup/audit.md` | `seo-audit.mjs --sitemap <url>` | 每轮 |
-| **改动后段 4 全套重跑** | 本轮动过页面，段 4 八行闸门全部重跑并有本轮证据；**没有「只重跑某两行」** | `.rankup/experiments.md` | 回段 4 表逐行过 | 动了页面 |
+| **改动后段 4 全套重跑** | 本轮动过页面，段 4 九行闸门全部重跑并有本轮证据；**没有「只重跑某两行」** | `.rankup/experiments.md` | 回段 4 表逐行过 | 动了页面 |
 | 本轮改过的旧 URL 跳转正确 | 每个被改/被删的旧 URL 都 301 到新址，**不是 302，也不是软 404 落回首页** | `.rankup/audit.md` | `curl -sIL <旧 URL>`，见 [`seo-box.md`](seo-box.md) 二 | 动了 URL |
 | 目标词首页复看 | 本轮动过的目标词，在 Google 与 Bing 各重看一次首页：自己的页面进没进、AI 答案引用名单变没变、盘面有没有新进入者 | `.rankup/experiments.md` | 同 [`demand-sources.md`](demand-sources.md) 第一·五节的七样，只记变化 | 每轮 |
 | 实验有基线、目标指标、回看日期 | 三样齐全。**没有观察窗口就没有结论** | `.rankup/experiments.md` | 基线取自段 4 的全套证据 | 每轮 |

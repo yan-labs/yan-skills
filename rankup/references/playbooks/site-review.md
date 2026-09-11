@@ -37,6 +37,7 @@
 |---|---|---|
 | 全站逐 URL 的 TDK / 密度 / 结构化 / hreflang 事实 | `.rankup/audit.md` | 逐 URL 表，不是一句总述 |
 | 重定向与内链失效事实 | `.rankup/audit.md` | 每条入口的跳转链 + 状态码 |
+| AITDK 全站报告：抽样 URL 的 Issues 清单 + 未满分标签页清单 | `.rankup/evidence/aitdk-full-<date>/` | 逐 URL 一份报告；不满分/有问题的逐条修完重跑，改不动的写明原因 |
 | 实验室 + 现场性能双读数 | `.rankup/baseline.md` | 三类页面各两套；现场无数据原样记 |
 | GEO / AI 就绪度分数与逐项结果 | `.rankup/agentic/<domain>/<date>.json` + 结论进 `audit.md` | 每条 partial/failed 都有采纳或驳回理由 |
 | 词表体检 + 长尾扩展 + SERP 盘面 | `.rankup/keywords.md` | 每个词六项证据齐（量/KD/SERP/意图/链接预算/目标页） |
@@ -94,7 +95,7 @@ a–c 必然全空，而 d 档的 `git remote -v` 会拿当前仓库的名字拼
 | 0.3 有没有 sitemap | 串行 | `curl -s <site>/sitemap.xml \| head -20`；再 `curl -s <site>/robots.txt` | `<sitemap>` 的真实地址；robots 有没有误挡 | 404 → A 组改成「逐个已知页面」模式：`seo-audit.mjs <url1> <url2> …`，并把「缺 sitemap」记成必修项 |
 | 0.4 配额档位 | 串行 | `node <rankup>/scripts/seo-webcafe.mjs translateMe` | seo.web.cafe 现在是哪一档、剩多少（只信脚本开头那行 `· 配额 …`，不信文档里的数字）→ **当场把它切成一张预算表**（模板见阶段 1「波次 1b 的预算怎么定」），覆盖 D1 / D4 / E2 / E5 / F5 / F6 全部会扣配额的格 | 打不出档位 = 网络或站点问题，不是「匿名」。重跑一次再判。**不出预算表就不许派波次 1b 的 agent**——它们能并行，所以没人会撞车报错，只会一起把额度花光 |
 | 0.5 性能取数路子 | 串行 | `node <rankup>/scripts/pagespeed.mjs plan <首页> --strategy both` | B 组要开的 pagespeed.web.dev 链接 + 读数清单 | **不再需要任何 key**（2026-08-31 起走网页版，零配额）。真正要判的是**谁来跑**：网页版跑分只在 Chrome 标签页真的可见时才渲染得完（实测后台标签页一直停在「Running analysis」，伪造 visibilityState 与 `--window foreground` 都无效）。人在电脑前 → B 组照跑；无人值守 → B 组标 ⏸ 并写「需要用户本人打开这几个链接读数」，**不要把跑不出来记成「性能没问题」** |
-| 0.6 登录态 | 串行 | `opencli doctor` | D/E/F 组里走浏览器的那几条能不能用 | 红 → 这几条标 ⏸ 并写清卡在哪；其余组照跑，**不要因此取消整场体检** |
+| 0.6 登录态 | 串行 | `opencli doctor` | A6 与 D/E/F 组里走浏览器的那几条能不能用 | 红 → 这几条标 ⏸ 并写清卡在哪；其余组照跑，**不要因此取消整场体检** |
 
 #### 阶段 1 · 七组诊断（**先按配额分波次，再派 sub agent**）
 
@@ -122,6 +123,7 @@ D1 / D4 的 `mineSearch`、E2 / E5、F5 的 `translateSearch`、F6 的 `worth` �
 |---|---|---|---|
 | **波次 1a · 真零配额区** | **6 个，一条消息里齐发** | ① A 组 A1–A3<br>② B 组 B1<br>③ C 组 C1–C4<br>④ D 组 D3 / D7<br>⑤ G 组 G1–G5<br>⑥ F 组 F3 / F4 | **无脑并行。** 这些步骤既不碰 `semrush-nav` / `similarweb-nav` / `ahrefs-nav` 任何一个会话，**也不扣 seo.web.cafe 的任何配额** |
 | **波次 1b · 共享 seo.web.cafe 配额池** | **1 个**（也可以拆多个，但见右栏） | ① D4 的 `mineSearch` 🔢（`mineSeed` / `mineKd` 不扣，`mineKd` 只在该词已 `mineSearch` 过时免费）<br>② F5 的 `translateSearch` 🔢（同格里的 `gt.py region` 不扣）<br>③ F6 的 `worth` 🔢 | **可以与 1a 并行，也可以彼此并行**——它不是会话锁，不会互相抢窗口。**但三格从同一个每日池子里扣**，所以**总次数必须在阶段 0.4 的预算表里定死再开跑**，每个 agent 的 prompt 里写明「你这一格最多花 N 次」。派并行 agent 而不给上限 = 三个 agent 各自去扣同一个池子且谁都不知道总预算，这正是「省配额」末尾那条事故 |
+| **波次 1c · AITDK 独立会话** | **1 个** | A6（按抽样 URL 逐个串行跑） | 用独立 opencli session（默认 `aitdk`），不碰 `semrush-nav`/`similarweb-nav`/`ahrefs-nav`，**可以与 1a/1b/2 同时开跑**；组内按 URL 逐个来，不要为抢时间同时开两个 `aitdk` session 抢面板 |
 | **波次 2 · 面板队列** | **1 个**（见下方合并顺序） | A4 · D2 · D6 · F1 · F2 | **必须串行**，与波次 1 同时开跑没问题（不同工具），但**它内部一条队列走到底** |
 | **波次 3 · 依赖前两波产出** | 主线自己做 | D1（要 A1/A2 的 title/h1 反推词表）· D5（要 D1–D4 的数）· E1–E5（E4 要 A/B/D 的读数） | 串行。**E 组一轮只问一次**，喂料没齐就不要开口 |
 
@@ -168,6 +170,7 @@ D1 / D4 的 `mineSearch`、E2 / E5、F5 的 `translateSearch`、F6 的 `worth` �
 | A3 重定向 | 并行 | 对裸域/www/http/https 四种入口各跑 `curl -sIL -A 'Mozilla/5.0' <入口> \| grep -v 'Connection established' \| grep -iE '^(HTTP/\|location:)'` | 每个入口几跳、每跳是 301 还是 302（滤掉代理那行之后，**剩下几行 `HTTP/` 就是几跳**） | 302/307 出现即记必修（判据 [`../experiences/webcafe-topics.md`](../experiences/webcafe-topics.md) 五）。**忘了 `grep -v 'Connection established'` 会凭空多算一跳**：`HTTP/1.1 200 Connection established` 是 HTTPS 代理隧道的应答，不是目标站的响应，一个零跳首页会被读成 200→200 两跳并误记必修 |
 | A4 全站第二双眼睛 | **波次 2 队列第 1 步**（`ahrefs-nav`） | `node <rankup>/scripts/ahrefs-site-audit.mjs projects` → `node <rankup>/scripts/ahrefs-site-audit.mjs report <id> links`、`… redirects`、`… html-tags`、`… indexability`、`… localization` | 全站内链失效、全站重定向链、TDK、可索引性、hreflang | 站没在 Ahrefs 里验证过所有权 → 这一条标 ⏸（免费 AWT 档只能看自己的站），A1–A3 已经能过闸门 2。会话名固定 `ahrefs-nav`，**不要传 `--session`** |
 | A5 占位专项（硬性红线） | 串行，与 A1 同批产出 | 输入：sitemap URL 列表 + 源码目录。检测：A1 的 `seo-audit.mjs --json` 已内置 `PLACEHOLDER_*` 系列 issue code（正则见 [`../discipline.md`](../discipline.md) 十四），逐页读 `issues` 过滤出 `PLACEHOLDER_` 前缀即可；源码目录另跑一遍同一批正则 `grep -rn`（排除依赖与构建产物） | 输出：逐 URL 命中清单（URL、code、命中次数），零命中才算过；命中的立即处置（换真实内容或删区块），不进「待办」 | `.rankup/audit.md`「占位专项」一节，逐 URL 记录 |
+| A6 AITDK 全站报告（第三双眼睛） | 串行（组内，逐 URL 跑），用独立 opencli session，不占 `semrush-nav`/`similarweb-nav`/`ahrefs-nav`，可与波次 1a/1b/2 同时开跑 | 按 sitemap 抽样（首页 + 每类模板页各至少一个 + 全部法律/关于/联系页）逐个跑 `bash <rankup>/scripts/aitdk-opencli.sh <url>`，前置条件见 [`../seo-box.md`](../seo-box.md)「AITDK 面板全自动取数」 | 每个 URL 一份 `aitdkPanel` 报告：Issues 标签页问题清单 + 带评分标签页的未满分清单 | 前置条件不满足（未登录/opencli 非仓库构建）→ 标 ⏸ 并写清卡在哪，不要因此跳过；Issues 有任何一条、或任一带评分标签页不满分，**都进本轮必修清单**，判据 [`../checklists.md`](../checklists.md) 段 4「闸门 4c」 |
 
 **A1 的 JSON 长什么样（不看这段必然读错）**
 
@@ -282,7 +285,7 @@ D1 / D4 的 `mineSearch`、E2 / E5、F5 的 `translateSearch`、F6 的 `worth` �
 
 | 组 | 判读依据 | 最容易判错的地方 |
 |---|---|---|
-| A · 技术与内容 SEO | [`../seo-box.md`](../seo-box.md)「seo-audit 判读指引」的分级表；闸门判据 [`../checklists.md`](../checklists.md) 段 4 闸门 1/2/3 | `fetchError` 当成通过；Ahrefs 与自家脚本不一致时忘了看 Ahrefs 那次抓取的**日期**（日期对不上就不是矛盾） |
+| A · 技术与内容 SEO | [`../seo-box.md`](../seo-box.md)「seo-audit 判读指引」的分级表；闸门判据 [`../checklists.md`](../checklists.md) 段 4 闸门 1/2/3，A6 的判据是段 4 闸门 4c | `fetchError` 当成通过；Ahrefs 与自家脚本不一致时忘了看 Ahrefs 那次抓取的**日期**（日期对不上就不是矛盾）；A6 的 Issues/评分**没有满分/零问题就是必修**，不因为 A1–A5 已经全绿就跳过 |
 | B · 速度 | [`../seo-box.md`](../seo-box.md) 一；闸门 6 判据在 [`../checklists.md`](../checklists.md) | 「现场：无数据」被读成 0 或通过；用通用 90 分当及格线，而闸门要的是**项目自设下限** |
 | C · GEO / AI | [`../seo-growth.md`](../seo-growth.md) 三-B（2026 AI 搜索范式 + AI Agent 就绪度）；内容形态补 `ai-seo` Skill | 把 AEO/GEO 当成另一套技术——Google 的定论是它就是 SEO；`llms.txt` 已被 Google 明确否定为排名信号（见 `seo-growth.md`），别拿它充数；**把缓存报告当即时结果**——`is-agentic scan` 回的是上游缓存，failed 项没用当天的 curl 复核就写成必修项，会凭空造出一条不存在的活 |
 | D · 关键词与长尾 | [`../experiences/webcafe-topics.md`](../experiences/webcafe-topics.md) 一 ~ 二（低 KD ≠ 能做、词龄判据）+ [`../demand-sources.md`](../demand-sources.md) 九·六与十·五；分组与优先级用 `keyword-research` 的框架 | 拿低 KD 直接立项，漏掉「排上去值不值」那第四道闸；只扩词不聚簇，产出一堆孤词 |

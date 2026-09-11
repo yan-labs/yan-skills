@@ -22,7 +22,7 @@
 | 5 | 开发与测试 | **段 3 · 建站与开发**（3.3） | 原样 |
 | 6 | 集成专项能力 | **段 3 · 建站与开发**（3.4） | 加「不重复造轮子」 |
 | 7 | 部署并真实线上验证 | **段 5 · 上线与接入**（5.4） | 正式域名绑定之后做 |
-| 7.5 | 品牌资产与测量接入 | **段 4 · 上线前 SEO/GEO**（A 品牌资产、C 八行闸门）+ **段 5 · 上线与接入**（B26 邮箱、A/B 两批接入） | 一拆为二：预览域上能做的进段 4，依赖正式域名的进段 5 |
+| 7.5 | 品牌资产与测量接入 | **段 4 · 上线前 SEO/GEO**（A 品牌资产、C 九行闸门）+ **段 5 · 上线与接入**（B26 邮箱、A/B 两批接入） | 一拆为二：预览域上能做的进段 4，依赖正式域名的进段 5 |
 | 8 | SEO 与内容增长 | **段 7 · 变现与监控**（7.2） | 每次页面改动回段 4 全套体检 |
 | 9 | 分发与外链 | **段 6 · 外链** | 原样，执行在 `backlink` |
 | 10 | 监控、学习与迭代 | **段 7 · 变现与监控**（7.3） | 新增「回到段 1 开下一棵树」的判据 |
@@ -575,7 +575,7 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 | **无关区块不进 SSR 文本**：价格表、FAQ 控件文案、单位换算、UI 标签这类会稀释目标词的区块，改客户端加载，让 SSR 只输出目标文案。**注意 Googlebot 会渲染 JS**，`DOMContentLoaded` 注入只骗得过密度工具骗不过 Google；更稳的做法是 [`seo-growth.md`](seo-growth.md)「交互门控注入」——**首次真实交互**（pointerdown / keydown / touchstart / wheel）之后才注入，爬虫从不交互所以永远看不到 | 密度工具读 raw HTML，Google 读渲染后 DOM；两者都要过 |
 | **每页独立 title / description / `og:image`，且必须有图**；`og:image` **不得全站共用** | 实测某 7 语种站共用同一 `og:image`、页内 0 个 `<img>`，结果只有 1 个语种出 SERP 缩略图（`seo-growth.md` 2026-07-18 条目） |
 | **`llms.txt` 与 is-agentic 一起做**：`llms.txt` 列真实路径，`is-agentic.mjs scan` 出基线 | AI 搜索与 AI 代理是免费曝光的第二来源，不做等于放弃一半流量 |
-| **每次页面改动全套体检重跑**（下 C 表 0–6 + 4b 全部），不是只跑某几行 | 改一处 TDK 可能带坏密度，改一个区块可能带坏 CLS；只重跑某两行等于默认其余没变，而这正是清单腐坏的起点 |
+| **每次页面改动全套体检重跑**（下 C 表 0–6 + 4b + 4c 全部），不是只跑某几行 | 改一处 TDK 可能带坏密度，改一个区块可能带坏 CLS；只重跑某两行等于默认其余没变，而这正是清单腐坏的起点 |
 
 ### 输入
 
@@ -632,7 +632,7 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
    image-sitemap 一并补齐。**全站共用一张 `og:image` 不通过。**
 9. **`llms.txt`**：列出真实存在的路径与一句话说明，不是模板；与 sitemap 逐条对得上。
 
-**C. 上线前闸门：八行硬性检查（0–6 + 4b），逐行要证据，不是工具清单**
+**C. 上线前闸门：九行硬性检查（0–6 + 4b + 4c），逐行要证据，不是工具清单**
 
 下表每一行都要在预览域产出可核验的证据，证据落进 `.rankup/` 对应文件；
 **只跑了命令、没留下证据不算过这项**，口头「应该没问题」或控制台一个绿色图标都不算证据。
@@ -647,6 +647,7 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 | 3 | 关键词密度 | `node <rankup-skill-dir>/scripts/seo-audit.mjs --sitemap <sitemap-url> --density-only`（日本語は `Intl.Segmenter('ja')` で分かち書き、1/2/3-gram）。对每页**先在 `.rankup/keywords.md` 里登记本页目标短语**（B 节第 6 条），再在密度输出中核对该短语的实际占比 | 密度落在自然区间；**声明的短语与测量的短语必须是同一个字符串**，测别的短语等于没测；top15 里没有 UI 控件词（否则回 B 节第 7 条剥离）。薄页面「密度太高」与「内容太少」是同一个事实：解法是把内容做厚，不是删关键词讨好指标 | `.rankup/audit.md` |
 | 4 | GEO / AI Agent 就绪度 | `node <rankup-skill-dir>/scripts/is-agentic.mjs scan <preview-domain> --save`（零配置，公开 API，结果存 `.rankup/agentic/`） | 有一份带分数与逐项 Essential/Recommended/Bonus 结果的基线报告；**每条 `partial`/`failed` 都必须独立核实，不是照抄结论**——实测一次 75 分「Ready with a few material gaps」报告里，2 条 Essential `partial` 核实后不成立（误报 soft-404，实测 4 个不存在路径均返回真 404；误报缺失 no-JS 内容，实测预渲染页面原始 HTML 里有 4,800–7,000 字符正文），核实后据实改判或记录驳回理由 | `.rankup/agentic/<domain>/<date>.json` + 核实结论写入 `.rankup/audit.md` |
 | 4b | GEO 内容形状 | 请用户在 AITDK 扩展 GEO 标签页跑一页贴回报告，再 `curl` 全站数 `<table>/<blockquote>/<cite>/<h3>/<time>` 与 JSON-LD 字段逐页核 | 判据见 [`checklists.md`](checklists.md) 段 4「闸门 4b」；**先分「设计」与「缺口」**：robots 类三项在预览域恒 FAIL 是故意的 | `.rankup/evidence/aitdk-geo-<date>/` |
+| 4c | AITDK 全站报告 | 按 sitemap 抽样（首页 + 每类模板页各至少一个 + 全部法律/关于/联系页）逐个跑 `bash <rankup-skill-dir>/scripts/aitdk-opencli.sh <url>`，前置条件同 4b | 判据见 [`checklists.md`](checklists.md) 段 4「闸门 4c」：Issues 标签页零问题，带评分的标签页逐项满分；不满分/有问题的逐条修完重跑，改不动的写明原因并在 `checks.md` 标 ⏸ | `.rankup/evidence/aitdk-full-<date>/` |
 | 5 | 哥飞 AI 审阅 | `node <rankup-skill-dir>/scripts/seo-webcafe.mjs chat --ask "审阅 https://<预览域> ……"`（强制登录，需 `SEO_WEBCAFE_COOKIE`，返回 SSE，见 `seo-webcafe.md`「SEO Agent」一节） | 每条建议有采纳/拒绝记录；拒绝必须附理由；**打印并记录 `done` 事件的 `toolCalls`、`rounds`、`charged`**，不看这三项就是把黑箱结论当权威 | `.rankup/audit.md` |
 | 6 | 性能 / Core Web Vitals | `node <rankup-skill-dir>/scripts/pagespeed.mjs plan <URL…> --strategy both` 出链接与读数清单，再**在浏览器里打开 pagespeed.web.dev 逐份读数**（2026-08-31 起走网页版，零 key 零配额；也可 `pagespeed.mjs collect …` 采双证人交给 AI 判读）。覆盖关键页面类型：首页、一个工具/功能页、一个内容页；记录 LCP、CLS、INP 与性能分。**网页版一屏同时给实验室（Lighthouse）与现场（CrUX）两套数据；单跑 Lighthouse 只有实验室那一半，这条闸门会「只过一半而表面是绿的」**（见 [`seo-box.md`](seo-box.md) 「一 · PageSpeed 网页版 → 补上闸门 6 缺的那一半」）。`--strategy both` 是移动端与桌面端都跑（默认只跑其一），CLS 一类只在桌面触发的问题必须靠它才看得到。**预览域几乎不会有现场数据，原样记「现场无数据（流量不足）」，不是 0、不等于通过，别留空**；段 5 上线后在正式域名补现场那一半 | 三类页面均达到**项目自设的下限**（不是通用「90 分」之类的泛化标准）；**实验室数据不能单独定论，现场数据（真实用户，如 Cloudflare/CrUX 字段数据）为准**——已实测一个站 Lighthouse 每次都读到 CLS 0，同期 Cloudflare 现场数据在同一元素上读到 0.127，原因是那类位移只在 Windows 桌面 Chrome 的经典滚动条上发生（macOS/iOS 覆层滚动条不占布局宽度，结构上不可能触发），实验室机器根本没跑过那个平台，读到 0 什么都不能证明；**先验仪器再信读数**——同一批测试里发现某沙箱浏览器 `document.visibilityState` 恒为 `hidden`，Chromium 对隐藏文档从不派发 `layout-shift` 事件，导致该环境下「0 次位移」全是假的，判据是先注入一个明显位移的元素、确认仪器真的报告了它，「测不到」和「没发生」在日志里长得一模一样 | `.rankup/baseline.md`（含 LCP/CLS/INP 与分数，标注实验室/现场来源） |
 
@@ -666,7 +667,7 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
     （这条规则在段 7 已有真实先例：均分 96.1、无红灯后仍建议补长尾密度榜和砍字数，
     而砍字数会直接砍掉让页面可被爬取的内容，详见 `seo-growth.md` 对应记录）。
 
-12. **每次页面改动，上表 0–6 + 4b 全套重跑**——本段内的每一轮修改如此，段 7 之后每一轮迭代也如此。
+12. **每次页面改动，上表 0–6 + 4b + 4c 全套重跑**——本段内的每一轮修改如此，段 7 之后每一轮迭代也如此。
     不允许「只重跑第 4、6 行」这类抽样：`is-agentic.mjs diff <domain>` 与 `pagespeed.mjs plan --strategy both`
     只是其中两行的对比工具，不是全套。把变化写进 `.rankup/experiments.md`——
     进步或倒退要用对比数字说话，不能只断言「应该更好了」。
@@ -687,17 +688,17 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 | B7 | 无关区块已改客户端加载或交互门控注入；`--density-only` top15 里没有 UI 控件词；若用交互门控，无头零输入下 SSR 不含该区块、单击后出现 | 密度输出 + 无头测试 |
 | B8 | 全站 title / description / `og:image` 三样逐页互不重复；每页至少一张真实 `<img>`；`og:image` 尺寸声明是真值 | seo-audit `--json` |
 | B9 | `llms.txt` 的路径与 sitemap 逐条对得上，没有模板行 | curl + diff |
-| C0–C6 | 上线前闸门八行（含 4b）逐行有证据，落点按 C 节表格。**只跑了命令、没留证据不算过**；预览封锁引起的 robots 类问题标了「设计」 | `audit.md` / `agentic/` / `baseline.md` / `evidence/` |
+| C0–C6 | 上线前闸门九行（含 4b、4c）逐行有证据，落点按 C 节表格。**只跑了命令、没留证据不算过**；预览封锁引起的 robots 类问题标了「设计」 | `audit.md` / `agentic/` / `baseline.md` / `evidence/` |
 | C-占位 | **上线 review 必含占位专项**：按 sitemap 逐 URL grep [`discipline.md`](discipline.md) 十四的正则，零命中；人工抽查首页/定价/关于/联系/法律页每个链接可点、每张图有内容；**本轮 review 必须重跑，不采信上一轮（含段 3 开发期）的结果**——页面在这之间可能又动过 | grep 输出（逐 URL）+ 人工抽查记录进 `.rankup/audit.md` |
 | C10 | 外部工具与 AI 的每条发现都逐条判过；**被否决的都写了理由**，与硬约束冲突的写明冲突的是哪条 | `.rankup/audit.md` |
 | C11 | 分数逼近满分时写了封板声明，剩余建议逐条判「不做」及理由 | `.rankup/audit.md` |
-| C12 | 本段内每一轮页面改动之后都**全套**重跑了 0–6 + 4b，对比数字进了 `experiments.md`；**没有「只重跑某两行」的记录** | `.rankup/experiments.md` |
+| C12 | 本段内每一轮页面改动之后都**全套**重跑了 0–6 + 4b + 4c，对比数字进了 `experiments.md`；**没有「只重跑某两行」的记录** | `.rankup/experiments.md` |
 
 ### 输出
 
 - 完整图标集与 `manifest.json`，且全部经预览域 200 校验；`manifest.json` 的 `display` 已按站点类型（有可用功能 vs 纯营销/引流/内容站）判过，不是照抄脚手架默认值。
 - `.rankup/keywords.md`（页面 ↔ 目标短语登记）
-- 上线前闸门八行（0 站点身份 / 1 技术 SEO / 2 TDK / 3 关键词密度 / 4 GEO·AI Agent 就绪度 / 4b GEO 内容形状 / 5 哥飞 AI 审阅 / 6 性能·CWV）逐行的通过证据，按上表落进 `.rankup/audit.md`、`.rankup/agentic/`、`.rankup/baseline.md`、`.rankup/evidence/`。
+- 上线前闸门九行（0 站点身份 / 1 技术 SEO / 2 TDK / 3 关键词密度 / 4 GEO·AI Agent 就绪度 / 4b GEO 内容形状 / 4c AITDK 全站报告 / 5 哥飞 AI 审阅 / 6 性能·CWV）逐行的通过证据，按上表落进 `.rankup/audit.md`、`.rankup/agentic/`、`.rankup/baseline.md`、`.rankup/evidence/`。
 - `is-agentic.mjs scan --save` 产出的基线报告；哥飞 AI 审阅与 `is-agentic` 发现的采纳/拒绝记录，拒绝项附理由。
 - `.rankup/experiments.md`（每轮改动的全套对比）
 
@@ -707,7 +708,7 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 `manifest.json` 的 `display` 按站点类型判过，纯营销/引流/内容站的预览域没有出现浏览器安装提示；
 每个页面登记了目标短语且密度测的就是那个字符串；无关区块不在 SSR 文本里；
 全站 title / description / `og:image` 逐页独立且每页有真实图片；`llms.txt` 与 sitemap 一致；
-上线前闸门八行（0–6 + 4b）全部在预览域核验通过，且每行都留下了表中要求的证据文件；
+上线前闸门九行（0–6 + 4b + 4c）全部在预览域核验通过，且每行都留下了表中要求的证据文件；
 TDK 与内链检查覆盖**全站每一个 URL** 而非抽样；`is-agentic.mjs scan --save` 已跑出基线且每条 `partial`/`failed` 都有独立核实结论；
 哥飞 AI 审阅已跑且每条建议有采纳/拒绝记录，拒绝项附理由；性能三类页面的实验室结果已记录、现场一栏如实记「无数据」；
 若分数已接近满分，附一条封板声明；本段内每次页面改动都有一份全套重跑记录。
@@ -716,7 +717,7 @@ TDK 与内链检查覆盖**全站每一个 URL** 而非抽样；`is-agentic.mjs 
 
 | 交给下一段的 | 下一段会怎么用它 | 如果这项缺失会怎样 |
 |---|---|---|
-| 预览域上全绿的八行闸门证据 + `is-agentic` 基线 + 性能基线 | 段 5 绑正式域名、放开索引后只需重跑确认 `noindex` 已摘、robots 类「设计」项转绿；段 7 把这份基线当「变更前」状态 | 段 5 要在正式域名上从零做体检，上线被拖后数天；段 7 没有基线就没有 diff 可言 |
+| 预览域上全绿的九行闸门证据 + `is-agentic` 基线 + 性能基线 | 段 5 绑正式域名、放开索引后只需重跑确认 `noindex` 已摘、robots 类「设计」项转绿；段 7 把这份基线当「变更前」状态 | 段 5 要在正式域名上从零做体检，上线被拖后数天；段 7 没有基线就没有 diff 可言 |
 | 哥飞 AI 审阅与 `is-agentic` 发现的采纳/拒绝记录 | 段 5、7 复查同一批建议时直接读这份记录，不重新审一遍、不重开已有定论的争论 | 每轮迭代都要重新和同一个工具辩论一次同样的建议，浪费审阅额度也浪费时间 |
 | `.rankup/keywords.md` 的页面 ↔ 目标短语登记 | 段 6 把外链对准这些页面；段 7 每轮改动后按同一登记重测密度 | 外链撒网式投放；密度每轮测的都是不同的短语，前后不可比 |
 
@@ -1143,7 +1144,7 @@ IndexNow 密钥文件经线上校验且首次推送已被接受；`hello@<domain
 
 1. 读取 SEO 增长参考（含 section 三-B「2026 AI 搜索范式」），先核实数据渠道和时间窗口。
 2. 检查可抓取性、索引、canonical、robots、sitemap、结构化数据、性能和多语言信号。
-   **每轮页面改动或新页面上线后，回段 4 把八行闸门（0–6 + 4b）全套重跑**，不是只跑 `seo-audit.mjs`：
+   **每轮页面改动或新页面上线后，回段 4 把九行闸门（0–6 + 4b + 4c）全套重跑**，不是只跑 `seo-audit.mjs`：
    TDK、密度、seo.web.cafe audit、哥飞 AI、性能一个不少，不达标的当场修。
 3. **AI 搜索可见性检查**：查看 Search Console Generative AI 效果报告（如已开放）了解 AI 功能曝光；手动搜索核心关键词观察是否被 AI Overviews / AI Mode 引用；审计页面内容是否为「非大众化内容」（AI 自己能生成的泛泛之谈不会被引用）。
 4. **Back Button Hijacking 审计**：检查所有第三方脚本有无 `history.pushState` 滥用或后退拦截（2026-04 起为明确 spam 违规）。
@@ -1159,7 +1160,7 @@ IndexNow 密钥文件经线上校验且首次推送已被接受；`hello@<domain
 | 步 | 客观通过条件 | 证据 |
 |---|---|---|
 | 1 | 数据渠道与时间窗口先核实过（含三-B「2026 AI 搜索范式」），**没有拿跨口径的两个数字直接相减** | `.rankup/baseline.md` |
-| 2 | 本轮页面改动后段 4 八行闸门**全套**重跑过，TDK、密度、audit、哥飞 AI、性能都有本轮记录；**不达标的当场修了**；没有「只重跑某两行」 | `.rankup/audit.md` + `.rankup/experiments.md` |
+| 2 | 本轮页面改动后段 4 九行闸门**全套**重跑过，TDK、密度、AITDK 全站报告、audit、哥飞 AI、性能都有本轮记录；**不达标的当场修了**；没有「只重跑某两行」 | `.rankup/audit.md` + `.rankup/experiments.md` |
 | 3 | GSC Generative AI 报告（如已开放）看过；核心词**手动搜过**看是否被 AI 引用；页面做过「非大众化内容」审计 | `.rankup/audit.md` |
 | 4 | 第三方脚本查过 `history.pushState` 滥用与后退拦截（2026-04 起为明确 spam 违规） | `.rankup/audit.md` |
 | 5 | 内容站三项 Discover 适配到位：OG image ≥1200px、`max-image-preview:large`、主题持续发布而非追热点 | `.rankup/audit.md` |
@@ -1226,7 +1227,7 @@ IndexNow 密钥文件经线上校验且首次推送已被接受；`hello@<domain
 
 ### 完成门禁
 
-目标页面的线上技术信号与内容变更已核实且段 4 八行闸门全套重跑过，搜索平台操作有可追踪状态，实验拥有变更前基线、目标指标和回看日期；不能承诺尚未经过观察窗口的排名或流量结果；AI 搜索合规项（Back Button、FAQ schema 现状、非大众化内容审计）已检查并记录；
+目标页面的线上技术信号与内容变更已核实且段 4 九行闸门全套重跑过，搜索平台操作有可追踪状态，实验拥有变更前基线、目标指标和回看日期；不能承诺尚未经过观察窗口的排名或流量结果；AI 搜索合规项（Back Button、FAQ schema 现状、非大众化内容审计）已检查并记录；
 指标与项目记录更新到明确时间点，异常有归因证据或下一次验证计划，下一轮最高优先级及验收标准已确定；**「回段 1 判据」六行已逐条对过读数并落了结论**；被提升为通用经验的结论具备跨项目验证证据且不含项目密钥或敏感数据。
 
 ### 交给下一段的

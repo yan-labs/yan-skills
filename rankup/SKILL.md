@@ -2,7 +2,7 @@
 name: rankup
 description: 网站从零到一与长期增长的总控 Skill。用于新建网站、SaaS、工具站或内容站，规划或初始化 TanStack Start Monorepo，使用 Cloudflare Workers、D1、R2 部署全栈应用，接入支付，执行 SEO、内容、外链、上线验证和持续迭代；也负责 Google Trends 查询、关键词难度（KD）估算与选词工作流；2026 AI 搜索范式（AI Overviews、AI Mode、Preferred Sources、Discover 独立算法、Information Gain、引用优先于排名）；AI Agent 就绪度评分（is-agentic、agent readiness、llms.txt、MCP 可发现性、AI 代理优化）。用户提到 rankup、rankup init、rankup check、环节闸门、检查清单、checklist、"现在该做什么"、"到哪一步了"、"这个环节能不能过"、"本轮还差什么"、建站、网站改版、搜索流量、GSC、排名、关键词、CTR、索引、网站增长，或提到 谷歌趋势、Google Trends、搜索热度、热度对比、搜索趋势、trending、"XX 和 YY 哪个更火"、"今天美国/日本在搜什么"、每日热搜、"这个词能不能做站"、"哪个市场/国家有机会"、帮我选 SEO 关键词、选词、选品调研、市场探测、挖需求、找需求、需求挖掘、找方向、找选题、"最近有什么能做的"、"找几个关键词"、"挖个新词的工具站"、"看看有什么游戏站能做"、竞品调研、榜单调研、差评挖掘、反查谁在赚钱、关键词难度、KD、竞争度、SERP 分析、"这个词难不难做"、"做这个词要多少外链"，或提到 哥飞、web.cafe、哥飞论坛、哥飞的朋友们、悬赏、悬赏问答、经验帖、"群里怎么说的"、"社群里有没有讲过"、"论坛里搜一下"、"哥飞说过什么"、哥飞.ai，或提到 AI 搜索优化、AI Overviews、AI Mode、被 AI 引用、AEO、GEO、Preferred Sources、Discover 优化、Google 算法更新、核心更新、spam 更新、Information Gain，或提到 AI Agent 就绪度、is-agentic、agent readiness、llms.txt、对 AI 代理友好、AI 代理优化、agent-friendly、agentic score 时使用。也覆盖用户真正会打出来的模糊说法：我想让流量涨一点、今天弄下 SEO、帮我看看这个站有什么问题、优化一下我的网站、流量掉了、排名没了、是不是被 K 了、怎么一直不收录、新页面多久能进索引、提交 sitemap、IndexNow、站慢不慢、跑个性能、Core Web Vitals、PageSpeed、Lighthouse、全站内链失效、TDK、标题描述怎么写、关键词密度、能不能上线了、上线前还差什么、帮我搞点外链、外链、反链、去哪发外链、抓一下后台数据、导出报表、数据面板、这站没有 API、访客不注册、没人付费、定价怎么定、要不要上多语言、hreflang、发个 Product Hunt、跑一下小游戏监测。也覆盖：词根、扩词、扩词树、占位链接、占位文案、变现、PayPal、域名黑历史、域名前世、单语种、hello@、"这个域名能不能用"、"看下这批数据有没有能做的关键词"、"调研一下这个词"、"review 一下我的站"、"数据检测平台都接入了吗"、"把 Ahrefs 的检验结果都修了"、"我们开始执行这个项目的计划"、"一步步来"、"调研一下这关键词"、"我们做个网站吧"、"我们做个内页吧"、"把这个关键词做成内页"、"看一下 GEO 有没有问题"、"SEO 有没有问题"、"把这个经验写进 rankup"、"记下来更新到源码里"、"帮我生成 logo"、配图、封面、og 图、"写一下这页的文案"、"AI 味太重"、"帮我改稿"、"语言结构理顺"、"文案怎么写才有人点"、"用户为什么不买"、"Reddit 上怎么说"、"X 上有没有人讨论"、社区验证、社区调研、"做个好看的页面"、设计参考、组件库参考、"Hero 怎么设计"、"landing page 怎么排"、动画效果、动效、页面设计灵感、21st.dev。
 metadata:
-  version: "3.4.1"
+  version: "3.5.0"
 ---
 
 # Rankup 3.0
@@ -28,7 +28,7 @@ metadata:
 | 「做个功能吧」「加个 X 功能」「把这个做出来」「实现一下这个」 | 3 | **红线先行：任何 UI 一律用脚手架自带的 shadcn 组件库**（`components/ui/`），缺的 `shadcn add` 或装同生态的现成组件，禁止手写下拉框 / 弹窗 / 日期选择 / 表格分页 / Toast；然后按段 3 硬规则与 `checklists.md` 段 3 做，做完段 4 全套体检 |
 | 开发时挂着当规范：「按 rankup 规范来」「这个页面这样写行不行」「这块要不要 SSR」 | 3–4 | 本文段 3、段 4 硬规则 + `checklists.md` 对应段 |
 | 「我们做个内页吧」「把这个关键词做成内页」「关键词没问题了，做成内页」 | 4 | **一个关键词对应一个内页**：目标词登记、TDK、独立 OG 含图、密度、无占位、体检全套；页面上的控件同样只准来自组件库（红线，见 `discipline.md` 十六）；`lifecycle.md` 段 4 + `checklists.md` 段 4 |
-| 「看一下 SEO 有没有问题」「看一下 GEO 有没有问题」「GEO/SEO 有没有问题」 | 4 | 段 4 体检：`seo-audit.mjs`、`is-agentic.mjs`、`seo-webcafe.mjs audit`、哥飞 AI；分组见 [`playbooks/site-review.md`](references/playbooks/site-review.md) A / C / E 组 |
+| 「看一下 SEO 有没有问题」「看一下 GEO 有没有问题」「GEO/SEO 有没有问题」 | 4 | 段 4 体检：`seo-audit.mjs`、`is-agentic.mjs`、`aitdk-opencli.sh`、`seo-webcafe.mjs audit`、哥飞 AI；分组见 [`playbooks/site-review.md`](references/playbooks/site-review.md) A / C / E 组 |
 | 「能不能上线了」「上线前还差什么」「TDK」「关键词密度」「标题描述怎么写」 | 4 | `checklists.md` 段 4 + [`seo-box.md`](references/seo-box.md) |
 | 「怎么被 AI 引用」「llms.txt」「对 AI 代理友好吗」「AEO/GEO」 | 4 | [`seo-growth.md`](references/seo-growth.md) 三-B |
 | 「AI 会不会推荐我们」「GEO 反推」「试试 AI 搜这个词会推荐谁」 | 4 | `seo-growth.md` 三-B GEO 反推测试 |
@@ -126,7 +126,8 @@ metadata:
 | 每页独立 meta / OG 且**必须有图** | 共享 OG 让全站在社交分享里一张脸，没图的分享卡没人点 |
 | 正文是给人读的，不是给密度工具凑的：起稿后必须过一遍去 AI 味与结构梳理（中文走 `/write` 阶段四或 `/shuorenhua`，英文按 `/ai-seo` 的 Information Gain 判据自查），首屏一句话说清这页解决什么。**中英文都查四样**：矫饰文风（用比喻花腔代替直说，有直说就直说）、句子密度（一句一个意思）、引文标记（别人的话打引号注出处，最多一处）、格式克制（列表只在内容确实多面时用）——判据与自查正则在 `/write` 阶段四 | 模板腔与空话会被 AI 搜索跳过、被读者秒关；Information Gain 是 2026 排名与被引用的共同判据；矫饰句读者一眼能认出是模型写的 |
 | llms.txt / GEO 按 `seo-growth.md` 三-B 做：Google 定论 AEO/GEO 就是 SEO | 不需要第二套方法论，也不要加载会跑付费凭据的兄弟 Skill 脚本 |
-| **每次页面改动全套检测重跑**：TDK、密度、seo.web.cafe audit、哥飞 AI 二次意见 | 只重跑改到的两项会漏掉连带影响 |
+| **上线前（段 4）与 `rankup review` 全站体检都要用 AITDK 扩展面板对站点跑一遍完整报告**（按 sitemap 抽样：首页 + 每类模板页各至少一个 + 全部法律/关于/联系页）；报告里**所有标红/标黄的问题项，以及任何没拿到满分的评分项，一律算必修**，逐条修完重跑，直到全绿满分，改不动的写清为什么改不动 | AITDK 是与 Google 视角独立的第三双眼睛，看得到自家 `seo-audit.mjs` / `is-agentic.mjs` 漏掉的项；不满分就说明还有可修的空间，不能因为自家脚本已经全绿就跳过 |
+| **每次页面改动全套检测重跑**：TDK、密度、AITDK 全站报告、seo.web.cafe audit、哥飞 AI 二次意见 | 只重跑改到的两项会漏掉连带影响 |
 | 证据必填：控制台绿图标不算，`pagespeed` 现场那块不存在 = CrUX 流量不足，不是通过 | 这套东西唯一致命的失败形态是看着全绿、底下什么都没有 |
 
 - **闸门**：[`checklists.md`](references/checklists.md) 段 4。
@@ -234,7 +235,7 @@ metadata:
 
 ### `rankup review`
 
-review 不是「查 `.rankup/` 缺哪个文件」，是对这个站本身做一次全面体检。编排在 [`playbooks/site-review.md`](references/playbooks/site-review.md) 第一节：先摸前提，再一条消息并行派七组 sub agent（技术 SEO / 速度 / GEO / 关键词长尾 SERP / 哥飞二次意见 / 市场规模 / 接入与记忆），最后汇总回写。`.rankup/` 不存在、站没上线、拿不到 GSC 三个分支都写死在 playbook 里，不要停下来先 init。
+review 不是「查 `.rankup/` 缺哪个文件」，是对这个站本身做一次全面体检。编排在 [`playbooks/site-review.md`](references/playbooks/site-review.md) 第一节：先摸前提，再一条消息并行派七组 sub agent（技术 SEO / 速度 / GEO / 关键词长尾 SERP / 哥飞二次意见 / 市场规模 / 接入与记忆），最后汇总回写。**A 组（技术 SEO）含 AITDK 全站报告**，Issues 与未满分项一律进必修清单，判据 [`checklists.md`](references/checklists.md) 段 4「闸门 4c」。`.rankup/` 不存在、站没上线、拿不到 GSC 三个分支都写死在 playbook 里，不要停下来先 init。
 
 G 组那条线：`scripts/review.mjs --project-root .` 出五块报告；再挖会话记录 `scripts/sessions.mjs --project-root . --days 14 --new-only`（`--dump` 出浓缩稿，消化完才 `--mark`）。**默认加 `--new-only`**，水位线记在 `.rankup/review-state.json`，不加会把同样的对话重读一遍。浓缩稿里找四类东西：用户的纠正、验证过的结论、踩过的坑与根因、已推翻旧记录的事实（**修订**原条目，不并列）。
 之后：三方对账 → 过全部闸门补缺口 → 接入清单线上实测 → 筛 `experience.md` → 剥离站点后仍成立的规则回流本 Skill → 补脚本 → 刷新登记表 → 一页结论。能当场修的直接修。

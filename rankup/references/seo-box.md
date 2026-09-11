@@ -58,6 +58,8 @@
 | AITDK Extension | ✅（SEO 标签页）/ ⚠️（GEO 标签页） | AITDK **SEO** 标签页的能力已被 `scripts/seo-audit.mjs` 复刻（它的头部注释就写着「AITDK 相当」），且脚本能跑全站，扩展只能看当前页。**GEO 标签页**（引用 / 表格 / 数字 / 作者 / 日期 / sameAs / H3，2026-09-02 在 vidown 实测 76/100）脚本不覆盖，判据在 `checklists.md` 闸门 4b，报告靠用户贴回 |
 | Wappalyzer | ➕ 能力值得要 | **技术栈识别在段 1 的竞品拆解里有真实用途**（对方用什么建站、挂了哪些分析/广告/支付 → 反推变现方式，直接喂 [`lifecycle.md`](lifecycle.md) 6.3 竞品变现分析）。但其 API 是付费 `x-api-key`（实测 2026-08-29），**免费替代见下方「技术栈指纹」一节** |
 
+闸门用时判据见 [`checklists.md`](checklists.md) 4c。
+
 ### 博客区（4 条）
 
 | 来源 | 判定 | 依据 |
