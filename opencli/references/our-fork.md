@@ -151,6 +151,15 @@ flatten 子 session；Chrome 每个子 session 的 context 编号独立，面板
 
 ---
 
+## fork 上打 tag / push 不会自动出 Release
+
+`yan-labs/OpenCLI` fork 上 `push`（含推一个 tag）不会触发 `.github/workflows/release.yml`，
+只有手动 `workflow_dispatch` 能跑通；已诊断确认，原因未查。所以打完 tag 要**本地照抄该
+workflow 的打包步骤**（typecheck → build → manifest drift 校验 → `npm pack` → 打包扩展 →
+zip）再 `gh release create` 手工把产物挂上去，别指望 Actions 自己出 Release。
+
+---
+
 ## 同步上游时注意
 
 - 我们领先的提交都在浏览器会话/批量这条线上，冲突面集中在

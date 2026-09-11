@@ -667,7 +667,7 @@ OpenCLI 本体分两半，**两半都要装我们的构建**，来源是
 
 ```bash
 # 1) CLI
-npm i -g https://github.com/yan-labs/OpenCLI/releases/download/v1.8.7-yan.4/opencli-cli-1.8.7-yan.4.tgz
+npm i -g https://github.com/yan-labs/OpenCLI/releases/download/v1.9.0-yan.3/opencli-cli-1.9.0.tgz
 
 # 2) 浏览器扩展：下载 opencli-extension-v*.zip 解压，
 #    chrome://extensions → 开启开发者模式 → 加载已解压的扩展程序
@@ -683,8 +683,11 @@ browser 与 adapter 都在用户当前窗口开标签页、不切走活动标签
 **全都只存在于我们的构建里**。商店版默认是前台，装了它本 Skill 的规则会与实际行为不符。
 两个同时装还会一起连上守护进程互相打架。
 
-扩展 1.1.1 修复 OOPIF eval 路由（面板反复开合后 `eval` 静默落回主页面的已知回归），见
-[`references/our-fork.md`](references/our-fork.md)；这里的下载说明还没跟着切新 Release，装好后照第 3 步验证 `doctor` 打出的版本号。
+**CLI 1.9.0 / 扩展 1.1.1**（跨源 iframe 支持、`frames --debug`、`browser <会话> clipboard`，
+以及扩展 1.1.1 修复的 OOPIF eval 路由——面板反复开合后 `eval` 静默落回主页面的已知回归）
+已随 **v1.9.0-yan.3** 发布，见 [`references/our-fork.md`](references/our-fork.md)。如果
+`frames --debug` 报 `unknown option`，说明全局装的还是旧 tgz，`npm i -g` 上面那个新 URL
+即可；扩展侧记得在 `chrome://extensions` reload，装好后照第 3 步验证 `doctor` 打出的版本号。
 
 差异清单见 [`references/our-fork.md`](references/our-fork.md)。
 
