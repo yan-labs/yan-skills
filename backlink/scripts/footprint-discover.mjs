@@ -517,6 +517,11 @@ function selfTest() {
   eq('serper: missing snippet defaults to empty string', mapped[1].snippet, '');
   eq('serper: mapSerperOrganic(undefined) → []', mapSerperOrganic(undefined), []);
 
+  eq('isSerperFreeTierNumCapError: matches the real error body', isSerperFreeTierNumCapError('{"message":"Query pattern not allowed for free accounts.","statusCode":400}'), true);
+  eq('isSerperFreeTierNumCapError: case-insensitive', isSerperFreeTierNumCapError('QUERY PATTERN NOT ALLOWED FOR FREE ACCOUNTS'), true);
+  eq('isSerperFreeTierNumCapError: unrelated 400 body does not match', isSerperFreeTierNumCapError('{"message":"Invalid API key","statusCode":401}'), false);
+  eq('isSerperFreeTierNumCapError: empty/undefined body does not match', isSerperFreeTierNumCapError(undefined), false);
+
   const serperRecord = buildResultRecord('puzzle games inurl:submit', mapped[0], ctx);
   eq('serper result feeds the same buildResultRecord as google', serperRecord?.domain, 'example.com');
   eq('serper result operatorHit uses the same shape scoring', serperRecord?.operatorHit, true);
@@ -622,20 +627,53 @@ export function mapSerperOrganic(organic) {
   })).filter((r) => r.url);
 }
 
-async function runQuerySerper(query, { num, hl, gl }) {
-  const apiKey = (process.env.SERPER_API_KEY || '').trim();
-  if (!apiKey) throw new Error('SERPER_API_KEY is not set.');
+/** True for the specific free-tier-num-cap 400 body — see the comment on
+ * `runQuerySerper` below. Exercised by --self-test with a fixture string. */
+export function isSerperFreeTierNumCapError(bodyText) {
+  return /query pattern not allowed for free accounts/i.test(String(bodyText || ''));
+}
+
+async function fetchSerper(apiKey, query, { num, hl, gl }) {
   const res = await fetch(SERPER_ENDPOINT, {
     method: 'POST',
     headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ q: query, gl, hl, num: Math.min(Number(num) || 30, 100) }),
+    body: JSON.stringify({ q: query, gl, hl, num }),
   });
+  const bodyText = res.ok ? null : await res.text().catch(() => '');
+  return { res, bodyText };
+}
+
+/**
+ * Discovered 2026-09-12 running a real sweep: a free-tier Serper account
+ * rejects `num > 10` with `400 {"message":"Query pattern not allowed for
+ * free accounts."}` **only** when the query contains an operator or a
+ * quoted phrase — the exact shape footprint queries always have. A plain
+ * keyword query happily accepts num up to 30+. Confirmed by direct probing:
+ * `puzzle games inurl:submit` at num=10 → 200, num=11 → 400, every value up
+ * to 30 → 400; a bare `puzzle games` succeeds at num=30. Silently eating
+ * this as "0 results" (what happened on the first real run before this fix)
+ * looks exactly like an empty footprint and would have burned the whole
+ * sweep's Serper quota for nothing. So: request the caller's `num`, and on
+ * this specific error retry once at num=10 rather than failing the query —
+ * any other 400/non-2xx still throws normally.
+ */
+async function runQuerySerper(query, { num, hl, gl }) {
+  const apiKey = (process.env.SERPER_API_KEY || '').trim();
+  if (!apiKey) throw new Error('SERPER_API_KEY is not set.');
+  const requestedNum = Math.min(Number(num) || 30, 100);
+  let { res, bodyText } = await fetchSerper(apiKey, query, { num: requestedNum, hl, gl });
+  let numUsed = requestedNum;
+
+  if (!res.ok && requestedNum > 10 && isSerperFreeTierNumCapError(bodyText)) {
+    numUsed = 10;
+    ({ res, bodyText } = await fetchSerper(apiKey, query, { num: 10, hl, gl }));
+  }
+
   if (!res.ok) {
-    const bodyText = await res.text().catch(() => '');
-    throw new Error(`serper HTTP ${res.status}: ${bodyText.slice(0, 200)}`);
+    throw new Error(`serper HTTP ${res.status}: ${String(bodyText || '').slice(0, 200)}`);
   }
   const data = await res.json();
-  return { results: mapSerperOrganic(data?.organic) };
+  return { results: mapSerperOrganic(data?.organic), numUsed, numClamped: numUsed !== requestedNum };
 }
 
 /**
@@ -661,6 +699,10 @@ async function runSerperEngine({ pending, ctx, seenDomains, out, num, hl, gl, de
       continue;
     }
 
+    if (extraction.numClamped) {
+      process.stderr.write(`  note: free-tier Serper rejected num=${num} for this operator/quoted query; retried at num=10.\n`);
+    }
+
     let operatorHits = 0;
     let newDomains = 0;
     const results = extraction.results || [];
@@ -672,7 +714,10 @@ async function runSerperEngine({ pending, ctx, seenDomains, out, num, hl, gl, de
       if (!seenDomains.has(record.domain)) { seenDomains.add(record.domain); newDomains += 1; }
     }
 
-    const summary = { type: 'query-summary', engine: 'serper', query, resultCount: results.length, operatorHits, newDomains, capturedAt: nowIso() };
+    const summary = {
+      type: 'query-summary', engine: 'serper', query, resultCount: results.length, operatorHits, newDomains,
+      numUsed: extraction.numUsed, numClamped: Boolean(extraction.numClamped), capturedAt: nowIso(),
+    };
     appendLine(out, summary);
     summaries.push(summary);
   }
