@@ -20,17 +20,33 @@
  *    把 `requestAnimationFrame` 垫成 `setTimeout`、补发 `visibilitychange` 与
  *    `focus`：页面读到的确实变成 visible，**渲染照样不动**（元素数纹丝不动）。
  *    节流发生在浏览器层，不是页面读的那个标志位。
- * 3. **`opencli --window foreground` 也不保证可见**：Chrome 整个 app 不在最前时，
- *    标签页仍然是 hidden。**可见与否由坐在电脑前的人决定，脚本无权决定。**
+ * 3. **单靠 `opencli --window foreground` 不保证可见**：Chrome 整个 app 不在
+ *    最前时，标签页仍然是 hidden——但这只说明「只加这一个开关不够」，不说明
+ *    「无法做到」，见下方 2026-09-12 实测。
  * 4. **慢站会跑很久**：一个低流量站连跑 240 秒都还在「Running analysis」，
  *    而 example.com 只要 25–35 秒。预算要给足，超时**不等于「没有数据」**。
  * 5. `hl=en` 生效，能把界面语言钉死（否则跟着浏览器语言走，读数正则会漂）。
  * 6. 网页版的跑分请求走的是 `_/PagespeedUi/data/batchexecute` 这个内部 RPC，
  *    参数是混淆过的，**不要试图直接调它**——它没有契约，随时会变。
  *
- * 结论：**默认交给人跑**（`plan`，打印要开的链接 + 读数清单 + 记法），
- * 采集模式（`collect`）是可选加速，且必须由脚本自己在卡住时说清楚
- * 「是标签页没在前台」，而不是把空白渲染成「没有数据」。
+ * ── 2026-09-12 实测：无人值守跑通了 ─────────────────────────────────────
+ * 上面第 3 条只证明了「单开一个开关不够」，不是「做不到」。组合两件事就能
+ * 稳定拿到「标签页真的可见」这个前提，全程零人工：
+ *   (a) 每次 `opencli browser <session> open <url>` 都带 `--window foreground`，
+ *       把标签页本身钉在前台（不再是默认的 background）；
+ *   (b) collect 运行期间额外起一个后台循环，每 15 秒
+ *       `osascript -e 'tell application "Google Chrome" to activate'` 一次，
+ *       防止 Chrome 这个 App 整体被别的窗口抢到前台——(a) 只保证标签页在
+ *       Chrome 内部前台，App 级别的前台还是会被系统切走，两件事缺一不可。
+ *   实测：3 个 URL × 移动/桌面共 6 组，一次性全部出分，零重试，总耗时约 2
+ *   分钟，全程无人操作。结论：**collect 默认就应该这样跑**，`plan`（人工打开
+ *   链接）降级为兜底方案，只在这台机器不是 macOS、或 Chrome 仍被更强的前台
+ *   抢占（比如全屏的另一个 App）导致仍报 tab-hidden 时才用。
+ *
+ * 结论：**collect 默认前台驱动**（open 带 `--window foreground` + activate
+ * 循环），无人值守可以直接跑；`--no-foreground` 保留旧的后台行为供对照。
+ * 仍然卡在 tab-hidden 时，先查 Chrome 是不是被别的 App 抢了前台，而不是
+ * 直接退回人工 `plan`。
  *
  * ── 一条与取数方式无关、必须保留的判据 ──────────────────────────────────
  * **现场返回「无数据」= CrUX 流量不足，不是 0、不等于通过。** 必须原样记进
@@ -40,14 +56,16 @@
  *   node pagespeed.mjs plan <url...> [--strategy mobile|desktop|both] [--hl en]
  *       打印要在浏览器里打开的 pagespeed.web.dev 链接、读数清单、baseline.md 记法。
  *       零依赖，任何环境都能跑。**这是默认子命令。**
- *   node pagespeed.mjs collect <url...> [--strategy …] [--budget 300] [--session NAME]
+ *   node pagespeed.mjs collect <url...> [--strategy …] [--budget 300] [--session NAME] [--no-foreground]
  *       用 opencli 驱动本机 Chrome 采双证人（截图 + 页面文本）进
  *       `.rankup/evidence/pagespeed-<ts>/`，判读交给 AI。
- *       **跑之前把 Chrome 切到最前并让那个标签页可见**，否则必然卡在
- *       「Running analysis」——脚本会明说是这个原因，不会谎报没数据。
+ *       **默认前台驱动、无人值守可跑通**（2026-09-12 实测）：open 带
+ *       `--window foreground` + 后台 15 秒一次的 `osascript activate` 循环
+ *       （仅 darwin）。仍报 tab-hidden 时查 Chrome 是否被其他 App 抢了前台；
+ *       `--no-foreground` 关掉这两件事，退回旧的「人守在电脑前」用法。
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { newEvidenceDir, captureScene, writeManifest, msleep } from "./lib-scene.mjs";
@@ -75,7 +93,7 @@ function webUrl(target, strategy, hl) {
 }
 
 function parseArgs(argv) {
-  const opt = { strategy: "mobile", hl: "en", budget: DEFAULT_BUDGET_S, session: null, help: false };
+  const opt = { strategy: "mobile", hl: "en", budget: DEFAULT_BUDGET_S, session: null, help: false, foreground: true };
   const urls = [];
   let cmd = null;
   for (let i = 0; i < argv.length; i++) {
@@ -85,6 +103,7 @@ function parseArgs(argv) {
     else if (a === "--hl") opt.hl = argv[++i];
     else if (a === "--budget") opt.budget = Number(argv[++i]);
     else if (a === "--session") opt.session = argv[++i];
+    else if (a === "--no-foreground") opt.foreground = false;
     else if (a.startsWith("-")) die(`未知参数：${a}`);
     else if (!cmd && (a === "plan" || a === "collect")) cmd = a;
     else urls.push(normalizeUrl(a));
@@ -101,23 +120,28 @@ function strategies(s) {
 const HELP = `PageSpeed 取数（走网页版 pagespeed.web.dev，**不需要 key、不占配额**）
 
   node pagespeed.mjs plan <url...>    [--strategy mobile|desktop|both] [--hl en]
-  node pagespeed.mjs collect <url...> [--strategy …] [--hl en] [--budget 300] [--session NAME]
+  node pagespeed.mjs collect <url...> [--strategy …] [--hl en] [--budget 300] [--session NAME] [--no-foreground]
 
 plan（默认）  打印要在浏览器里打开的链接 + 读数清单 + baseline.md 记法。零依赖。
 collect       用 opencli 驱动本机 Chrome 采双证人（截图 + 页面文本）落
               .rankup/evidence/pagespeed-<ts>/，判读交给 AI。
 
 选项：
-  --strategy   mobile（默认）/ desktop / both。CLS 一类只在桌面触发的问题要靠 both
-  --hl         界面语言，默认 en（钉死语言，否则读数会跟着浏览器语言漂）
-  --budget     collect 每个 (URL × 端) 的等待上限秒数，默认 ${DEFAULT_BUDGET_S}
-  --session    opencli 会话名（并行任务必须各传各的，否则抢同一个标签页）
-  --help       显示帮助
+  --strategy      mobile（默认）/ desktop / both。CLS 一类只在桌面触发的问题要靠 both
+  --hl            界面语言，默认 en（钉死语言，否则读数会跟着浏览器语言漂）
+  --budget        collect 每个 (URL × 端) 的等待上限秒数，默认 ${DEFAULT_BUDGET_S}
+  --session       opencli 会话名（并行任务必须各传各的，否则抢同一个标签页）
+  --no-foreground 关掉默认的前台驱动（open --window foreground + activate 循环），
+                  退回旧的「人守在电脑前，标签页自己保持可见」用法
+  --help          显示帮助
 
-**collect 的硬前提：Chrome 那个标签页必须真的可见。** 实测后台标签页会一直停在
-「Running analysis」，一分多钟都不出分；数据其实到了，卡的是报告渲染（后台拿不到
-rAF）。伪造 visibilityState 无效，--window foreground 也不保证。卡住时脚本会
-明说是这个原因，**不会**把空白记成「没有数据」。
+**默认前台驱动、无人值守可跑通**（2026-09-12 实测）：collect 打开每个链接都带
+\`--window foreground\`，同时在 macOS 上额外起一个后台循环，每 15 秒
+\`osascript activate\` 一次把 Chrome 这个 App 拉回前台——单靠标签页前台不够，
+Chrome 整个 App 被别的窗口抢到前台时标签页照样是 hidden。实测 3 个 URL ×
+移动/桌面共 6 组一次性全部出分，零重试，约 2 分钟跑完，全程无人操作。
+**仍然报 tab-hidden 时，先查 Chrome 是不是被其他 App 抢了前台**（比如某个全屏
+应用），而不是退回人工跑；确实需要人工可读的旧行为时加 --no-foreground。
 
 **现场返回「无数据」= CrUX 流量不足，不是 0、不等于通过**——原样记进 baseline.md。`;
 
@@ -222,7 +246,10 @@ function collectOne(session, dir, target, strategy, opt) {
   let stopReason = "not-ready";
 
   try {
-    cli(session, ["open", url], { timeout: 120_000 });
+    // --window 是 `browser <session>` 之后、子命令之前的全局选项——
+    // 挂在 `open` 之后不生效，2026-09-12 实测确认过顺序。
+    const openArgs = opt.foreground ? ["--window", "foreground", "open", url] : ["open", url];
+    cli(session, openArgs, { timeout: 120_000 });
   } catch (e) {
     stopReason = "opencli-open-failed";
     last = { error: String(e?.stderr || e?.message || e).slice(0, 400) };
@@ -266,7 +293,8 @@ function explain(stopReason) {
       return "报告已渲染，双证人齐了";
     case "tab-hidden":
       return "标签页一直是 hidden —— **这是没出分的原因，不是这个站没有数据**。" +
-        "把 Chrome 切到最前、让那个标签页停在可见状态，再跑一次";
+        "前台驱动已开着的话，查 Chrome 是不是被别的 App（比如某个全屏应用）抢了前台；" +
+        "用了 --no-foreground 就把 Chrome 切到最前、让那个标签页停在可见状态，再跑一次";
     case "budget-exhausted":
       return "标签页可见但预算内没跑完 —— 慢站实测能跑几分钟。加大 --budget 重试；" +
         "**超时不等于没有数据**";
@@ -277,14 +305,50 @@ function explain(stopReason) {
   }
 }
 
+/**
+ * 2026-09-12 实测：单靠 `--window foreground` 只把标签页钉在 Chrome 内部前台，
+ * Chrome 这个 App 整体仍可能被别的窗口抢到前台，标签页照样 hidden。
+ * 用一个独立的后台进程每 15 秒 `osascript activate` 一次，把 App 级前台也
+ * 稳定住——只在 darwin 上起，且 osascript 不存在/起不来不能拖垮主流程。
+ */
+function startForegroundKeeper() {
+  if (process.platform !== "darwin") return null;
+  let child;
+  try {
+    child = spawn(
+      "bash",
+      ["-c", 'while true; do osascript -e \'tell application "Google Chrome" to activate\' >/dev/null 2>&1; sleep 15; done'],
+      { stdio: "ignore", detached: true },
+    );
+    child.unref();
+  } catch {
+    return null; // 起不来就当没有这层保险，不影响主流程
+  }
+  return child;
+}
+
+function stopForegroundKeeper(child) {
+  if (!child || child.killed) return;
+  try {
+    // detached 起的是这个 bash 子进程自己的进程组，杀组避免留下孤儿 sleep
+    process.kill(-child.pid, "SIGTERM");
+  } catch {
+    try { child.kill(); } catch { /* 已经不在了 */ }
+  }
+}
+
 function collect(urls, opt) {
   const ss = strategies(opt.strategy);
   const session = opt.session || defaultSession();
   const dir = newEvidenceDir("pagespeed");
   const results = [];
+  const keeper = opt.foreground ? startForegroundKeeper() : null;
   console.error(
     `[psi-web] 证据目录 ${dir}\n` +
-    `[psi-web] **把 Chrome 切到最前并保持那个标签页可见**——后台标签页出不了分。`,
+    (opt.foreground
+      ? `[psi-web] 前台驱动已开启：open 带 --window foreground` +
+        (keeper ? "，并已起 15 秒一次的 activate 循环（darwin）。" : "（非 darwin，无 activate 循环）。")
+      : `[psi-web] --no-foreground：退回旧行为，**把 Chrome 切到最前并保持那个标签页可见**——后台标签页出不了分。`),
   );
   try {
     for (const u of urls) {
@@ -296,6 +360,7 @@ function collect(urls, opt) {
       }
     }
   } finally {
+    stopForegroundKeeper(keeper);
     try {
       writeFileSync(join(dir, "results.json"), JSON.stringify(results, null, 2) + "\n");
     } catch { /* 落盘失败不能拦住关会话 */ }

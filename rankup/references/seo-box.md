@@ -45,7 +45,7 @@
 
 扩展这一类**天然与 rankup 的浏览器纪律契合**：它们装在用户那个已登录的 Chrome 里，
 而 rankup 本来就规定「需要登录态的页面操作必须驱动用户本机浏览器」（见 `opencli` Skill）。
-但**扩展不能被脚本调用**，它们只在人眼看页面时有用，所以判定一律是「给人用，不进自动化链路」。
+多数扩展不能被脚本调用，只在人眼看页面时有用，判定是「给人用，不进自动化链路」。**唯一的例外是 AITDK**：它的分析面板是一个跨源 iframe，opencli 能直接读，2026-09-11 起已被 `scripts/aitdk-opencli.sh` 全自动驱动（见下方「AITDK 面板全自动取数」一节），所以它既给人用，也进自动化链路。
 
 | 扩展 | 判定 | 依据 |
 |---|---|---|
@@ -55,12 +55,57 @@
 | Similarsites Finder | ❌ | 同类站发现走 `similarweb-query.mjs` 的 similar sites 字段，已在脚本里 |
 | Keywords Everywhere | ❌ | 付费按量。其站点确实有 API 与 MCP Server 入口（实测 2026-08-29），但我们的词量口径已经是 Semrush + seo.web.cafe 双源，**第三个付费口径的边际价值为负** |
 | WooRank Extension | ❌ | 同 WooRank 主站 |
-| AITDK Extension | ✅（SEO 标签页）/ ⚠️（GEO 标签页） | AITDK **SEO** 标签页的能力已被 `scripts/seo-audit.mjs` 复刻（它的头部注释就写着「AITDK 相当」），且脚本能跑全站，扩展只能看当前页。**GEO 标签页**（引用 / 表格 / 数字 / 作者 / 日期 / sameAs / H3，2026-09-02 在 vidown 实测 76/100）脚本不覆盖，判据在 `checklists.md` 闸门 4b，报告靠用户贴回 |
+| AITDK Extension | ✅（SEO 标签页）/ ✅（GEO 标签页，2026-09-11 起可脚本化） | AITDK **SEO** 标签页的能力已被 `scripts/seo-audit.mjs` 复刻（它的头部注释就写着「AITDK 相当」），且脚本能跑全站，扩展只能看当前页。**GEO 标签页**（引用 / 表格 / 数字 / 作者 / 日期 / sameAs / H3，2026-09-02 在 vidown 实测 76/100）`seo-audit.mjs` 不覆盖，判据在 `checklists.md` 闸门 4b。**旧结论「报告靠用户贴回」已作废**：2026-09-11 起 `scripts/aitdk-opencli.sh` 用 opencli 直接读面板 iframe，15 个标签页（含 GEO）一次跑完，详见下方「AITDK 面板全自动取数」 |
 | Wappalyzer | ➕ 能力值得要 | **技术栈识别在段 1 的竞品拆解里有真实用途**（对方用什么建站、挂了哪些分析/广告/支付 → 反推变现方式，直接喂 [`lifecycle.md`](lifecycle.md) 6.3 竞品变现分析）。但其 API 是付费 `x-api-key`（实测 2026-08-29），**免费替代见下方「技术栈指纹」一节** |
 
-闸门用时判据见 [`checklists.md`](checklists.md) 4c。
+### AITDK 面板全自动取数（`scripts/aitdk-opencli.sh`）
+
+**【实测 2026-09-11】** 一条命令把 AITDK 面板的 15 个标签页全抓下来，不需要人手点、不需要贴回。
 **2026-09-12 复测通过（扩展 1.1.1，两站 16 个 URL 全部 15/15 section）**——修的是上面那条 1.1.0 已知回归。
+
+```bash
+bash <rankup-skill-dir>/scripts/aitdk-opencli.sh <url> [session-name] [output.json] [--skip-panel]
+```
+
+- `session-name` 默认 `aitdk`；`output.json` 默认 `./aitdk-report-<domain>-<时间戳>.json`。
+- `--skip-panel` 只跑 Part A（页面自身 HTML/robots/sitemap/whois），不碰扩展——**没装扩展、或只想要页面事实时走这条**。
+
+**前置条件（少一条就白跑）：**
+
+| 条件 | 说明 |
+|---|---|
+| Chrome 里装了 AITDK 扩展并已登录 | 面板数据要账号，未登录只会拿到空壳 |
+| opencli 扩展 ≥ 1.1.0 | 跨源 iframe 支持是这一版才有的；改过扩展要去 `chrome://extensions` reload |
 | OpenCLI 扩展 ≥ 1.1.1（1.1.0 下多 section 会报 sidebar button not found） | 1.1.0 有 OOPIF context 缓存撞号的已知回归，面板 toggle 几次后 `eval` 静默落回主页面，脚本表现为定位不到侧栏按钮；升级到 1.1.1 修复，见 opencli skill 的 `references/our-fork.md` |
+| opencli CLI 用仓库构建 | 脚本默认把 `OPENCLI_BIN` 指向本机 opencli checkout 的 `dist/src/main.js`（默认值写在脚本头部）。**全局 npm 装的那个 1.8.7 tgz 没有跨源 iframe 支持，会失败**；本地 checkout 挪了位置就覆盖 `OPENCLI_BIN` |
+| `jq` + `python3` | 缺任一则 Part B 自动跳过（只剩 Part A） |
+
+**抓的 15 个 section**（侧栏顺序）：Overview、Traffic、Backlinks、Adsense、Issues、GEO、SERP、Density、Headings、Images、Links、Social、Hreflangs、Structured、Whois。
+**故意不抓**：Settings / Archive（本地 UI）、Similarweb / Semrush / Ahrefs / PageSpeed / Twitter（点了会跳外站，不是面板内容）。
+
+**实测成绩**：nonogram-game.com，15/15 有内容、0 错误、2 分 08 秒，结束后无残留会话（脚本自己关面板、关 session）。**每抓完一个 section 落盘一次**，所以中途被打断也留得下半份结果。
+
+**输出 JSON 的形状：**
+
+| 字段 | 内容 |
+|---|---|
+| Part A 字段 | `url` / `title` / `metaDescription` / `canonical` / OGP / Twitter card / `robots` / `hreflang` / `headings` / `links` / `images` / `structuredData` / `robotsTxt` / `sitemapExcerpt` / `whois` |
+| `issues` | 页面级问题数组。含 `placeholder-domain-leak`——**`og:url` / `canonical` / `og:image` / `twitter:image` 里出现 `example.com` 时触发**，正是 nonogram-jp / crossword-ar 那个 `SITE_URL` 没在构建期注入、占位域名泄到线上的失败模式 |
+| `aitdkPanel.sections.<name>` | 每个 section 一个对象，含 `raw`（面板全文）与 `fields`（尽力配对出来的键值） |
+
+**解析器短板（消费这份 JSON 之前必须知道）：**
+
+- **Overview 的 Title / Description / Keywords 是三行一组**（标签、字数计数、值），`fields` 里拿到的是**计数**不是真值；真值在 `unpaired` 或 `raw` 里，要读文本。
+- **Issues、Structured、Headings 是散文式排版**，`fields` 基本为空——直接读 `raw`。
+- **重复标签会合并成数组**（例如面板里两个 `Unique`）。
+
+判读时的规矩不变：**脚本只采集，判读归你**；`fields` 空 ≠ 这项没问题，先看 `raw`。
+
+**原理一句话**：AITDK 面板是挂在页面里的 `https://extension.aitdk.com/` 跨源 iframe，脚本走 opencli 的 `frames` + `eval --frame` 直接读它的 DOM——不用剪贴板、不用坐标、不靠截图。为什么必须用合成键盘事件开面板、为什么不能 reload 页面、为什么点击要发完整指针序列，这些细节在 `opencli` Skill 的 `references/browser-driving.md` 与脚本头部注释里，本文件不重复。
+
+**什么时候用**：段 3 / 段 4 的上线前自检（闸门 4b 的 GEO 那半截），以及竞品或自站的 SEO 体检。比人工打开面板逐页复制快得多，且能批量跑一批域名。
+
+**作为段 4 / `rankup review` 闸门用时**：跑全部 15 个标签页而不只是 GEO 一页，判据见 [`checklists.md`](checklists.md) 闸门 4c，本节不重复写。
 
 ### 博客区（4 条）
 
@@ -182,8 +227,12 @@ node <rankup-skill-dir>/scripts/pagespeed.mjs collect <同样三个 URL> --strat
    **伪造可见性无效**：改写 `document.visibilityState`/`hidden`、把 rAF 垫成
    `setTimeout`、补发 `visibilitychange` 都试过，页面读到的确实变 visible，
    渲染纹丝不动——节流在浏览器层，不在页面读的那个标志位。
-   `opencli --window foreground` 同样不保证（Chrome 整个 app 不在最前时仍是 hidden）。
-   **所以默认是人跑；`collect` 是加速手段，不是无人值守方案。**
+   单靠 `opencli --window foreground` 也不够（Chrome 整个 app 不在最前时标签页
+   仍是 hidden）——**但组合另一件事就够了：`collect` 期间额外起一个后台循环，
+   每 15 秒 `osascript activate` 一次把 Chrome 这个 App 也拉回前台**。
+   **所以 `collect` 默认就是前台驱动（open 带 `--window foreground` + activate
+   循环），2026-09-12 实测无人值守跑通（3 个 URL × 移动/桌面共 6 组一次性全部
+   出分，零重试，约 2 分钟）；人跑只是兜底，仍卡 tab-hidden 才需要。**
 2. **跑不出来 ≠ 没有数据。** `collect` 把两种卡住分开报：`tab-hidden`（标签页
    没在前台）与 `budget-exhausted`（可见但没跑完——实测有站跑满 240 秒仍在跑）。
    两种都**不许**被写成「性能没问题」或「这个站没有数据」。

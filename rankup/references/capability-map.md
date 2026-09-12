@@ -151,7 +151,7 @@ SKILL.md 段 6 与取数纪律只一行指回本文件，改脚本入口时只�
 |---|---|---|---|
 | 上线前闸门九行 | 段 4 的九行硬性判据（0–6 + 4b + 4c） | [`references/checklists.md`](checklists.md) 段 4 | 「能不能上线了」 |
 | 全站 SEO 审计 | 全页 TDK/canonical/robots/lang/h1/OGP/结构化数据/alt/hreflang + 关键词密度（1/2/3-gram，日文 `Intl.Segmenter`）；`--sitemap` 全站。**2026-08-30 起只出观察记录 `{code, observed}`，不带分级也不带修复建议**；`--fix-report` 现在只是把原始 `issues` dump 成机器可读格式，分级表在 [`seo-box.md`](seo-box.md)「seo-audit 判读指引」 | `scripts/seo-audit.mjs` | 「TDK 都对吗」「标题写好没」 |
-| 性能双读数 | 一屏同时拿实验室（Lighthouse）与现场（CrUX）；闸门 6 要的就是两套 | `scripts/pagespeed.mjs`（走网页版，**零 key 零配额**；`collect` 需标签页可见） | 「站慢不慢」「Core Web Vitals」 |
+| 性能双读数 | 一屏同时拿实验室（Lighthouse）与现场（CrUX）；闸门 6 要的就是两套 | `scripts/pagespeed.mjs`（走网页版，**零 key 零配额**；`collect` 默认前台驱动，无人值守可跑通） | 「站慢不慢」「Core Web Vitals」 |
 | 托管方分析 | 开通 Cloudflare Web Analytics 并读回 beacon；应排在 GSC/GA 之前 | `scripts/cf-analytics-setup.mjs` | 「先接个统计」 |
 | 行为分析 | 在 Microsoft Clarity 建项目拿 project ID（会话录制 / 热图） | `scripts/clarity-setup.mjs` | 「想看用户怎么点的」 |
 | Ahrefs 项目接入 | 建项目、经 GSC 验证所有权、启用 Web Analytics 取回 `data-key` | `scripts/ahrefs-setup.mjs` | 「接下 Ahrefs」 |
@@ -176,6 +176,7 @@ SKILL.md 段 6 与取数纪律只一行指回本文件，改脚本入口时只�
 |---|---|---|---|
 | 页面体检（第三方） | seo.web.cafe 的页面体检、外链估价、网站估值、域名前世、AdSense 过审预检 | `scripts/seo-webcafe.mjs audit\|backlink\|worth\|history\|adsense` | 「帮我看看这个页面」 |
 | 自有站爬虫报告 | 读 Ahrefs Site Audit 已有抓取结果：`projects` 看健康分，`report <id> <报告>` 取**脚本已接的 15 个**分类报告之一（`routes` 列全清单）| `scripts/ahrefs-site-audit.mjs` | 「全站有多少内链失效」 |
+| AITDK 面板全自动取数 | 一条命令抓 AITDK 扩展面板 15 个标签页（Overview/Traffic/Backlinks/Adsense/Issues/GEO/SERP/Density/Headings/Images/Links/Social/Hreflangs/Structured/Whois）+ 页面 HTML/robots/sitemap/whois，并检测 `example.com` 占位域名泄漏 | `scripts/aitdk-opencli.sh <url>`，前置条件与输出形状见 [`seo-box.md`](seo-box.md)「AITDK 面板全自动取数」 | 「跑一下 AITDK」「GEO 标签页那半截」 |
 | 重定向链 | 裸域/www 几跳、旧 URL 是 301 还是 302（302/307 不传权重） | `curl -sIL`，判据 [`experiences/webcafe-topics.md`](experiences/webcafe-topics.md) 五 | 「跳转对不对」 |
 | 判据与分级表 | seo-audit 的 error/warning 阈值、Ahrefs 档位实测、第三方工具接不接的对账 | [`references/seo-box.md`](seo-box.md) | 「这条 warning 要紧吗」 |
 | 站点打不开类排障 | CF Pages 无效路径返回首页、图片慢、绑域名跳两次 | [`experiences/webcafe-experiences.md`](experiences/webcafe-experiences.md) 二十四 | 「站打不开」 |

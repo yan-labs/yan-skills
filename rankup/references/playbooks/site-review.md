@@ -94,7 +94,7 @@ a–c 必然全空，而 d 档的 `git remote -v` 会拿当前仓库的名字拼
 | 0.2 站在不在线 | 串行 | `curl -sIL -A 'Mozilla/5.0' <site> \| grep -v 'Connection established' \| grep -iE '^(HTTP/\|location:)'` | 首页状态码 + 跳转链（阶段 3 闸门要的那条） | 连不上 / DNS 没解析 → 走下方「站还没上线分支」。**必须滤掉 `Connection established`**，否则走代理时零跳首页会被读成两跳（见阶段 0.0 末尾） |
 | 0.3 有没有 sitemap | 串行 | `curl -s <site>/sitemap.xml \| head -20`；再 `curl -s <site>/robots.txt` | `<sitemap>` 的真实地址；robots 有没有误挡 | 404 → A 组改成「逐个已知页面」模式：`seo-audit.mjs <url1> <url2> …`，并把「缺 sitemap」记成必修项 |
 | 0.4 配额档位 | 串行 | `node <rankup>/scripts/seo-webcafe.mjs translateMe` | seo.web.cafe 现在是哪一档、剩多少（只信脚本开头那行 `· 配额 …`，不信文档里的数字）→ **当场把它切成一张预算表**（模板见阶段 1「波次 1b 的预算怎么定」），覆盖 D1 / D4 / E2 / E5 / F5 / F6 全部会扣配额的格 | 打不出档位 = 网络或站点问题，不是「匿名」。重跑一次再判。**不出预算表就不许派波次 1b 的 agent**——它们能并行，所以没人会撞车报错，只会一起把额度花光 |
-| 0.5 性能取数路子 | 串行 | `node <rankup>/scripts/pagespeed.mjs plan <首页> --strategy both` | B 组要开的 pagespeed.web.dev 链接 + 读数清单 | **不再需要任何 key**（2026-08-31 起走网页版，零配额）。真正要判的是**谁来跑**：网页版跑分只在 Chrome 标签页真的可见时才渲染得完（实测后台标签页一直停在「Running analysis」，伪造 visibilityState 与 `--window foreground` 都无效）。人在电脑前 → B 组照跑；无人值守 → B 组标 ⏸ 并写「需要用户本人打开这几个链接读数」，**不要把跑不出来记成「性能没问题」** |
+| 0.5 性能取数路子 | 串行 | `node <rankup>/scripts/pagespeed.mjs plan <首页> --strategy both` | B 组要开的 pagespeed.web.dev 链接 + 读数清单 | **不再需要任何 key**（2026-08-31 起走网页版，零配额）。网页版跑分只在 Chrome 标签页真的可见时才渲染得完（实测后台标签页一直停在「Running analysis」，伪造 visibilityState 无效）。`collect` 默认前台驱动（open 带 `--window foreground` + 后台 activate 循环），2026-09-12 实测无人值守可以直接跑，B 组照跑；仍卡 `tab-hidden` 才标 ⏸ 并写「需要用户本人打开这几个链接读数，或加 `--no-foreground` 人工看着跑」，**不要把跑不出来记成「性能没问题」** |
 | 0.6 登录态 | 串行 | `opencli doctor` | A6 与 D/E/F 组里走浏览器的那几条能不能用 | 红 → 这几条标 ⏸ 并写清卡在哪；其余组照跑，**不要因此取消整场体检** |
 
 #### 阶段 1 · 七组诊断（**先按配额分波次，再派 sub agent**）
@@ -206,7 +206,7 @@ D1 / D4 的 `mineSearch`、E2 / E5、F5 的 `translateSearch`、F6 的 `worth` �
 | 阶段 | 并行/串行 | 跑什么 | 拿到什么 | 卡住了怎么办 |
 |---|---|---|---|---|
 | B1 出清单 | 串行 | `node <rankup>/scripts/pagespeed.mjs plan <首页> <一个工具/功能页> <一个内容页> --strategy both` | 六个 pagespeed.web.dev 链接（三类页面 × 两端）+ 逐项读数清单 + `baseline.md` 的表格列 | 零依赖、零配额，不会失败 |
-| B2 取数 | 串行 | 两条路，按阶段 0.5 的判断选：<br>**人跑**（默认、最可靠）——按 B1 的链接逐个在浏览器里打开，页面自己跑完再读；<br>**脚本采**——`node <rankup>/scripts/pagespeed.mjs collect <同样三个 URL> --strategy both --budget 300`，双证人（截图 + 页面文本）落 `.rankup/evidence/pagespeed-<ts>/`，判读仍由 AI 做 | 每页：现场 CWV + LCP/INP/CLS + **样本量档位** + **作用域（本 URL 还是整个源）**；实验室四项分数 + 指标区 + 跑分环境 | `collect` 报 `tab-hidden` = **标签页没在前台，不是这个站没有数据**——把 Chrome 切到最前重跑，或退回人跑。报 `budget-exhausted` = 慢站还没跑完（实测有站跑满 240 秒仍在跑），加大 `--budget`，**超时同样不等于没有数据**。页面上**现场那一整块不存在 = CrUX 流量不足**，原样抄「现场无数据（流量不足）」进 `baseline.md`——不是 0、不等于通过，留空会在下一轮被读成「查过了没问题」 |
+| B2 取数 | 串行 | 两条路，按阶段 0.5 的判断选：<br>**脚本采**（默认）——`node <rankup>/scripts/pagespeed.mjs collect <同样三个 URL> --strategy both --budget 300`，前台驱动 + activate 循环无人值守跑通，双证人（截图 + 页面文本）落 `.rankup/evidence/pagespeed-<ts>/`，判读仍由 AI 做；<br>**人跑**（兜底）——仍卡 `tab-hidden` 时按 B1 的链接逐个在浏览器里打开，页面自己跑完再读，或给 `collect` 加 `--no-foreground` | 每页：现场 CWV + LCP/INP/CLS + **样本量档位** + **作用域（本 URL 还是整个源）**；实验室四项分数 + 指标区 + 跑分环境 | `collect` 报 `tab-hidden` = **标签页没在前台，不是这个站没有数据**——先查 Chrome 是不是被别的 App 抢了前台，再重跑，或退回人跑。报 `budget-exhausted` = 慢站还没跑完（实测有站跑满 240 秒仍在跑），加大 `--budget`，**超时同样不等于没有数据**。页面上**现场那一整块不存在 = CrUX 流量不足**，原样抄「现场无数据（流量不足）」进 `baseline.md`——不是 0、不等于通过，留空会在下一轮被读成「查过了没问题」 |
 | B3 逐条必修 | 串行 | 读 B2 页面里的 Opportunities / Diagnostics 两个区块 | 一份逐条清单：每条要么修掉重跑证明消失，要么写明改不动的原因（第三方脚本、平台限制等），登记进 `checks.md` 标 ⏸ | **B 组输出的 opportunity/diagnostic 清单全部进必修列表，与 A6 同等**——分数够了不等于清单可以不看 |
 
 **C 组 · GEO / AI 就绪度**
