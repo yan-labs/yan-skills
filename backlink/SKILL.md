@@ -97,6 +97,10 @@ backlink/
 │   ├── inspect-page.mjs            full form census (every form, every field, semantics +
 │   │                               markers) + scene evidence; fillable/blocker are marked
 │   │                               `suggested` — the AI judges from the census + screenshot
+│   ├── lib-form-scan.mjs          ★ the ONE census + marker-assignment expression, extracted
+│   │                               out of inspect-page.mjs 2026-09-12 so submit-known.mjs
+│   │                               (below) gets the exact same per-element census — same
+│   │                               page, same markers — without a second copy of the DOM walk.
 │   ├── safe-fill.mjs               fill a reviewed payload, never submit; refusal exits
 │   │                               leave a captureScene pair first
 │   ├── lib-evidence-scene.mjs     ★ captureScene(): the ONE failure-scene contract —
@@ -146,6 +150,15 @@ backlink/
 │   │                               staging is safe family-wide, pressing submit is not,
 │   │                               and the two must never share a flag. Re-checks for a
 │   │                               challenge that appeared since staging, and refuses.
+│   ├── submit-known.mjs           ★ recipe-driven driver for a target that has ALREADY
+│   │                               been fully walked once by hand — skips ONLY the AI
+│   │                               field-mapping step (reads scripts/known-forms/<domain>.json),
+│   │                               still re-scans the live page every run and still runs
+│   │                               safe-fill.mjs's own live guard + release-submit-guard.mjs
+│   │                               unmodified. See references/known-forms.md.
+│   ├── known-forms/                one recipe JSON per already-verified domain (e.g.
+│   │                               playlin.io.json, projectpedia.net.json) consumed by
+│   │                               submit-known.mjs — see references/known-forms.md
 │   ├── ledger.mjs                  candidate → … → indexed → rel_verified; stats +
 │   │                               remaining + domains (submitted/public/… → a
 │   │                               plain domain list, for targets-select --ledger
@@ -246,6 +259,7 @@ pointers. Rows are grouped; within a group the later row is the more specific.
 | 「有没有不用注册就能发的」「免费的、立刻能发的」 | `data/free-channels.json` 过 `account:"none"` + `status:"live"`，机制看 references/instant-publish.md。目录提交不满足这句话 |
 | 「能花钱买吗」「竞品这些链是买的吧」 | references/paid-platforms.md → `data/paid-platforms.json`（按被多少独立站点观察到排） |
 | 「把这个站提交到目录站」「提交外链目录」 | references/submission-lanes.md → `scripts/submit-directory.mjs`；真实一轮会遇到什么见 references/directory-run-playbook.md |
+| 「这个目标之前摸清楚过，别再走一遍 AI 探查了」「照上次的字段映射直接填」 | references/known-forms.md → `scripts/submit-known.mjs --domain <domain> --project <slug>`，读 `scripts/known-forms/<domain>.json` 的人工字段映射，跳过 inspect-page.mjs 的启发式分类，但 safe-fill.mjs 的活页面校验、release-submit-guard.mjs、终止条件全部照旧 |
 | 「去博客评论区留链接」「评论外链」 | `scripts/harvest-commenters.mjs` 先拿到真在评论的域名，再走 screen → submit |
 | 「我有 300 个站要批量提」「跑一轮不能中断」 | references/batch-campaign.md。单站循环跑 300 遍是错的（幂等、断点、报表都缺） |
 | 「别人给了我一份『500 个免费外链网站』」 | `node scripts/third-party-list-ingest.mjs --blocklist data/network-fingerprints.json`，再读 references/instant-publish.md 的「Reading a third-party list」 |

@@ -1,0 +1,54 @@
+{
+  "domain": "projectpedia.net",
+  "route": "https://projectpedia.net/submit-tool/",
+  "cohort": "account",
+  "requireConfirmedLogin": true,
+  "sessionPrefix": "backlink-known-projectpedia",
+  "refreshParam": null,
+  "verifiedAt": "2026-09-12",
+  "verifiedBy": "manual inspect-page.mjs + AJAX submit-through-\"Your submission was successful.\" walk, while logged in",
+  "notes": [
+    "Fluent-Forms-style WordPress form. Field names are the form builder's internal ids, not semantic English — in particular form_fields[email] is the SITE URL field (type=url, label 'Website URL'), and the real contact-email field is the differently-named form_fields[field_f270f45] (label 'Contact Email'). inspect-page.mjs's regex classifier cannot see this; it was read once by hand off the real fieldCensus and is pinned here so it never needs re-deriving.",
+    "cohort:account — requires an existing logged-in session for this account. submit-known.mjs refuses to run against this recipe without --confirmed-login: scripting away the AI field-mapping step must not also quietly script away the human 'is this login still valid' decision (safety-policy.md, submission-lanes.md cohort table).",
+    "This form carries a real consent/terms checkbox (form_fields[field_ae485ca], 'I agree to the Terms of Service...'). The skill's hard rule is the driver never ticks a terms box on its own initiative (submission-lanes.md). submit-known.mjs therefore ALWAYS fills everything else and stops at state=staged-terms UNLESS the caller also passes --confirm-terms for this exact run — that flag is the 'one exact submission after review' carve-out in references/safety-policy.md, not a standing default; it is never implied by --confirmed-login and never persisted in this recipe file.",
+    "Known runtime quirk (observed manually, not a CAPTCHA or login problem): the AJAX submit handler sometimes does not fire on the first click. submit-known.mjs retries the same real click exactly once if the settle read shows no state change and no rejection signal, per retryClickIfNoChange below.",
+    "Success is inline text ('Your submission was successful.') plus the form clearing itself — there is no navigation. The generic lib-submit-outcome.mjs classifier assumes a cleared-but-still-present form is a negative signal (it is built for directories that silently redraw a REJECTED form with the same values echoed back); for this specific, already-verified site an emptied form is the confirmed positive shape, so this recipe's own success rule below is checked instead of routing through lib-submit-outcome.mjs. This is exactly why a recipe is only ever valid for the one target it was verified against."
+  ],
+  "form": {
+    "match": { "requireFieldKinds": ["url", "name", "email"] }
+  },
+  "fieldMap": {
+    "name": { "match": { "name": "form_fields[name]" } },
+    "url": { "match": { "name": "form_fields[email]" } },
+    "email": { "match": { "name": "form_fields[field_f270f45]" } },
+    "description": { "match": { "name": "form_fields[message]" } }
+  },
+  "payloadRequired": ["url", "name", "email"],
+  "payloadOptional": ["description"],
+  "extraFields": {
+    "category": {
+      "type": "select",
+      "match": { "name": "form_fields[field_e843791]" },
+      "payloadKey": "category",
+      "default": "Other"
+    },
+    "pricing": {
+      "type": "select",
+      "match": { "name": "form_fields[field_d0dfc36]" },
+      "payloadKey": "pricing",
+      "default": "Free"
+    }
+  },
+  "termsCheckbox": {
+    "match": { "name": "form_fields[field_ae485ca]" }
+  },
+  "submit": {
+    "match": { "tag": "button", "type": "submit" }
+  },
+  "retryClickIfNoChange": true,
+  "success": {
+    "type": "inline-text",
+    "textIncludes": "Your submission was successful.",
+    "formClearsAfter": true
+  }
+}

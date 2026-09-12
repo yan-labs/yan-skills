@@ -1,0 +1,36 @@
+{
+  "domain": "playlin.io",
+  "route": "https://playlin.io/submit/",
+  "cohort": "open",
+  "requireConfirmedLogin": false,
+  "sessionPrefix": "backlink-known-playlin",
+  "refreshParam": "ref",
+  "verifiedAt": "2026-09-12",
+  "verifiedBy": "manual inspect-page.mjs + safe-fill.mjs walk, full submit-through-thank-you confirmed",
+  "notes": [
+    "inspect-page.mjs's heuristic classifier marks this form qualifies:false — game_name / submitter_name / creator_name all match its generic \"name\" pattern and it cannot disambiguate. That is exactly what this recipe exists to skip: the field mapping below was worked out by hand once, against the live DOM, and does not need re-deriving on every run.",
+    "The page carries a second, unrelated form (a newsletter/search box observed during the manual walk) — the formMatch rule below is what tells submit-known.mjs which of the two forms is the submission form; it is not picked by position.",
+    "?ref=<project> forces a fresh, uncached load of the page, which lets this recipe be reused for a different project slug without waiting on any per-visitor state.",
+    "cohort:open — this can run unattended per submission-lanes.md. It still only ever fills; submit-known.mjs still runs safe-fill.mjs's live guard (captcha/login/page-identity re-check) immediately before every fill, and release-submit-guard.mjs immediately before the real click."
+  ],
+  "form": {
+    "match": { "requireFieldKinds": ["url", "name", "email"] }
+  },
+  "fieldMap": {
+    "url": { "match": { "name": "game_url" } },
+    "name": { "match": { "name": "game_name" } },
+    "email": { "match": { "name": "submitter_email" } },
+    "description": { "match": { "name": "comments" } }
+  },
+  "payloadRequired": ["url", "name", "email"],
+  "payloadOptional": ["description"],
+  "submit": {
+    "selector": "#submit-btn"
+  },
+  "retryClickIfNoChange": false,
+  "success": {
+    "type": "navigation",
+    "urlIncludes": "/submit/thank-you/",
+    "textIncludes": "SUBMISSION RECEIVED"
+  }
+}

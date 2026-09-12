@@ -5,7 +5,11 @@ import vm from 'node:vm';
 import { makeSubmitGuard, releaseSubmitGuard } from '../scripts/opencli-core.mjs';
 
 test('form scan and fill both reject off-page honeypot fields', async () => {
-  for (const file of ['inspect-page.mjs', 'safe-fill.mjs']) {
+  // inspect-page.mjs's own census walk (visible()/classifyBlocker()/etc.) moved
+  // into lib-form-scan.mjs on 2026-09-12 so submit-known.mjs (the known-forms
+  // recipe driver) can share the exact same marker-per-element census instead
+  // of carrying a second, drifting copy — see references/known-forms.md.
+  for (const file of ['lib-form-scan.mjs', 'safe-fill.mjs']) {
     const source = await readFile(new URL(`../scripts/${file}`, import.meta.url), 'utf8');
     const body = source.match(/const visible = \(element\) => \{([\s\S]*?)\n  \};/)?.[1];
     assert.ok(body, `${file} must define visible()`);
@@ -23,9 +27,9 @@ test('form scan and fill both reject off-page honeypot fields', async () => {
 });
 
 test('page-wide login copy does not block a complete comment form', async () => {
-  const source = await readFile(new URL('../scripts/inspect-page.mjs', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../scripts/lib-form-scan.mjs', import.meta.url), 'utf8');
   const body = source.match(/const classifyBlocker = \(([^)]*)\) => ([^;]+);/)?.slice(1);
-  assert.ok(body, 'inspect-page must define classifyBlocker()');
+  assert.ok(body, 'lib-form-scan must define classifyBlocker()');
   const classifyBlocker = vm.runInNewContext(`(${body[0]}) => ${body[1]}`);
   assert.equal(classifyBlocker(false, true, 1), null);
   assert.equal(classifyBlocker(false, true, 0), 'login');
