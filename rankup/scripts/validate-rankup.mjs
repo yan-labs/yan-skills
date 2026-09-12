@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "3.8.0";
+const expectedVersion = "3.8.1";
 const requiredReferences = [
   "discipline.md",
   "monetization.md",

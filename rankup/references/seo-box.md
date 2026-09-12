@@ -264,6 +264,14 @@ PSI 网页版读数，本地 Lighthouse 只用于迭代定位；读报告的顺�
 
 作为闸门用时判据见 [`checklists.md`](checklists.md) 闸门 6，本节不重复写判据。TTFB 判据与匿名页面边缘缓存做法同样见 checklists 段 3 / 闸门 6，不在本节重复。
 
+**Lantern 优先级模型：PSI 移动端评分只按请求优先级判「是否算首绘依赖」**（【实测】多站对照、逐项 A/B 复现）。PSI 移动端分数由 Lantern 模拟器给出，它判断一个请求要不要计入首绘依赖图，看的只是资源的请求优先级：`VeryHigh` 一律计入，`High` 且资源类型是 Script/Document 也计入；`async`/`defer`/`type="module"`/`rel="preload"`/`font-display` 这些属性本身**不参与判定**，只是间接改变了请求会被浏览器标成哪档优先级。后果是客户端入口 bundle、`modulepreload`（属 High+Script）、`rel="preload" as="style"` 的 CSS（属 VeryHigh）、以及**没有被预加载的 webfont（默认 VeryHigh）**都会被算进首绘依赖链，拖慢 LCP 的「元素渲染延迟」。反直觉推论：给字体加 `preload` 反而会把它的优先级从 VeryHigh 降到 High，从而移出依赖图；给非首屏脚本加 `fetchpriority="low"`（Cloudflare Worker 场景可用 HTMLRewriter 流式改写响应头/属性）能把它们移出依赖图。判据：PSI「LCP 细分」里 TTFB 很小、但「元素渲染延迟」高达上千毫秒且看不到明显阻塞资源时，先去查该页面的 VeryHigh/High 子资源清单，而不是继续在渲染阻塞资源审计里找。本地 Lighthouse 常常复现不出这条——TTFB 慢导致本地观测到的首绘时间点早于这些 VeryHigh/High 请求完成的时间点，要复现需要把页面连同静态资源一起镜像到本机 `127.0.0.1`，让 TTFB 与线上边缘缓存处在同一量级。
+
+**入场动画会污染 LCP 与 Speed Index**（【实测】）：首屏内容如果用 `opacity: 0` 起始、靠 `animation-delay` 落在 1–5 秒的入场动画淡入，Lighthouse 的 trace 窗口从不与用户交互，几乎每次都会在动画中途截到新的 LCP 候选，表现为「LCP 比 FCP 晚 1 秒以上、Speed Index 异常高，而同模板去掉动画的页面读数正常」；判据同闸门 6 D7 一行——首屏内的入场/循环动画一律 gate 到用户首次交互之后触发（用 `html.<class>` 一次性开关，不设定时兜底），或者干脆不要用 `opacity` 做首屏内容的初始状态。
+
+**文档体积超出 Lantern 初始拥塞窗口会多算一跳 RTT**（【实测】）：约 14.6KB brotli 是 Lantern 模拟的文档初始拥塞窗口，依赖图里只剩文档本身时，LCP 最后 0.2–0.5 秒的差距通常就对应文档超出这个窗口的字节数，此时同文档内去重 SVG（`symbol`+`use`）对 brotli 体积几乎零收益，只有把内容整段移出文档（外部 sprite、异步加载的 CSS）才真的省字节；判据见 checklists.md 闸门 6 排查顺序最后一项。
+
+**PSI 双峰多数不是「平台抖动」，是站点自身**（修正上一轮结论，【实测】）：同一时段拿一个已知稳定的对照站一起测，对照站分数稳定就说明抖动出在自己站上，不能默认甩锅给测量平台；PSI 结果没有同时段对照站陪测，不得下「这是后端/平台抖动」的结论。
+
 ### 二 · 重定向链：要能力，不要那个网站
 
 WhereGoes 做的事 `curl` 本来就会做，且本地版更可用（可批量、可进 CI、不受第三方限流）：
