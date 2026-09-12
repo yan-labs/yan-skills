@@ -9,24 +9,35 @@
  * a real sweep — it has the effective/noisy footprint table this script's
  * defaults are built from.
  *
- * Why Google, and only Google (verified 2026-09-12, see
- * /private/tmp .../scratchpad/footprint/*  raw runs this file's defaults come
- * from):
- *   - General search APIs (this repo tried anysearch) do NOT execute
- *     `inurl:` / `intitle:` operators — they run a generic keyword search and
- *     silently ignore the operator, so every "footprint" query degrades to a
- *     plain keyword query with no way to notice the degradation from the
- *     response alone.
- *   - Bing redirects by IP to a localized subdomain (cn.bing.com for a CN
- *     egress) and drops the operators there too. It cannot be a fallback for
- *     operator-bearing queries — only for a plain-keyword query, which is a
- *     different, weaker signal.
+ * Engine choice (updated 2026-09-12, second sweep of the day): needs a real
+ * Google SERP where operators actually execute — everything else tried is
+ * disqualified for one of two reasons, and the two implemented engines
+ * (`serper`, the default when configured; `google`, the OpenCLI/browser
+ * fallback) split the remaining tradeoff between them:
+ *   - General search APIs (this repo tried anysearch) and Tuner do NOT
+ *     execute `inurl:`/`intitle:` operators — they run a generic keyword
+ *     search and silently ignore the operator, so every "footprint" query
+ *     degrades to a plain keyword query with no signal that it happened;
+ *     Tuner in particular also caps at ~10 results per query.
+ *   - Bing (tried both the OpenCLI/browser path and re-verified with
+ *     explicit `cc=US&setlang=en-US`) redirects by IP to a localized
+ *     subdomain (`cn.bing.com`) and drops the operators there too — 0/10
+ *     results matched the operator on a `puzzle games inurl:submit` probe.
+ *     It cannot substitute for operator-bearing queries.
  *   - DuckDuckGo's HTML endpoint answers without JS but also does not honor
  *     `inurl:`/`intitle:`. Usable as a last-resort plain-text degrade, never
  *     as an operator-query substitute.
- *   - Only a real Google SERP, loaded in the owner's logged-in Chrome via
- *     OpenCLI, actually executes the operators. That is why this script has
- *     exactly one engine implementation.
+ *   - **`--engine serper` (preferred, used automatically whenever
+ *     `SERPER_API_KEY` is configured)** — Serper.dev's `/search` endpoint is
+ *     backed by a real Google SERP, not a different engine, so operators
+ *     execute exactly as they would on google.com. It is a plain
+ *     authenticated HTTP call: no browser, no OpenCLI session, no per-account
+ *     CAPTCHA math to work around.
+ *   - **`--engine google` (fallback when no key is configured)** — a real
+ *     Google SERP loaded in the owner's own logged-in Chrome via OpenCLI.
+ *     This is the path with the CAPTCHA policy and machine-wide-contention
+ *     caveats documented below; it exists for when Serper access isn't set
+ *     up, not the other way around.
  *
  * CAPTCHA policy: Google starts showing a CAPTCHA / "unusual traffic" page
  * around the 4th query in one session in a sandboxed browser (measured
@@ -89,7 +100,10 @@
  *                                                sales pages and "how to
  *                                                submit to search engines"
  *                                                tutorials, not real targets.
- *   --engine google        default and only implementation; see header
+ *   --engine google|serper  default: serper if SERPER_API_KEY is set, else
+ *                          google (OpenCLI/browser). --engine serper with
+ *                          no key configured errors instead of silently
+ *                          falling back. See "Engine choice" below.
  *   --num <n>              results per page requested from Google (default 30)
  *   --hl <lang>            Google UI language (default en)
  *   --gl <country>         Google geolocation bias (default us)
@@ -487,6 +501,44 @@ function selfTest() {
   const queriesFileList = buildQueryList({ 'queries-file': '/dev/null' });
   eq('queries-file with no lines → empty list', queriesFileList, []);
 
+  // Serper: organic[] fixture, parse-only (no network).
+  const serperFixture = {
+    organic: [
+      { position: 1, title: 'Submit Your Puzzle Game', link: 'https://example.com/submit-game', snippet: 'Submit your puzzle game to our directory.' },
+      { position: 2, title: 'Play free puzzles', link: 'https://otherpuzzles.example/play' },
+      { title: 'No position field', link: 'https://noposition.example/x' }, // falls back to index+1
+      { position: 4, title: 'No link — dropped', snippet: 'should be filtered out' },
+    ],
+  };
+  const mapped = mapSerperOrganic(serperFixture.organic);
+  eq('serper: rows without a link are dropped', mapped.length, 3);
+  eq('serper: position used as rank', mapped[0], { rank: 1, url: 'https://example.com/submit-game', title: 'Submit Your Puzzle Game', snippet: 'Submit your puzzle game to our directory.' });
+  eq('serper: missing position falls back to array index+1', mapped[2].rank, 3);
+  eq('serper: missing snippet defaults to empty string', mapped[1].snippet, '');
+  eq('serper: mapSerperOrganic(undefined) → []', mapSerperOrganic(undefined), []);
+
+  const serperRecord = buildResultRecord('puzzle games inurl:submit', mapped[0], ctx);
+  eq('serper result feeds the same buildResultRecord as google', serperRecord?.domain, 'example.com');
+  eq('serper result operatorHit uses the same shape scoring', serperRecord?.operatorHit, true);
+
+  // Engine resolution: explicit flag wins; otherwise presence of
+  // SERPER_API_KEY decides; explicit --engine serper without a key errors
+  // instead of silently falling back (a typo'd/missing key should be loud).
+  const savedKey = process.env.SERPER_API_KEY;
+  try {
+    delete process.env.SERPER_API_KEY;
+    eq('resolveEngine: no flag, no key → google', resolveEngine({}), 'google');
+    eq('resolveEngine: explicit --engine google, no key → google', resolveEngine({ engine: 'google' }), 'google');
+    check('resolveEngine: explicit --engine serper, no key → throws', (() => { try { resolveEngine({ engine: 'serper' }); return false; } catch { return true; } })());
+    process.env.SERPER_API_KEY = 'test-key-not-real';
+    eq('resolveEngine: no flag, key present → serper', resolveEngine({}), 'serper');
+    eq('resolveEngine: explicit --engine google, key present → google (explicit wins)', resolveEngine({ engine: 'google' }), 'google');
+    eq('resolveEngine: explicit --engine serper, key present → serper', resolveEngine({ engine: 'serper' }), 'serper');
+    check('resolveEngine: unknown --engine value → throws', (() => { try { resolveEngine({ engine: 'bing' }); return false; } catch { return true; } })());
+  } finally {
+    if (savedKey === undefined) delete process.env.SERPER_API_KEY; else process.env.SERPER_API_KEY = savedKey;
+  }
+
   if (failures) {
     console.error(`\nself-test: ${failures} failure(s)`);
     process.exitCode = 1;
@@ -513,7 +565,8 @@ function printFinalSummary({ summaries, stopped, out }) {
   }
   process.stderr.write(`\ntotal: queries=${summaries.length} results=${totalResults} operatorHit=${totalOperatorHits} newDomains=${totalNewDomains}\n`);
   if (stopped) {
-    process.stderr.write(`\nSTOPPED: CAPTCHA signal on query "${stopped.query}". Evidence written to ${stopped.evidenceDir}. Nothing already collected was discarded; re-run with --resume later.\n`);
+    const where = stopped.preexisting ? 'before any query was spent (preflight check)' : `on query "${stopped.query}"`;
+    process.stderr.write(`\nSTOPPED: CAPTCHA signal ${where}. Evidence written to ${stopped.evidenceDir}. Nothing already collected was discarded; re-run with --resume later.\n`);
     if (stopped.sessionKept) {
       process.stderr.write(`Session kept open for manual solving — session name: ${stopped.sessionName}.\n`);
     }
@@ -523,14 +576,213 @@ function printFinalSummary({ summaries, stopped, out }) {
   process.stderr.write(`  node scripts/probe-submission-targets.mjs --input ${out}.leads.json --out ${out}.probed.json --concurrency 8\n`);
 }
 
+/**
+ * Which engine actually runs, per <ref file="references/discovery-loop.md"/>
+ * "Footprint discovery — engine choice": Serper (a real Google SERP API,
+ * operators execute as-is, no CAPTCHA math) is preferred whenever a key is
+ * configured; the OpenCLI/browser Google path is kept as the fallback for
+ * when no key is set up, not the other way around.
+ *   --engine serper explicit → use it, error out (not silently fall back) if
+ *     SERPER_API_KEY is missing, so a typo'd or unconfigured key fails loud.
+ *   --engine google explicit → use it regardless of any key present.
+ *   no --engine → serper if SERPER_API_KEY is set, else google.
+ */
+function resolveEngine(flags) {
+  const requested = flags.engine;
+  const hasKey = Boolean((process.env.SERPER_API_KEY || '').trim());
+  if (requested) {
+    if (requested !== 'google' && requested !== 'serper') {
+      throw new Error(`Unknown --engine "${requested}" — only "google" and "serper" are implemented.`);
+    }
+    if (requested === 'serper' && !hasKey) {
+      throw new Error('--engine serper requires SERPER_API_KEY (backlink/.env or the environment) — see references/discovery-loop.md § "Footprint discovery — engine choice" for where to get a key.');
+    }
+    return requested;
+  }
+  return hasKey ? 'serper' : 'google';
+}
+
+const SERPER_ENDPOINT = 'https://google.serper.dev/search';
+
+/**
+ * A real Google SERP through the Serper.dev API — operators (`inurl:`,
+ * quoted phrases) execute exactly as they would on google.com, because
+ * Serper's backend *is* Google; it is not a different search engine like
+ * Bing/DuckDuckGo that silently drops them. No browser, no OpenCLI session,
+ * no CAPTCHA math: this is a plain authenticated HTTP call.
+ */
+/** Pure, exercised directly by --self-test with a fixture — no network. */
+export function mapSerperOrganic(organic) {
+  const list = Array.isArray(organic) ? organic : [];
+  return list.map((item, idx) => ({
+    rank: Number.isInteger(item?.position) ? item.position : idx + 1,
+    url: item?.link || '',
+    title: item?.title || '',
+    snippet: item?.snippet || '',
+  })).filter((r) => r.url);
+}
+
+async function runQuerySerper(query, { num, hl, gl }) {
+  const apiKey = (process.env.SERPER_API_KEY || '').trim();
+  if (!apiKey) throw new Error('SERPER_API_KEY is not set.');
+  const res = await fetch(SERPER_ENDPOINT, {
+    method: 'POST',
+    headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ q: query, gl, hl, num: Math.min(Number(num) || 30, 100) }),
+  });
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => '');
+    throw new Error(`serper HTTP ${res.status}: ${bodyText.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  return { results: mapSerperOrganic(data?.organic) };
+}
+
+/**
+ * Serper sweep: no browser, no Tools Share lock (nothing shared is at
+ * stake — it is a metered HTTP API on its own key), no CAPTCHA stop
+ * concept. Query-to-query delay is a short courtesy pace, not a CAPTCHA
+ * countermeasure — the effective-footprint rate limiting that matters here
+ * is Serper's own API quota, which surfaces as a normal HTTP error.
+ */
+async function runSerperEngine({ pending, ctx, seenDomains, out, num, hl, gl, delaySpec }) {
+  const summaries = [];
+  for (let i = 0; i < pending.length; i += 1) {
+    const query = pending[i];
+    if (i > 0) await delay(delaySpec || '1000-2000');
+    process.stderr.write(`[query ${i + 1}/${pending.length}] ${query}\n`);
+
+    let extraction;
+    try {
+      extraction = await runQuerySerper(query, { num, hl, gl });
+    } catch (error) {
+      appendLine(out, { type: 'query-error', engine: 'serper', query, error: String(error?.message || error).slice(0, 300), capturedAt: nowIso() });
+      process.stderr.write(`  query-error: ${String(error?.message || error).slice(0, 200)}\n`);
+      continue;
+    }
+
+    let operatorHits = 0;
+    let newDomains = 0;
+    const results = extraction.results || [];
+    for (const item of results) {
+      const record = buildResultRecord(query, item, ctx);
+      if (!record) continue;
+      appendLine(out, { ...record, engine: 'serper', capturedAt: nowIso() });
+      if (record.operatorHit) operatorHits += 1;
+      if (!seenDomains.has(record.domain)) { seenDomains.add(record.domain); newDomains += 1; }
+    }
+
+    const summary = { type: 'query-summary', engine: 'serper', query, resultCount: results.length, operatorHits, newDomains, capturedAt: nowIso() };
+    appendLine(out, summary);
+    summaries.push(summary);
+  }
+  return { summaries, stopped: null };
+}
+
+/**
+ * OpenCLI/browser Google sweep — the original engine, kept as the fallback
+ * for when no Serper key is configured. See the header comment "Machine-wide
+ * contention" and "CAPTCHA policy" for why this path needs the Tools Share
+ * lock, the preflight check, and the keep-session-on-captcha behaviour.
+ */
+async function runGoogleEngine({ pending, ctx, seenDomains, out, num, hl, gl, delaySpec, keepSessionOnCaptcha }) {
+  // Per <law id="no-literal-session-name"/>: a per-process suffix, not a bare
+  // literal. This run holds exactly one page and navigates it query by query,
+  // the same pattern the "discover" workflow's Semrush recon section uses —
+  // see SKILL.md's <workflow id="discover"> <recon> block.
+  const session = defaultSession('backlink-footprint');
+  const summaries = [];
+  let stopped = null;
+
+  // Machine-wide mutex — see the header comment "Machine-wide contention".
+  // This only serialises other footprint-discover.mjs invocations against
+  // each other; it cannot see or stop unrelated scripts/agents also talking
+  // to Google outside this file.
+  const lock = await acquireToolsShareLock('google', { timeoutMs: 15 * 60_000 });
+
+  try {
+    const preexisting = await preflightCaptchaCheck(session, { hl, gl });
+    if (preexisting) {
+      const evidenceDir = defaultSceneDir({ out });
+      const scene = await captureScene({ session, outDir: evidenceDir, tag: 'captcha-preexisting-preflight', note: 'Preflight non-operator query already landed on /sorry before any real query was spent.' });
+      appendLine(out, {
+        type: 'run-summary', engine: 'google', stopReason: 'captcha-preexisting', evidenceDir, scene,
+        sessionKept: keepSessionOnCaptcha, sessionName: session, capturedAt: nowIso(),
+      });
+      process.stderr.write(`\nSTOPPED before spending any query: Google is already showing a CAPTCHA to this session (stopReason: captcha-preexisting). Evidence written to ${evidenceDir}.\n`);
+      if (keepSessionOnCaptcha) {
+        process.stderr.write(`Session left open for manual solving — session name: ${session}, url: ${scene?.href || '(see evidence)'}. Pass --no-keep-session-on-captcha to close it instead.\n`);
+      } else {
+        await closeSession(session);
+      }
+      await lock.release();
+      return { summaries, stopped: { query: null, evidenceDir, sessionKept: keepSessionOnCaptcha, sessionName: session, preexisting: true } };
+    }
+
+    for (let i = 0; i < pending.length; i += 1) {
+      const query = pending[i];
+      if (i > 0) await delay(delaySpec);
+      process.stderr.write(`[query ${i + 1}/${pending.length}] ${query}\n`);
+
+      let extraction;
+      try {
+        extraction = await runQuery(session, query, { num, hl, gl });
+      } catch (error) {
+        appendLine(out, { type: 'query-error', engine: 'google', query, error: String(error?.message || error).slice(0, 300), capturedAt: nowIso() });
+        process.stderr.write(`  query-error: ${String(error?.message || error).slice(0, 200)}\n`);
+        continue;
+      }
+
+      if (isCaptchaSignal(extraction)) {
+        const evidenceDir = defaultSceneDir({ out });
+        // 先取证后死 / 先取证后关 per <law id="scripts-collect-ai-judges"/>:
+        // capture before stopping, close (or, by default, leave open for a
+        // human to solve — see keepSessionOnCaptcha above) after.
+        const scene = await captureScene({ session, outDir: evidenceDir, tag: `captcha-${slug(query)}`, note: `CAPTCHA/unusual-traffic signal on query: ${query}` });
+        appendLine(out, {
+          type: 'run-summary', engine: 'google', stopReason: 'captcha', queryAtStop: query, evidenceDir, scene,
+          sessionKept: keepSessionOnCaptcha, sessionName: session, capturedAt: nowIso(),
+        });
+        if (keepSessionOnCaptcha) {
+          process.stderr.write(`Session left open for manual solving — session name: ${session}, url: ${scene?.href || '(see evidence)'}. Pass --no-keep-session-on-captcha to close it instead.\n`);
+        }
+        stopped = { query, evidenceDir, sessionKept: keepSessionOnCaptcha, sessionName: session };
+        break;
+      }
+
+      let operatorHits = 0;
+      let newDomains = 0;
+      const results = extraction.results || [];
+      for (const item of results) {
+        const record = buildResultRecord(query, item, ctx);
+        if (!record) continue;
+        appendLine(out, { ...record, engine: 'google', capturedAt: nowIso() });
+        if (record.operatorHit) operatorHits += 1;
+        if (!seenDomains.has(record.domain)) { seenDomains.add(record.domain); newDomains += 1; }
+      }
+
+      const summary = { type: 'query-summary', engine: 'google', query, resultCount: results.length, operatorHits, newDomains, capturedAt: nowIso() };
+      appendLine(out, summary);
+      summaries.push(summary);
+    }
+  } finally {
+    if (!(stopped && keepSessionOnCaptcha)) await closeSession(session);
+    await lock.release();
+  }
+
+  return { summaries, stopped };
+}
+
 async function main() {
   const flags = parseFlags(process.argv.slice(2));
   showHelpIfRequested(flags, import.meta.url);
 
   if (flags['self-test']) { selfTest(); return; }
 
-  const engine = flags.engine || 'google';
-  if (engine !== 'google') throw new Error('Only --engine google is implemented — see the header comment for why anysearch/Bing/DuckDuckGo cannot substitute for operator-bearing footprint queries.');
+  const engine = resolveEngine(flags);
+  console.log(engine === 'serper'
+    ? 'engine: serper (SERPER_API_KEY found — real Google SERP via API, operators execute as-is)'
+    : 'engine: google (OpenCLI/browser — ' + (flags.engine ? '--engine google explicit' : 'no SERPER_API_KEY found, falling back') + ')');
 
   const num = Number(flags.num || 30);
   const hl = flags.hl || 'en';
@@ -565,90 +817,9 @@ async function main() {
     return;
   }
 
-  // Per <law id="no-literal-session-name"/>: a per-process suffix, not a bare
-  // literal. This run holds exactly one page and navigates it query by query,
-  // the same pattern the "discover" workflow's Semrush recon section uses —
-  // see SKILL.md's <workflow id="discover"> <recon> block.
-  const session = defaultSession('backlink-footprint');
-  const summaries = [];
-  let stopped = null;
-
-  // Machine-wide mutex — see the header comment "Machine-wide contention".
-  // This only serialises other footprint-discover.mjs invocations against
-  // each other; it cannot see or stop unrelated scripts/agents also talking
-  // to Google outside this file.
-  const lock = await acquireToolsShareLock('google', { timeoutMs: 15 * 60_000 });
-
-  try {
-    const preexisting = await preflightCaptchaCheck(session, { hl, gl });
-    if (preexisting) {
-      const evidenceDir = defaultSceneDir({ out });
-      const scene = await captureScene({ session, outDir: evidenceDir, tag: 'captcha-preexisting-preflight', note: 'Preflight non-operator query already landed on /sorry before any real query was spent.' });
-      appendLine(out, {
-        type: 'run-summary', stopReason: 'captcha-preexisting', evidenceDir, scene,
-        sessionKept: keepSessionOnCaptcha, sessionName: session, capturedAt: nowIso(),
-      });
-      process.stderr.write(`\nSTOPPED before spending any query: Google is already showing a CAPTCHA to this session (stopReason: captcha-preexisting). Evidence written to ${evidenceDir}.\n`);
-      if (keepSessionOnCaptcha) {
-        process.stderr.write(`Session left open for manual solving — session name: ${session}, url: ${scene?.href || '(see evidence)'}. Pass --no-keep-session-on-captcha to close it instead.\n`);
-      } else {
-        await closeSession(session);
-      }
-      await lock.release();
-      process.exitCode = 3;
-      return;
-    }
-
-    for (let i = 0; i < pending.length; i += 1) {
-      const query = pending[i];
-      if (i > 0) await delay(delaySpec);
-      process.stderr.write(`[query ${i + 1}/${pending.length}] ${query}\n`);
-
-      let extraction;
-      try {
-        extraction = await runQuery(session, query, { num, hl, gl });
-      } catch (error) {
-        appendLine(out, { type: 'query-error', query, error: String(error?.message || error).slice(0, 300), capturedAt: nowIso() });
-        process.stderr.write(`  query-error: ${String(error?.message || error).slice(0, 200)}\n`);
-        continue;
-      }
-
-      if (isCaptchaSignal(extraction)) {
-        const evidenceDir = defaultSceneDir({ out });
-        // 先取证后死 / 先取证后关 per <law id="scripts-collect-ai-judges"/>:
-        // capture before stopping, close (or, by default, leave open for a
-        // human to solve — see keepSessionOnCaptcha above) after.
-        const scene = await captureScene({ session, outDir: evidenceDir, tag: `captcha-${slug(query)}`, note: `CAPTCHA/unusual-traffic signal on query: ${query}` });
-        appendLine(out, {
-          type: 'run-summary', stopReason: 'captcha', queryAtStop: query, evidenceDir, scene,
-          sessionKept: keepSessionOnCaptcha, sessionName: session, capturedAt: nowIso(),
-        });
-        if (keepSessionOnCaptcha) {
-          process.stderr.write(`Session left open for manual solving — session name: ${session}, url: ${scene?.href || '(see evidence)'}. Pass --no-keep-session-on-captcha to close it instead.\n`);
-        }
-        stopped = { query, evidenceDir, sessionKept: keepSessionOnCaptcha, sessionName: session };
-        break;
-      }
-
-      let operatorHits = 0;
-      let newDomains = 0;
-      const results = extraction.results || [];
-      for (const item of results) {
-        const record = buildResultRecord(query, item, ctx);
-        if (!record) continue;
-        appendLine(out, { ...record, capturedAt: nowIso() });
-        if (record.operatorHit) operatorHits += 1;
-        if (!seenDomains.has(record.domain)) { seenDomains.add(record.domain); newDomains += 1; }
-      }
-
-      const summary = { type: 'query-summary', query, resultCount: results.length, operatorHits, newDomains, capturedAt: nowIso() };
-      appendLine(out, summary);
-      summaries.push(summary);
-    }
-  } finally {
-    if (!(stopped && keepSessionOnCaptcha)) await closeSession(session);
-    await lock.release();
-  }
+  const { summaries, stopped } = engine === 'serper'
+    ? await runSerperEngine({ pending, ctx, seenDomains, out, num, hl, gl, delaySpec })
+    : await runGoogleEngine({ pending, ctx, seenDomains, out, num, hl, gl, delaySpec, keepSessionOnCaptcha });
 
   printFinalSummary({ summaries, stopped, out });
   if (stopped) process.exitCode = 3; // stopped early — a failure to run further, not a verdict

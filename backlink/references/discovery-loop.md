@@ -139,13 +139,44 @@ Tried and rejected as substitutes, in two rounds of manual testing:
   keyword search without anyone noticing.
 - **Bing**, driven from a sandboxed browser, redirects by egress IP to a
   localized subdomain (`cn.bing.com` from a CN egress) and drops the operators
-  there too — it cannot be a fallback for operator queries.
+  there too — it cannot be a fallback for operator queries. Re-verified
+  2026-09-12 with explicit `cc=US&setlang=en-US&ensearch=1`: still redirected
+  to `cn.bing.com`, and 0/10 results on `puzzle games inurl:submit` had
+  `submit` in the URL path (0% operator hit rate) — the operator was silently
+  dropped, same conclusion as the first round.
 - **DuckDuckGo's HTML endpoint** answers without JS but also does not honor
   the operators — usable only as a last-resort plain-keyword degrade, never as
   an operator-query substitute.
-- Only a **real Google SERP**, opened in the user's own logged-in Chrome via
-  OpenCLI, actually executes `inurl:`/`intitle:`/quoted-phrase operators. This
-  is why `footprint-discover.mjs` has exactly one engine implementation.
+- Only a **real Google SERP** actually executes `inurl:`/`intitle:`/quoted-
+  phrase operators. Two ways to get one — see "Footprint discovery — engine
+  choice" below.
+
+### Footprint discovery — engine choice
+
+【实测 2026-09-12，第三轮】`footprint-discover.mjs` implements two engines that
+both hit a real Google SERP; which one runs is resolved automatically:
+
+| engine | how | picked when |
+|---|---|---|
+| `serper` (preferred) | Serper.dev's `/search` API — a plain authenticated HTTP POST, backed by a real Google SERP (not a different search engine), operators execute as-is | `SERPER_API_KEY` is set in `backlink/.env` or the environment |
+| `google` (fallback) | the owner's own logged-in Chrome via OpenCLI | no `SERPER_API_KEY` configured, or `--engine google` passed explicitly |
+
+Why Serper is preferred rather than the other way around: it is a metered API
+call with its own quota, not a shared login — it has no CAPTCHA, no
+"~4 queries per session" ceiling, and no exposure to the machine-wide
+contention problem described in the CAPTCHA policy section below (other
+concurrent OpenCLI sessions on the same box cannot touch it, because it never
+opens a browser tab at all). `--engine serper` passed explicitly without a
+key configured is a hard error, not a silent fallback — a missing/typo'd key
+should fail loud, not quietly degrade to the browser path and eat CAPTCHA
+risk nobody asked for. Get a key at serper.dev; store it as `SERPER_API_KEY`
+in `backlink/.env` (gitignored, loaded the same way `SEM_GMITM`/`SIM_GMITM`
+already are).
+
+The `google` engine remains fully documented below because it is still the
+fallback when no key is configured, and because its CAPTCHA/contention
+lessons (preflight check, machine-wide lock, keep-session-on-captcha) are
+reusable pattern for any other script that drives a shared logged-in browser.
 
 ### CAPTCHA policy
 
