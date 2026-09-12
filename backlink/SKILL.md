@@ -271,7 +271,7 @@ pointers. Rows are grouped; within a group the later row is the more specific.
 | 「竞品的外链是从哪来的」 | <ref file="../platforms/semrush/backlink-analytics/OVERVIEW.md"/>（backlinks / refdomains / anchors / backlink-gap 各页能给什么、坑在哪），再决定跑哪个采集 |
 | 「谁在给他导流量」「他的推荐流量来源」 | <ref file="../platforms/similarweb/referrals/OVERVIEW.md"/>（incoming / outgoing） |
 | 「帮我找一批新机会」「顺着竞品往下挖」 | references/discovery-loop.md + `scripts/discovery-queue.mjs`（递归展开竞品与评论者），挖到的必须并回登记库 |
-| 「用 Google 搜索指令挖提交页」「inurl:submit」「write for us 挖投稿站」「搜索指令挖外链」 | references/discovery-loop.md 的「Footprint discovery」一节 → `node scripts/footprint-discover.mjs --keyword "<垂类词>" --preset submit`。只能走真 Google（真人已登录 Chrome），anysearch/Bing/DuckDuckGo 都不执行 `inurl:`/`intitle:` 运算符；命中 CAPTCHA 就停，不绕过 |
+| 「用 Google 搜索指令挖提交页」「inurl:submit」「write for us 挖投稿站」「搜索指令挖外链」 | references/discovery-loop.md 的「Footprint discovery」一节 → `node scripts/footprint-discover.mjs --keyword "<垂类词>" --preset submit`。`backlink/.env` 有 `SERPER_API_KEY` 时脚本优先走 Serper.dev API（免费层带运算符 query 顶 10 条）；无 key 才回落到 OpenCLI 打开机主已登录的真实 Chrome，这条路线约 4 条运算符 query 起就触发 CAPTCHA，出口 IP 一旦被标记，换独立 profile 也一样被拦（2026-09-12 agent-browser 实测）。anysearch/Tuner/Bing/DuckDuckGo 都不执行 `inurl:`/`intitle:` 运算符；命中 CAPTCHA 就停，不绕过 |
 | 「他和我的受众重合吗」 | <ref file="../platforms/similarweb/audience/OVERVIEW.md"/>（三域名韦恩图，一条深链就是一次三方对比） |
 ]]></group>
 
@@ -3661,8 +3661,14 @@ node scripts/discovery-queue.mjs next --file .backlink/discovery.json --limit 10
 ]]></cmd>
 <footprint>
 A second, non-recursive lane: search-operator footprints instead of competitor
-backlink rows. Real Google only — general search APIs and Bing/DuckDuckGo do
-not execute `inurl:`/`intitle:` operators. See
+backlink rows. `footprint-discover.mjs` prefers Serper.dev's API (a real
+Google SERP over HTTP, no browser, no CAPTCHA) when `SERPER_API_KEY` is set —
+its free tier caps operator queries at 10 results. Without a key it falls
+back to the owner's own logged-in Chrome via OpenCLI, where a session hits a
+CAPTCHA / "unusual traffic" wall after roughly 4 operator queries, and a
+flagged exit IP gets blocked even from a fresh independent profile
+(2026-09-12 agent-browser finding). General search APIs and Bing/DuckDuckGo
+still do not execute `inurl:`/`intitle:` operators either way. See
 references/discovery-loop.md § "Footprint discovery" for the effective/noisy
 footprint table and the CAPTCHA policy before running a real sweep.
 <cmd><![CDATA[

@@ -1273,7 +1273,7 @@
       "priceCheckedAt": "2026-09-12",
       "status": "gated",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": null,
+      "notes": "vertical=ai-directory; keyword=\"ai tools inurl:submit\"; fit=none-yet; discovered=footprint/serper 2026-09-12",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -9306,7 +9306,7 @@
       "domain": "coolmathgames.com",
       "route": "https://www.coolmathgames.com/submit-a-game",
       "name": "Submit your game to Coolmath Games",
-      "kind": "unknown",
+      "kind": "product-directory",
       "gate": "account",
       "gates": [
         "account"
@@ -9317,7 +9317,7 @@
       "priceCheckedAt": null,
       "status": "gated",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": null,
+      "notes": "vertical=games; keyword=\"word games submit your game\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12; form-fields-unverified",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -11808,7 +11808,7 @@
       "priceCheckedAt": null,
       "status": "usable",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": null,
+      "notes": "vertical=ai-directory; keyword=\"ai tools inurl:links submit\"; fit=none-yet; discovered=footprint/serper 2026-09-12",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -13637,7 +13637,7 @@
       "priceCheckedAt": null,
       "status": "usable",
       "sourceList": "footprint-discover.mjs browser-games-run-2026-09-12",
-      "notes": null,
+      "notes": "vertical=games; keyword=\"browser games inurl:submit\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -15006,7 +15006,7 @@
       "priceCheckedAt": null,
       "status": "gated",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": null,
+      "notes": "vertical=games; keyword=\"word games / browser games write-for-us\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -15344,7 +15344,7 @@
       "priceCheckedAt": null,
       "status": "usable",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": null,
+      "notes": "vertical=video; keyword=\"video downloader inurl:links submit\"; fit=videocatch; discovered=footprint/serper 2026-09-12",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -21611,7 +21611,7 @@
       "priceCheckedAt": null,
       "status": "usable",
       "sourceList": "footprint-discover.mjs browser-games-run-2026-09-12",
-      "notes": null,
+      "notes": "vertical=games; keyword=\"browser games inurl:links submit\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -21908,7 +21908,7 @@
       "priceCheckedAt": null,
       "status": "usable",
       "sourceList": "footprint-discover.mjs browser-games-run-2026-09-12",
-      "notes": null,
+      "notes": "vertical=games; keyword=\"browser games inurl:links submit\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -22618,7 +22618,7 @@
       "domain": "playlin.io",
       "route": "https://playlin.io/submit/",
       "name": "Submit Your Game | Playlin",
-      "kind": "unknown",
+      "kind": "product-directory",
       "gate": "open-form",
       "gates": [
         "open-form"
@@ -22629,7 +22629,7 @@
       "priceCheckedAt": null,
       "status": "usable",
       "sourceList": "footprint-discover.mjs browser-games-run-2026-09-12",
-      "notes": null,
+      "notes": "vertical=games; keyword=\"word games / browser games inurl:links submit\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -23249,7 +23249,7 @@
       "priceCheckedAt": null,
       "status": "gated",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": null,
+      "notes": "vertical=tools; keyword=\"ai tools / free online tools / online tools submit your tool\"; fit=intabtools; discovered=footprint/serper 2026-09-12",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -24337,7 +24337,7 @@
       "domain": "ryrob.com",
       "route": "https://www.ryrob.com/guest-post-guidelines/",
       "name": "6 Guest Post Guidelines Template Essentials (Free Template)",
-      "kind": "unknown",
+      "kind": "publish-platform",
       "gate": "open-form",
       "gates": [
         "open-form"
@@ -24348,7 +24348,7 @@
       "priceCheckedAt": null,
       "status": "usable",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": null,
+      "notes": "vertical=media; keyword=\"video downloader / youtube downloader / online tools guest post guidelines\"; fit=videocatch,intabtools; discovered=footprint/serper 2026-09-12",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -25080,7 +25080,7 @@
       "priceCheckedAt": null,
       "status": "usable",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": null,
+      "notes": "vertical=media; keyword=\"ai tools write for us\"; fit=none-yet; discovered=footprint/serper 2026-09-12",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -25496,7 +25496,7 @@
       "priceCheckedAt": "2026-09-12",
       "status": "gated",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": null,
+      "notes": "vertical=tools; keyword=\"online tools submit your tool\"; fit=intabtools; discovered=footprint/serper 2026-09-12",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -30000,7 +30000,7 @@
       "priceCheckedAt": "2026-09-12",
       "status": "gated",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": null,
+      "notes": "vertical=media; keyword=\"ai tools write for us\"; fit=none-yet; discovered=footprint/serper 2026-09-12; form-fields-unverified",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -30621,7 +30621,7 @@
       "priceCheckedAt": null,
       "status": "gated",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": null,
+      "notes": "vertical=media; keyword=\"ai tools guest post guidelines\"; fit=none-yet; discovered=footprint/serper 2026-09-12",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -30774,7 +30774,7 @@
       "domain": "twelve.games",
       "route": "https://www.twelve.games/submit",
       "name": "Submit your Game Free — Indie Game Discovery | Twelve Games",
-      "kind": "unknown",
+      "kind": "product-directory",
       "gate": "open-form",
       "gates": [
         "open-form"
@@ -30785,7 +30785,7 @@
       "priceCheckedAt": null,
       "status": "usable",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": null,
+      "notes": "vertical=games; keyword=\"browser games inurl:links submit\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -32598,7 +32598,7 @@
       "priceCheckedAt": null,
       "status": "gated",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": null,
+      "notes": "vertical=games; keyword=\"puzzle games write for us\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12; form-fields-unverified",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -33218,7 +33218,7 @@
     {
       "domain": "yy2k.com",
       "route": "https://www.yy2k.com/SubmitGames/",
-      "kind": "unknown",
+      "kind": "product-directory",
       "gate": "account",
       "gates": [
         "account"
@@ -33229,7 +33229,7 @@
       "priceCheckedAt": null,
       "status": "gated",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": null,
+      "notes": "vertical=games; keyword=\"browser games inurl:submit\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
