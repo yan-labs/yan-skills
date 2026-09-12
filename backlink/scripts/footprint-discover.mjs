@@ -104,6 +104,16 @@
  *   --resume               skip queries whose query-summary line already
  *                          exists in --out; recount `new domain` against
  *                          domains already written there too
+ *   --keep-session-on-captcha (default ON) — on a CAPTCHA stop, leave the
+ *                          browser tab open instead of closing it, and print
+ *                          the session name + URL so a human sitting at the
+ *                          owner's own Chrome can solve it by hand in
+ *                          seconds. The run-summary row also carries
+ *                          `sessionKept`/`sessionName`. This script still
+ *                          never solves or bypasses a CAPTCHA itself — see
+ *                          <rule id="no-bypass"/> — it only stops touching
+ *                          the tab. Pass --no-keep-session-on-captcha to
+ *                          restore the old close-on-stop behaviour.
  *   --self-test            run the offline extraction/scoring/dedup checks
  *                          against a fixture and exit; opens no browser
  *
@@ -504,6 +514,9 @@ function printFinalSummary({ summaries, stopped, out }) {
   process.stderr.write(`\ntotal: queries=${summaries.length} results=${totalResults} operatorHit=${totalOperatorHits} newDomains=${totalNewDomains}\n`);
   if (stopped) {
     process.stderr.write(`\nSTOPPED: CAPTCHA signal on query "${stopped.query}". Evidence written to ${stopped.evidenceDir}. Nothing already collected was discarded; re-run with --resume later.\n`);
+    if (stopped.sessionKept) {
+      process.stderr.write(`Session kept open for manual solving — session name: ${stopped.sessionName}.\n`);
+    }
   }
   process.stderr.write(`\nNext step — build a lead list for the prober from the new, unlibraried, non-fingerprinted domains in ${out}:\n`);
   process.stderr.write(`  node -e "const fs=require('fs');const seen=new Set();const rows=fs.readFileSync('${out}','utf8').split('\\n').filter(Boolean).map(JSON.parse).filter(r=>r.type==='result'&&r.shapeScore>=1&&!r.inLibrary&&!r.fingerprintHit&&!r.inLedger);const leads=rows.filter(r=>!seen.has(r.domain)&&seen.add(r.domain)).map(r=>({domain:r.domain,urls:[r.url]}));fs.writeFileSync('${out}.leads.json',JSON.stringify(leads,null,2));console.log(leads.length,'leads')"\n`);
@@ -526,6 +539,13 @@ async function main() {
   const resume = Boolean(flags.resume);
   const ledgerPath = flags.ledger || '.backlink/ledger.json';
   const delaySpec = flags['delay-ms'] || null;
+  // Default ON: a human sitting at the owner's own Chrome can solve a CAPTCHA
+  // manually in seconds; closing the tab out from under them just makes them
+  // hunt for a new one. This script still never solves/bypasses a CAPTCHA
+  // itself — see <rule id="no-bypass"/> — it only stops touching the tab so
+  // a person can. `--no-keep-session-on-captcha` restores the old
+  // close-on-stop behaviour.
+  const keepSessionOnCaptcha = !flags['no-keep-session-on-captcha'];
 
   const queries = buildQueryList(flags);
   if (!queries.length) throw new Error('No queries to run. Pass --queries-file <txt>, or --keyword <kw> with --preset submit|write-for-us|all.');
@@ -564,9 +584,16 @@ async function main() {
     if (preexisting) {
       const evidenceDir = defaultSceneDir({ out });
       const scene = await captureScene({ session, outDir: evidenceDir, tag: 'captcha-preexisting-preflight', note: 'Preflight non-operator query already landed on /sorry before any real query was spent.' });
-      appendLine(out, { type: 'run-summary', stopReason: 'captcha-preexisting', evidenceDir, scene, capturedAt: nowIso() });
-      process.stderr.write(`\nSTOPPED before spending any query: Google is already showing a CAPTCHA to this session (stopReason: captcha-preexisting). Evidence written to ${evidenceDir}. Check \`opencli browser sessions\` for other sessions parked on google.com/sorry before retrying.\n`);
-      await closeSession(session);
+      appendLine(out, {
+        type: 'run-summary', stopReason: 'captcha-preexisting', evidenceDir, scene,
+        sessionKept: keepSessionOnCaptcha, sessionName: session, capturedAt: nowIso(),
+      });
+      process.stderr.write(`\nSTOPPED before spending any query: Google is already showing a CAPTCHA to this session (stopReason: captcha-preexisting). Evidence written to ${evidenceDir}.\n`);
+      if (keepSessionOnCaptcha) {
+        process.stderr.write(`Session left open for manual solving — session name: ${session}, url: ${scene?.href || '(see evidence)'}. Pass --no-keep-session-on-captcha to close it instead.\n`);
+      } else {
+        await closeSession(session);
+      }
       await lock.release();
       process.exitCode = 3;
       return;
@@ -589,10 +616,17 @@ async function main() {
       if (isCaptchaSignal(extraction)) {
         const evidenceDir = defaultSceneDir({ out });
         // 先取证后死 / 先取证后关 per <law id="scripts-collect-ai-judges"/>:
-        // capture before stopping, close after.
+        // capture before stopping, close (or, by default, leave open for a
+        // human to solve — see keepSessionOnCaptcha above) after.
         const scene = await captureScene({ session, outDir: evidenceDir, tag: `captcha-${slug(query)}`, note: `CAPTCHA/unusual-traffic signal on query: ${query}` });
-        appendLine(out, { type: 'run-summary', stopReason: 'captcha', queryAtStop: query, evidenceDir, scene, capturedAt: nowIso() });
-        stopped = { query, evidenceDir };
+        appendLine(out, {
+          type: 'run-summary', stopReason: 'captcha', queryAtStop: query, evidenceDir, scene,
+          sessionKept: keepSessionOnCaptcha, sessionName: session, capturedAt: nowIso(),
+        });
+        if (keepSessionOnCaptcha) {
+          process.stderr.write(`Session left open for manual solving — session name: ${session}, url: ${scene?.href || '(see evidence)'}. Pass --no-keep-session-on-captcha to close it instead.\n`);
+        }
+        stopped = { query, evidenceDir, sessionKept: keepSessionOnCaptcha, sessionName: session };
         break;
       }
 
@@ -612,7 +646,7 @@ async function main() {
       summaries.push(summary);
     }
   } finally {
-    await closeSession(session);
+    if (!(stopped && keepSessionOnCaptcha)) await closeSession(session);
     await lock.release();
   }
 
