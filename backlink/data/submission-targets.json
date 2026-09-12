@@ -9306,18 +9306,18 @@
       "domain": "coolmathgames.com",
       "route": "https://www.coolmathgames.com/submit-a-game",
       "name": "Submit your game to Coolmath Games",
-      "kind": "product-directory",
-      "gate": "account",
+      "kind": "unknown",
+      "gate": "manual-review",
       "gates": [
-        "account"
+        "manual-review"
       ],
-      "cohort": "account",
+      "cohort": "manual-review",
       "payment": "none-seen",
       "price": null,
       "priceCheckedAt": null,
       "status": "gated",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": "vertical=games; keyword=\"word games submit your game\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12; form-fields-unverified",
+      "notes": "vertical=games; keyword=\"word games submit your game\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12; 2026-09-12 复核（已登录账号，走到表单终点）：这不是外链/目录提交页，而是把整个游戏授权给 Coolmath 收购托管的意向表单（Google Form，已确认已登录，无 CAPTCHA），字段要求 Game Title/游戏引擎/试玩 URL 等；页面正文明确要求 \"The game must be free of any and all external links\" 且 \"no ad for your own site or company\"——即使被采纳也不会产生反链，反而要求提交方放弃站外链接。intabtools/videocatch/shindan 根本不是可试玩游戏，crossword-ar/nonogram-jp 虽是拼图类游戏但提交即等于申请被收购托管、放弃外链，与外链目标完全相悖，本轮未对 5 个项目做任何提交。原 form-fields-unverified 标记已解除，实际情况见上。",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -13627,17 +13627,18 @@
       "route": "https://freeonlineaigames.com/submit-game",
       "name": "Submit Your Game | Free Online AI Games",
       "kind": "ai-directory",
-      "gate": "open-form",
+      "gate": "manual-review",
       "gates": [
+        "manual-review",
         "open-form"
       ],
-      "cohort": "open",
+      "cohort": "manual-review",
       "payment": "none-seen",
       "price": null,
       "priceCheckedAt": null,
-      "status": "usable",
+      "status": "gated",
       "sourceList": "footprint-discover.mjs browser-games-run-2026-09-12",
-      "notes": "vertical=games; keyword=\"browser games inurl:submit\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12",
+      "notes": "vertical=games; keyword=\"browser games inurl:submit\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12. 2026-09-12 inspect-page 实测（浏览器）：formIndex=0 是真实提交表单，但含必填字段 aiUse（'ai usage* - how was ai used in creating or playing your game?'）——本站要求提交的是 AI 生成/AI 玩法类游戏，anonymous-http 探测阶段的 open-form 判定只看到字段存在，没能识别这条语义门槛。非 AI 类项目无法如实作答，改为 gate=manual-review，不进 open 队列无差别投放。",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -14993,28 +14994,40 @@
     },
     {
       "domain": "gpadtester.net",
-      "route": "https://gpadtester.net/write-for-us/",
-      "name": "Write For Us Gaming - Guides And Reviews - Gamepad Tester",
-      "kind": "search-engine",
-      "gate": "account",
+      "route": "https://gpadtester.net/playstation-6/",
+      "name": "Gamepad Tester blog comment form (WordPress default, per-article)",
+      "kind": "comment-form",
+      "gate": "open-form",
       "gates": [
-        "account"
+        "open-form"
       ],
-      "cohort": "account",
+      "cohort": "open",
       "payment": "none-seen",
       "price": null,
       "priceCheckedAt": null,
-      "status": "gated",
+      "status": "usable",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": "vertical=games; keyword=\"word games / browser games write-for-us\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12",
+      "notes": "vertical=games; keyword=\"word games / browser games write-for-us\"; fit=crossword-ar,nonogram-jp,intabtools,videocatch,shindan; discovered=footprint/serper 2026-09-12. CORRECTED 2026-09-12: /write-for-us/ (previous route) is a customer-service ticket form, not a real submission path — left as gated/no_safe_submission_form dead end, do not resubmit there. The real usable channel on this domain is the native WordPress comment form on every blog article (e.g. this route), fields Comment*/Name*/Email*/Website + 'Save my name...' checkbox + Post Comment button, no CAPTCHA observed. The form is collapsed behind a '.show-post-comment' accordion toggle (display:none until clicked) — a plain form-census tool that doesn't click UI toggles will misreport 0 qualifying forms; click the toggle first, then the WP fields resolve correctly. Five reviewed comments were submitted on this one article route (2026-09-12), each with a distinct real product's Website-field anchor; all five landed on ?unapproved=<id>&moderation-hash=... i.e. accepted into WordPress moderation, not yet publicly visible — per this Skill's blog-comment verification law, that own-session view does not itself prove public visibility. Re-verify from a cookie-free context before promoting any of these to 'public' in a ledger. This route (and by extension the same theme on other gpadtester.net articles) is reusable per-article, not a one-time route.",
       "lastProbedAt": "2026-09-12",
+      "verifiedRoutes": [
+        {
+          "url": "https://gpadtester.net/playstation-6/",
+          "outcome": "submitted-awaiting-moderation",
+          "comments": 5
+        }
+      ],
       "evidence": {
-        "method": "anonymous-http",
-        "what": "reachable 200, gates observed: account",
+        "method": "browser-dom",
+        "what": "inspect-page.mjs's default census under-counts this form (checkbox consent label text collides with all four field-kind regexes, and the form starts display:none behind an accordion toggle); after clicking '.show-post-comment' and scoping field classification to real data-entry controls only, the WP default comment form resolves cleanly to comment/author/email/url. Five reviewed real submissions were accepted into moderation (?unapproved=11466..11470).",
         "httpStatus": 200,
-        "finalUrl": "https://gpadtester.net/write-for-us/",
-        "title": "Write For Us Gaming - Guides And Reviews - Gamepad Tester",
-        "rawHtml": "probe.json.evidence/gpadtester.net.html"
+        "finalUrl": "https://gpadtester.net/playstation-6/",
+        "title": "PlayStation 6 Could Arrive Sooner Than You Think",
+        "priorRoute": {
+          "route": "https://gpadtester.net/write-for-us/",
+          "what": "reachable 200, but this is a customer-service ticket form (no real submission capability) — gate=account, status=gated, no_safe_submission_form. Kept for the record; not usable.",
+          "httpStatus": 200,
+          "rawHtml": "probe.json.evidence/gpadtester.net.html"
+        }
       },
       "traffic": {
         "monthlyVisits": 242793,
@@ -15333,18 +15346,18 @@
       "domain": "guestbookproject.org",
       "route": "http://guestbookproject.org/submit-your-video/",
       "name": "Submit Your Video &#8211; Guestbook Project",
-      "kind": "dev-community",
-      "gate": "open-form",
+      "kind": "unknown",
+      "gate": "manual-review",
       "gates": [
-        "open-form"
+        "manual-review"
       ],
-      "cohort": "open",
+      "cohort": "manual-review",
       "payment": "none-seen",
       "price": null,
       "priceCheckedAt": null,
-      "status": "usable",
+      "status": "gated",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": "vertical=video; keyword=\"video downloader inurl:links submit\"; fit=videocatch; discovered=footprint/serper 2026-09-12",
+      "notes": "vertical=video; keyword=\"video downloader inurl:links submit\"; fit=videocatch; discovered=footprint/serper 2026-09-12. 2026-09-12 inspect-page 实测（浏览器）：这不是网站/产品外链提交表单——Guestbook Project 是一家非营利机构，此页是其口述历史/个人故事项目『Submit Your Video』征集表单，必填字段要求真实的 Dropbox/Google Drive/Vimeo 视频文件链接，并要求勾选 Exchanging Stories/Storybites/Documentary 中的一个分类；与'video downloader'工具站完全不是一回事，anonymous-http 阶段按字段名 url/name/description 误判为可用 open-form。kind 改为 unknown、gate 改为 manual-review，不适合任何『提交产品链接』类项目，不建议再作为该垂类目标。",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -21600,18 +21613,18 @@
       "domain": "open-source-games.com",
       "route": "https://open-source-games.com/submit",
       "name": "Submit a Game | OpenGames | OpenGames",
-      "kind": "product-directory",
-      "gate": "open-form",
+      "kind": "unknown",
+      "gate": "manual-review",
       "gates": [
-        "open-form"
+        "manual-review"
       ],
-      "cohort": "open",
+      "cohort": "manual-review",
       "payment": "none-seen",
       "price": null,
       "priceCheckedAt": null,
-      "status": "usable",
+      "status": "gated",
       "sourceList": "footprint-discover.mjs browser-games-run-2026-09-12",
-      "notes": "vertical=games; keyword=\"browser games inurl:links submit\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12",
+      "notes": "vertical=games; keyword=\"browser games inurl:links submit\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12. 2026-09-12 inspect-page 实测（浏览器）：唯一的输入字段是'GitHub repository URL'（placeholder https://github.com/owner/repo）+ 可选 Notes，页面明确写着'Help the directory grow. Submit a GitHub repository for an open-source game'并要求确认'the project is open-source'；唯一可点击控件是'Email Submission'，触发的是 mailto，不是真实表单 POST。这是一个『开源 GitHub 仓库收录目录』，不是通用产品/网站提交表单，对closed-source商业站点不适用，anonymous-http 阶段仅按字段计数误判为 open-form。kind 改为 unknown、gate 改为 manual-review。",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -21898,17 +21911,17 @@
       "route": "https://originpointgames.com/submit",
       "name": "Submit a Game — Origin Point Games",
       "kind": "dev-community",
-      "gate": "open-form",
+      "gate": "manual-review",
       "gates": [
-        "open-form"
+        "manual-review"
       ],
-      "cohort": "open",
+      "cohort": "manual-review",
       "payment": "none-seen",
       "price": null,
       "priceCheckedAt": null,
-      "status": "usable",
+      "status": "gated",
       "sourceList": "footprint-discover.mjs browser-games-run-2026-09-12",
-      "notes": "vertical=games; keyword=\"browser games inurl:links submit\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12",
+      "notes": "vertical=games; keyword=\"browser games inurl:links submit\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12. 2026-09-12 inspect-page 实测（浏览器）：页面有 3 个 <form>，真正的提交表单(formIndex=1)必填 studio_name/contact_name/contact_email/country(下拉必填)/game_title/status(单选必填)，并有必勾复选框 submission-consent；inspect-page 的启发式因 url 字段有 studio_url 与 game_url 两个候选判为 ambiguous，anonymous-http 阶段更只看到字段计数就判 open-form，两次都没识别出这是一张需要工作室身份信息(studio/country)+人工勾选同意的表单。country 没有可如实申报的值，Skill 规则禁止代填 consent 复选框，故不适合无人值守批量提交。kind 保留 dev-community，gate/cohort 改为 manual-review。",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -24346,9 +24359,9 @@
       "payment": "none-seen",
       "price": null,
       "priceCheckedAt": null,
-      "status": "usable",
+      "status": "unverified",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": "vertical=media; keyword=\"video downloader / youtube downloader / online tools guest post guidelines\"; fit=videocatch,intabtools; discovered=footprint/serper 2026-09-12",
+      "notes": "vertical=media; keyword=\"video downloader / youtube downloader / online tools guest post guidelines\"; fit=videocatch,intabtools; discovered=footprint/serper 2026-09-12; 2026-09-12 复核：记录的 route 是教程文章而非投稿入口，需重新搜索 ryrob.com 真正的 write-for-us/guest-post 页面（如果存在）",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -32587,18 +32600,18 @@
       "domain": "wordle0.com",
       "route": "https://wordle0.com/write-for-us/",
       "name": "Write For Us - Wordle",
-      "kind": "search-engine",
-      "gate": "account",
+      "kind": "publish-platform",
+      "gate": "manual-review",
       "gates": [
-        "account"
+        "manual-review"
       ],
-      "cohort": "account",
+      "cohort": "manual-review",
       "payment": "none-seen",
       "price": null,
       "priceCheckedAt": null,
       "status": "gated",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": "vertical=games; keyword=\"puzzle games write for us\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12; form-fields-unverified",
+      "notes": "vertical=games; keyword=\"puzzle games write for us\"; fit=crossword-ar,nonogram-jp; discovered=footprint/serper 2026-09-12; 2026-09-12 复核：无需登录，公开可访问的真实 write-for-us 投稿表单（Name/Email/Proposed Article Title/Describe your article idea），无 CAPTCHA、无付费。编辑范围明确限定为 Wordle/Quordle/Nerdle 等文字猜谜类攻略内容，不是通用目录提交。表单无独立 URL 字段（链接需写在正文里），且有一个标准四字段（url/name/email/description）payload 结构之外的必填 'Article Title' 字段，inspect-page/safe-fill.mjs 的机械 qualifies 判据因此判 false（no_safe_submission_form）——已由 AI 现场核实截图后判定可安全填写，用等价于 safe-fill 安全约束（先查 CAPTCHA/login/fingerprint，装提交守卫，绝不越权）的一次性脚本手填。表单 action 是当前页 URL 本身（POST self, no visible AJAX handler class），真实点击提交后页面发生了完整往返导航（performance navigation entry 更新、字段清空），但页面上没有任何 thank-you/success 文案或反馈组件——服务端是否真正处理/转发了内容无法确认，判定 outcome-unknown，未重试（避免造成重复提交）。crossword-ar/nonogram-jp 与站点主题（拼图攻略）高度相关，已实际提交；intabtools/videocatch/shindan 与拼图攻略毫无关联，为避免对同一个小站的联系表单连续投递 5 条几乎全不相关的推介（观感上接近滥用联系表单），本轮判断只投相关的 2 个，另 3 个未提交，已在对应项目 ledger 中记为 rejected 并说明原因。原 form-fields-unverified 标记已解除，实际情况见上。",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
