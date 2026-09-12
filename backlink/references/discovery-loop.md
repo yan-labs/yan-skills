@@ -178,6 +178,17 @@ fallback when no key is configured, and because its CAPTCHA/contention
 lessons (preflight check, machine-wide lock, keep-session-on-captcha) are
 reusable pattern for any other script that drives a shared logged-in browser.
 
+【实测 2026-09-12，第三轮】**Serper 免费层对带运算符/引号的 query 把 `num` 硬
+顶在 10**（`footprint-discover.mjs` 已自动探测并降级重打，见脚本内
+`isSerperFreeTierNumCapError`），不是 30。这个截断本身会把 `operatorHit`
+比例往下拉——样本从 30 条缩到 10 条，排序靠后的"URL 路径含 submit"信号被
+截掉的概率更高。实测 `puzzle games`：`inurl:submit` 40%（Google 网页版基准
+~70%）、`inurl:links "submit"` 20%（基准 ~56%）。**不要拿 operatorHit 比例
+去卡通过/不通过的门槛**——它只是个软信号，真正的过滤在下一步的
+`probe-submission-targets.mjs` + 人工核（读 evidence HTML）。评估一个
+Serper 关键词跑得值不值，看**新域名数**（一个关键词单条 `inurl:submit` 就
+能出几十个新域名）和**送进 probe 之后的确认率**，不要看 operatorHit 本身。
+
 ### CAPTCHA policy
 
 In a sandboxed browser, Google starts showing a CAPTCHA / "unusual traffic"
