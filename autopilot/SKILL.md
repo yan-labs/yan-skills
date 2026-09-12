@@ -715,19 +715,19 @@ loop-goal = <loop-goal> 定义的完成判定
     - `executor-sonnet.md`：`model: sonnet`，`effort: xhigh`，`disallowedTools: Agent`
     - `executor-opus.md`：`model: opus`，`effort: high`，`disallowedTools: Agent`
     - `executor-fable.md`：`model: fable`，`effort: medium`，`disallowedTools: Agent`，顾问定位（只判断/给方案，不落地执行）
-    - `executor-opus-medium.md`：`model: opus`，`effort: medium`，**没有** `disallowedTools` 限制——历史遗留（原 `opus-medium`），不再是默认路由目标，仅作为需要"Opus 能力但允许继续调用 Agent"这种特殊场景的手动选项保留
+    - `executor-opus-medium.md`：`model: opus`，`effort: medium`——**DEPRECATED，不要用**。历史遗留（原 `opus-medium`），缺 `disallowedTools: Agent`，允许继续递归调用 Agent 工具，直接违反全局 CLAUDE.md「禁止 subagent 再调用 Agent 工具转派」的硬规则。它相对 `executor-opus` 唯一的差异（effort medium vs high、没有工具约束）都不构成保留理由——前者不值得单开类型，后者是被禁止的行为。文件暂时保留只是为了不破坏可能存在的旧引用，新代码一律用 `executor-opus`。
 
     **按 phase 路由**：
 
     | Phase | 默认档位 | 升级条件 |
     | --- | --- | --- |
-    | investigate / scope | `executor-sonnet` | 根因本身极难定位、反复卡壳 → `executor-opus` |
-    | plan / design | `executor-sonnet` | 深度架构决策、feature-completeness-checklist 覆盖面大 → `executor-opus`；wrong-approach 重新规划前先过一轮 `executor-fable`（见下） |
+    | investigate | `executor-sonnet` | 根因本身极难定位、反复卡壳 → `executor-opus` |
+    | design | `executor-sonnet` | 深度架构决策、feature-completeness-checklist 覆盖面大 → `executor-opus`；wrong-approach 重新规划前先过一轮 `executor-fable`（见下） |
     | implement | `executor-sonnet` | 同一失败签名反复失败、涉及不可逆操作或安全敏感改动 → `executor-opus` |
     | local-verify（跑 tsc/lint/test 报结果） | `executor-haiku` | 需要诊断失败原因 → 算作 implement，回到 sonnet |
     | deploy（跑固定部署命令/脚本） | `executor-haiku` | 部署失败需要排查 → 回到 sonnet |
     | e2e（checker） | `executor-sonnet` | 涉及复杂链路取证、静默 fallback 排查 → `executor-opus` |
-    | review（checker） | `executor-sonnet` | 对抗性 review、subtle logic、安全审查 → `executor-opus` |
+    | review / quality audit（checker） | `executor-sonnet` | 对抗性 review、subtle logic、安全审查 → `executor-opus` |
     | issue-finalize | `executor-sonnet`（把已有证据写成结构化记录，需要判断和综合，不是纯机械） | — |
     | cleanup（git status 核对 + 删已知临时文件） | `executor-haiku` | git 冲突、暂存区混杂、任何"该不该删这个"的判断 → 回到 sonnet |
 
@@ -738,16 +738,24 @@ loop-goal = <loop-goal> 定义的完成判定
     （方案本身有问题，需要真正的新方向）时，先派 `executor-fable` 做一轮方向判断——
     它只负责"这个方向对不对、该往哪走"，不接触代码、不落地执行；拿到它的判断后，
     把具体的重新规划和实现转交 `executor-sonnet`（或视复杂度转 `executor-opus`）去做。
-    不要让 fable 自己去改代码、跑测试或部署——这违反它的顾问定位，也违反它
-    `disallowedTools: Agent` 之外仍应该遵守的"只判断不执行"原则。
+    不要让 fable 自己去改代码、跑测试或部署——这违反它的顾问定位；
+    `disallowedTools: Agent` 只挡住了递归转派，Write/Edit/Bash 依然可用，
+    "只判断不落地"必须靠这条约定遵守，不能指望工具权限自动兜底。
 
     **分派方式**：每次调 Agent 工具时传对应的 `subagent_type`（如 `executor-sonnet`），
-    这同时锁定模型和推理程度，不需要再单独传 `model` 参数。内置 agent 类型
-    （如 `Explore`、`Plan`）仍可在适合的场景直接用，不必强行套进 executor-* 体系。
+    这同时锁定模型和推理程度，不需要再单独传 `model` 参数——frontmatter 已经锁死，
+    这就是"每次 Agent 调用必须显式传 model"那条规则要防的问题（省略 model 会让
+    subagent 继承主线程当前模型，通常是最贵档位）的等价解。内置 agent 类型
+    （如 `Explore`、`Plan`）没有 frontmatter `model`，会直接落到下面的环境变量兜底——
+    当前本机 `CLAUDE_CODE_SUBAGENT_MODEL` 就设成了 `opus`，内置类型目前实际跑的
+    是 Opus；成本敏感的场景优先派 `executor-*`，不要指望内置类型会自动变便宜。
 
     **全局默认配置机制**：
     - `CLAUDE_CODE_SUBAGENT_MODEL` 环境变量：设置 subagent 默认模型，
-      放在 `settings.json` 的 `env` 块或 shell 环境变量中均可。
+      放在 `settings.json` 的 `env` 块或 shell 环境变量中均可。**当前本机
+      `~/.claude/settings.json` 的 `env.CLAUDE_CODE_SUBAGENT_MODEL = "opus"`**——
+      这是没有 frontmatter `model` 的 subagent（含内置 Explore/Plan）的实际兜底值，
+      是一直存在的既有配置，不是本节新增的机制，写在这里避免被误以为已经不存在。
     - `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`：强制所有 subagent（含内置 Explore/Plan
       和本节的 `executor-*` 类型）使用指定模型，覆盖 frontmatter 和 per-call 参数。
       需 v2.1.257+。**注意**：这个开关一旦设置会直接废掉上面整张按 phase 路由的表——
