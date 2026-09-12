@@ -208,13 +208,12 @@ bash <rankup-skill-dir>/scripts/aitdk-opencli.sh <url> [session-name] [output.js
 （「许多样本 / 少量样本」）和新的**「智能体浏览」类别**——API 都不返回。
 
 ```bash
-# 出链接与读数清单（零依赖，随时能跑）
-node <rankup-skill-dir>/scripts/pagespeed.mjs plan \
-  https://example.com https://example.com/tool https://example.com/blog/x \
-  --strategy both
+# 出链接与读数清单（零依赖，随时能跑；把 <url> 换成自己要测的站）
+node <rankup-skill-dir>/scripts/pagespeed.mjs plan <url> <url2> <url3> --strategy both
 
-# 可选：驱动本机 Chrome 采双证人（截图 + 页面文本）进 .rankup/evidence/
-node <rankup-skill-dir>/scripts/pagespeed.mjs collect <同样三个 URL> --strategy both
+# 驱动本机 Chrome 采数：报告出分后直接抠完整 Lighthouse LHR JSON 落盘，
+# 不再靠人肉点开「展开视图」——见下方「LHR 直抠」一节
+node <rankup-skill-dir>/scripts/pagespeed.mjs collect <同样几个 url> --strategy both
 ```
 
 四条必须知道的（2026-08-31 实测）：
@@ -247,6 +246,46 @@ node <rankup-skill-dir>/scripts/pagespeed.mjs collect <同样三个 URL> --strat
 
 **不要试图直接调网页版的内部接口**：它的跑分请求走 `_/PagespeedUi/data/batchexecute`，
 参数混淆、没有契约、随时会变。要么人读页面，要么按双证人采下来让 AI 判读。
+
+### LHR 直抠：collect 不再靠读文字（2026-09-12 起）
+
+在此之前 `collect` 只采「截图 + `document.body.innerText`」两个证人——**只拿得到
+可见文字**：折叠的「展开视图」明细（网络依赖关系树、每条 opportunity 的逐文件表、
+旧版 JavaScript 的浪费字节与具体 polyfill 名、缓存 TTL 表、LCP 细分、第三方分解、
+非合成动画元素）全部读不到，逼着人一遍遍点开「展开视图」手动核对，一天里因此走了
+好几轮弯路。
+
+**实测确认**：pagespeed.web.dev 用官方 Lighthouse report renderer 渲染报告时，
+完整 LHR（Lighthouse Result）JSON 就挂在页面全局 `window.__LIGHTHOUSE_MOBILE_
+JSON__` / `window.__LIGHTHOUSE_DESKTOP_JSON__`，报告一出分这两个变量就已经就绪，
+`JSON.stringify` 直接拿到手就是完整 LHR，`audits` 下每一条的 `details.items`
+（包括 `subItems` 里逐文件、逐 polyfill 的明细）原样都在，不需要点开任何「展开
+视图」。移动端和桌面端是同一次分析里两个独立标签页、各自独立报告，`collect`
+按 `form_factor` 分两次单独打开（而不是开一次页面再点标签切换），确保「当前
+active tab」与「本次请求的那一端」对得上——**同一个 gauges>0 的就绪信号不区分
+是哪一端的报告先渲染完，必须专门等本次请求那一端自己的全局变量就绪，等的时候
+只信 gauges 会把还没就绪的那一端读成 `undefined`**（2026-09-12 实测踩过）。
+
+现在 `collect` 每个 (URL × 端) 落 4+2 份文件：`<tag>.lhr.json`（原始完整 LHR）、
+`<tag>.summary.json`（结构化摘要：分数、四指标、LCP 细分、缓存 TTL、旧版 JS、
+依赖树、第三方分解、非合成动画、逐条 opportunity/diagnostic/insight 全量、
+network-requests 前 20 条）、`<tag>.summary.md`（人读版，逐条审计连同
+`subItems` 逐文件/逐 polyfill 明细都展开成表格）、`<url>.combined-summary.md`
+（`--strategy both` 时移动端/桌面端指标并排对照），加上原有的截图/页面文本
+双证人兜底。三级降级：a) 页面全局变量（默认，已验证稳定）→ b) 报告工具栏
+「Save as JSON / Copy JSON」+ `opencli … clipboard` 读剪贴板（未逐一测过所有
+报错分支）→ c) 展开所有「展开视图」+ 读 innerText（`summary.md` 里标
+`source: "innerText-fallback"`，只保证人工可读，不保证结构化）。
+
+已知限制：这两个全局变量名是 pagespeed.web.dev 前端实现细节，没有公开契约，
+随时可能改名或改结构，脚本靠三级降级兜底但 fallback 下的数据完整度会打折；
+经典审计 id（`uses-long-cache-ttl` / `legacy-javascript` /
+`network-dependency-tree` / `third-party-summary` / `render-blocking-resources` /
+`font-display`）在较新 Lighthouse 版本里已并入「Insights」新命名
+（`cache-insight` / `legacy-javascript-insight` / `network-dependency-tree-insight` /
+`third-parties-insight` / `render-blocking-insight` / `font-display-insight`），
+脚本两种 id 都收，按 LHR 里实际存在的那个取。**闸门 6 的证据落点从此改成
+`lhr.json` + `summary.md`**，不再要求人工把「展开视图」截图当证据。
 
 **Web 字体字节预算是闸门 6 的独立项**（【实测】多站复现）：慢 4G 下字体总字节直接吃
 FCP/LCP。CJK 站用 Google Fonts 会按 `unicode-range` 拆成上百个子集，文字越多拉得越多，
