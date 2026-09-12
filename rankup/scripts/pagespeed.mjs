@@ -34,14 +34,48 @@
  * 稳定拿到「标签页真的可见」这个前提，全程零人工：
  *   (a) 每次 `opencli browser <session> open <url>` 都带 `--window foreground`，
  *       把标签页本身钉在前台（不再是默认的 background）；
- *   (b) collect 运行期间额外起一个后台循环，每 15 秒
- *       `osascript -e 'tell application "Google Chrome" to activate'` 一次，
- *       防止 Chrome 这个 App 整体被别的窗口抢到前台——(a) 只保证标签页在
- *       Chrome 内部前台，App 级别的前台还是会被系统切走，两件事缺一不可。
+ *   (b) 等报告渲染期间顺带把 Chrome 这个 App 拉回前台，防止它整体被别的窗口
+ *       抢到前台——(a) 只保证标签页在 Chrome 内部前台，App 级别的前台还是
+ *       会被系统切走，两件事缺一不可（具体怎么落地见下面 2026-09-12 第三次
+ *       实测，那版是最终实现）。
  *   实测：3 个 URL × 移动/桌面共 6 组，一次性全部出分，零重试，总耗时约 2
  *   分钟，全程无人操作。结论：**collect 默认就应该这样跑**，`plan`（人工打开
  *   链接）降级为兜底方案，只在这台机器不是 macOS、或 Chrome 仍被更强的前台
  *   抢占（比如全屏的另一个 App）导致仍报 tab-hidden 时才用。
+ *
+ * ── 2026-09-12 第三次实测：把「后台常驻进程」换成「轮询循环里顺手 activate」──
+ * 最初 (b) 是 `spawn(..., { detached: true })` 起一个独立 bash 进程，每 15 秒
+ * `osascript activate` 一次，父进程退出时靠 `process.on('exit'/'SIGINT'/
+ * 'SIGTERM')` 兜底 kill 掉它——这个兜底本身没错，但事后复核发现整套「detached
+ * 子进程 + 信号清理」都是不必要的复杂度：`collectOnce` 等报告出分用的
+ * `waitForReady()` 本来就是一个每 `POLL_MS`（4 秒）轮询一次 `probe()` 的
+ * 同步循环，运行期间父进程一直「醒着」，不需要另开一个进程来定时做同一件事——
+ * 直接在这个已有的轮询循环里、每隔约 15 秒同步调一次 `osascript activate`
+ * 即可达到完全相同的效果，且从设计上就不存在「进程被强杀、清理来不及跑，
+ * 留下孤儿常驻进程」这类问题（没有 detached 子进程，也就没有孤儿）。已删掉
+ * `startForegroundKeeper`/`stopForegroundKeeper` 和配套的信号清理，改为
+ * `activateChromeIfDue()`，从 `waitForReady()` 内部调用。
+ *
+ * ── 2026-09-12 第四次改动：改用 `opencli --window active`，去掉无脑抢 OS 焦点 ──
+ * 第三次实测那版每 15 秒 `osascript activate` 一次会把**整个 Chrome App**
+ * 拉到 macOS 系统前台，只要用户当时在用别的窗口就会被打断——这天已经因为这个
+ * 收到过投诉。读 opencli `extension/src/background.ts` 确认：`--window
+ * foreground` 其实同时做了两件独立的事——`chrome.tabs.update({active:true})`
+ * （只把这个 tab 设成它所在窗口内的当前标签，不碰 macOS 焦点）和
+ * `chrome.windows.update({focused:true})`（真正抢系统前台的那个调用）。
+ * Chromium 的渲染节流依据是「这个 tab 是不是它所在窗口的 active tab」+
+ * 「窗口本身有没有被完全遮挡/最小化」，与哪个 App 拿到系统前台无关——于是
+ * opencli 侧新增了 `--window active`，只做前一半。**本次改动基于这条技术
+ * 原理推断，尚未在真实浏览器环境里跑一次完整 collect 验证过**，所以策略是：
+ *   主路径：`open` 一律带 `--window active`，只让这个 tab 成为它所在窗口的
+ *     active tab，全程不调用 `osascript activate`，不抢用户电脑焦点。
+ *   兜底：`waitForReady()` 轮询里如果连续 `STUCK_HIDDEN_THRESHOLD`（3 次，
+ *     约 12 秒）探测到 `visibility === "hidden"`，说明窗口本身可能被完全
+ *     遮挡或最小化，光切 active tab 不够——这时才退化成调用一次
+ *     `osascript activate` 强制抢焦点（仍旧最多每 15 秒一次，见
+ *     `activateChromeIfDue()`），并打印提示日志。绝大多数情况下不会走到
+ *     这条兜底；真走到了，代价也只是偶发的一次抢焦点，而不是原来的「每 15
+ *     秒无差别抢一次」。
  *
  * ── 2026-09-12 第二次实测：从「读文字」改成「抠 LHR JSON」──────────────────
  * 之前 collect 只用 `document.body.innerText` 采页面文本证人——**只拿得到可见
@@ -95,16 +129,19 @@
  *       LHR）+ `<tag>.summary.json`（结构化摘要）+ `<tag>.summary.md`（人读，
  *       含每条未通过审计的逐项明细表）+ 截图/页面文本双证人，目录默认
  *       `.rankup/evidence/pagespeed-<ts>/`，`--out` 可指定别的目录。
- *       **默认前台驱动、无人值守可跑通**（2026-09-12 实测）：open 带
- *       `--window foreground` + 后台 15 秒一次的 `osascript activate` 循环
- *       （仅 darwin）。`--strategy` 不传时 collect 默认 `both`（移动 + 桌面）。
- *       标签页 hidden 或渲染不出来时自动 close 当前会话、重开一个新的，最多
- *       重试 3 次；每个 URL 之间 sleep（默认 5 秒，`--sleep 0` 关掉）避免连续
- *       打 PSI 后端。仍报 tab-hidden 时查 Chrome 是否被其他 App 抢了前台；
- *       `--no-foreground` 关掉前台驱动，退回旧的「人守在电脑前」用法。
+ *       **默认可见性驱动、无人值守可跑通、不抢用户电脑焦点**（2026-09-12
+ *       第四次改动，见文件头）：open 带 `--window active`，只把 tab 设成它
+ *       所在窗口的当前标签，不碰 macOS 系统焦点；只有等待期间连续多次探测到
+ *       tab 仍是 hidden（窗口本身可能被完全遮挡/最小化）才退化成每约 15 秒
+ *       一次 `osascript activate` 抢一下 OS 焦点（仅 darwin，不额外起进程，
+ *       此推断未经真实浏览器环境实测）。`--strategy` 不传时 collect 默认
+ *       `both`（移动 + 桌面）。标签页 hidden 或渲染不出来时自动 close 当前
+ *       会话、重开一个新的，最多重试 3 次；每个 URL 之间 sleep（默认 5 秒，
+ *       `--sleep 0` 关掉）避免连续打 PSI 后端。`--no-foreground` 关掉这整套
+ *       可见性驱动（含兜底），退回旧的「人守在电脑前」用法。
  */
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { newEvidenceDir, captureScene, writeManifest, msleep } from "./lib-scene.mjs";
@@ -205,17 +242,22 @@ collect       用 opencli 驱动本机 Chrome，报告出分后直接抠完整 L
   --out           collect 的落盘目录，不传则用 .rankup/evidence/pagespeed-<ts>/
   --sleep         collect 每个 URL 之间的等待秒数，默认 ${DEFAULT_SLEEP_BETWEEN_S}（避免连续
                   打 PSI 后端），传 0 关掉
-  --no-foreground 关掉默认的前台驱动（open --window foreground + activate 循环），
-                  退回旧的「人守在电脑前，标签页自己保持可见」用法
+  --no-foreground 关掉默认的可见性驱动（open --window active + 轮询期间卡住
+                  才触发的 activate 兜底），退回旧的「人守在电脑前，标签页
+                  自己保持可见」用法
   --help          显示帮助
 
-**默认前台驱动、无人值守可跑通**（2026-09-12 实测）：collect 打开每个链接都带
-\`--window foreground\`，同时在 macOS 上额外起一个后台循环，每 15 秒
-\`osascript activate\` 一次把 Chrome 这个 App 拉回前台——单靠标签页前台不够，
-Chrome 整个 App 被别的窗口抢到前台时标签页照样是 hidden。标签页持续 hidden
-或渲染不出来时会自动 close 会话重开，最多重试 ${MAX_REOPEN_ATTEMPTS} 次。
+**默认可见性驱动、无人值守可跑通、不无谓抢用户电脑焦点**（2026-09-12 第四次
+改动，未经真实浏览器环境实测，基于技术原理推断）：collect 打开每个链接都带
+\`--window active\`，只让这个 tab 成为它所在窗口的当前标签，不调用会抢 macOS
+系统前台的 API。只有等待渲染的轮询循环（每 ${POLL_MS / 1000} 秒探测一次）里连续多次
+探测到标签页仍是 hidden（窗口本身可能被完全遮挡/最小化，光切 active tab
+不够），才退化成每约 15 秒一次 \`osascript activate\` 抢一下 Chrome 这个 App
+的系统前台（仅 darwin，不额外起进程）。标签页持续 hidden 或渲染不出来时会
+自动 close 会话重开，最多重试 ${MAX_REOPEN_ATTEMPTS} 次。
 **仍然报 tab-hidden 时，先查 Chrome 是不是被其他 App 抢了前台**（比如某个全屏
-应用），而不是退回人工跑；确实需要人工可读的旧行为时加 --no-foreground。
+应用），而不是退回人工跑；确实需要人工可读的旧行为时加 --no-foreground。请
+下次实测时留意观察这套「只切 tab 不抢焦点」的策略是否真的够用。
 
 **现场返回「无数据」= CrUX 流量不足，不是 0、不等于通过**——原样记进 baseline.md。`;
 
@@ -284,7 +326,10 @@ function cli(session, args, { timeout = 120_000 } = {}) {
 function openSession(session, url, foreground) {
   // --window 是 `browser <session>` 之后、子命令之前的全局选项——
   // 挂在 `open` 之后不生效，2026-09-12 实测确认过顺序。
-  const openArgs = foreground ? ["--window", "foreground", "open", url] : ["open", url];
+  // `active`（而不是 `foreground`）只把这个 tab 设成它所在窗口的当前标签，
+  // 不调用 chrome.windows.update({focused:true})，不抢用户电脑的系统焦点
+  // ——见文件头「第四次改动」。真正需要抢 OS 焦点时靠 activateChromeIfDue() 兜底。
+  const openArgs = foreground ? ["--window", "active", "open", url] : ["open", url];
   return cli(session, openArgs, { timeout: 120_000 });
 }
 
@@ -712,13 +757,30 @@ function renderCombinedSummaryMd(target, perStrategy) {
 
 // ── 单个 (URL × 端) 的采集，含自动重开重试 ─────────────────────────────
 
-function waitForReady(session, deadline) {
+// 连续多少次探测到 visibility === "hidden" 才认定「光切 active tab 不够，窗口
+// 本身可能被完全遮挡/最小化」，从而触发 osascript activate 兜底。3 次 ×
+// POLL_MS(4s) ≈ 12 秒——见文件头「第四次改动」。
+const STUCK_HIDDEN_THRESHOLD = 3;
+
+function waitForReady(session, deadline, foreground) {
   let last = null;
+  let hiddenStreak = 0;
   while (Date.now() < deadline) {
     msleep(POLL_MS);
     const p = probe(session);
     if (p) last = p;
     if (p && p.gauges > 0) return { ready: true, last };
+    // 主路径不再无差别 activate——open 时的 `--window active` 应该已经让这个
+    // tab 保持可见。只有连续 STUCK_HIDDEN_THRESHOLD 次都探测到 hidden，才怀疑
+    // 窗口本身被遮挡/最小化，退化成抢一次 OS 焦点（--no-foreground 时完全不做）。
+    if (foreground) {
+      if (p && p.visibility === "hidden") {
+        hiddenStreak += 1;
+        if (hiddenStreak >= STUCK_HIDDEN_THRESHOLD) activateChromeIfDue();
+      } else {
+        hiddenStreak = 0;
+      }
+    }
   }
   return { ready: false, last };
 }
@@ -735,7 +797,7 @@ function collectOnce(session, target, strategy, opt) {
     return { stopReason: "opencli-open-failed", last: { error: String(e?.stderr || e?.message || e).slice(0, 400) }, url };
   }
 
-  const r = waitForReady(session, deadline);
+  const r = waitForReady(session, deadline, opt.foreground);
   last = r.last;
   if (r.ready) {
     stopReason = "ready";
@@ -830,35 +892,46 @@ function explain(stopReason) {
   }
 }
 
-/**
- * 2026-09-12 实测：单靠 `--window foreground` 只把标签页钉在 Chrome 内部前台，
- * Chrome 这个 App 整体仍可能被别的窗口抢到前台，标签页照样 hidden。
- * 用一个独立的后台进程每 15 秒 `osascript activate` 一次，把 App 级前台也
- * 稳定住——只在 darwin 上起，且 osascript 不存在/起不来不能拖垮主流程。
- */
-function startForegroundKeeper() {
-  if (process.platform !== "darwin") return null;
-  let child;
-  try {
-    child = spawn(
-      "bash",
-      ["-c", 'while true; do osascript -e \'tell application "Google Chrome" to activate\' >/dev/null 2>&1; sleep 15; done'],
-      { stdio: "ignore", detached: true },
-    );
-    child.unref();
-  } catch {
-    return null; // 起不来就当没有这层保险，不影响主流程
-  }
-  return child;
-}
+// 兜底 activate 的最小间隔（毫秒）——即使持续卡在 hidden，也最多每 15 秒抢
+// 一次焦点，不逐次 POLL_MS（4 秒）轮询都触发。历史上（第三次实测那版）这是
+// 主路径的固定节奏；第四次改动后降级为「只在真正卡住时才用」的兜底节奏，
+// 常量沿用同一个值。
+const FOREGROUND_ACTIVATE_INTERVAL_MS = 15_000;
+let lastForegroundActivateAt = 0;
 
-function stopForegroundKeeper(child) {
-  if (!child || child.killed) return;
+/**
+ * 抢 OS 焦点的**兜底**，不是主路径。主路径是 `openSession()` 里的
+ * `--window active`，只把 tab 设成它所在窗口的 active tab，不碰 macOS 焦点
+ * ——按 2026-09-12 第四次改动的技术推断，这应该足够避免 Chromium 的渲染节流，
+ * 但**这条推断未经真实浏览器环境实测验证**。为了不让这个假设一旦不成立就
+ * 让 collect 彻底跑不出数据，`waitForReady()` 在连续 STUCK_HIDDEN_THRESHOLD
+ * 次探测到 tab 仍是 hidden 时才调用本函数，退化成旧行为：调用
+ * `chrome.windows.update({focused:true})` 等价的 `osascript activate`，
+ * 把整个 Chrome App 拉到系统前台，代价是这一下会打断用户当时在用的其他窗口。
+ *
+ * 2026-09-12 第三次实测后的实现：**不再另起进程**。最初版本用
+ * `spawn(..., { detached: true })` 起一个独立 bash 死循环，靠
+ * `process.on('exit'/'SIGINT'/'SIGTERM')` 兜底清理防止父进程被强杀时
+ * 留下孤儿进程——这个兜底本身没问题，但复核后发现整套「detached 子进程 +
+ * 信号清理」都是不必要的复杂度：本函数是从 `waitForReady()` 那个本来就在跑
+ * 的同步轮询循环里直接调用的，父进程运行期间自然会周期性执行到这里，不需要
+ * 另开一个进程做同一件事。没有 detached 子进程，也就不存在「清理来不及跑、
+ * 留下常驻孤儿」这类风险。只在 darwin 上生效；`osascript` 不存在/失败
+ * 不能拖垮主流程，吞掉即可。
+ */
+function activateChromeIfDue() {
+  if (process.platform !== "darwin") return;
+  const now = Date.now();
+  if (now - lastForegroundActivateAt < FOREGROUND_ACTIVATE_INTERVAL_MS) return;
+  lastForegroundActivateAt = now;
   try {
-    // detached 起的是这个 bash 子进程自己的进程组，杀组避免留下孤儿 sleep
-    process.kill(-child.pid, "SIGTERM");
+    execFileSync("osascript", ["-e", 'tell application "Google Chrome" to activate'], {
+      stdio: "ignore",
+      timeout: 5000,
+    });
+    console.error("[psi-web]   检测到报告卡住（标签页持续 hidden），已临时抢占前台以恢复。");
   } catch {
-    try { child.kill(); } catch { /* 已经不在了 */ }
+    /* 起不来就当没有这层保险，不影响主流程 */
   }
 }
 
@@ -898,12 +971,13 @@ function collect(urls, opt) {
   const session = opt.session || defaultSession();
   const dir = outputDir(opt);
   const results = [];
-  const keeper = opt.foreground ? startForegroundKeeper() : null;
   console.error(
     `[psi-web] 证据目录 ${dir}\n` +
     (opt.foreground
-      ? `[psi-web] 前台驱动已开启：open 带 --window foreground` +
-        (keeper ? "，并已起 15 秒一次的 activate 循环（darwin）。" : "（非 darwin，无 activate 循环）。")
+      ? `[psi-web] 可见性驱动已开启：open 带 --window active（只切 tab，不抢 OS 焦点）` +
+        (process.platform === "darwin"
+          ? "，卡住超过阈值才会退化成 activate 兜底一次（darwin，不额外起进程，未经真实浏览器实测）。"
+          : "（非 darwin，无 activate 兜底）。")
       : `[psi-web] --no-foreground：退回旧行为，**把 Chrome 切到最前并保持那个标签页可见**——后台标签页出不了分。`),
   );
   try {
@@ -931,7 +1005,6 @@ function collect(urls, opt) {
       if (opt.sleep > 0 && ui < urls.length - 1) msleep(opt.sleep * 1000);
     }
   } finally {
-    stopForegroundKeeper(keeper);
     try {
       writeFileSync(join(dir, "results.json"), JSON.stringify(results, null, 2) + "\n");
     } catch { /* 落盘失败不能拦住关会话 */ }
