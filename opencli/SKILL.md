@@ -667,7 +667,7 @@ OpenCLI 本体分两半，**两半都要装我们的构建**，来源是
 
 ```bash
 # 1) CLI
-npm i -g https://github.com/yan-labs/OpenCLI/releases/download/v1.9.0-yan.3/opencli-cli-1.9.0.tgz
+npm i -g https://github.com/yan-labs/OpenCLI/releases/download/v1.9.0-yan.3/opencli-cli-1.9.0-yan.3.tgz
 
 # 2) 浏览器扩展：下载 opencli-extension-v*.zip 解压，
 #    chrome://extensions → 开启开发者模式 → 加载已解压的扩展程序
