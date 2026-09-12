@@ -58,6 +58,9 @@
  *    任何一条已知文案；此时只能由用户自己去浏览器里重新登录，脚本不代填密码。
  *
  * 已验证：2026-08-23（GSC status/submit、Bing status/submit 中文界面；Yandex status/submit 英文界面）
+ * 已验证：2026-09-12（Bing 中文 UI 支持修复：LABELS.bing 的「站点地图」是误译，
+ * Bing 实际中文文案是「网站地图」——status 只读复测 crossword-game.com /
+ * nonogram-game.com 两站，均读出 sitemap 行状态「正在处理」、提交日期 2026/9/12）
  *
  * ── 双证人化（2026-08-30，截图链路已实盘验证）────────────────
  * submit 的每次点击前后都落「截图 + 页面文本」进 `.rankup/evidence/webmaster-sitemap-<ts>/`，
@@ -122,13 +125,17 @@ const LABELS = {
     submit: ["提交", "Submit", "SUBMIT"],
   },
   bing: {
-    anchor: ["站点地图", "Sitemaps"],
+    // 2026-09-12 实测：Bing 后台中文 UI 现在把 sitemap 译成「网站地图」，
+    // 不是「站点地图」（GSC 那边才是「站点地图」——两个产品各自的译名，
+    // 不能互相假设）。「站点地图」保留在候选数组末尾兜底，以防个别账号
+    // 语言/时点还停在旧译名；匹配时逐个尝试，命中优先级从前到后。
+    anchor: ["网站地图", "站点地图", "Sitemaps"],
     // Bing 的输入框**默认不存在**，要先点开这个按钮才挂载。
     // 少了这一步，脚本会去填页面上唯一可见的那个 input——顶部的搜索框，
     // 然后点「提交」，报成功，什么都没提交。这类「填错了框还报成功」的失败
     // 不会有任何报错，只会在几天后表现为「Bing 一直没抓我的新 sitemap」。
-    openForm: ["提交站点地图", "Submit sitemap"],
-    input: ["输入站点地图网址", "Enter sitemap URL", "Sitemap URL", "sitemap"],
+    openForm: ["提交网站地图", "提交站点地图", "Submit sitemap"],
+    input: ["输入网站地图网址", "输入站点地图网址", "Enter sitemap URL", "Sitemap URL", "sitemap"],
     submit: ["提交", "Submit"],
   },
   yandex: {
@@ -229,13 +236,25 @@ function scene(tag, extra) {
     extra,
   })
 }
-/** 失败退出的唯一出口：现场 → manifest(stopReason) → 关会话 → exit 1。 */
+/**
+ * 失败退出的唯一出口：现场 → manifest(stopReason) → 关会话 → exit 1。
+ *
+ * 语言无关匹配失败时（anchor/button/input 三类 bail 都会走到这里）只报
+ * `fail-xxx-not-found` 不够用——判读的人还得自己去翻截图，才知道当前页面
+ * 到底长什么样。所以这里在退出前额外抓一段页面文本摘要，直接印进错误信息，
+ * 截图路径也一并给出，两者都不齐才需要真的打开截图看。
+ */
 function bail(stopReason, msg, extra) {
+  let stateSummary = "（取不到页面文本摘要）"
+  try {
+    stateSummary = pageText(500).replace(/\n{2,}/g, "\n").trim() || "（页面文本为空）"
+  } catch { /* 页面可能正在导航，摘要拿不到也不影响主报错 */ }
   try {
     scene(`fail-${stopReason}`, extra)
     writeManifest(evidenceDir(), { script: "webmaster-sitemap", platform, action, stopReason, finishedAt: new Date().toISOString() })
   } catch (e) { console.error(`（取证失败：${String(e?.message || e).slice(0, 200)}）`) }
   console.error(msg)
+  console.error(`── 当前页面文本摘要（前 500 字符）──\n${stateSummary}`)
   console.error(`现场已落盘：${evidenceDir()}（判读以截图与页面文本为准；--keep-session 可留标签页）`)
   if (!keepSession) { try { cli("close") } catch { /* ignore */ } }
   process.exit(1)
@@ -340,7 +359,14 @@ function printTable() {
   const lines = pageText(20000).split("\n").map((l) => l.trim()).filter(Boolean)
 
   // 汇总计数器：标签与数值也是相邻两行。有就打，没有就跳过。
-  const counters = ["Known sitemaps", "已知站点地图", "Total URLs discovered", "已发现的网址总数", "Sitemaps with errors", "有错误的站点地图"]
+  // 2026-09-12 核对 Bing 实际中文文案后补全（旧写法只覆盖了「站点地图」译名，
+  // 「网站地图」译名下的四个计数器标题全部对不上，静默丢了这行汇总）。
+  const counters = [
+    "Known sitemaps", "已知站点地图", "已知的网站地图",
+    "Total URLs discovered", "已发现的网址总数", "已发现的总 URL 数",
+    "Sitemaps with errors", "有错误的站点地图", "存在错误的网站地图",
+    "Sitemaps with warnings", "存在警告的网站地图",
+  ]
   const summary = []
   lines.forEach((l, i) => {
     if (counters.includes(l) && lines[i + 1] && /^\d+$/.test(lines[i + 1])) summary.push(`${l}: ${lines[i + 1]}`)
