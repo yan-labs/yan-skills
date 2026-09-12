@@ -192,11 +192,34 @@ for (const t of byDomain.values()) {
 }
 kept.sort((a, b) => a.domain.localeCompare(b.domain));
 
+// **This run only ever touches the domains named in --probe/--resolved/--priced.**
+// Every other domain already in data/submission-targets.json must survive
+// untouched — this file is the accumulated library, not this run's scratch
+// output. Before 2026-09-12 this script never read the existing file at all:
+// `out.targets = kept` replaced the whole library with just this run's rows,
+// and a 4-domain footprint-discovery run silently reduced a 924-row library
+// to 4. That is exactly the "silent subtraction" failure this Skill's own
+// laws forbid (references/discovery-loop.md's law on scripts-collect-ai-judges
+// and CONTRIBUTING.md's evidence rule both apply) — a run's own output must
+// never be mistaken for the whole table.
+const existingFile = join(DATA, 'submission-targets.json');
+const existingTargets = fs.existsSync(existingFile)
+  ? (JSON.parse(fs.readFileSync(existingFile, 'utf8')).targets || [])
+  : [];
+const merged = new Map(existingTargets.map((t) => [t.domain, t]));
+// This run's kept rows always win for the domains they touch (fresher evidence).
+for (const t of kept) merged.set(t.domain, t);
+// A domain this run re-probed and found dead/unverified is removed from the
+// library even if an older row for it existed — that IS new evidence, not a
+// silent drop, and it is still fully reported via `dropped` below.
+for (const d of dropped) merged.delete(d.domain);
+const allTargets = [...merged.values()].sort((a, b) => a.domain.localeCompare(b.domain));
+
 const out = {
   version: 1,
   updatedAt: new Date().toISOString(),
   note: 'Submission routes observed to exist. NOT placements: no row here claims a published link, a rel value, or an index entry. A row graduates into free-channels.json only when a real anchor is seen on a live page. Relevance and authority rank these, they never gate them.',
-  targets: kept,
+  targets: allTargets,
 };
 
 // —— paid side ————————————————————————————————————————————————
@@ -263,7 +286,9 @@ function reportDroppedAndDowngraded() {
 
 if (args.dryRun) {
   console.log(JSON.stringify({
-    kept: kept.length,
+    thisRunKept: kept.length,
+    libraryTotalAfterMerge: allTargets.length,
+    libraryTotalBefore: existingTargets.length,
     droppedBy: droppedReport.droppedBy,
     dropped,
     statusDowngrades: downgraded,
@@ -273,8 +298,13 @@ if (args.dryRun) {
   fs.writeFileSync(join(DATA, 'submission-targets.json'), JSON.stringify(out, null, 2) + '\n');
   fs.writeFileSync(paidFile, JSON.stringify(paid, null, 2) + '\n');
   const byCohort = kept.reduce((m, t) => ((m[t.cohort] = (m[t.cohort] || 0) + 1), m), {});
-  console.log(`submission-targets: ${kept.length} kept (dropped ${droppedReport.droppedBy.dead} dead, ${droppedReport.droppedBy.unverified} unverified)`);
-  console.log(`  cohorts: ${Object.entries(byCohort).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(' · ')}`);
+  // Two different numbers on purpose: this run's own kept/dropped count, and the
+  // library's total size after folding this run in — conflating them is exactly
+  // how a 924-row library got silently written down to 4 (see the merged/allTargets
+  // comment above). Always print both so a shrinking library is never invisible.
+  console.log(`this run: ${kept.length} kept (dropped ${droppedReport.droppedBy.dead} dead, ${droppedReport.droppedBy.unverified} unverified)`);
+  console.log(`  cohorts (this run): ${Object.entries(byCohort).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(' · ')}`);
+  console.log(`submission-targets library: ${existingTargets.length} -> ${allTargets.length} total after merge`);
   console.log(`paid-platforms: +${paidNew} new, ${paidUpdated} updated`);
   console.log(`overlays applied: resolved ${resolvedApplied}, priced ${pricedApplied}`);
   reportDroppedAndDowngraded();
