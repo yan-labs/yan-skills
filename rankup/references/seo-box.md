@@ -199,7 +199,7 @@ node <rankup-skill-dir>/scripts/pagespeed.mjs collect <同样三个 URL> --strat
 **不要试图直接调网页版的内部接口**：它的跑分请求走 `_/PagespeedUi/data/batchexecute`，
 参数混淆、没有契约、随时会变。要么人读页面，要么按双证人采下来让 AI 判读。
 
-作为闸门用时判据见 [`checklists.md`](checklists.md) 闸门 6，本节不重复写判据。
+作为闸门用时判据见 [`checklists.md`](checklists.md) 闸门 6，本节不重复写判据。TTFB 判据与匿名页面边缘缓存做法同样见 checklists 段 3 / 闸门 6，不在本节重复。
 
 ### 二 · 重定向链：要能力，不要那个网站
 

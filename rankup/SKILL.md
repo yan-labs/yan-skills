@@ -2,7 +2,7 @@
 name: rankup
 description: 网站从零到一与长期增长的总控 Skill。用于新建网站、SaaS、工具站或内容站，规划或初始化 TanStack Start Monorepo，使用 Cloudflare Workers、D1、R2 部署全栈应用，接入支付，执行 SEO、内容、外链、上线验证和持续迭代；也负责 Google Trends 查询、关键词难度（KD）估算与选词工作流；2026 AI 搜索范式（AI Overviews、AI Mode、Preferred Sources、Discover 独立算法、Information Gain、引用优先于排名）；AI Agent 就绪度评分（is-agentic、agent readiness、llms.txt、MCP 可发现性、AI 代理优化）。用户提到 rankup、rankup init、rankup check、环节闸门、检查清单、checklist、"现在该做什么"、"到哪一步了"、"这个环节能不能过"、"本轮还差什么"、建站、网站改版、搜索流量、GSC、排名、关键词、CTR、索引、网站增长，或提到 谷歌趋势、Google Trends、搜索热度、热度对比、搜索趋势、trending、"XX 和 YY 哪个更火"、"今天美国/日本在搜什么"、每日热搜、"这个词能不能做站"、"哪个市场/国家有机会"、帮我选 SEO 关键词、选词、选品调研、市场探测、挖需求、找需求、需求挖掘、找方向、找选题、"最近有什么能做的"、"找几个关键词"、"挖个新词的工具站"、"看看有什么游戏站能做"、竞品调研、榜单调研、差评挖掘、反查谁在赚钱、关键词难度、KD、竞争度、SERP 分析、"这个词难不难做"、"做这个词要多少外链"，或提到 哥飞、web.cafe、哥飞论坛、哥飞的朋友们、悬赏、悬赏问答、经验帖、"群里怎么说的"、"社群里有没有讲过"、"论坛里搜一下"、"哥飞说过什么"、哥飞.ai，或提到 AI 搜索优化、AI Overviews、AI Mode、被 AI 引用、AEO、GEO、Preferred Sources、Discover 优化、Google 算法更新、核心更新、spam 更新、Information Gain，或提到 AI Agent 就绪度、is-agentic、agent readiness、llms.txt、对 AI 代理友好、AI 代理优化、agent-friendly、agentic score 时使用。也覆盖用户真正会打出来的模糊说法：我想让流量涨一点、今天弄下 SEO、帮我看看这个站有什么问题、优化一下我的网站、流量掉了、排名没了、是不是被 K 了、怎么一直不收录、新页面多久能进索引、提交 sitemap、IndexNow、站慢不慢、跑个性能、Core Web Vitals、PageSpeed、Lighthouse、全站内链失效、TDK、标题描述怎么写、关键词密度、能不能上线了、上线前还差什么、帮我搞点外链、外链、反链、去哪发外链、抓一下后台数据、导出报表、数据面板、这站没有 API、访客不注册、没人付费、定价怎么定、要不要上多语言、hreflang、发个 Product Hunt、跑一下小游戏监测。也覆盖：词根、扩词、扩词树、占位链接、占位文案、变现、PayPal、域名黑历史、域名前世、单语种、hello@、"这个域名能不能用"、"看下这批数据有没有能做的关键词"、"调研一下这个词"、"review 一下我的站"、"数据检测平台都接入了吗"、"把 Ahrefs 的检验结果都修了"、"我们开始执行这个项目的计划"、"一步步来"、"调研一下这关键词"、"我们做个网站吧"、"我们做个内页吧"、"把这个关键词做成内页"、"看一下 GEO 有没有问题"、"SEO 有没有问题"、"把这个经验写进 rankup"、"记下来更新到源码里"、"帮我生成 logo"、配图、封面、og 图、"写一下这页的文案"、"AI 味太重"、"帮我改稿"、"语言结构理顺"、"文案怎么写才有人点"、"用户为什么不买"、"Reddit 上怎么说"、"X 上有没有人讨论"、社区验证、社区调研、"做个好看的页面"、设计参考、组件库参考、"Hero 怎么设计"、"landing page 怎么排"、动画效果、动效、页面设计灵感、21st.dev。
 metadata:
-  version: "3.6.1"
+  version: "3.7.0"
 ---
 
 # Rankup 3.0
@@ -109,6 +109,7 @@ metadata:
 | **任何页面不得出现占位链接 / 占位文案 / 占位图片** | Google 判垃圾站，红线；宁可整块删掉（[`discipline.md`](references/discipline.md) 十四）。开发期写占位、上线时无人复查是实际发生过的漏法——多个站上线后仍被发现有占位超链接、占位文案，所以段 3（开发自查）/ 4（上线前 review）/ 5（放开索引前）各设一道占位专项闸，不是只在段 3 提一句禁令 |
 | 网站需要任何视觉素材（logo、favicon 源图、og:image、内页配图、用户场景图、插画）→ 加载 `/imagegen` 真实生成 | 占位图是红线，而段 4 要求每页独立 og:image 必须有图，没有生成能力就只剩占位一条路 |
 | 邮箱一律 Cloudflare Email Routing 的 `hello@` | 一个约定，免得每个站各起一个、验证时各找一遍 |
+| **匿名页面 HTML 必须走边缘缓存**（Worker 里 `caches.default` match/put），不能每次请求都冷启动加现场 SSR | Workers 每个节点冷启动 + 现场 SSR，不缓存则 TTFB 随地区漂 1 秒以上；实测两个上线站没做这条，同一页 PageSpeed 在两个节点测出 95 与 78 分，LCP 从 1.7s 拉到 4.7s |
 
 - **闸门**：[`checklists.md`](references/checklists.md) 段 3。
 
@@ -128,7 +129,7 @@ metadata:
 | llms.txt / GEO 按 `seo-growth.md` 三-B 做：Google 定论 AEO/GEO 就是 SEO | 不需要第二套方法论，也不要加载会跑付费凭据的兄弟 Skill 脚本 |
 | **上线前（段 4）与 `rankup review` 全站体检都要用 AITDK 扩展面板对站点跑一遍完整报告**（按 sitemap 抽样：首页 + 每类模板页各至少一个 + 全部法律/关于/联系页）；报告里**所有标红/标黄的问题项，以及任何没拿到满分的评分项，一律算必修**，逐条修完重跑，直到全绿满分，改不动的写清为什么改不动 | AITDK 是与 Google 视角独立的第三双眼睛，看得到自家 `seo-audit.mjs` / `is-agentic.mjs` 漏掉的项；不满分就说明还有可修的空间，不能因为自家脚本已经全绿就跳过 |
 | **每次页面改动全套检测重跑**：TDK、密度、AITDK 全站报告、seo.web.cafe audit、哥飞 AI 二次意见 | 只重跑改到的两项会漏掉连带影响 |
-| 证据必填：控制台绿图标不算；PageSpeed 移动 + 桌面都跑、实验室性能分 ≥ 90、CWV 达标（LCP ≤ 2.5s / CLS ≤ 0.1 / TBT ≤ 200ms）、opportunity/diagnostic 逐条必修；现场那块不存在 = CrUX 流量不足，不是通过 | 这套东西唯一致命的失败形态是看着全绿、底下什么都没有；判据写成自设下限的结果是两个站直接跳过了这一闸 |
+| 证据必填：控制台绿图标不算；PageSpeed 移动 + 桌面都跑、实验室性能分 ≥ 90、CWV 达标（LCP ≤ 2.5s / CLS ≤ 0.1 / TBT ≤ 200ms）、opportunity/diagnostic 逐条必修；现场那块不存在 = CrUX 流量不足，不是通过；**TTFB > 600ms 不通过，先查匿名页 HTML 边缘缓存是否命中再排查别的原因** | 这套东西唯一致命的失败形态是看着全绿、底下什么都没有；判据写成自设下限的结果是两个站直接跳过了这一闸 |
 
 - **闸门**：[`checklists.md`](references/checklists.md) 段 4。
 

@@ -475,3 +475,53 @@ Wrangler 报”上传成功”只证明产物送达某个控制面步骤，不�
 - **静态资产托管的默认 `Cache-Control` 可能是 `max-age=0, must-revalidate`,连内容哈希产物也一样**:构建工具产出的 `index-<hash>.js` 本该永久缓存——哈希文件名的全部意义就是内容变了 URL 就变——但托管层的默认值会把浏览器缓存整个关掉。后果不是变慢一点:回访用户为**每一个**子资源发一条条件请求、各付一个往返,尽管服务器全部回 304(实测一个静态站的单页受影响子资源 13–21 个)。修法是在资产目录里放 `_headers`(Workers 静态资产原生支持,构建时要被拷进产物目录),哈希产物给 `max-age=31536000, immutable`,**非哈希产物只给有限 `max-age`、不加 `immutable`**——脚本生成的图片、字体会被同名重生成,`immutable` 会让老访客长期拿不到新版。HTML 保持 `max-age=0, must-revalidate` 是**正确**的,不要顺手一起改。
 - **`cf-cache-status: HIT` 不能证明浏览器缓存生效**:它证明的是边缘缓存住了,省的是"边缘到源"那一段;`Cache-Control` 管的是"浏览器到边缘",而回访用户的耗时几乎全在后一段。这两层被混为一谈时的典型表现是"看到 HIT 就认为缓存没问题",而实际每次访问都在重新走网络。
 - **验证响应头必须绕开边缘缓存,否则会读到改动前的响应**:改完 `_headers` 立刻回读,很可能拿到 `HIT` 的旧副本,从而得出"规则没生效"的错误结论,并据此去改一个本来正确的规则。判据:回读时带一个随机查询参数(`?cb=<随机>`)——查询参数进边缘缓存键但不影响静态资产解析,因此必然拿到新回源的响应。**同一条规则里别的路径生效了,不代表这个路径也生效了,要逐个 URL 回读。**
+
+## 12. 匿名页面 HTML 边缘缓存（Cache API）
+
+**Worker 响应带 `Cache-Control` 不会自动进 Cloudflare 边缘缓存**——那条头只管浏览器，`cf-cache-status` 对 Worker 直出的响应根本不出现。要真正命中边缘，必须在 Worker 代码里手动读写 `caches.default`（`match` / `put`）。两个已上线的 TanStack Start + Workers 站漏了这一步：HTML 每次请求都冷启动加现场 SSR，不同地区节点测 PageSpeed，TTFB 差 1 秒以上，LCP 从 1.7s 拉到 4.7s。**匿名页面 HTML 几乎 100% 可命中，不做就是白丢这段延迟。**
+
+**适用范围**：GET、无 `Cookie` / `Authorization`、非搜索结果页、非个性化内容——首页、分类/列表页、内页、说明/法律页，以及 `sitemap.xml`、`robots.txt`、`llms.txt`。**排除**：POST、带会话态、A/B 分支、后台/管理页。
+
+**模板要点**（TanStack Start 的请求中间件位置，一般在 `src/start.ts` 附近）：
+
+```ts
+// 伪码，落地时按项目实际中间件签名调整
+const cacheKey = new Request(
+  normalizeUrl(request.url) + `?_v=${BUILD_ID}&_a=${normalizeAccept(request.headers.get("accept"))}`,
+  request
+);
+const cache = caches.default;
+
+const cached = await cache.match(cacheKey);
+if (cached) return withHeader(cached, "x-edge-cache", "HIT");
+
+const response = await renderSSR(request);
+if (isCacheable(request, response)) {
+  const toStore = response.clone();
+  toStore.headers.set(
+    "Cache-Control",
+    "public, max-age=0, s-maxage=600, stale-while-revalidate=86400"
+  );
+  ctx.waitUntil(cache.put(cacheKey, toStore));
+}
+return withHeader(response, "x-edge-cache", "MISS");
+```
+
+- **缓存键**：URL + 归一化后的 `Accept`（HTML 与 `text/markdown` 分开缓存，和 `Vary: Accept` 保持一致）+ 构建 id（`import.meta.env` 在构建期注入 git sha，新部署自动失效，不用手动清缓存）。
+- **默认 `Cache-Control`**：`public, max-age=0, s-maxage=600, stale-while-revalidate=86400`，项目可按流量调整 `s-maxage`。
+- **写入用 `ctx.waitUntil`**，不阻塞响应返回。
+- **4xx/5xx 一律不缓存**；带 `Set-Cookie` 的响应绝不 `put`。
+- **`Vary` 头照常保留**，不因为加了 Cache API 就删。
+- 用自定义响应头 `x-edge-cache: HIT|MISS` 做证据——Worker 直出的响应上没有 `cf-cache-status` 可看。
+
+**验证**：
+
+1. 本机 `curl -o /dev/null -s -w 'ttfb %{time_starttransfer}\n' <url>` 连跑两次，第二次响应带 `x-edge-cache: HIT` 且 TTFB 明显下降。
+2. 不同出口验证：`curl --resolve <domain>:443:<另一节点IP>` 或用不同地区的代理/沙箱再测一遍，确认不是单一地区的偶然结果。
+3. 部署新版本后，第一个请求应是 `x-edge-cache: MISS` 且内容是新版本——用「10. Live verification」里「用版本标识排除旧边缘缓存」的同一套判据核实缓存没有把旧版本焐住。
+
+**坑**：
+
+- **Early Hints 只对可缓存的响应生效**，没做边缘缓存之前配 Early Hints 是空转，先做这条再谈 Early Hints。
+- **`caches.default` 在 `wrangler dev` 本地只是内存模拟**，不是真实边缘行为，验收必须在线上做，本地跑通不算数。
+- 带 `Set-Cookie` 的响应绝不能 `put` 进缓存——那是把一个用户的会话种给所有访问者。
