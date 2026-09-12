@@ -92,7 +92,13 @@ for (const t of doc.targets) {
     continue;
   }
   t.traffic = {
-    monthlyVisits: (r.totalVisits ?? r.organicTraffic) ?? null,
+    // 2026-09-12 实测：Similarweb 面板会把请求的 28 天窗口悄悄改写成别的窗口
+    // （落地成 6 个月累计），而「总访问量」标签在两种窗口下长一个样，
+    // r.totalVisits 因此可能是 28 天数字也可能是 6 个月累计数字。
+    // r.monthlyVisits（页面「参与度概览」区自己给的月度数字）在场时优先用它；
+    // 没有它的行（旧格式行、Semrush 行、或 Similarweb 没有改写窗口的行）
+    // 退回 r.totalVisits ?? r.organicTraffic，行为与改动前一致。
+    monthlyVisits: (r.monthlyVisits ?? r.totalVisits ?? r.organicTraffic) ?? null,
     checkedAt: r.checkedAt,
     source: a.source,
     // Semrush 行带 db（该次测的是哪个国家库，undefined 说明来自没有国家维度的
@@ -106,6 +112,9 @@ for (const t of doc.targets) {
     evidence: {
       stopReason: r.stopReason ?? null,
       parse: r.parse ?? null,
+      // 原样保留页面自己的窗口文案，供复核这个 monthlyVisits 到底出自哪种
+      // 窗口（28 天原生 / 页面自报月度 / 未知）——不代表脚本替调用方下了判断。
+      windowLabel: r.windowLabel ?? null,
       screenshot: r.evidence?.screenshot ?? null,
       raw: r.evidence?.raw ?? null,
       jsonl: jsonlOf.get(r.domain) ?? null,

@@ -110,10 +110,33 @@ export function nextValue(lines, labels, pattern = /./, span = 8) {
 const NUMLINE = /^[\d,.]+\s*[KMB万亿]?$/i;
 const RANKLINE = /^#?\s*[\d,]+$/;
 
+/**
+ * 面板路由会把请求的时间窗口悄悄改写（实测 2026-09-12：请求 28d，落地 6m），
+ * 而「总访问量」这个标签在两种窗口下都长一个样——不看这一行，`totalVisits`
+ * 就可能是 28 天的数字，也可能是 6 个月的累计数字，读的人分不出来。
+ * 这里只认两种已实测出现过的窗口行形态，认不出就是 null（宁可不填，不猜）：
+ *   「最后 N 天数 (As of ...)」          → 28 天风格
+ *   「Mon YYYY - Mon YYYY (N 月)」       → 多月累计风格
+ * 命中即整行原样返回，交给调用方去 apply-traffic-screen/报告里原文引用。
+ */
+const WINDOW_LINE = /^(?:最后\s*\d+\s*天数\s*\(As of[^)]*\)|[A-Za-z]{3}\s+\d{4}\s*-\s*[A-Za-z]{3}\s+\d{4}\s*\(\d+\s*月\))$/;
+
+function findWindowLabel(lines) {
+  return lines.find((l) => WINDOW_LINE.test(l)) ?? null;
+}
+
 /** 「网站表现」页的指标。**只有这一页有**——在渠道页上跑它会把筛选器里的字当数值抓。 */
 export function deriveMetrics(lines) {
+  const windowLabel = findWindowLabel(lines);
   const metrics = {
     totalVisits: parseNumber(nextValue(lines, '总访问量', NUMLINE)),
+    // 「总访问量」在窗口被改写成 6 个月时是 6 个月的累计数，不是月均数。
+    // 「每月访问量」是页面「参与度概览」区自己给出的月度数字，窗口改写时
+    // 尤其要靠它，而不是拿 totalVisits 硬当月度用。两个字段都留，
+    // 不由这里替调用方决定用哪个 —— 那是判断，不是采集。
+    monthlyVisits: parseNumber(nextValue(lines, '每月访问量', NUMLINE)),
+    // 原样保留窗口行文本；null 代表两种已知形态都没匹配上，不代表没有窗口。
+    windowLabel,
     globalRank: parseRank(nextValue(lines, '全球排名', RANKLINE)),
     countryRank: parseRank(nextValue(lines, '国家/地区排名', RANKLINE)),
     industryRank: parseRank(nextValue(lines, '行业排名', RANKLINE)),

@@ -8,11 +8,20 @@
  * 慢就等于拿不到。本脚本把启动做一次，之后只换 hash 路由，单域名摊到 6-10 秒。
  *
  * **输出是证据，不是判决。** 每域一行 JSONL：
- *   { domain, totalVisits, globalRank, countryRank,
+ *   { domain, totalVisits, monthlyVisits, windowLabel, globalRank, countryRank,
  *     parse: parsed|no-data-marker|none, stopReason, rawExcerpt,
  *     evidence: { screenshot, raw, screenshotError }, error, checkedAt }
  * `pass/fail/below-floor` 不再产出——「查不到数据」只是数据源明说了空态
  * （stopReason: empty-state），是不是低流量由 AI 拿证据（截图 + 原文）下判；
+ *
+ * **`totalVisits` 的窗口不固定，2026-09-12 实测发现。** 面板会把请求的 28
+ * 天窗口悄悄改写成别的窗口（实测落地成 6 个月累计），而「总访问量」标签在
+ * 两种窗口下长得一模一样——`totalVisits` 可能是 28 天数字，也可能是 6 个月
+ * 累计数字，字段名本身分不出来。`windowLabel` 原样记下页面自己的窗口文案
+ * （「最后 28 天数 (As of ...)」或「Mon YYYY - Mon YYYY (N 月)」），
+ * `monthlyVisits` 是页面「参与度概览」区另给的月度数字，窗口被改写时应优先
+ * 拿它过 `>= 100` 月访问闸门，而不是拿改写窗口后的 `totalVisits` 硬当月度用。
+ * 两个数字该用哪个、要不要换算，是读证据的人的判断，脚本只负责把两个都放出来。
  * 超时/不稳定/异常是「这次没测成」，**绝不能当成任何结论**。
  * 行契约与完成语义见 lib-batch-evidence.mjs。
  *
@@ -207,6 +216,14 @@ for (const domain of todo) {
       row = {
         ...base,
         totalVisits: m.totalVisits,
+        // 面板会把请求的时间窗口悄悄改写（28d 请求可能落地成 6 个月累计），
+        // 而「总访问量」标签在两种窗口下长一个样。windowLabel 原样记录页面
+        // 自己的窗口文案，monthlyVisits 是页面另给的月度数字（窗口被改写时
+        // 尤其该用它，而不是拿 totalVisits 当月度硬用）。是否需要换算、
+        // 换算完拿哪个数字过闸门，是 AI/apply-traffic-screen 读证据时的判断，
+        // 这里只把两个数字和窗口原文都放出去，不替下游做选择。
+        monthlyVisits: m.monthlyVisits,
+        windowLabel: m.windowLabel,
         globalRank: m.globalRank,
         countryRank: m.countryRank,
         parse: 'parsed',
