@@ -56,26 +56,41 @@
  * `startForegroundKeeper`/`stopForegroundKeeper` 和配套的信号清理，改为
  * `activateChromeIfDue()`，从 `waitForReady()` 内部调用。
  *
- * ── 2026-09-12 第四次改动：改用 `opencli --window active`，去掉无脑抢 OS 焦点 ──
- * 第三次实测那版每 15 秒 `osascript activate` 一次会把**整个 Chrome App**
- * 拉到 macOS 系统前台，只要用户当时在用别的窗口就会被打断——这天已经因为这个
- * 收到过投诉。读 opencli `extension/src/background.ts` 确认：`--window
- * foreground` 其实同时做了两件独立的事——`chrome.tabs.update({active:true})`
- * （只把这个 tab 设成它所在窗口内的当前标签，不碰 macOS 焦点）和
- * `chrome.windows.update({focused:true})`（真正抢系统前台的那个调用）。
- * Chromium 的渲染节流依据是「这个 tab 是不是它所在窗口的 active tab」+
- * 「窗口本身有没有被完全遮挡/最小化」，与哪个 App 拿到系统前台无关——于是
- * opencli 侧新增了 `--window active`，只做前一半。**本次改动基于这条技术
- * 原理推断，尚未在真实浏览器环境里跑一次完整 collect 验证过**，所以策略是：
- *   主路径：`open` 一律带 `--window active`，只让这个 tab 成为它所在窗口的
- *     active tab，全程不调用 `osascript activate`，不抢用户电脑焦点。
- *   兜底：`waitForReady()` 轮询里如果连续 `STUCK_HIDDEN_THRESHOLD`（3 次，
- *     约 12 秒）探测到 `visibility === "hidden"`，说明窗口本身可能被完全
- *     遮挡或最小化，光切 active tab 不够——这时才退化成调用一次
- *     `osascript activate` 强制抢焦点（仍旧最多每 15 秒一次，见
- *     `activateChromeIfDue()`），并打印提示日志。绝大多数情况下不会走到
- *     这条兜底；真走到了，代价也只是偶发的一次抢焦点，而不是原来的「每 15
- *     秒无差别抢一次」。
+ * ── 2026-09-12 第四次改动（已证伪，见下方第五次）：曾改用 `opencli --window
+ * active`，理由是想少抢 OS 焦点。**这个 `--window active` 值从未真实存在**：
+ * 本机 opencli 1.9.0（扩展 1.1.1）`--window` 只接受 `background`（默认，复用
+ * 当前窗口不抢焦点）/ `foreground`（raise + select，即同时做 tab 切前台与
+ * window 聚焦两件事）/ `isolated`（在自己的窗口里开、不抢焦点）三档，没有
+ * `active`——这条改动当时确实没有跑一次真实 collect 验证过，直接把没有的值
+ * 传给了 opencli，`collect` 因此每次都在 `open` 这一步就以 `opencli-open-
+ * failed` 失败，只能靠 `--no-foreground` 绕过。教训：连着两次「基于技术原理
+ * 推断，尚未实测」的改动之间，第一次没做完的验证欠账不能拖到下一次改动里才发现。
+ *
+ * ── 2026-09-12 第五次改动：改回 `opencli --window foreground`，删除 `active` ──
+ * 读 `opencli browser --help` 与 `~/.claude/skills/opencli/SKILL.md` 第三节
+ * 「三个窗口模式」（本机权威口径，2026-09-12 复核）：`--window` 只有
+ * `background`（默认）/ `foreground`（raise + select）/ `isolated` 三档。
+ * `foreground` 本来就同时做 tab 切前台与 window 聚焦，天然满足「PSI 页面必须
+ * 前台标签页才会渲染完成」这条 2026-08-31 就确认的硬要求（见文件头第 1 条），
+ * 不需要再造一个只切 tab 不聚焦窗口的中间态。改动：
+ *   `openSession()` 默认（`opt.foreground=true`）传 `--window foreground`；
+ *     `--no-foreground` 时传 `--window background`（不再是省略 `--window` 或
+ *     传不存在的 `active`）。
+ *   `waitForReady()` 里 `activateChromeIfDue()` 兜底逻辑保留不动——`foreground`
+ *     只保证 opencli 发起 `open` 那一刻抢到 window 聚焦，用户之后手动切走、或
+ *     系统把 Chrome 挤到后台，仍可能让标签页重新变 hidden，连续
+ *     `STUCK_HIDDEN_THRESHOLD` 次探测到 hidden 时再退化成 `osascript activate`
+ *     依旧是需要的最后一道保险，只是触发频率应该比第四次改动之前（那版
+ *     `--window active` 不聚焦窗口）更低。
+ *   2026-09-12 本次改动后用 `node pagespeed.mjs collect https://nonogram-
+ *   game.com/ --strategy both` 实测跑通：默认参数（不加 `--no-foreground`）
+ *   两端（mobile/desktop）均 `stopReason: ready`，LHR 经 `window-global` 直接
+ *   抠出，全程无人值守、零次报 `opencli-open-failed`。两端各触发了一次
+ *   `activateChromeIfDue` 兜底（终端本身在前台跑测试脚本，把 Chrome App 挤到
+ *   了后台，触发条件成立、行为符合设计），说明兜底仍然会用上，`--window
+ *   foreground` 只保证 `open` 那一刻的可见性，不是「从此不再需要兜底」。
+ *   结论：`collect` 默认参数即可用，不再需要 `--no-foreground` 绕过
+ *   `opencli-open-failed`。
  *
  * ── 2026-09-12 第二次实测：从「读文字」改成「抠 LHR JSON」──────────────────
  * 之前 collect 只用 `document.body.innerText` 采页面文本证人——**只拿得到可见
@@ -129,12 +144,11 @@
  *       LHR）+ `<tag>.summary.json`（结构化摘要）+ `<tag>.summary.md`（人读，
  *       含每条未通过审计的逐项明细表）+ 截图/页面文本双证人，目录默认
  *       `.rankup/evidence/pagespeed-<ts>/`，`--out` 可指定别的目录。
- *       **默认可见性驱动、无人值守可跑通、不抢用户电脑焦点**（2026-09-12
- *       第四次改动，见文件头）：open 带 `--window active`，只把 tab 设成它
- *       所在窗口的当前标签，不碰 macOS 系统焦点；只有等待期间连续多次探测到
- *       tab 仍是 hidden（窗口本身可能被完全遮挡/最小化）才退化成每约 15 秒
- *       一次 `osascript activate` 抢一下 OS 焦点（仅 darwin，不额外起进程，
- *       此推断未经真实浏览器环境实测）。`--strategy` 不传时 collect 默认
+ *       **默认可见性驱动、无人值守可跑通**（2026-09-12 第五次改动，见文件头）：
+ *       open 带 `--window foreground`（opencli 真实支持的三档之一：raise +
+ *       select），只有等待期间连续多次探测到 tab 仍是 hidden（用户后续切走、
+ *       系统把 Chrome 挤到后台等）才退化成每约 15 秒一次 `osascript activate`
+ *       再抢一下 OS 焦点（仅 darwin，不额外起进程）。`--strategy` 不传时 collect 默认
  *       `both`（移动 + 桌面）。标签页 hidden 或渲染不出来时自动 close 当前
  *       会话、重开一个新的，最多重试 3 次；每个 URL 之间 sleep（默认 5 秒，
  *       `--sleep 0` 关掉）避免连续打 PSI 后端。`--no-foreground` 关掉这整套
@@ -242,18 +256,17 @@ collect       用 opencli 驱动本机 Chrome，报告出分后直接抠完整 L
   --out           collect 的落盘目录，不传则用 .rankup/evidence/pagespeed-<ts>/
   --sleep         collect 每个 URL 之间的等待秒数，默认 ${DEFAULT_SLEEP_BETWEEN_S}（避免连续
                   打 PSI 后端），传 0 关掉
-  --no-foreground 关掉默认的可见性驱动（open --window active + 轮询期间卡住
-                  才触发的 activate 兜底），退回旧的「人守在电脑前，标签页
-                  自己保持可见」用法
+  --no-foreground 把 open 的 \`--window foreground\` 换成 \`--window background\`
+                  （也关掉轮询期间卡住才触发的 activate 兜底），退回旧的
+                  「人守在电脑前，标签页自己保持可见」用法
   --help          显示帮助
 
-**默认可见性驱动、无人值守可跑通、不无谓抢用户电脑焦点**（2026-09-12 第四次
-改动，未经真实浏览器环境实测，基于技术原理推断）：collect 打开每个链接都带
-\`--window active\`，只让这个 tab 成为它所在窗口的当前标签，不调用会抢 macOS
-系统前台的 API。只有等待渲染的轮询循环（每 ${POLL_MS / 1000} 秒探测一次）里连续多次
-探测到标签页仍是 hidden（窗口本身可能被完全遮挡/最小化，光切 active tab
-不够），才退化成每约 15 秒一次 \`osascript activate\` 抢一下 Chrome 这个 App
-的系统前台（仅 darwin，不额外起进程）。标签页持续 hidden 或渲染不出来时会
+**默认可见性驱动、无人值守可跑通**（2026-09-12 第五次改动，实测见文件头）：
+collect 打开每个链接都带 \`--window foreground\`（opencli 真实支持的三档
+background/foreground/isolated 之一：raise + select）。只有等待渲染的轮询循环
+（每 ${POLL_MS / 1000} 秒探测一次）里连续多次探测到标签页仍是 hidden（用户后续切走、
+系统把 Chrome 挤到后台等），才退化成每约 15 秒一次 \`osascript activate\` 抢一下
+Chrome 这个 App 的系统前台（仅 darwin，不额外起进程）。标签页持续 hidden 或渲染不出来时会
 自动 close 会话重开，最多重试 ${MAX_REOPEN_ATTEMPTS} 次。
 **仍然报 tab-hidden 时，先查 Chrome 是不是被其他 App 抢了前台**（比如某个全屏
 应用），而不是退回人工跑；确实需要人工可读的旧行为时加 --no-foreground。请
@@ -326,10 +339,12 @@ function cli(session, args, { timeout = 120_000 } = {}) {
 function openSession(session, url, foreground) {
   // --window 是 `browser <session>` 之后、子命令之前的全局选项——
   // 挂在 `open` 之后不生效，2026-09-12 实测确认过顺序。
-  // `active`（而不是 `foreground`）只把这个 tab 设成它所在窗口的当前标签，
-  // 不调用 chrome.windows.update({focused:true})，不抢用户电脑的系统焦点
-  // ——见文件头「第四次改动」。真正需要抢 OS 焦点时靠 activateChromeIfDue() 兜底。
-  const openArgs = foreground ? ["--window", "active", "open", url] : ["open", url];
+  // opencli（本机 1.9.0，扩展 1.1.1）`--window` 只接受 background（默认）/
+  // foreground（raise + select）/ isolated 三档，没有 `active`——见文件头
+  // 「第四次改动（已证伪）」与「第五次改动」。foreground 本身就会把这个 tab
+  // 切到它所在窗口的当前标签、并把该窗口聚焦到系统前台；轮询里如果之后又被
+  // 挤到 hidden，才靠 activateChromeIfDue() 兜底再抢一次。
+  const openArgs = ["--window", foreground ? "foreground" : "background", "open", url];
   return cli(session, openArgs, { timeout: 120_000 });
 }
 
@@ -770,7 +785,7 @@ function waitForReady(session, deadline, foreground) {
     const p = probe(session);
     if (p) last = p;
     if (p && p.gauges > 0) return { ready: true, last };
-    // 主路径不再无差别 activate——open 时的 `--window active` 应该已经让这个
+    // 主路径不再无差别 activate——open 时的 `--window foreground` 应该已经让这个
     // tab 保持可见。只有连续 STUCK_HIDDEN_THRESHOLD 次都探测到 hidden，才怀疑
     // 窗口本身被遮挡/最小化，退化成抢一次 OS 焦点（--no-foreground 时完全不做）。
     if (foreground) {
@@ -901,13 +916,14 @@ let lastForegroundActivateAt = 0;
 
 /**
  * 抢 OS 焦点的**兜底**，不是主路径。主路径是 `openSession()` 里的
- * `--window active`，只把 tab 设成它所在窗口的 active tab，不碰 macOS 焦点
- * ——按 2026-09-12 第四次改动的技术推断，这应该足够避免 Chromium 的渲染节流，
- * 但**这条推断未经真实浏览器环境实测验证**。为了不让这个假设一旦不成立就
- * 让 collect 彻底跑不出数据，`waitForReady()` 在连续 STUCK_HIDDEN_THRESHOLD
- * 次探测到 tab 仍是 hidden 时才调用本函数，退化成旧行为：调用
- * `chrome.windows.update({focused:true})` 等价的 `osascript activate`，
- * 把整个 Chrome App 拉到系统前台，代价是这一下会打断用户当时在用的其他窗口。
+ * `--window foreground`（opencli 真实支持的 raise + select 档），已经在
+ * `open` 那一刻同时把 tab 切前台并把窗口聚焦到系统前台——2026-09-12 第五次
+ * 改动实测确认默认参数即可出分。但 `open` 只保证那一瞬间的状态，之后只要有
+ * 别的东西（用户切走、终端本身在前台跑脚本把 Chrome 挤到后台等）抢走系统
+ * 前台，标签页仍可能重新变 hidden——实测两端各触发过一次本函数，兜底并没有
+ * 变得多余。`waitForReady()` 在连续 STUCK_HIDDEN_THRESHOLD 次探测到 tab
+ * 仍是 hidden 时才调用本函数，再调用一次 `osascript activate` 把整个
+ * Chrome App 拉回系统前台，代价是这一下会打断用户当时在用的其他窗口。
  *
  * 2026-09-12 第三次实测后的实现：**不再另起进程**。最初版本用
  * `spawn(..., { detached: true })` 起一个独立 bash 死循环，靠
@@ -974,9 +990,9 @@ function collect(urls, opt) {
   console.error(
     `[psi-web] 证据目录 ${dir}\n` +
     (opt.foreground
-      ? `[psi-web] 可见性驱动已开启：open 带 --window active（只切 tab，不抢 OS 焦点）` +
+      ? `[psi-web] 可见性驱动已开启：open 带 --window foreground（raise + select）` +
         (process.platform === "darwin"
-          ? "，卡住超过阈值才会退化成 activate 兜底一次（darwin，不额外起进程，未经真实浏览器实测）。"
+          ? "，卡住超过阈值才会退化成 activate 兜底一次（darwin，不额外起进程）。"
           : "（非 darwin，无 activate 兜底）。")
       : `[psi-web] --no-foreground：退回旧行为，**把 Chrome 切到最前并保持那个标签页可见**——后台标签页出不了分。`),
   );
