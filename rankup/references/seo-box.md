@@ -295,6 +295,26 @@ FCP/LCP。CJK 站用 Google Fonts 会按 `unicode-range` 拆成上百个子集�
 几十 KB 级；不 `preload` 首屏用不到的字重；改动前后看 PSI 网页版的「第三方/资源分解」与
 「网络依赖树」两个区块的字体总字节，不要只看 `font-display` 有没有设对。
 
+**装饰性字体两全法：品牌字体不必用分数换**（【实测】一站验证，PSI 分数与 LCP 改前改后不变，
+字体 40KB → 12KB 子集，切换位移 0.02px）。背景：CSS 里声明的 webfont 是 `VeryHigh` 优先级，
+Lantern 一律计入首绘依赖图（见本节「Lantern 优先级模型」），`async`/`font-display`/`preload`
+都改变不了这一点，看似「品牌字体 vs 分数」只能二选一。两全做法：
+1. **首屏之前不声明**：CSS 里不写该 `@font-face`、不 `preload`；`window.load` +
+   `requestIdleCallback` 之后用 FontFace API 加载（`new FontFace(...).load()` →
+   `document.fonts.add` → 给 `html` 加 `.font-ready`），只在 `.font-ready` 选择器下切换
+   `font-family`——Lighthouse 的首屏依赖图里因此没有这个请求，真实用户在首屏出现后半秒内
+   看到品牌字体。
+2. **子集化到实际用到的字符**：标题/标签文案是有限集，`pyftsubset` 按实际字符集与用到的
+   字重出 woff2，可变字体裁掉不用的轴，目标几十 KB 以内。
+3. **零位移**：回退字体用 `@font-face` 的 `size-adjust`/`ascent-override`/
+   `descent-override`/`line-gap-override` 做度量匹配（fontaine/capsize 一类工具算），
+   切换前后 `getBoundingClientRect()` 位移 ≤ 1px，CLS 不动。
+4. **不要把字体加载挂在分析脚本的交互触发器上**，用 `load` 事件即可；关键 CSS 提取时
+   确认 `.font-ready` 规则不在关键片段里。
+适用范围：标题、标签、logo 文字这类装饰性字体；正文字体仍按「CJK 系统字体栈 / 拉丁自托管
+子集 + optional」的既有规则。验收：PSI `network-requests` 前 15 条无该字体、分数与 LCP 与
+改前一致、CLS ≤ 0.1，外加真实浏览器 3 秒后截图确认字体已切换。
+
 **本地 Lighthouse（simulate 或 devtools 节流）不能替代 PSI 网页版**（【实测】同一时刻
 本地 93–99 分而 PSI 57 分的情况出现过，纯字节量问题在本地节流下不显形）：闸门 6 只认
 PSI 网页版读数，本地 Lighthouse 只用于迭代定位；读报告的顺序是「第三方分解 / 网络依赖树」

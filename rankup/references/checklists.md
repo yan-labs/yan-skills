@@ -146,7 +146,7 @@
 | 四处均未暴露密钥 | 代码、日志、Git、`.rankup/` 扫描都干净 | `.rankup/secrets.md` | 扫描 | 每轮 |
 | **D1 · `SITE_URL` 构建期注入客户端** | 真实浏览器打开预览域，`document.querySelectorAll('link[rel=canonical]').length === 1` 且 outerHTML 不含占位域名；水合前后 canonical/og:url 一致；取不到 `SITE_URL` 时构建**直接失败**而不是回落占位默认值 | 真实浏览器 DOM 快照（非 `curl`）进 `.rankup/audit.md` | 做法见 [`lifecycle.md`](lifecycle.md) 段 3 · 3.2「脚手架初始化当天默认清单」D1；`curl` 看不出这项，必须真实浏览器渲染后读 | 一次 |
 | D2 · 边缘缓存随脚手架就位 | 与本表「匿名页 HTML 边缘缓存已实现且线上验证」同一项，验证补一条：**用 GET 而不是 HEAD**——多数实现的缓存键只对 GET 生效，HEAD 会得到假阴性 | 同上 | 见 [`cloudflare-stack.md`](cloudflare-stack.md)「12」 | 一次 |
-| D3 · 字体策略当天定死 | 判据见闸门 6「Web 字体总字节是独立判据」一行，本行不重复；CJK 系统字体栈、拉丁自托管子集化、不 `preload` 非首屏字重 | 同闸门 6 | 见 [`seo-box.md`](seo-box.md) 一 | 一次 |
+| D3 · 字体策略当天定死 | 判据见闸门 6「Web 字体总字节是独立判据」一行，本行不重复；CJK 系统字体栈、拉丁自托管子集化、不 `preload` 非首屏字重；装饰字体不在 PSI 前 15 个请求里 | 同闸门 6 | 见 [`seo-box.md`](seo-box.md) 一 | 一次 |
 | D4 · 分析脚本延迟加载 | 与段 5「第三方分析脚本延迟到首次交互或 6s 兜底」同一判据，脚手架当天即接入这个加载策略，不留到接入分析平台那天 | 同段 5 | 见 [`analytics-platforms.md`](analytics-platforms.md) | 一次 |
 | **D5 · 图片默认已到位** | logo/favicon 源图、hero 图、装饰图均为 WebP+PNG 回退且按显示尺寸出图（含 2x）、标注 `width`/`height`；首屏 LCP 图有 `fetchpriority="high"`，非首屏图有 `loading="lazy"`；`og:image` 不在首屏渲染路径里；**任意一张首屏图片原始文件 > 200KB 视为不通过** | 图片体积清单进 `.rankup/audit.md` | `curl -sI` 逐张图取 `content-length`，检查首屏 HTML 里的 `fetchpriority`/`loading` 属性 | 一次 |
 | **D6 · 大数据不进入口 bundle** | 构建产物分析（`vite build --report` 或等价）确认入口 chunk 不含题库/条目库这类大数据；路由 loader 数据随 HTML dehydrate，客户端**没有**针对同一份数据的二次 `import()` | 构建产物分析记录进 `.rankup/audit.md` | 看构建产物体积分布 + 网络面板确认无冗余请求 | 一次 |
