@@ -207,7 +207,7 @@ D1 / D4 的 `mineSearch`、E2 / E5、F5 的 `translateSearch`、F6 的 `worth` �
 |---|---|---|---|---|
 | B1 出清单 | 串行 | `node <rankup>/scripts/pagespeed.mjs plan <首页> <一个工具/功能页> <一个内容页> --strategy both` | 六个 pagespeed.web.dev 链接（三类页面 × 两端）+ 逐项读数清单 + `baseline.md` 的表格列 | 零依赖、零配额，不会失败 |
 | B2 取数 | 串行 | 两条路，按阶段 0.5 的判断选：<br>**脚本采**（默认）——`node <rankup>/scripts/pagespeed.mjs collect <同样三个 URL> --strategy both --budget 300`，前台驱动 + activate 循环无人值守跑通，双证人（截图 + 页面文本）落 `.rankup/evidence/pagespeed-<ts>/`，判读仍由 AI 做；<br>**人跑**（兜底）——仍卡 `tab-hidden` 时按 B1 的链接逐个在浏览器里打开，页面自己跑完再读，或给 `collect` 加 `--no-foreground` | 每页：现场 CWV + LCP/INP/CLS + **样本量档位** + **作用域（本 URL 还是整个源）**；实验室四项分数 + 指标区 + 跑分环境 | `collect` 报 `tab-hidden` = **标签页没在前台，不是这个站没有数据**——先查 Chrome 是不是被别的 App 抢了前台，再重跑，或退回人跑。报 `budget-exhausted` = 慢站还没跑完（实测有站跑满 240 秒仍在跑），加大 `--budget`，**超时同样不等于没有数据**。页面上**现场那一整块不存在 = CrUX 流量不足**，原样抄「现场无数据（流量不足）」进 `baseline.md`——不是 0、不等于通过，留空会在下一轮被读成「查过了没问题」 |
-| B3 逐条必修 | 串行 | 读 B2 页面里的 Opportunities / Diagnostics 两个区块 | 一份逐条清单：每条要么修掉重跑证明消失，要么写明改不动的原因（第三方脚本、平台限制等），登记进 `checks.md` 标 ⏸ | **B 组输出的 opportunity/diagnostic 清单全部进必修列表，与 A6 同等**——分数够了不等于清单可以不看 |
+| B3 逐条必修 | 串行 | 读 B2 页面里的 Opportunities / Diagnostics 两个区块，**先看「第三方分解 / 网络依赖树」再看「渲染阻塞资源」**——字节量问题（尤其是 Web 字体总字节）在本地 Lighthouse 下常不显形，只认 PSI 网页版读数 | 一份逐条清单：每条要么修掉重跑证明消失，要么写明改不动的原因（第三方脚本、平台限制等），登记进 `checks.md` 标 ⏸ | **B 组输出的 opportunity/diagnostic 清单全部进必修列表，与 A6 同等**——分数够了不等于清单可以不看 |
 
 **C 组 · GEO / AI 就绪度**
 

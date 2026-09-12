@@ -8,6 +8,7 @@
 
 | 顺序 | 做什么 | 依赖 | 自动化程度 |
 |---|---|---|---|
+| CF WA | **Cloudflare Web Analytics 启用，`auto_install` 默认关**，由代码延迟注入 | 站点已在 Cloudflare 代理 | 半自动（`cf-analytics-setup.mjs enable` → GraphQL 验证 `count > 0`） |
 | 0 | **GA4 建媒体资源 + 拿 Measurement ID + 注入** | Google 账号 | 手动（控制台向导 → gtag 或 Zaraz 注入 → 线上 grep + 实时报告验证） |
 | 1 | **Microsoft Clarity 创建项目 + 埋追踪代码** | 微软账号 | 半自动（`clarity-setup.mjs create` 拿 ID → 手动把代码写进 `<head>`） |
 | 2 | **Firebase 创建项目 + 添加 Web 应用** | Google 账号 | 半自动（`firebase` CLI 或控制台 UI → 手动把 config 写进代码） |
@@ -38,13 +39,15 @@ GA4 在批 A：媒体资源的数据流 URL 只是展示用途，换域名不用
 2. **建网站数据流**：填当前可访问的 URL（预览域也可以），拿到 **Measurement ID**（形如 `G-XXXXXXXXXX`）。
    这是公开值，会出现在页面 HTML 里，不是秘密；但**逐站不同，记到 `<project>/.rankup/integrations.md`**。
 3. **注入**（gtag 或 Zaraz 二选一）：
-   - **gtag 一律延迟加载，禁止同步注入**。用 `requestIdleCallback`（不支持的浏览器回退
-     `setTimeout 3500ms`）在主线程空闲时动态插入 `gtag.js`。GA4 采集的是会话级数据，
-     晚几秒加载不丢任何数据，LCP 完全不受影响。snippet 里
+   - **gtag 一律延迟到首次交互或 6s 兜底再加载，禁止同步注入**：监听一次性的
+     `pointerdown`/`keydown`/`scroll` 触发注入，同时挂一个 6s 的 `setTimeout` 兜底，
+     两者谁先到就插入 `gtag.js`。**单用 `requestIdleCallback` 不够**——空闲回调仍会落在
+     TBT 的观测窗内，实测会被计入。GA4 采集的是会话级数据，晚几秒加载不丢任何数据，
+     LCP 完全不受影响。snippet 里
      `function gtag(){dataLayer.push(arguments)}` 那个 `arguments` 是契约，别改写成箭头函数
      （同文件「第三方 snippet 里写法很旧的地方，往往是契约」）。
      **「GA 脚本拖 LCP」不是推迟接入 GA4 的理由——延迟加载就完了，以后不要再因为这个
-     把 GA4 标 ❌。**【实测 2026-09-03】
+     把 GA4 标 ❌。**【实测 2026-09-03；首次交互/6s 兜底替代单用 `requestIdleCallback`，2026-09-12】
    - **Cloudflare Zaraz**：站点已在 Cloudflare 上时，Zaraz → 添加工具 → Google Analytics 4 → 填 Measurement ID。
      仓库零代码，埋点由边缘注入；代价是不受你的同意门槛管辖、字节要照记
      （同文件「边缘注入型的分析」）。同意门槛做在站内的选 gtag，站内没有同意条的选 Zaraz。
@@ -59,6 +62,38 @@ GA4 在批 A：媒体资源的数据流 URL 只是展示用途，换域名不用
 
 Firebase 项目可以关联这个 GA4 媒体资源（下一节），但纯 Web 站不需要为了 GA4 先建 Firebase；
 先接 GA4，Firebase 只在要用它的 SDK 功能时再建。
+
+## CF WA（Cloudflare Web Analytics，域名无关，可在预览域先接）
+
+### auto_install 默认必须关闭
+
+**【实测，多站复现】Cloudflare Web Analytics 的 `auto_install`（RUM 自动安装）会在边缘给
+每一次响应注入 beacon，绕过代码里写的任何延迟加载逻辑**——beacon 请求
+（`/cdn-cgi/rum`）因此成为页面最长的关键请求链之一，与「第三方分析脚本一律延迟到首次
+交互或 6s 兜底再加载」这条硬规则直接冲突：代码侧的延迟加载做得再干净，边缘还是会在
+HTML 响应经过时把 beacon 塞进去，等于白做。
+
+判据：**接入 CF WA 时一律关闭 `auto_install`**，只由代码在首次交互或 6s 兜底后注入
+beacon snippet（写法同 GA4 的 gtag 那条规则）。`cf-analytics-setup.mjs` 的
+`enable` 子命令默认即以 `auto_install: false` 创建站点记录；`status` 子命令对已存在
+且 `auto_install` 为 `true` 的站点会打印告警，提示改回手动延迟注入。
+
+### 接入步骤
+
+```bash
+node <rankup-skill-dir>/scripts/cf-analytics-setup.mjs status <domain>   # 查是否已启用、auto_install 当前值
+node <rankup-skill-dir>/scripts/cf-analytics-setup.mjs enable <domain>   # 启用，auto_install 默认 false
+```
+
+拿到 `site_token` 后，把 CF WA 的 beacon snippet 按 GA4 同款延迟策略手动写进
+`<head>`（监听一次性的首次交互事件，同时挂 6s 兜底，谁先到就插入）。
+
+### 验证
+
+**验收不能停在「HTML 里有 `cloudflareinsights`」**——那只证明脚本在，不证明在收数据。
+必须再用 GraphQL 查 `rumPageloadEventsAdaptiveGroups(filter:{siteTag}) { count }`，
+`count > 0` 才算接通；`site_token` 填成 `site_tag` 不会报错，beacon 照样 200，
+但会永远 0 数据。
 
 ## 1. Microsoft Clarity
 

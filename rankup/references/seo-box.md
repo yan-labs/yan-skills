@@ -248,6 +248,20 @@ node <rankup-skill-dir>/scripts/pagespeed.mjs collect <同样三个 URL> --strat
 **不要试图直接调网页版的内部接口**：它的跑分请求走 `_/PagespeedUi/data/batchexecute`，
 参数混淆、没有契约、随时会变。要么人读页面，要么按双证人采下来让 AI 判读。
 
+**Web 字体字节预算是闸门 6 的独立项**（【实测】多站复现）：慢 4G 下字体总字节直接吃
+FCP/LCP。CJK 站用 Google Fonts 会按 `unicode-range` 拆成上百个子集，文字越多拉得越多，
+总量可达 1MB 级；`font-display: swap`/`optional` 只解决绘制阻塞与位移，**不省字节**，
+而 `preload` 更会让字体抢在 HTML/JS 前面占带宽。判据：CJK 站默认系统字体栈（不下载）；
+拉丁站自托管并子集化到实际用到的字符与字重，可变字体裁掉不用的轴，单站字体总量控制在
+几十 KB 级；不 `preload` 首屏用不到的字重；改动前后看 PSI 网页版的「第三方/资源分解」与
+「网络依赖树」两个区块的字体总字节，不要只看 `font-display` 有没有设对。
+
+**本地 Lighthouse（simulate 或 devtools 节流）不能替代 PSI 网页版**（【实测】同一时刻
+本地 93–99 分而 PSI 57 分的情况出现过，纯字节量问题在本地节流下不显形）：闸门 6 只认
+PSI 网页版读数，本地 Lighthouse 只用于迭代定位；读报告的顺序是「第三方分解 / 网络依赖树」
+先于「渲染阻塞资源」审计——先看字节量，再看阻塞关系，顺序反了容易把字节问题误判成纯粹的
+加载顺序问题。
+
 作为闸门用时判据见 [`checklists.md`](checklists.md) 闸门 6，本节不重复写判据。TTFB 判据与匿名页面边缘缓存做法同样见 checklists 段 3 / 闸门 6，不在本节重复。
 
 ### 二 · 重定向链：要能力，不要那个网站

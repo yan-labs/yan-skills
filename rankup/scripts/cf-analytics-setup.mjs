@@ -6,8 +6,14 @@
  *   node <rankup-skill-dir>/scripts/cf-analytics-setup.mjs status <domain>
  *   node <rankup-skill-dir>/scripts/cf-analytics-setup.mjs enable <domain>
  *
- * 站点由 Cloudflare 代理时用 auto_install：beacon 由边缘在 HTML 响应经过时注入，
+ * 站点由 Cloudflare 代理时可以用 auto_install：beacon 由边缘在 HTML 响应经过时注入，
  * 不需要改代码、不需要发版。Workers custom domain 本身就是代理态，满足条件。
+ *
+ * 【实测，多站复现，2026-09-12】auto_install 默认必须关闭：边缘在每次响应上注入 beacon
+ * 会绕过代码里的任何延迟加载逻辑，beacon 请求（/cdn-cgi/rum）因此成为最长关键请求链之一，
+ * 与「第三方分析脚本一律延迟到首次交互或 6s 兜底再加载」的硬规则冲突。本脚本 enable 默认
+ * 以 auto_install: false 创建站点记录，改由代码延迟注入 beacon；status 对已存在且
+ * auto_install 为 true 的站点会打印告警。
  *
  * 凭据：只从环境变量 CLOUDFLARE_API_TOKEN 读，读不到就退到 <repo>/.cf-token
  * （该文件已被 .gitignore 排除）。真实值不打印、不落盘、不进日志。
@@ -15,7 +21,7 @@
  * 需要的权限：Account > Account Analytics > Edit（RUM）+ Zone > Zone > Read。
  * 不要用 Global API Key：它不能限定 scope，泄露即等于整个账号。
  *
- * 已验证：2026-08-21
+ * 已验证：2026-08-21；auto_install 默认关闭复验：2026-09-12
  */
 import { readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
@@ -101,12 +107,15 @@ function reportSite(s) {
   console.log(`规则启用     ${s.ruleset?.enabled}`)
   if (s.snippet) console.log(`snippet      ${s.snippet}`)
   if (!s.auto_install) {
-    console.log(`\n⚠️ auto_install 为 false —— 需要手动把上面的 snippet 嵌进页面。`)
-  } else {
-    console.log(`\n✅ 边缘自动注入。无需改代码、无需发版。`)
-    console.log(`   如果 zone 上有 disable_rum 的 Configuration Rule（为保 PSI 关掉自动注入），`)
-    console.log(`   那就必须手动嵌 snippet，且 data-cf-beacon 里填 site_token，不是 site_tag。`)
+    console.log(`\n✅ auto_install 已关闭（这是期望状态）—— 手动把上面的 snippet 嵌进页面，`)
+    console.log(`   延迟到首次交互或 6s 兜底再注入，data-cf-beacon 里填 site_token，不是 site_tag。`)
     console.log(`   两个都是 32 位十六进制，填错不报错、beacon 照样 200 加载，只是永远 0 数据。`)
+  } else {
+    console.log(`\n⚠️ auto_install 为 true —— 边缘会在每次响应上自动注入 beacon，绕过代码里`)
+    console.log(`   任何延迟加载逻辑，/cdn-cgi/rum 会成为最长关键请求链之一。`)
+    console.log(`   【实测，多站复现】应改为手动嵌 snippet 并关闭 auto_install，去 Cloudflare`)
+    console.log(`   Dashboard 的 Web Analytics 设置里关掉，或删除后用本脚本 enable 重建`)
+    console.log(`   （enable 默认创建时就是 auto_install: false）。`)
   }
   console.log(`\n验收不能停在「HTML 里有 cloudflareinsights」。用 GraphQL 查 count：`)
   console.log(`  rumPageloadEventsAdaptiveGroups(filter:{siteTag:"${s.site_tag}", date_geq:"<7 天前>"}) { count }`)
@@ -142,9 +151,12 @@ if (cmd === "status") {
   process.exit(0)
 }
 
+// auto_install 默认 false：【实测，多站复现】边缘自动注入的 beacon 会绕过代码里的延迟
+// 加载逻辑，成为最长关键请求链之一。需要手动把 snippet 写进页面，延迟到首次交互或 6s
+// 兜底后注入，见 references/analytics-platforms.md「CF WA」节。
 const site = await cf(`/accounts/${accountId}/rum/site_info`, {
   method: "POST",
-  body: JSON.stringify({ zone_tag: zone.id, auto_install: true }),
+  body: JSON.stringify({ zone_tag: zone.id, auto_install: false }),
 })
-console.log(`✅ 已启用 Web Analytics\n`)
+console.log(`✅ 已启用 Web Analytics（auto_install: false，需手动嵌延迟加载的 snippet）\n`)
 reportSite(site)
