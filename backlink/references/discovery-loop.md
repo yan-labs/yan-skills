@@ -159,6 +159,29 @@ kept; `--resume` continues later without re-running completed queries. This
 is a real operating constraint, not a bug to route around — plan a sweep as
 several short runs, not one long one.
 
+【实测 2026-09-12，第二轮】**Google 搜索没有 Semrush/Similarweb 那种 Tools Share
+账号级互斥锁保护。** 那两个配额站的并发靠 `lib-tools-share.mjs` 的
+`acquireToolsShareLock` 串行化；普通 Google 搜索走的是机主自己那个已登录的
+真实 Chrome，此前没有任何东西把本机上不同会话对 Google 的访问串行化。实测现场：
+一次 sweep 里，本机同时还有十几个不相关会话（不是本脚本发起的）在用同一个
+Chrome 窗口打 Google 搜索，`opencli browser sessions` 能看到好几个都停在
+`google.com/sorry/index`——是**这些并发会话共同触发并持续维持了账号级
+CAPTCHA**，单开一个会话冷却 10 分钟甚至 40 分钟再 `--resume` 都等不到窗口，
+因为等待期间别的会话仍在继续打 Google、继续续封。
+
+应对（已落地）：
+  1. `footprint-discover.mjs` 现在在打开浏览器前先取一把 `google` 键名的机器级
+     互斥锁（复用 `acquireToolsShareLock`），至少让本脚本自己的并发调用互相
+     串行，不再重蹈 Semrush 19 个 tab 同开的覆辙。
+  2. 花任何一条真实操作符 query 之前，先打一条**不消耗操作符**的探测 query
+     （`q=test`）；如果这条探测本身就落在 `/sorry`，直接以
+     `stopReason: "captcha-preexisting"` 退出，不再往下烧 3 条操作符 query
+     的额度，也不用每个关键词各自撞一次墙才发现是同一个账号级封锁。
+  3. 这把锁**管不到**本文件之外的脚本/agent——它们完全可能压根没用这套
+     lib。**跑一次真实 sweep 之前，先手动 `opencli browser sessions | grep
+     sorry`**，如果本机别的会话已经卡在 `/sorry`，此刻开跑基本必撞墙，等它们
+     退出或换个时间窗口比反复冷却更有效。
+
 ### Effective footprints
 
 | footprint | operator-hit rate | notes |

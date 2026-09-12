@@ -38,6 +38,24 @@
  * with --resume) picks up where it stopped; the query-by-query delay exists
  * to make that "later" happen less often, not to guarantee it never happens.
  *
+ * Machine-wide contention (found 2026-09-12, second sweep): unlike Semrush
+ * and Similarweb, plain Google search has NO Tools Share account behind it —
+ * it rides the owner's own logged-in Chrome, and nothing in this repo used to
+ * serialise access to it. Multiple unrelated OpenCLI sessions on the same
+ * machine hammering Google concurrently (each running its own searches, none
+ * of them this script) can jointly trigger and then keep renewing an
+ * account-level CAPTCHA that no amount of single-session cooldown will clear,
+ * because the "cooldown" only matters if nobody else is still poking Google.
+ * This script now (a) takes a machine-wide mutex keyed `google` via
+ * `lib-tools-share.mjs`'s `acquireToolsShareLock`, so at least concurrent
+ * footprint-discover.mjs runs on this box serialise against each other, and
+ * (b) fires one cheap non-operator preflight query before spending any real
+ * query — if that preflight itself lands on `/sorry`, the run stops
+ * immediately with `stopReason: "captcha-preexisting"` and spends nothing
+ * further. Neither fix controls *other* scripts/agents that talk to Google
+ * outside this file — before a real sweep, run `opencli browser sessions`
+ * and look for other entries parked on `google.com/sorry` first.
+ *
  * Usage:
  *   node scripts/footprint-discover.mjs --keyword "browser games" --preset submit \
  *     --num 20 --out .backlink/footprint-browser-games.jsonl
@@ -124,6 +142,7 @@ import {
 } from './opencli-core.mjs';
 import { captureScene, defaultSceneDir } from './lib-evidence-scene.mjs';
 import { normDomain } from './third-party-list-ingest.mjs';
+import { acquireToolsShareLock } from './lib-tools-share.mjs';
 
 helpGuard(import.meta.url);
 
@@ -382,6 +401,19 @@ async function runQuery(session, query, { num, hl, gl }) {
   return openAndEval(session, url, EXTRACT_EXPR, { wait: 4 });
 }
 
+/**
+ * One cheap, non-operator query fired before any real footprint query is
+ * spent. If the account is already sitting on a CAPTCHA — plausible with no
+ * action from this process at all, since other machine-local sessions share
+ * the same logged-in Google — there is no point paying for 1-3 more blocked
+ * queries and a scene capture per keyword. Uses a plain "test" search so a
+ * clean result never gets logged as a footprint result row.
+ */
+async function preflightCaptchaCheck(session, { hl, gl }) {
+  const extraction = await runQuery(session, 'test', { num: 10, hl, gl });
+  return isCaptchaSignal(extraction);
+}
+
 /* ------------------------------------------------------------------ *
  * Self-test: exercises the pure functions above against a fixture.
  * Opens no browser. This is the only thing --self-test checks — it does
@@ -521,7 +553,25 @@ async function main() {
   const summaries = [];
   let stopped = null;
 
+  // Machine-wide mutex — see the header comment "Machine-wide contention".
+  // This only serialises other footprint-discover.mjs invocations against
+  // each other; it cannot see or stop unrelated scripts/agents also talking
+  // to Google outside this file.
+  const lock = await acquireToolsShareLock('google', { timeoutMs: 15 * 60_000 });
+
   try {
+    const preexisting = await preflightCaptchaCheck(session, { hl, gl });
+    if (preexisting) {
+      const evidenceDir = defaultSceneDir({ out });
+      const scene = await captureScene({ session, outDir: evidenceDir, tag: 'captcha-preexisting-preflight', note: 'Preflight non-operator query already landed on /sorry before any real query was spent.' });
+      appendLine(out, { type: 'run-summary', stopReason: 'captcha-preexisting', evidenceDir, scene, capturedAt: nowIso() });
+      process.stderr.write(`\nSTOPPED before spending any query: Google is already showing a CAPTCHA to this session (stopReason: captcha-preexisting). Evidence written to ${evidenceDir}. Check \`opencli browser sessions\` for other sessions parked on google.com/sorry before retrying.\n`);
+      await closeSession(session);
+      await lock.release();
+      process.exitCode = 3;
+      return;
+    }
+
     for (let i = 0; i < pending.length; i += 1) {
       const query = pending[i];
       if (i > 0) await delay(delaySpec);
@@ -563,6 +613,7 @@ async function main() {
     }
   } finally {
     await closeSession(session);
+    await lock.release();
   }
 
   printFinalSummary({ summaries, stopped, out });
