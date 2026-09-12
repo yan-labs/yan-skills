@@ -733,7 +733,9 @@ keywordtool.io 那一档仍无脚本——AI 手动做或用 `/anysearch` 补 Am
    ↓ ① 这个站什么来历：注册日期 / 站龄 / 月访问 / DR / 环比 / 核心搜索词
    scripts/demand/aitdk-lookup.mjs <域名>           # 支持 --file 批量、jsonl 续跑；只采集不筛选，阈值判断按第二节的表由 AI 做
    ↓ ② 词有没有量、难不难做
-   scripts/seo-webcafe.mjs kd --keyword <词>        # 零配置，含 top9 盘面
+   scripts/seo-webcafe.mjs kd --keyword <词>        # 零配置，含 top9 盘面；默认登录 100/日或 VIP 500/日
+                                                     # （经 OpenCLI 驱动已登录 Chrome 读真实档位），
+                                                     # 游客 10/日只在 OpenCLI 不可用或显式 --guest 时出现
    ↓ ③ 盘面上都有谁、我能不能做得更好
    scripts/demand/serp-query.mjs <词>               # 域名命中 + 首页/内页构成
    ↓ ④ 这个站到底多大、流量从哪来
@@ -1011,7 +1013,7 @@ CDX 直查是 **41 条 200 快照，跨 2002–2010**，且能取回当年正文
 
 | provider | 拿什么 | 代价 |
 |---|---|---|
-| `--provider webcafe`（默认） | 注册日期 / 站龄 / 月访问 / DR / 环比 / 核心搜索词 / 月度曲线 | 免费，但吃站点共享每日配额（游客 10 / 登录 100 / VIP 500）。**流量结构字段常为 null** |
+| `--provider webcafe`（默认） | 注册日期 / 站龄 / 月访问 / DR / 环比 / 核心搜索词 / 月度曲线 | 免费，但吃站点共享每日配额（游客 10 / 登录 100 / VIP 500，`seo-webcafe.mjs` 默认经登录态浏览器跑登录/VIP 档，游客是显式降级）。**流量结构字段常为 null** |
 | `--provider tabapi` | 月访问 / 流量来源 / 地区 / 核心词 / WHOIS / RDAP / 反链 | 需付费令牌 `TABAPI_KEY`，按 credit 计费 |
 
 **流量结构（搜索占比 / 直接访问占比）拿不到时，退到 Similarweb 的渠道构成补这两格**——

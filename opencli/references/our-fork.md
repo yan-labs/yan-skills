@@ -20,7 +20,7 @@
 CLI 与扩展**两半都要装我们的**：
 
 ```bash
-npm i -g https://github.com/yan-labs/OpenCLI/releases/download/v1.8.7-yan.4/opencli-cli-1.8.7-yan.4.tgz
+npm i -g https://github.com/yan-labs/OpenCLI/releases/download/v1.9.0-yan.2/opencli-cli-1.9.0-yan.2.tgz
 # 扩展：下载 opencli-extension-v*.zip 解压 →
 #   chrome://extensions → 开发者模式 → 加载已解压的扩展程序
 #   并把 Chrome 应用商店那个 OpenCLI 移除或停用（两个都装会一起连守护进程互相打架）
@@ -72,6 +72,45 @@ git log --oneline origin/main..HEAD   # 我们领先上游的部分
 
 ---
 
+## CLI 1.9.0 / 扩展 1.1.0 新增（2026-09-11 真机验证）
+
+提交在 `yan-labs/OpenCLI` main 的 `1d18770f` 与 `d2d3a0ec`。
+
+| 能力 | 在哪一侧 | 缺了它会怎样 |
+|---|---|---|
+| **`browser <会话> clipboard`** —— 读系统剪贴板文本并打到 stdout | 扩展 + CLI | 没有这条命令。扩展侧靠 offscreen document + `execCommand('paste')` 实现，manifest 要有 `clipboardRead` + `offscreen` 权限 |
+| **跨源 iframe（OOPIF）可用** —— `frames` 能列出跨源子帧，`eval --frame N` 能打进去 | 扩展 | `frames` **静默返回 `[]`**，`eval --frame N` 永远 out of range |
+| **`frames --debug`** —— 多返回 `debug` 块定位卡在哪一层 | 扩展 + CLI | CLI 报 `unknown option '--debug'` |
+| **CDP 允许名单加了 `Target.getTargets` / `Target.getTargetInfo`**（只读） | 扩展 | 只影响自己写的调试探针 |
+
+### 跨源 iframe 为什么之前永远是空的
+
+Chrome 站点隔离下，跨源 iframe 是**独立进程的 target**，不在父页面的
+`Page.getFrameTree` 里；而在 tab 级 `chrome.debugger` 上调 `Target.getTargets`
+会被 Chrome 直接拒绝：`{"code":-32000,"message":"Not allowed"}`。
+两条路都堵死，于是 `frames` 只能返回 `[]`——**没有任何报错**。
+
+扩展 1.1.0 改为监听 `Target.attachedToTarget`（`Target.setAutoAttach` 开 flatten，
+再按 iframe 过滤）来收集子帧，并用 `{tabId, sessionId}`（Chrome 125+）向子帧发命令，
+失败再回退一次 `attach({targetId})`。
+
+`frames --debug` 返回
+`{frames, debug: {treeChildCount, autoAttachError, getTargetsError, getTargetsIframeCount, attachedEventCount, domFrameUrls}}`
+——`attachedEventCount` 为 0 说明 autoAttach 没生效，`domFrameUrls` 有而 `frames` 空
+说明子帧没被认成 iframe target。
+
+**版本判据：`opencli doctor` 的 Extension 行 ≥ 1.1.0 才有这一组能力。**
+扩展 < 1.1.0 的症状就是 `frames` 返回 `[]` 且不报任何错。
+
+### 已随 v1.9.0-yan.2 发布
+
+上面四条已经进 Release（CLI 1.9.0 / 扩展 1.1.0）。全局装的仍是旧 tgz 时，
+`frames --debug` 会报 `unknown option`，`npm i -g` 上面那个新 URL 即可。
+
+扩展要装 Release 里的 `opencli-extension-v1.1.0-yan.2.zip`（或从仓库的 `extension/dist`
+加载），并在 `chrome://extensions` 里 reload 一次；`opencli doctor` 的 Extension 行显示
+1.1.0 才算生效。
+
 ### 已知回归与修复：面板反复 toggle 后 eval 静默落回主页面（扩展 1.1.1 修复）
 
 症状：`frames` / `contexts` 都正确列出了跨源 iframe 和它的 execution context，
@@ -89,6 +128,8 @@ flatten 子 session；Chrome 每个子 session 的 context 编号独立，面板
 
 **判据：出现 `frame_not_attached` 错误码，或升级到扩展 ≥ 1.1.1 后症状消失，都说明
 命中的是这个问题；`opencli doctor` 的 Extension 行 < 1.1.1 就仍有这条回归。**
+
+---
 
 ## 扩展侧改动要手动 reload
 

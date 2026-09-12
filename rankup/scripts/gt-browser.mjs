@@ -300,6 +300,51 @@ function openExploreWithCapture(session, url, { settleMs = SETTLE_MS } = {}) {
 }
 
 /**
+ * === 就绪探测（诊断用，非阻塞）===【新增，2026-09-12 实测后加固】
+ *
+ * 背景：本脚本在 `settleMs: 0` 的两个调用点（compare/related 的首轮 REST）open 页面后
+ * 零等待就直接打 REST，理论风险是页面 session/cookie/token 还没建立、REST 会返回
+ * 结构合法但数据为空的响应。2026-09-12 用 5 个真实场景（英文热词、意大利语、阿拉伯语、
+ * related、region）实测：**5/5 首轮 REST 就拿到非空数据，openRounds/restTries 全部
+ * 等于 1**，settleMs:0 没有触发过一次「假空」。之所以安全：REST 走的是同源 fetch
+ * （`credentials:"include"`），只需要浏览器已经带着登录态 cookie 落在 trends.google.com
+ * 这个origin 上就能发起请求并拿到服务器计算好的 token/数据，不依赖页面把 widget
+ * 渲染出来或者 JS bundle 跑完——`settleMs:0` 省掉的 4 秒 sleep 本来就是在等
+ * **前端渲染**，跟 REST 请求能不能成功没有因果关系。
+ *
+ * 保留的安全网：runCaptureQuery / runRelated 里已有的「REST 返回空 → 重开整页
+ * （settleMs 恢复正常）再打一次」逻辑（2026-09-10 加）覆盖了万一真的撞上没就绪的
+ * 极端情况，不依赖这个探测函数做拦截。
+ *
+ * 下面这个探测函数只做**诊断记录**，不参与控制流、不阻塞、不重试：读一次输入框的
+ * value（页面把 URL 里的关键词回填进去，代表查询已被页面处理）和 body 文本里有没有
+ * "Download CSV"（widget 数据加载完成的标志），单次 eval，超时 5s 也不重试，失败就
+ * 返回 null。结果写进 manifest 的 readyProbe 字段，供以后如果哪天 5/5 变成 3/5 时
+ * 判读用——不会因为探测结果不理想就改变本次请求的行为。
+ */
+const READY_PROBE_JS = `(()=>{
+  try {
+    var inputs = document.querySelectorAll('input[type="text"], input:not([type])');
+    var inputValue = null;
+    for (var i = 0; i < inputs.length; i++) {
+      if (inputs[i].value && inputs[i].value.length > 1) { inputValue = inputs[i].value.slice(0, 80); break; }
+    }
+    var text = document.body ? document.body.innerText : "";
+    return { inputValue: inputValue, hasDownloadCsv: text.indexOf("Download CSV") !== -1 };
+  } catch (e) {
+    return { error: String(e && e.message || e) };
+  }
+})()`;
+
+function quickReadyProbe(session) {
+  try {
+    return firstJson(opencliRaw(["browser", session, "eval", READY_PROBE_JS], { timeout: 5000 }));
+  } catch {
+    return null; // 诊断性探测，失败不影响主流程，也不重试
+  }
+}
+
+/**
  * 从 window.__gtCapture 里按 rpcid 取最近一次匹配请求的 {reqBody, resBody}。
  * 【实测，2026-09-09】前台窗口（--window foreground）下抓包壳子普遍能在 g4kJzf/fXqlme
  * 真正发请求之前装好；qrLOJd 是例外，见文件头注释，不走这条路。
@@ -454,6 +499,7 @@ function runCaptureQuery(kws, opts, { rpcid }) {
   let restBody = null;
   let restErr = null;
   let dataPath = "capture";
+  let readyProbe = null; // 诊断字段，见 quickReadyProbe 注释；不参与控制流
   // 抓包壳子装的时机跟页面自己发这个 widget 请求的时机是一场赛跑：多数情况下壳子能
   // 在请求发出前装好，但【实测，2026-09-09】即使同一个查询、同一套代码，个别整页
   // 加载会在壳子装好前就把请求发完（怀疑是 JS bundle 命中浏览器缓存、执行快到抢先），
@@ -472,8 +518,23 @@ function runCaptureQuery(kws, opts, { rpcid }) {
     // 不依赖页面有没有把 widget 渲染出来，所以改成 REST 优先、抓包兜底。
     openExploreWithCapture(session, url, { settleMs: 0 });
     openRounds = 1;
+    // 就绪探测：诊断用，不阻塞、不影响下面的 REST 调用，见 quickReadyProbe 注释。
+    readyProbe = quickReadyProbe(session);
     const rest = fetchRestWidget(session, kws, geo, timeframe, opts, "TIMESERIES", "multiline");
+    // === 空结果校验【新增，2026-09-10】===
+    // 旧逻辑只看 rest.ok（HTTP/解析成功就算数），但「200 + 能 parse」不等于「里面真有
+    // 数据」——token 刚生成、页面还没完全稳定时，Google 有时会回一个结构合法但
+    // timelineData 是空数组的响应。旧逻辑遇到这种情况会直接把 dataPath 标成 "rest" 并
+        // return，调用方看到 rows.length===0 就直接判「无数据」退出，一次重试都没有——
+    // 这正是「浏览器里明明看到有数据，脚本却报 no data」的根因之一。现在先把 timeline
+    // 解出来验证非空，验证通过才当作成功返回；否则当作一次失败，往下走重试路径。
+    let restTimeline = [];
     if (rest.ok) {
+      try {
+        restTimeline = JSON.parse(rest.body)?.default?.timelineData || [];
+      } catch { restTimeline = []; }
+    }
+    if (rest.ok && restTimeline.length) {
       restBody = rest.body;
       restErr = null;
       try {
@@ -485,7 +546,35 @@ function runCaptureQuery(kws, opts, { rpcid }) {
       dataPath = "rest";
       return { decoded: null, restBody, dataPath, geo, timeframe, evidenceDir: dir, session, capturedVia: null };
     }
-    restErr = rest.err;
+    restErr = rest.ok ? "REST 返回 200 但 timelineData 为空（很可能是页面/token 尚未就绪，不代表真的没有数据）" : rest.err;
+
+    // 重开一次整页再试一次 REST，比直接判空更可靠，也比掉到抓包轮询更快（REST 通常
+    // 1-2.5s，抓包轮询单轮就要等到 8s 超时）。这一步就是「重试页面加载而不只是重新
+    // 轮询」的落地：见文件头/任务要求。
+    openRounds++;
+    openExploreWithCapture(session, url, { settleMs: SETTLE_MS });
+    const rest2 = fetchRestWidget(session, kws, geo, timeframe, opts, "TIMESERIES", "multiline");
+    let restTimeline2 = [];
+    if (rest2.ok) {
+      try {
+        restTimeline2 = JSON.parse(rest2.body)?.default?.timelineData || [];
+      } catch { restTimeline2 = []; }
+    }
+    if (rest2.ok && restTimeline2.length) {
+      restBody = rest2.body;
+      restErr = null;
+      try {
+        writeFileSync(join(dir, "raw-multiline.json"), rest2.body + "\n");
+      } catch { /* 落盘失败不影响判读 */ }
+      try {
+        writeFileSync(join(dir, `trends-${kwSlug}.json`), JSON.stringify({ keywords: kws, geo, timeframe, dataPath: "rest", restBody: JSON.parse(rest2.body) }, null, 2) + "\n");
+      } catch { /* 同上 */ }
+      dataPath = "rest";
+      return { decoded: null, restBody, dataPath, geo, timeframe, evidenceDir: dir, session, capturedVia: null };
+    }
+    restErr = rest2.ok
+      ? "重开页面后 REST 仍然返回空 timelineData（两轮都空，大概率是这个词/范围真的没有数据，而非脚本故障）"
+      : (rest2.err || restErr);
 
     let cap = null;
     while (!cap && openRounds < MAX_OPEN_ROUNDS) {
@@ -529,6 +618,7 @@ function runCaptureQuery(kws, opts, { rpcid }) {
         openRounds,
         scrolled: null,
         lazyBlocksLoaded: null,
+        readyProbe, // 诊断字段：settleMs:0 之后页面就绪信号的一次性快照，见 quickReadyProbe
         stopReason,
         finishedAt: new Date().toISOString(),
       });
@@ -594,6 +684,40 @@ function runRegionQuery(kws, opts, topN) {
           writeFileSync(join(dir, "raw-comparedgeo.json"), rest.body + "\n");
         } catch { /* 落盘失败不影响判读 */ }
         return { seen, geo, timeframe, evidenceDir: dir, session };
+      }
+    }
+
+    // === 空结果重试【新增，2026-09-10】===
+    // 跟 compare 同一个坑：REST 200 + 能 parse，但 geoMapData 是空数组，不等于「真的没有
+    // 地区数据」，也可能是页面/token 还没就绪。直接掉进下面的 DOM 兜底之前，先整页重开
+    // 一次再打一遍 REST——这条路比等 DOM 表格渲染快得多，也更可靠。
+    if (!seen.size) {
+      restErr = restErr || "REST 返回 200 但 geoMapData 为空（可能是页面/token 尚未就绪，不代表真的没有数据）";
+      openExploreWithCapture(session, url, { settleMs: SETTLE_MS });
+      scrolled = scrollPanesToBottom(session).scrolled || scrolled;
+      const rest2 = fetchRestWidget(session, kws, geo, timeframe, opts, "GEO_MAP", "comparedgeo", { reqPatch });
+      restTries += rest2.tries;
+      if (rest2.ok) {
+        let geoRows2 = [];
+        try {
+          geoRows2 = JSON.parse(rest2.body)?.default?.geoMapData || [];
+        } catch { geoRows2 = []; }
+        for (const g of geoRows2) {
+          if (!g?.geoCode) continue;
+          const values = new Map();
+          kws.forEach((k, i) => values.set(k, Number(g.value?.[i] ?? 0)));
+          seen.set(g.geoCode, { name: g.geoName || g.geoCode, values });
+        }
+        if (seen.size) {
+          dataPath = "rest";
+          try {
+            writeFileSync(join(dir, "raw-comparedgeo.json"), rest2.body + "\n");
+          } catch { /* 落盘失败不影响判读 */ }
+          return { seen, geo, timeframe, evidenceDir: dir, session };
+        }
+        restErr = "重开页面后 REST 仍然返回空 geoMapData（两轮都空，大概率是这个词/范围真的没有地区数据）";
+      } else {
+        restErr = rest2.err || restErr;
       }
     }
 
@@ -964,12 +1088,16 @@ function runRelated(kws, opts) {
   let restErr = null;
   let scrolled = false;
   let domH3 = null;
+  let readyProbe = null; // 诊断字段，见 quickReadyProbe 注释；不参与控制流
   const sections = { top: [], rising: [] };
   const t0 = Date.now();
   try {
     // related 走 REST，只需要「页面已经落在 trends.google.com 同源上下文」，
-    // 不需要等 widget 起来，所以 settle 直接给 0（省掉 4 秒）。
+    // 不需要等 widget 起来，所以 settle 直接给 0（省掉 4 秒）。【实测，2026-09-12】
+    // 5 次真实场景重跑（含 related 本身）里首轮 REST 都是非空——settleMs:0 没有暴露过
+    // 「页面未就绪导致假空」的问题，见 quickReadyProbe 顶部的完整说明。
     openExploreWithCapture(session, url, { settleMs: 0 });
+    readyProbe = quickReadyProbe(session); // 诊断用，不阻塞、不改变下面的取数路径
     scrolled = scrollPanesToBottom(session).scrolled;
 
     const rest = fetchRestWidget(session, kws, geo, timeframe, opts, "RELATED_QUERIES", "relatedsearches");
@@ -986,6 +1114,32 @@ function runRelated(kws, opts) {
         dataPath = "rest";
       } else {
         restErr = "REST 返回了合法响应但两张榜都是空的（Google 侧没给数据）";
+      }
+    }
+
+    if (dataPath === "none") {
+      // === 空结果重试【新增，2026-09-10】===
+      // 同一个坑：REST 200 + 能 parse，但两张榜都是空，不等于「这个词真的没有相关查询」，
+      // 也可能是页面/token 还没就绪。掉进 DOM 兜底（在隐藏标签页里基本恒空，见文件头）
+      // 之前，先整页重开一次再打一遍 REST——这一步比 DOM 兜底更可能救回真实数据。
+      openExploreWithCapture(session, url, { settleMs: SETTLE_MS });
+      scrolled = scrollPanesToBottom(session).scrolled || scrolled;
+      const rest2 = fetchRestWidget(session, kws, geo, timeframe, opts, "RELATED_QUERIES", "relatedsearches");
+      restTries += rest2.tries;
+      if (rest2.ok) {
+        try {
+          writeFileSync(join(dir, "raw-relatedsearches-retry.json"), rest2.body + "\n");
+        } catch { /* 落盘失败不影响判读 */ }
+        const parsed2 = parseRelatedRest(rest2.body);
+        if (parsed2.top.length || parsed2.rising.length) {
+          sections.top = parsed2.top;
+          sections.rising = parsed2.rising;
+          dataPath = "rest";
+        } else {
+          restErr = "重开页面后 REST 仍然返回空榜（两轮都空，大概率是这个词真的没有相关查询数据，而非脚本故障）";
+        }
+      } else {
+        restErr = rest2.err || restErr;
       }
     }
 
@@ -1038,6 +1192,7 @@ function runRelated(kws, opts) {
         // 所以这一项现在只反映「DOM 兜底有没有读到行」，正常情况下就是 false。
         lazyBlocksLoaded: dataPath === "dom",
         domH3,
+        readyProbe, // 诊断字段：settleMs:0 之后页面就绪信号的一次性快照，见 quickReadyProbe
         topRows: sections.top.length,
         risingRows: sections.rising.length,
         elapsedMs: Date.now() - t0,

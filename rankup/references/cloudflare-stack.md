@@ -27,6 +27,41 @@ SSR 最小验收不是进程启动，而是请求真实路由后同时确认：
 3. 客户端水合后关键交互正常且没有运行时错误。
 4. API 错误与未授权路径不会泄露堆栈、配置或密钥。
 
+### 2.1 New Module Registry（可选 flag，2026-09 关注，本仓库尚未实测）
+
+2026-09-09 Cloudflare 官方博客（`workers-module-registry-nodejs`）宣布重写了 `workerd`
+底层的 Module Registry，是 ESM/CJS/Wasm 解析加载体系本身的重写，不是 `nodejs_compat`
+的增量升级。核心变化：
+
+- 模块 specifier 按**标准 URL** 解析（之前是类文件路径的私有 mock），因此
+  `import.meta.url`、`import.meta.main`、`import.meta.resolve()` 第一次原生可用。
+- `require(esm)` 按 Node.js 最新规范工作——CommonJS 与 ESM 混用不再稳定触发
+  `ERR_REQUIRE_ESM`。
+- 懒编译：未被实际用到的模块不在启动时整体编译，冷启动与内存占用下降。
+- 应用体积上限提到**所有套餐 64 MiB**（此前的限制逼着打包器把几百个 npm 包硬编译进
+  单文件）。
+
+**这是 opt-in flag，不是默认行为，也没有默认开启日期**：
+
+```jsonc
+{ "compatibility_flags": ["new_module_registry"] }
+```
+
+已部署的 Worker 不受影响，旧 registry 继续跑；只有显式加这个 flag 才切换。
+
+**对本仓库现有项目的判断（2026-09-11 复核）**：`nonogram-jp`、`crossword-ar`、
+`<project>`（某小工具站）、`videocatch` 四个 Worker 项目的 `wrangler.jsonc`/`wrangler.toml` 都只有
+`nodejs_compat`，没有人加过 `new_module_registry`；`.rankup/` 里也没有任何项目记录过
+`ERR_REQUIRE_ESM`、`import.meta` 报错或因 esbuild 单文件打包导致冷启动变慢的踩坑—— TanStack
+Start 的 `@cloudflare/vite-plugin` 构建链目前没有把我们逼到这些墙上，因此**这不是紧急修复
+项**，先记录可用性，不主动改现有项目配置。
+
+**什么时候该回来试这个 flag**：以后新引入某个较重的 npm 包（尤其是仍发 CJS 主入口、或
+显式用 `import.meta.url` 定位资源的库）在 Workers 上打包或运行时报错、或某个 Worker 冷启动
+明显变慢/体积逼近旧上限时，先查是不是撞了旧 registry 的墙，再按上面的判据决定要不要加
+`new_module_registry` 单独在预览环境试跑，两条兼容性 flag（`nodejs_compat` 与
+`new_module_registry`）互不冲突、可以同时开。
+
 ## 3. 按需求选择资源
 
 | 需求 | 默认资源 | 适用边界 | 最小验证 |
@@ -236,6 +271,67 @@ Cloudflare 后台点"用该身份登录"会失败，表现为**控制台整个�
 「Always Use HTTPS」解决——判据与具体规则写法见
 [`seo-box.md`](seo-box.md)「二 · 重定向链：要能力，不要那个网站」。
 
+### 域名绑定到 Workers（全 API，零界面操作）
+
+**目标**：以后用户只需要说"域名买完了"并给出域名，就能自动走完 zone 接入
+→ Workers 自定义域名绑定 → 环境变量 → 索引放开的全流程，只把分配到的 NS
+地址返回给用户去注册商那边改，不需要用户或 Claude 再点任何 Cloudflare 控制台
+页面。这条是上面"路径 B 脚本"和"§9.1 Workers Builds API"两段经验在**域名接入
+这一步**的延伸整合，记录一次完整实测串联起来的顺序，供以后直接照抄。
+
+**前提**：
+- 凭据（scoped API Token 或 Global API Key，选型判据见上文「凭据选型」）已就绪，
+  `wrangler whoami` 能成功返回 Account ID。
+- 目标 Worker 已通过 Workers Builds 部署（push `main` 自动构建，见 §9.1）。
+
+**触发**：用户说"域名买完了""帮我绑域名""这个域名绑一下"并给出域名名称。
+
+**流程（按顺序执行）**：
+
+1. **添加 zone**：`POST /zones`，`account.id` 填目标账号，`type: full`。
+   响应的 `result.id` 是 zone_id；`result.name_servers` 是唯一要回传给用户的东西；
+   `result.original_registrar` 能看出域名在哪个注册商——流程不依赖具体注册商，
+   只要用户能进去改 NS 就行。这一步也可以直接用已有的 `scripts/cf-zone-setup.mjs
+   create <domain>`，两者等价，脚本内部同样是这个端点。
+
+2. **绑定 Workers 自定义域名**（裸域 + `www` 各一条）：`PUT
+   /accounts/{account_id}/workers/domains`，请求体为
+   `{"hostname": "<domain 或 www.<domain>>", "zone_id": "<zone_id>", "service":
+   "<worker-name>", "environment": "production"}`。Cloudflare 自动签发证书
+   （响应带 `cert_id`），不需要手动去 SSL/TLS 页面等待。
+   **端点必须是 `/accounts/{account_id}/workers/domains`（单条 PUT，一次绑一个
+   hostname），不是 `/workers/scripts/{name}/domains`**——后者不存在，会报
+   parse error，是本次实测踩到的第一个坑。
+
+3. **设置 `SITE_URL` 环境变量**：不要用 Workers 的 `PUT .../settings` API 改——
+   那个端点要求 `Content-Type: multipart/form-data`，不接受 JSON，比直接改配置
+   麻烦。改在项目的 `wrangler.jsonc`（通常在 `apps/<site>/wrangler.jsonc`）的
+   `vars` 里写 `"SITE_URL": "https://<domain>"`，提交推送 `main`，Workers Builds
+   自动重新部署（见 §9.1）。
+
+4. **把 NS 地址交给用户**：取步骤 1 响应里的 `result.name_servers`（一对），
+   按上文「换 NS 之前必须先关 DNSSEC」的顺序提醒用户——先关注册商侧 DNSSEC，
+   再整体替换 NS（不是追加），而不是直接甩两个地址过去让用户自己踩坑。
+
+5. **等 NS 生效**：判定方式见上文「判定域名状态只看注册局 whois」，不要用本机
+   `dig` 下结论；也可以轮询 `GET /zones/<zone_id>`，看 `status` 从 `pending`
+   变成 `active`。通常几分钟到 24 小时不等，不要在这一步空等或反复轮询占用前台。
+
+6. **NS 生效后放开索引**：在 `wrangler.jsonc` 的 `vars` 里加
+   `"ALLOW_INDEX": "true"`，提交推送，走 Workers Builds 自动重新部署。
+   同样不必走 Workers settings API——直接改配置文件更省事，理由同步骤 3。
+
+**这一条经验补充的坑，前两段没写全的部分**：
+- Workers Custom Domains 的正确端点是账号级的 `/accounts/{account_id}/
+  workers/domains`，裸域和 `www` 子域名各发一次请求，不是一次调用绑两个 host。
+- 环境变量（`SITE_URL`、`ALLOW_INDEX`）走 `wrangler.jsonc` 而不是 Workers
+  settings API，是因为后者的 `multipart/form-data` 要求在纯脚本化流程里明显
+  更麻烦，不是这个 API 做不到。
+- 域名在哪个注册商买的不影响这条流程，只要用户能进去改 NS 就行。
+
+**实测验证**：2026-09-11，两个域名分别绑定到各自的 Workers 项目，从 zone
+创建到自定义域名生效、环境变量部署，全流程走 API 完成，全程零界面操作。
+
 ## 8.6 品牌邮箱：Cloudflare Email Routing
 
 域名在 Cloudflare 上之后，用 **Email Routing** 给站点加一个官方邮箱（如 `hello@<domain>`），
@@ -316,6 +412,18 @@ Google AI Overview）的爬虫与训练爬虫共用 User-Agent，阻止训练同
 Git 集成的自动构建与本地手动部署两条路径并存时，**以 Cloudflare 自动构建产生的 deployment 为准**。
 **没有”额度用完自动切换”这种机制**，不要向用户承诺。
 
+### 段 3 建站部署必做清单
+
+脚手架跑通、仓库建好之后，**以下五步必须在段 3 内完成**，不留到段 5：
+
+1. **安装 Cloudflare Vite 插件**：`pnpm -C apps/web add -D @cloudflare/vite-plugin`，在 `vite.config.ts` 里把 `cloudflare({ viteEnvironment: { name: "ssr" } })` 放在 `tanstackStart()` **之前**。
+2. **创建 `wrangler.jsonc`**：在 `apps/web/` 下建，必填 `name`、`compatibility_date`、`nodejs_compat`、`main: "@tanstack/react-start/server-entry"`、`assets.binding`。
+2b. **配置 `pnpm.onlyBuiltDependencies`**：在根 `package.json` 的 `pnpm.onlyBuiltDependencies` 数组里加入 `workerd` 和 `unrs-resolver`。Workers Builds CI 默认禁止 postinstall 脚本，不加这两个包会导致 workerd 原生二进制文件缺失、vite plugin 无法正确生成 `dist/server/wrangler.json`，deploy 阶段报 entry-point not found。
+4. **接入 Workers Builds**：跑 `cf-builds-connect.mjs`（参数模板见 §9.1 表格），确认 trigger 已建、环境变量已写。GitHub App 首次装到 org/user 时需要浏览器 OAuth，装完后全程走脚本。
+5. **触发并验证首次构建**：Workers Builds 连接后**不会自动构建**，需手动触发一次或 push 一个命中 watch paths 的提交，确认构建成功且线上可访问。
+
+**判据**：push `main` 后 3-5 分钟内 Cloudflare 自动构建部署，线上响应更新。未达到此判据，段 3 部署环节不算完成。
+
 ### 9.1 接入方式：Git 存储库连接 / Workers Builds
 
 **优先用脚本走 API，不开浏览器。** 下面的控制台路径只在 GitHub App 还没装到目标 org/user
@@ -380,9 +488,16 @@ Workers Routes Write）在 `GET /accounts/{account_id}/tokens/permission_groups`
 | Branch | `main` |
 | Root directory | 留空 |
 | Build command | `pnpm install --frozen-lockfile && pnpm -C apps/<site> run build` |
-| Deploy command | `pnpm -C apps/<site> exec wrangler deploy --config wrangler.jsonc` |
+| Deploy command | `pnpm -C apps/<site> exec wrangler deploy --config dist/server/wrangler.json` |
 | 环境变量 | `NODE_VERSION`、`PNPM_VERSION`（同上） |
 | Build watch paths | include `apps/<site>/*`、`apps/<site>/**/*`、`packages/**`、`pnpm-lock.yaml` |
+
+**deploy_command 必须指向 vite build 生成的配置**：`@cloudflare/vite-plugin` 在 `vite build` 时
+生成 `apps/<site>/dist/server/wrangler.json`（内含 `"main":"index.js"` 和 `"no_bundle":true`），
+wrangler 实际读的是这个生成配置。源 `wrangler.jsonc` 的 `main` 是虚拟路径
+`@tanstack/react-start/server-entry`，在 CI 环境下 wrangler 无法解析，deploy 阶段会报
+`entry-point file not found`。本地 `wrangler dev` 能跑是因为 vite plugin 做了 redirect，
+但 `wrangler deploy --config wrangler.jsonc` 在 CI 里不走这条路。
 
 【实测 2026-09-06，某 pnpm monorepo（Node 26，pnpm 10.33.4）】Pages 项目连接后
 自动触发首次构建，50 秒内成功，Node 26 可用；Worker 项目连接后**不会自动触发构建**，
@@ -397,7 +512,7 @@ Workers Routes Write）在 `GET /accounts/{account_id}/tokens/permission_groups`
 
 - **Workers Builds 连接不自动构建**：Pages 连接后立即自动构建；Workers Builds 连接后不会自动触发，需一次命中 watch paths 的 push。Pages 里被 watch paths 排除的 commit 显示 skipped，属正常。
 - **控制台路径**：Worker 部署列表 `/workers/services/view/<worker>/production/deployments`；构建历史 `/workers/services/view/<worker>/production/builds`（「部署」标签页内「前往构建历史」）；单次构建详情页顶部标题右侧有「重试构建」按钮。
-- **REST API 不可用**：`/accounts/<id>/builds/workers/<worker>/builds` 实测始终返回 0 条；`wrangler deployments list` 只能靠时间戳对应；构建状态以控制台为准。
+- **构建状态 API**：按 worker 列构建 `/accounts/<id>/builds/workers/<worker>/builds` 实测始终返回空数组（已知问题）；但**单次构建状态和日志可用**：`GET /accounts/<id>/builds/builds/<build_uuid>` 返回构建详情（status/build_outcome），`GET /accounts/<id>/builds/builds/<build_uuid>/logs` 返回构建日志。build_uuid 在手动触发或 webhook 响应中获取。**trigger 配置可 PATCH 更新**：`PATCH /accounts/<id>/builds/triggers/<trigger_uuid>` 可以修改 deploy_command、build_command 等字段，无需删除重建。
 - **幽灵依赖坑**：apps/web 直接 import 只在 packages/ui 声明的包（如 `sonner`），本地能过、Cloudflare `pnpm install --frozen-lockfile` 后解析失败。接入前必须在 `mktemp -d` 做干净克隆验证：`git clone --depth 1 + pnpm install --frozen-lockfile + pnpm -C apps/<site> run build` 全部通过，所有直接 import 的包都要在本包 package.json 声明。
 - **实测耗时**：Pages 静态站约 50 秒，Worker（TanStack Start）约 58 秒；Node 26.8.1 可用。
 - **skipped 构建的真实原因（2026-09-07 用 API 确认更正）**：此前记录"手动 wrangler deploy 抢占排队中的自动构建导致 skipped"是错误归因。真实原因是 Cloudflare Pages 的 build watch paths 不匹配 `apps/<site>/**` 这种写法——单独的 `**` 通配符不会命中该目录下的一级文件，导致对应 commit 被判定为不在 watch 范围内而 skipped。改成 `apps/<site>/*` + `apps/<site>/**/*`（一级文件 + 更深层级都覆盖）后重试构建即可成功。手动 `wrangler deploy`/`wrangler pages deploy` 与 Git 自动构建各自生成独立的 deployment 记录，并存时以后完成的那次为准，不会导致对方被标记 skipped。配置与重试都可走 Pages API（`source.config.path_includes` 改 watch paths、`deployments/<id>/retry` 重试构建），不必开浏览器。Pages 一次自动构建约 1 分钟，Workers 约 1 分钟，push 后等 3 到 5 分钟再看。

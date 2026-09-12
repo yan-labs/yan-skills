@@ -6,16 +6,25 @@
  * 抓工具页 HTML 拿到该工具专属的 X-<TOOL>-Token，再 POST 到 /<工具>/api/<动作>。
  * 差异只在端点名和请求体字段。拆成多个脚本会把同一段取令牌逻辑抄很多遍。
  *
- * 认证：**零配置即可跑**。
- *   - 除 kd 外的全部工具：脚本 GET /<工具>/，从返回的 HTML 里正则抽出令牌与请求头名。
- *     已实测：不带任何 Cookie 也会下发可用令牌，API 正常返回，只是配额停在匿名档 10/日。
- *     想提额再给 SEO_WEBCAFE_COOKIE（登录 100/日、VIP 500/日）。
+ * 认证：**默认登录态，零配置即可跑到登录/VIP 档；游客是显式降级**。
+ *   - 除 kd 外的全部工具：默认经 OpenCLI 驱动用户本机已登录的 Chrome 执行请求
+ *     （浏览器天然带 Cookie，脚本从已登录页面的 HTML 里正则抽同一份令牌与请求头名，
+ *     发 credentials:"include" 请求）。只有 `--guest` 显式要求，或 OpenCLI 不可用/
+ *     驱动失败，才落回 node 侧裸 fetch——那条路径没有 Cookie，配额停在匿名档 10/日，
+ *     回退时脚本会在 stdout 打印醒目警告，不会悄悄发生。
  *   - kd 走公开 API，需要 SEO_WEBCAFE_TOKEN（wc_mcp_ 开头，在 /kd/docs 自助生成）。
+ *     **这条命令本身就是登录态**：登录态体现在生成令牌时的账号上，不是浏览器 Cookie 上
+ *     （实测 `/kd/api/v1/kd` 带 Cookie 不带 Bearer 直接 401，两条鉴权路径不通用，
+ *     不能像别的工具那样转发进浏览器执行）。quota 探测默认经浏览器读同一个
+ *     `/kd/api/me`，比 node 侧裸 fetch（只认 IP，永远打「游客」）准得多。
  *
  * 边界：本脚本只读取服务端主动下发给当前访问者的令牌，等同于页面自身的行为。
  * 它不推导、不伪造令牌的生成算法——那属于绕过访问控制，不做。
  *
- * 已验证：2026-08-07（匿名与登录 VIP 两种身份都实测通过）
+ * 已验证：2026-08-07（匿名与登录 VIP 两种身份都实测通过）；2026-09-11 加登录态浏览器默认路径
+ * （事故：三个执行者把 kd 的访客 IP 计数误报当成令牌真实上限，批量刚起步就以为耗尽——
+ * 同时实测证伪「chat 一次多词更省配额」：5 词一条消息扣 31 点，比逐词调 kd（1/词）贵得多，
+ * 批量选词仍应走 kd，不要切去 chat）。
  * 双证人化改造 2026-08-30：本地命令只出数值（评级/命名迁 references/seo-webcafe.md）；
  * 非 200 / 解析失败的响应原文恒久化到 --out 目录或 .rankup/evidence/。
  * 验证过的端点见 ../references/seo-webcafe.md 的「补录」一节。
@@ -41,9 +50,17 @@
 import { writeFileSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import { newEvidenceDir, writeManifest } from "./lib-scene.mjs";
 
 const BASE = "https://seo.web.cafe";
+/**
+ * 固定会话名，驱动用户本机已登录的真实 Chrome（OpenCLI）。这是配额站，
+ * 所以按 discipline.md 六「配额站不传 --session」同一条纪律：会话名在脚本里
+ * 写死成描述性字面常量，不暴露成 CLI 参数，也绝不用 `$$`（Bash tool 里 PID
+ * 每次调用都变，`open` 和 `eval` 会话名对不上，`eval` 就会对着空标签页执行）。
+ */
+const WEBCAFE_SESSION = "webcafe-nav";
 /**
  * **必须显式带 User-Agent。** 实测不带这个头，任何请求都直接 403 Forbidden，
  * 而且返回的是 HTML 错误页不是 JSON，脚本里表现为「解析失败」而非「被拒绝」，
@@ -342,6 +359,115 @@ async function toolAuth(tool) {
   return auth;
 }
 
+/**
+ * 登录态默认路径（2026-09-11 事故修复）：驱动用户本机已登录的真实 Chrome（OpenCLI），
+ * 把请求发进已登录的页面里执行，而不是抠 httpOnly cookie。
+ *
+ * 之前的版本只在 quotaPreflight 里打一段文字提示「你可以这样手动跑」，从不真的执行——
+ * 结果是没人愿意手动敲那几行 opencli 命令，脚本实际上永远走 node 侧裸 fetch，
+ * 永远匿名，永远访客档 10/日。三个执行者今天用同一个 KD_TOKEN 批量跑 kd 很快耗尽，
+ * 就是把这条误导性的访客计数当成了真实上限（见 officialQuotaPreflight 的实测修正）。
+ * 这里把「能力」变成「默认行为」：session 类工具默认经浏览器执行，访客只在
+ * OpenCLI 不可用或显式 --guest 时作为兜底，并且兜底必须在 stdout 打印醒目警告。
+ */
+let _opencliAvailable;
+function opencliAvailable() {
+  if (_opencliAvailable !== undefined) return _opencliAvailable;
+  try {
+    execFileSync("which", ["opencli"], { stdio: "ignore" });
+    _opencliAvailable = true;
+  } catch {
+    _opencliAvailable = false;
+  }
+  return _opencliAvailable;
+}
+
+/** 一个进程内同一个工具页只 open 一次——批量模式下同一 spec 会调很多次，没必要每次都重新导航。 */
+const browserOpenedTools = new Set();
+function opencliOpenTool(tool) {
+  if (browserOpenedTools.has(tool)) return;
+  execFileSync("opencli", ["browser", WEBCAFE_SESSION, "open", `${BASE}/${tool}/`], {
+    encoding: "utf8",
+    timeout: 30000,
+  });
+  browserOpenedTools.add(tool);
+}
+
+/** 在已打开的工具页里跑一段 eval，返回其 stdout（opencli 把结果 JSON 打到 stdout，警告走 stderr）。 */
+function opencliEval(code) {
+  return execFileSync("opencli", ["browser", WEBCAFE_SESSION, "eval", code], {
+    encoding: "utf8",
+    timeout: 30000,
+  }).trim();
+}
+
+/**
+ * 把一次 HTTP 请求发进浏览器里执行：页面自己抽令牌（同 toolAuth 的正则，但读的是
+ * 浏览器里已登录会话渲染出的 HTML，天然带 Cookie）+ `credentials:"include"` 发请求。
+ * 返回值形状对齐 callOfficial/callSession 的 {status, raw}，调用方按 spec.*Sse 继续解析。
+ */
+async function browserRequest(spec, a) {
+  opencliOpenTool(spec.tool);
+  const method = spec.method || "POST";
+  const bodyStr = method === "POST" ? JSON.stringify(spec.body(a)) : null;
+  const qs = method === "GET" && spec.query ? `?${new URLSearchParams(spec.query(a))}` : "";
+  const code = `(async()=>{
+    const html = document.documentElement.outerHTML;
+    const tok = (html.match(${TOKEN_RE.toString()})||[])[0];
+    const hdr = (html.match(${HEADER_RE.toString()})||[])[0];
+    if (!tok || !hdr) return {__err: "在页面 HTML 里没找到令牌或请求头名，多半是站点改版了"};
+    const headers = {[hdr]: tok};
+    const opts = {method: ${JSON.stringify(method)}, credentials: "include", headers};
+    ${bodyStr ? `headers["content-type"] = "application/json"; opts.body = ${JSON.stringify(bodyStr)};` : ""}
+    const r = await fetch(${JSON.stringify(spec.path + qs)}, opts);
+    const raw = await r.text();
+    return {__status: r.status, __raw: raw};
+  })()`;
+  let out;
+  try {
+    out = opencliEval(code);
+  } catch (e) {
+    throw new Error(`opencli eval 执行失败（session=${WEBCAFE_SESSION}）：${String(e?.message || e).slice(0, 300)}`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(out);
+  } catch {
+    throw new Error(`opencli eval 返回的不是预期 JSON：${out.slice(0, 300)}`);
+  }
+  if (parsed.__err) throw new Error(parsed.__err);
+  return { status: parsed.__status, raw: parsed.__raw };
+}
+
+/**
+ * 经浏览器读 `/<tool>/api/me`：不耗配额、不需令牌，返回值天然带 Cookie，
+ * 所以读到的是**当前登录账号的真实档位**，不是 node 侧裸 fetch 那个只认 IP 的访客计数。
+ * 用于两条 quotaPreflight 的默认路径；失败（OpenCLI 不可用/未登录/接口变了）时返回 null，
+ * 调用方退回旧的访客 IP 计数并打印「这不是真实余额」的提示。
+ */
+function browserMeQuota(tool) {
+  if (!opencliAvailable()) return null;
+  try {
+    opencliOpenTool(tool);
+    const out = opencliEval(
+      `(async()=>{ const r = await fetch(${JSON.stringify(`/${tool}/api/me`)}, {credentials:"include"}); const j = await r.json().catch(()=>null); return j; })()`
+    );
+    return JSON.parse(out);
+  } catch {
+    return null;
+  }
+}
+
+/** 打印醒目的访客档降级警告，回退时必须显式喊出来，不能悄悄跑。 */
+function warnGuestFallback(reason) {
+  console.error(
+    `\n⚠️⚠️⚠️  当前为游客档 10/日（${reason}），请启用登录态浏览器再跑正式批量。\n` +
+      "    默认应经 OpenCLI 驱动你本机已登录的 Chrome（登录 100/日、VIP 500/日）；\n" +
+      "    确认 `opencli doctor` 是绿的、Chrome 里已登录 seo.web.cafe，再重跑本命令。\n" +
+      "    只有确实要临时用访客档时，才显式加 --guest 消掉这条警告。\n"
+  );
+}
+
 // gt 合并进来之前,KD 令牌是放在 Skill 目录的 .env 里的(键名 KD_TOKEN),
 // 只装一次就一直能用。合并后若只认环境变量,等于要求用户每次 export,
 // 是无声的体验倒退,所以这里保留 .env 兜底,两个键名都认。
@@ -381,13 +507,56 @@ async function callOfficial(spec, a) {
   return { status: r.status, data: safeJson(txt), raw: txt };
 }
 
-async function callSession(spec, a) {
+/**
+ * kd 专用重试包装（2026-09-11 加）：`keywordVolume==null && cached===false` 说明面板侧
+ * Google Trends 锚点校验没在这次请求的超时内跑完，不代表真的没有搜索量——今天实测
+ * kreuzworträtsel 首查「—」，`--force` 重跑一次就拿到 40,620。批量跑 kd 时如果每次命中
+ * 这种情况都要人工重跑一遍，等于把「批量」拆成两轮体力活，所以这里自动做，而不是
+ * 每次都在报告里堆一串「建议 --force 重跑」然后指望有人手动执行。
+ *
+ * 只重试一次（花一次配额），用 spec.spacingMs（或 --spacing-ms）同一档间隔——不用更短的
+ * 间隔硬冲，避免把偶发的锚点校验超时误诊成「fetch 快点就行」。两次都拿不到值才真的标
+ * `anchorPending: true`，交给 summarize() 打印成 anchor-pending，不再暗示还能再试。
+ * `format=markdown` 响应（data.markdown 而非 data.keywordVolume）不适用这条判断，直接透传。
+ */
+async function callOfficialKdWithRetry(spec, a, spacing) {
+  const res = await callOfficial(spec, a);
+  if (res.status !== 200 || !res.data || res.data.markdown) return res;
+  const missed = res.data.keywordVolume == null && res.data.cached === false;
+  if (!missed || a.force) return res;
+  console.error(`  ⏳ ${a.keyword || "(未知词)"} → 锚点校验未完成，自动 --force 重试`);
+  if (spacing) await new Promise((r) => setTimeout(r, spacing));
+  const retry = await callOfficial(spec, { ...a, force: true });
+  if (retry.status !== 200 || !retry.data) return retry;
+  if (retry.data.keywordVolume == null && retry.data.cached === false) {
+    retry.data.anchorPending = true;
+    retry.data.volume = null;
+    retry.data.reason = "anchor-pending";
+  }
+  return retry;
+}
+
+/** 按 spec 的流类型把 {status, raw} 解析成 {status, data, raw}——guest/browser 两条路径共用。 */
+function finalizeSessionResult(spec, status, txt) {
+  if (spec.chatSse) return { status, data: parseChatSse(txt), raw: txt };
+  if (spec.stepSse) return { status, data: parseAdsenseSse(txt), raw: txt };
+  if (spec.genericSse) return { status, data: parseGenericSse(txt), raw: txt };
+  if (spec.sse) return { status, data: { text: parseSse(txt) }, raw: txt };
+  return { status, data: safeJson(txt), raw: txt };
+}
+
+/**
+ * 访客/手动 Cookie 路径（node 侧裸 fetch）。**这是降级路径，不是默认路径**——
+ * 只有 --guest 显式要求、或 SEO_WEBCAFE_COOKIE 手动给了、或 OpenCLI 不可用兜底时才走这里。
+ * 默认路径是下面的 callSessionAuto → browserRequest。
+ */
+async function callSessionGuest(spec, a) {
   if (spec.needsLogin && !cookie()) {
     die(
-      "这条命令必须登录，匿名会被服务端拒绝（401 code=login）。\n" +
-        "其余工具匿名可用，只有 SEO Agent 例外。\n" +
-        "登录 https://seo.web.cafe 后从开发者工具复制整个 Cookie 请求头，然后\n" +
-        "  export SEO_WEBCAFE_COOKIE='...'\n" +
+      "这条命令必须登录，匿名会被服务端拒绝（401 code=login），且当前没有可用的登录态浏览器\n" +
+        "（--guest 或 OpenCLI 不可用）。两种给法：\n" +
+        "  1. 装好 OpenCLI 并确保 Chrome 已登录 seo.web.cafe，去掉 --guest 重跑（推荐，默认路径）；\n" +
+        "  2. 登录 https://seo.web.cafe 后从开发者工具复制整个 Cookie 请求头，export SEO_WEBCAFE_COOKIE='...'。\n" +
         "本脚本不会代替你登录。"
     );
   }
@@ -403,11 +572,37 @@ async function callSession(spec, a) {
   const qs = method === "GET" && spec.query ? `?${new URLSearchParams(spec.query(a))}` : "";
   const r = await fetch(`${BASE}${spec.path}${qs}`, opt);
   const txt = await r.text();
-  if (spec.chatSse) return { status: r.status, data: parseChatSse(txt), raw: txt };
-  if (spec.stepSse) return { status: r.status, data: parseAdsenseSse(txt), raw: txt };
-  if (spec.genericSse) return { status: r.status, data: parseGenericSse(txt), raw: txt };
-  if (spec.sse) return { status: r.status, data: { text: parseSse(txt) }, raw: txt };
-  return { status: r.status, data: safeJson(txt), raw: txt };
+  return finalizeSessionResult(spec, r.status, txt);
+}
+
+/**
+ * 默认入口：session 类工具（serp/audit/review/worth/backlink/adsense/history/chat/…）
+ * 一律先尝试经 OpenCLI 驱动用户已登录的 Chrome；只有下面两种情况才降级到访客/手动 Cookie，
+ * 且降级必须在 stdout 打一条醒目警告：
+ *   1. `--guest` 显式要求（CI、沙箱、明确不想碰用户浏览器时用）；
+ *   2. 本机 OpenCLI 不可用，或驱动浏览器这一步本身失败（`needsLogin` 的工具直接 die，
+ *      因为它们匿名必 401，降级也没用）。
+ * `SEO_WEBCAFE_COOKIE` 仍然认——手动给了 Cookie 就说明用户知道自己在干什么，跳过浏览器更快。
+ */
+async function callSessionAuto(spec, a) {
+  if (a.guest) {
+    if (spec.needsLogin && !cookie()) die("--guest 与这条命令冲突：它必须登录，匿名 401，没有降级路径。");
+    return callSessionGuest(spec, a);
+  }
+  if (cookie()) return callSessionGuest(spec, a); // 手动给了 Cookie，跳过浏览器
+  if (!opencliAvailable()) {
+    if (spec.needsLogin) die("这条命令必须登录，且本机 OpenCLI 不可用（`opencli doctor` 先看红在哪），没有降级路径。");
+    warnGuestFallback("本机 OpenCLI 不可用");
+    return callSessionGuest(spec, a);
+  }
+  try {
+    const { status, raw } = await browserRequest(spec, a);
+    return finalizeSessionResult(spec, status, raw);
+  } catch (e) {
+    if (spec.needsLogin) die(`驱动登录态浏览器失败，这条命令没有降级路径：${e.message}`);
+    warnGuestFallback(`驱动登录态浏览器失败：${String(e.message).slice(0, 150)}`);
+    return callSessionGuest(spec, a);
+  }
 }
 
 function safeJson(t) {
@@ -572,7 +767,16 @@ function summarize(name, data) {
     const home = det.filter((d) => d.isHomepage === true || d.pageType === "首页").length;
     const ded = det.filter((d) => d.dedicated).length;
     const shape = det.length ? ` · 盘面 ${det.length} 位（首页 ${home}/内页 ${det.length - home}，专营 ${ded}）` : "";
-    return `KD ${data.score} ${data.level}${brand} · 月搜 ${data.keywordVolume ?? "—"} · 引用域中值 ${data.linkBudget?.quality?.mid ?? "—"}${shape}${rising}${newcomer}`;
+    // 2026-09-11 实测：keywordVolume 偶发返回 null（面板侧的 Google Trends 锚点校验没在
+    // 请求超时内跑完，score/details 等其余字段照常齐全，不是脚本没解析到）——同一个词
+    // 原样重放一次（尤其加 --force）经常就能拿到数值，不是永久没数据。裸打一个「—」
+    // 会被误读成"这个词真的没量"，所以命中这种情况时附一句可操作的提示。
+    const volMiss = data.anchorPending
+      ? "（自动 --force 重试后仍未命中锚点校验，reason: anchor-pending，非「确定无量」）"
+      : data.keywordVolume == null && data.cached === false
+      ? "（本次未命中锚点校验，非「确定无量」，建议 --force 重跑一次再下结论）"
+      : "";
+    return `KD ${data.score} ${data.level}${brand} · 月搜 ${data.keywordVolume ?? "—"}${volMiss} · 引用域中值 ${data.linkBudget?.quality?.mid ?? "—"}${shape}${rising}${newcomer}`;
   }
   // visits 单位是千次（K）。不换算就会把 2692.6 读成两千次而不是二百六十九万次。
   if (name === "referringMonth") {
@@ -880,6 +1084,12 @@ ${Object.entries(LOCAL).map(([k, v]) => `  ${k.padEnd(17)} ${v.desc}\n${" ".repe
   --out <path>       把完整 JSON 写到文件
   --batch <file>     批量模式，每行一组参数（见下）
   --spacing-ms <ms>  批量时的请求间隔，默认按工具的保险丝取值
+  --guest            显式要求访客档：跳过 OpenCLI 登录态浏览器，直接裸 fetch（10/日）。
+                     默认不给这个 flag：session 类工具（serp/audit/worth/backlink/adsense/
+                     history/chat/review/…）经 OpenCLI 驱动你本机已登录的 Chrome 执行，
+                     自动拿到登录 100/日或 VIP 500/日；OpenCLI 不可用时才自动回退到访客档，
+                     并在 stdout 打印醒目警告。kd 命令的鉴权是 Bearer 令牌（与浏览器 Cookie
+                     是两条不通用的路径），--guest 对它只影响 quota 探测走不走浏览器实测。
   --help             本帮助
 
 kd 专属选项（对齐 /kd/docs 的公开 API 参数表，无遗漏）:
@@ -894,16 +1104,26 @@ kd 专属选项（对齐 /kd/docs 的公开 API 参数表，无遗漏）:
   keyword=markdown to pdf
   url=https://example.com/a  keyword=pdf to markdown
 
-环境变量（都是可选的）:
-  SEO_WEBCAFE_COOKIE  站点登录会话 Cookie。不给也能跑，只是配额停在匿名档 10/日。
-                      要提额就登录后从开发者工具复制整个 Cookie 请求头。脚本不代你登录。
+环境变量（都是可选的，给了会跳过 OpenCLI 直接用）:
+  SEO_WEBCAFE_COOKIE  站点登录会话 Cookie，手动从开发者工具复制。给了就跳过登录态浏览器，
+                      直接拿这个 Cookie 发请求（更快，但要自己保证没过期）。不给也能跑：
+                      默认经 OpenCLI 走登录态浏览器，只有 OpenCLI 不可用才落到访客档 10/日。
   SEO_WEBCAFE_TOKEN   仅 kd 命令使用的 wc_mcp_ 公开 API 令牌，在 /kd/docs 自助生成。
+                      **令牌本身没有登录态一说**：它绑定生成时的账号，登录账号生成就是
+                      登录 100/日或 VIP 500/日，匿名生成就是访客 10/日——想确认用哪个账号
+                      生成的，登录后去 /kd/docs 页面重新生成一次。
 
 chat 命令示例:
   node seo-webcafe.mjs chat --ask "帮我看看 https://example.com 这个站还有哪些 SEO 问题"
 
-配额：访客 10/日、登录 100/日、VIP 500/日，三端共用；另有每分钟 10 次保险丝。
-**chat 强制登录**，匿名 401；其余命令匿名可用。
+**chat 不是省配额的批量入口**：实测 2026-09-11，一条问 5 个关键词量/KD 的消息触发
+9 次内部工具调用、扣 31 点配额（约 6.2/词），比直接调用 kd 逐词查（1/词）贵得多。
+批量选词一律用 kd（本身按令牌账号计费，不受本文件档位切换影响），chat 只用于
+需要模型综合判断/跨工具串联的定性分析，不用于跑量。
+
+配额：访客 10/日、登录 100/日、VIP 500/日，三端（网页 + MCP + API）共用同一个每日额度池；
+另有每分钟 10 次保险丝。**chat 强制登录**，匿名 401；其余命令匿名可用，但默认已经是
+登录态浏览器执行，见上面 --guest 的说明。
 /referring/* 不计入配额。7 天内重复查询命中缓存但仍计数。`;
 
 /**
@@ -916,60 +1136,77 @@ chat 命令示例:
  *
  * `/<tool>/api/me` 不耗配额、不需令牌，所以这个检查是白拿的。
  */
-async function quotaPreflight(tool) {
+async function quotaPreflight(tool, a = {}) {
   try {
+    // 默认路径：经登录态浏览器读真实档位（天然带 Cookie，读到的是账号真实用量）。
+    if (!a?.guest) {
+      const j = browserMeQuota(tool);
+      if (j?.quota) {
+        const q = j.quota;
+        const left = q.unlimited ? "∞" : Math.max(0, (q.limit ?? 0) - (q.used ?? 0));
+        console.error(`· 配额 ${q.tier}（登录态浏览器实测）：已用 ${q.used}/${q.limit}，剩 ${left}`);
+        return;
+      }
+    }
+    // 兜底：node 侧裸 fetch，只认 IP，永远访客档——这不是真实上限，只是没有登录态浏览器时的下限。
     const r = await fetch(`${BASE}/${tool}/api/me`, { headers: authHeaders() });
     if (!r.ok) return;
     const q = (await r.json())?.quota;
     if (!q) return;
     const left = q.unlimited ? "∞" : Math.max(0, (q.limit ?? 0) - (q.used ?? 0));
-    console.error(`· 配额 ${q.tier}：已用 ${q.used}/${q.limit}，剩 ${left}`);
-    // 档位名服务端返回的是中文（「游客」/「登录」/「VIP」），不要只匹配 "anon"。
-    // 更稳的判据是额度上限等于匿名档上限。
+    console.error(`· 配额 ${q.tier}（按 IP 计的访客档，未经登录态浏览器确认）：已用 ${q.used}/${q.limit}，剩 ${left}`);
     const anonLimit = q?.tiers?.anon ?? 10;
     const isAnon = /anon|guest|游客/i.test(String(q.tier ?? "")) || (!q.unlimited && q.limit <= anonLimit);
-    if (isAnon) {
-      console.error(
-        "\n⚠️  当前是匿名档（10/日），而你的浏览器可能已经登录着更高的档位。\n" +
-        "    本脚本是 node 侧 HTTP 调用，拿不到浏览器的会话——\n" +
-        "    seo.web.cafe 的登录 cookie 是 httpOnly，document.cookie 读不到，\n" +
-        "    OpenCLI 也没有导出 cookie 的命令。\n\n" +
-        "    不要去抠这个 cookie。正确做法是把请求发到已登录的页面里执行：\n" +
-        "      S=\"webcafe-$$\"\n" +
-        "      opencli browser \"$S\" --window background open https://seo.web.cafe/serp/\n" +
-        "      opencli browser \"$S\" --window background eval '(async()=>{ …fetch(\"/serp/api/serp\",{credentials:\"include\"})… })()'\n" +
-        "    浏览器会自动带上会话，凭据全程不离开浏览器。\n" +
-        "    完整写法见 references/seo-webcafe.md「httpOnly 会话」一节。\n" +
-        "    （只有确实没有登录浏览器时，才继续用匿名档往下跑。）\n"
-      );
-    }
+    if (isAnon) warnGuestFallback(a?.guest ? "显式 --guest" : "登录态浏览器探测失败或 OpenCLI 不可用");
   } catch { /* 探测失败不该挡住正事 */ }
 }
 
 /**
- * kd 走的是令牌制公开 API，档位跟着**令牌所属账号**走（登录 100/日、VIP 500/日），
- * 和上面那套按 Cookie/IP 计数的会话档不是一回事。
+ * kd 走的是令牌制公开 API（Bearer），档位跟着**令牌所属账号**走（登录 100/日、VIP 500/日），
+ * 和上面那套按 Cookie/IP 计数的会话档不是一回事——**这条命令本身一直就是走登录态的**，
+ * 只是「登录态」体现在 Bearer 令牌绑的账号上，不是浏览器 Cookie 上
+ * （实测 2026-09-11：`/kd/api/v1/kd` 带 Cookie 不带 Bearer 直接 401，两条鉴权路径不通用，
+ * 不能像 serp/audit 那样把请求转发进浏览器执行）。
  *
- * `/kd/api/me` 不耗配额也不要令牌，但它**只认 Cookie / IP，完全忽略 Bearer 令牌**
- * （实测：带上有效 wc_mcp_ 令牌请求它，仍返回 `login:false, tier:游客`）。
- * 所以不带 Cookie 时它报的数字是「这个 IP 的网页查询用量」，不是你令牌的余额——
- * 当作下限看，别当作事实。这正是 2026-08-22 那次「以为只剩几次」的事故来源。
+ * 这条 preflight 真正要修的是**误报**：`/kd/api/me` 只认 Cookie / IP，完全忽略 Bearer 令牌
+ * （实测：带上有效 wc_mcp_ 令牌请求它，仍返回 `login:false, tier:游客`），所以 node 侧裸 fetch
+ * 永远打出「游客 10/日」，跟令牌真实档位无关——2026-09-11 三个执行者把这行误报当成真实上限，
+ * 批量刚起步就以为耗尽了，是 2026-08-22 那次事故的重演。
+ *
+ * 默认改成经登录态浏览器读同一个 `/kd/api/me`：如果浏览器登录的账号就是 KD_TOKEN 绑定的账号
+ * （最常见情况——同一个人），读到的 `login:true` 那份就是令牌的真实档位，直接可信；
+ * 如果浏览器没登录或登录的是另一个账号，明确告知这行数字对不上令牌，别据此限流。
  */
-async function officialQuotaPreflight() {
+async function officialQuotaPreflight(a = {}) {
   try {
+    const j = a?.guest ? null : browserMeQuota("kd");
+    if (j?.quota) {
+      const q = j.quota;
+      const left = q.unlimited ? "∞" : Math.max(0, (q.limit ?? 0) - (q.used ?? 0));
+      if (j.login) {
+        console.error(
+          `· 配额 ${q.tier}（登录态浏览器实测，若浏览器登录的就是 KD_TOKEN 绑定账号，此为真实余额）：` +
+          `已用 ${q.used}/${q.limit}，剩 ${left}（三端共用：网页 + MCP + API）`
+        );
+        return;
+      }
+      console.error(`· 浏览器未登录，读到的仍是按 IP 计的访客档：已用 ${q.used}/${q.limit}——与 wc_mcp_ 令牌余额无关，忽略。`);
+      return;
+    }
+    // 兜底：node 侧裸 fetch，同样只认 Cookie/IP，忽略 Bearer——这行数字从来不是令牌的真实余额。
     const r = await fetch(`${BASE}/kd/api/me`, { headers: authHeaders() });
     if (!r.ok) return;
-    const j = await r.json();
-    const q = j?.quota;
+    const j2 = await r.json();
+    const q = j2?.quota;
     if (!q) return;
     const left = q.unlimited ? "∞" : Math.max(0, (q.limit ?? 0) - (q.used ?? 0));
-    console.error(`· 配额 ${q.tier}：已用 ${q.used}/${q.limit}，剩 ${left}（三端共用：网页 + MCP + API）`);
-    if (!j.login) {
+    console.error(`· 配额 ${q.tier}（按 IP 计的访客档，未经登录态浏览器确认）：已用 ${q.used}/${q.limit}，剩 ${left}（三端共用：网页 + MCP + API）`);
+    if (!j2.login) {
       console.error(
         "  ↑ 这是按 IP 计的网页档，**不是你 wc_mcp_ 令牌的余额**（/kd/api/me 不认 Bearer）。\n" +
-        "    令牌绑定的账号是登录档 100/日或 VIP 500/日，真实余额通常比这里显示的高得多。\n" +
-        "    想看准数：登录后 export SEO_WEBCAFE_COOKIE='...' 再跑，或直接去 /kd/docs 页面看。\n" +
-        "    不要因为这行数字小就自我限流、少测几个词。"
+        "    令牌绑定的账号是登录档 100/日或 VIP 500/日，真实余额通常比这里显示的高得多，\n" +
+        "    也可能相反（令牌是匿名生成的，真实余额就是 10/日）——装好 OpenCLI 并确保 Chrome\n" +
+        "    已登录 seo.web.cafe（和令牌同一账号）能拿到准数，别因为这行数字小就自我限流。"
       );
     }
   } catch { /* 探测失败不该挡住正事 */ }
@@ -1018,8 +1255,8 @@ async function main() {
   if (!spec) die(`未知命令：${cmd}（用 --help 看全部命令）`);
 
   // 先报档位再干活：不这么做就会按错误的配额假设去规划整场调研。
-  if (spec.official) await officialQuotaPreflight();
-  else await quotaPreflight(spec.tool);
+  if (spec.official) await officialQuotaPreflight(a);
+  else await quotaPreflight(spec.tool, a);
 
   const rows = parseBatchRows(a);
 
@@ -1028,7 +1265,9 @@ async function main() {
   let failDir = null;
   for (let i = 0; i < rows.length; i++) {
     const args = { ...a, ...rows[i] };
-    const res = spec.official ? await callOfficial(spec, args) : await callSession(spec, args);
+    const res = spec.official
+      ? (cmd === "kd" ? await callOfficialKdWithRetry(spec, args, spacing) : await callOfficial(spec, args))
+      : await callSessionAuto(spec, args);
     const label = args.keyword || args.url || args.input || cmd;
     // HTTP 200 不等于「拿到了能用的结果」——adsense/chat/history/genericSse 这几个
     // 解析器在拿不到权威结论时会写 res.data.error，那也是失败，必须打 ✗ 且非零退出。

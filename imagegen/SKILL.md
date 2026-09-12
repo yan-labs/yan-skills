@@ -23,7 +23,7 @@ cat <outdir>/prompt.md | codex exec --skip-git-repo-check \
 
 | 要点 | 说明 |
 |---|---|
-| 后台跑 | `Bash` 的 `run_in_background: true`，两张图约 2–3 分钟，成套图更久；等完成通知，不要轮询 |
+| 后台跑 | `Bash` 的 `run_in_background: true`，两张图约 2–3 分钟，成套图更久；等完成通知，不要轮询。**注意：必须从主线程（而非 subagent）调用**——subagent 用 `run_in_background` 后 park 等通知，会被 harness 判定空闲并终止，通知永远送达不了 |
 | `--sandbox danger-full-access` | 生图要走网络。这个 flag 是否需要确认取决于当前机器的授权设置：有常设授权就直接跑，没有就按该机器的规则确认一次；无论哪种，启动那一行都要说明用了哪个 sandbox |
 | `-o <outdir>/final.md` | 最终报告写进文件，从这里读路径与方法；stdout 是进度噪音，别去解析 |
 | `2>/dev/null` | 压掉 stderr 的思考流；调试 Codex 本身时才拿掉 |
@@ -171,6 +171,7 @@ magick out.png -format 'alpha_min=%[fx:minima.a] colors=%k\n' info:   # alpha_mi
 - 用单张他人作品做参考并在提示词里点名角色。
 - 只做一两道验收就往下走；非盲判断直接写进结论。
 - 为"省配额"缩小批量或不敢重生成——先看当前账号的计划；额度充足时第一版差一点就再跑，不要拿猜测的配额限制自己。
+- 在 subagent 内部用 `run_in_background: true` 跑 `codex exec`——subagent park 后 harness 判定其空闲并终止，完成通知永远送不到，图生成了但没人收。**必须从主线程跑** `codex exec`（`Bash` 的 `run_in_background: true`），主线程能正确接收完成通知；或者 subagent 内改用前台同步等待（但会占用 subagent 上下文数分钟）。2026-09-11 同一批任务因此重试三次。
 
 ## 已验证（2026-09-02，codex-cli 0.149.0）
 

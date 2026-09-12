@@ -10,7 +10,7 @@
  *     --branch main \
  *     --root-directory apps/web \
  *     --build-command "pnpm build" \
- *     --deploy-command "pnpm exec wrangler deploy && pnpm run indexnow" \
+ *     --deploy-command "pnpm exec wrangler deploy --config dist/server/wrangler.json && pnpm run indexnow" \
  *     [--zone <domain>] \
  *     [--path-exclude ".rankup/**" --path-exclude "**(slash)*.md" --path-exclude ".claude/**" --path-exclude ".design/**"] \
  *       （通配符里连续出现 "*" + "/" 会提前闭合本段注释，示例里用 (slash) 代替，实际传参用真的 "/"）

@@ -241,6 +241,12 @@ node rankup/scripts/seo-webcafe.mjs kd \
   --out ".rankup/demand/game-review/${TODAY}-webcafe-kd.json"
 ```
 
+**这条命令默认经 OpenCLI 驱动本机已登录的 Chrome 跑登录 100/日或 VIP 500/日**——不用额外传参。
+终端第一行打印「配额 游客：已用 X/10」是**降级信号**，不是常态：要么 OpenCLI 不可用
+（`opencli doctor` 先看红在哪），要么显式加了 `--guest`。批量跑一整批词前先确认第一行
+打的是登录/VIP 档，别按游客 10/日的假设去规划这一批要测多少词（2026-09-11 三个执行者
+在这条命令上重演过一次：把这行误报当真实上限，批量刚起步就以为耗尽了）。
+
 Web.Cafe 结果用于 KD、首页/内页构成、最弱竞争者和链接预算。搜索量、CPC 与全球量使用：
 
 ```bash

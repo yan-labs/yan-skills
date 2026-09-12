@@ -102,6 +102,7 @@ opencli doctor
 | 命令成功但窗口/焦点行为与本文档不符 | 跑 `opencli doctor`，看 `Extension` 那行的版本 |
 | 版本 < 1.0.33 | **告诉用户他装的是应用商店版**，需要换成 [yan-labs 的 Release](https://github.com/yan-labs/OpenCLI/releases/latest) 里的 zip，并把商店版移除或停用 |
 | `doctor` 自己就报了这条 | 照它说的做——它会打印下载地址和加载步骤 |
+| `frames` 对明明存在的跨源 iframe 返回 `[]`，不报错 | 扩展 < 1.1.0 没有 OOPIF 支持。已随 v1.9.0-yan.2 发布，装新 Release 的 tgz 并 reload 扩展即可，见第十节 |
 | `frames`/`contexts` 正常，但 `eval --frame`/`--context` 面板开合几次后静默读到主页面 | 扩展 1.1.0 的已知回归，1.1.1 已修复（`frame_not_attached` 错误码判据）。见 [`references/our-fork.md`](references/our-fork.md) |
 
 `doctor` 会在扩展低于 1.0.33 时主动报这个问题，**不要跳过它的输出**。
@@ -432,6 +433,19 @@ opencli browser "$S" close
 - **`eval` 是只读的，而且必须包 IIFE。** 本环境 eval 上下文跨调用持续，
   重复声明会抛错**且那次调用根本没执行**。要改页面就用 `click`/`type`/`select`/`keys`，
   它们有结构化输出和指纹，`eval` 没有。
+
+### 跨源 iframe：2026-09-11 起真的能用了
+
+跨源 iframe（含**别家浏览器扩展注入的侧边面板**——它通常就是 shadow root 里的一个
+`<iframe src="https://<厂商域>/">`）现在可以 `frames` 列出、`eval --frame N` 直接读写 DOM，
+**不需要剪贴板、不需要按坐标点截图**。需要扩展 ≥ 1.1.0；低于它 `frames` 静默返回 `[]`。
+
+三条反直觉的前提：扩展热键要用 `eval` 派发合成 KeyboardEvent（`browser keys` 到不了
+扩展那一层）、iframe 里的 React 按钮要派发 pointer/mouse 完整序列（`.click()` 无效）、
+**恢复面板绝不 reload 页面**（reload 后拿不到 frame target，opencli 会静默退回主页面执行）。
+
+用法、`frames --debug` 排障表、实测参考脚本见
+[`references/browser-driving.md`](references/browser-driving.md) 的「跨源 iframe 与扩展注入面板」。
 
 ### batch：一次调用跑多步
 

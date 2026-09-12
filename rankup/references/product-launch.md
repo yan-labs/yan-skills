@@ -145,3 +145,91 @@ PH 的两个上传控件（缩略图、画廊）实测都是
 - 平台会给一个 **Launch Day dashboard**，全天回评论。这是唯一还能影响排名的合法动作。
 - 平台通常提供带追踪参数的分享链接（X / LinkedIn 各一条），发社交用那个，不要用裸 URL。
 - **可以分享，不能明着要票**，也不要冷启动私信轰炸。
+
+---
+
+## 六、同类平台实测记录
+
+### `rel="noopener"` 不是 nofollow —— 高频误判，必须纠正
+
+> **⚠️ `rel="noopener"` 是纯安全属性**，防止 `window.opener` 攻击，**完全不影响 PageRank 传递**。
+> 只有 `nofollow`、`ugc`、`sponsored` 才阻止链接权重传递。
+>
+> 2026-09-11 实测踩坑：sub agent 报告 Fazier 和 Twelve Tools 的链接「等价于 nofollow」，
+> 原因是看到了 `rel="noopener"` 就下了结论。实际上这些是**完全的 dofollow 链接**。
+>
+> **判断规则**：检查 `rel` 属性时，只关注 `nofollow`、`ugc`、`sponsored` 三个值。
+> `noopener`、`noreferrer` 都是安全/隐私属性，与 SEO 无关。
+
+#### 6.1 BuiltByIndies（2026-09-11 实测）
+
+【实测】**单产品限制**：一个账号同一时间**只能有一个产品草稿**。每次「Submit Product」
+都会覆盖上一个草稿。必须先攒够 **10 Karma**（或一次性付费 **$9 premium**）才能
+「launch」已提交的产品，腾出名额提交下一个。
+
+【实测】**Karma 规则**：Complete Profile +5、Follow maker +2、Upvote product +2、
+Comment +2、Buildlog post +5。**最低 10 分才能 launch**。
+
+【实测】**Free Launch 要排队**：Free Launch 进入按周排期的队列（例如 Week 42 =
+2026-10-12~10-18）；实测时 Week 38-41 已满。产品详情页提交后**立刻公开可访问**，
+但**不会出现在当周 Products 榜单**，要等排到的那一周。
+
+**多产品策略**：因为单产品限制，按优先级顺序逐个提交——launch 一个会消耗 Karma，
+要提前规划节奏。一个产品 launch 完，「名额」才会腾给下一个待提交的产品。
+
+**账号建议**：账号绑定社交链接（X、GitHub）有助于触发 Profile 的 +5 里程碑。
+
+#### 6.2 BetaList（2026-09-10 实测）
+
+【实测】**「Started」状态**：免费提交后列表状态显示 **Started**，意味着要**付费**
+（featuring $129，或更便宜的选项）才能进入 review / featuring 队列。免费提交理论上
+最终也可能被 review，但队列极长。
+
+【实测】**Google OAuth 登录**：账号注册走 Google OAuth。
+
+【实测】**Rails Active Storage DirectUpload**：图片上传走 Rails Active Storage 的
+direct upload，直传云存储。
+
+#### 6.3 LaunchIgniter（2026-09-10 实测）
+
+【实测】**算术验证码**：提交表单带一个简单算术 CAPTCHA（如「7-7=?」「5+7=?」），
+易于自动化。
+
+【实测】**不需要登录**：直接提交表单，无需注册账号。
+
+【实测】**分类选择**：表单有 category 下拉（Video、AI 等）。
+
+#### 6.4 Fazier —— DR 73，confirmed dofollow（2026-09-11 实测）
+
+【实测】**链接属性**：仅 `rel="noopener"`，**没有** nofollow/ugc/sponsored。
+**判定为 dofollow**——传递 PageRank。
+
+【实测】**有免费档**：无需付费即可提交。
+
+【实测】**footer 徽章**：要求在自家站点 footer 挂一个 Fazier 徽章 SVG。
+
+【实测】**Google 登录**：走 Google OAuth。
+
+【实测】**URL 形状**：`https://fazier.com/launches/<product-slug>`
+
+#### 6.5 Twelve Tools —— DR 81，confirmed dofollow（2026-09-11 实测）
+
+【实测】**链接属性**：仅 `rel="noopener"`，**没有** nofollow/ugc/sponsored。
+**判定为 dofollow**——传递 PageRank。
+
+【实测】**不需要登录**：直接提交。
+
+【实测】**footer 徽章**：要求挂一个 Twelve Tools 徽章。
+
+【实测】**URL 形状**：`https://twelve.tools/<domain-slug>`
+
+#### 6.6 Product Hunt —— 页面结构与链接属性补遗（2026-08-24 / 2026-09-11 实测）
+
+【实测】**Reviews tab ≠ Forum/launch thread**，两者容易混淆：
+
+| 路径 | 是什么 |
+|---|---|
+| `/products/<slug>/reviews` | 发布后的用户评分 tab。没有评分的产品这里显示「0 reviews」 |
+| `/p/<slug>/<slug>` | Forum / launch thread。maker 本人的首条评论（置顶，标 "Maker"）在**这里** |
+
+复核 maker 评论时不要看错 tab——查 reviews tab 只会看到「0 reviews」，误判成「maker 没发评论」。

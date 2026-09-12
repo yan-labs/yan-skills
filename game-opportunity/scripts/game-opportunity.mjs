@@ -126,7 +126,8 @@ function pageMeta(html, baseUrl) {
   return { title, iframeUrl };
 }
 function cleanPageTitle(title) {
-  return decodeHtml(title).replace(/\s+/g, ' ').trim().split(/\s+(?:\||[-–—])\s+|[：｜]/)[0].replace(/\s*[|｜]\s*$/, '').trim();
+  return decodeHtml(title).replace(/\s+/g, ' ').trim().split(/\s+(?:\||[-–—])\s+|[：｜]/)[0]
+    .replace(/^Save\s+\d+%\s+on\s+(.+?)\s+on Steam$/i, '$1').replace(/\s*[|｜]\s*$/, '').trim();
 }
 const errorPageTitle = (title) => /^(?:404|410)\b|\bnot found\b|\bpage not found\b/i.test(String(title ?? '').trim());
 const challengePageTitle = (title) => /^just a moment(?:\.\.\.)?$/i.test(String(title ?? '').trim());
@@ -492,6 +493,27 @@ function previousReportPool(latest, date) {
   return arr(latest.candidates).map((c) => annotateCarryForward(c, latest.date, date));
 }
 
+// The report is intentionally capped, but the watch pool is the durable calendar
+// for follow-up. Read it separately so a row cannot disappear from a due deep check
+// merely because it fell below the report's display limit.
+function watchPoolCandidates(o) {
+  const pool = readJson(path.join(o.root, '.rankup/tasks/game-opportunity-watch-pool.json'));
+  return arr(pool?.active).map((row) => {
+    const firstSeen = String(row.firstSeen ?? o.date).slice(0, 10);
+    const ageDays = Math.max(0, Math.round((new Date(`${o.date}T00:00:00Z`) - new Date(`${firstSeen}T00:00:00Z`)) / 86_400_000));
+    const due = Boolean(row.nextDeepCheck && String(row.nextDeepCheck).slice(0, 10) <= o.date);
+    return {
+      ...row,
+      names: [row.name],
+      urls: [row.url],
+      sourceLinks: [row.url],
+      reasons: row.reason ? [row.reason] : [],
+      nextAction: row.nextDeepCheck ? `观察池下次深查 ${row.nextDeepCheck}` : undefined,
+      carryForward: { from: 'watch-pool', ageDays, recheckDue: due, recheckMilestones: [] },
+    };
+  }).filter((row) => validUrl(row.url));
+}
+
 async function checkUrl(url) {
   if (!validUrl(url)) return { url, ok: false, status: null, error: 'URL 格式无效' };
   const controller = new AbortController();
@@ -667,6 +689,7 @@ function saveReport(o, candidates, errors = [], excluded = []) {
 const SOCIAL_PLATFORMS = new Set(['reddit', 'youtube', 'x']);
 const cleanKeyword = (value) => String(value ?? '')
   .replace(/\s+(?:demo|play online|online game)$/i, '')
+  .replace(/^save\s+\d+%\s+on\s+.+?\s+on steam$/i, '')
   .replace(/\s+/g, ' ').trim();
 const usefulKeyword = (value) => {
   const v = cleanKeyword(value);
@@ -683,8 +706,9 @@ const marketDbs = (candidate) => uniq([
 ]).flatMap((value) => String(value).toLowerCase().split(/[^a-z]+/)).filter((v) => /^[a-z]{2}$/.test(v));
 
 function demandKeywords(candidate) {
-  const existing = arr(candidate.keywords).map((k) => k.keyword);
-  const names = [...existing, ...arr(candidate.names), candidate.name].map(cleanKeyword).filter(usefulKeyword);
+  const existing = arr(candidate.keywords).map((k) => cleanKeyword(k.keyword)).filter(usefulKeyword);
+  // 已核定的查询词优先；URL slug 和消歧实体名不能自动占用配额。
+  const names = existing.length ? existing : [...arr(candidate.names), candidate.name].map(cleanKeyword).filter(usefulKeyword);
   const seen = new Set();
   return names.filter((keyword) => {
     const key = normalizeName(keyword);
@@ -734,6 +758,7 @@ function buildDemandPlan(o) {
   const fullPool = mergeCandidates([
     ...inputCandidates({ candidates: arr(evaluation?.candidates) }, 'verified-evaluation'),
     ...inputCandidates({ candidates: previousReportPool(latest, o.date) }, 'previous-report'),
+    ...inputCandidates({ candidates: watchPoolCandidates(o) }, 'watch-pool'),
     ...inputCandidates({ candidates: arr(newGames?.games) }, 'new-games'),
   ]).filter(demandCandidate);
   const selectionInput = readJson(f.demandSelection);
@@ -769,7 +794,7 @@ function buildDemandPlan(o) {
     rule: '先查每个原名、英文名和已有本地名的 globalVolume/byCountry，再查主要国家、发现市场和英语大市场。',
     selectionRule,
     selectionFile: f.demandSelection,
-    sourceFiles: { verifiedEvaluation: f.evaluation, newGames: f.newGames, previousReport: f.latestJson },
+    sourceFiles: { verifiedEvaluation: f.evaluation, newGames: f.newGames, previousReport: f.latestJson, watchPool: path.join(o.root, '.rankup/tasks/game-opportunity-watch-pool.json') },
     // 完整候选池：AI 据此判断该换谁进深查名单（写 selectionFile 即生效）。
     pool: fullPool.map((c) => ({
       entityId: c.entityId, name: arr(c.names)[0] ?? null, origin: c.origin,
@@ -927,7 +952,10 @@ async function evaluate(o, inheritedErrors = []) {
     .filter((candidate) => candidate.pageType !== 'game-adjacent' && !arr(candidate.platforms).some((p) => SOCIAL_PLATFORMS.has(String(p).toLowerCase())));
   let candidates = [...todayRows];
   if (old?.candidates?.length) candidates = mergeRichIntoOrdered(candidates, old.candidates.filter((row) => todayRows.some((today) => sameCandidate(today, row))));
-  candidates = mergeRichIntoOrdered(candidates, carryForward(latest, o.date));
+  candidates = mergeRichIntoOrdered(candidates, mergeCandidates([
+    ...carryForward(latest, o.date),
+    ...watchPoolCandidates(o),
+  ]));
   const automaticDemand = readJson(f.demandResults);
   if (automaticDemand) candidates = overlayCandidates(candidates, automaticDemand);
   // The dated evaluation file is where the judgement calls live — brand vs category,
@@ -951,7 +979,7 @@ async function evaluate(o, inheritedErrors = []) {
     if (first?.title && (errorPageTitle(first.title) || challengePageTitle(first.title))) c.names = arr(c.names).filter((name) => normalizeName(name) !== normalizeName(first.title));
     if (first?.title && !errorPageTitle(first.title) && !challengePageTitle(first.title) && (noisyName(c) || normalizeName(arr(c.names)[0]) === normalizeName(first.title))) {
       const title = cleanPageTitle(first.title);
-      if (title) c.names = uniq([title, ...arr(c.names)]);
+      if (title) c.names = uniq([title, ...arr(c.names).filter((name) => normalizeName(name) !== normalizeName(first.title))]);
     }
     if (first?.iframeUrl && playableEmbed(first.iframeUrl)) c.playLinks = uniq([first.iframeUrl, ...arr(c.playLinks)]);
     const remaining = uniq([...arr(c.playLinks), ...arr(c.urls)]).filter((url) => url !== primary).slice(0, 3 - checks.length);
@@ -1058,7 +1086,8 @@ async function daily(o) {
 }
 
 const checkItem = (id, text, passed, evidence) => ({ id, text, passed: Boolean(passed), evidence: String(evidence ?? '') });
-const dated = (data, date) => String(data?.date ?? data?.generatedAt ?? '').startsWith(date);
+const dated = (data, date) => data?.date ? data.date === date
+  : Boolean(data?.generatedAt) && new Date(data.generatedAt).toLocaleDateString('en-CA') === date;
 
 function saveChecklist(o, kind, checks, summary = {}) {
   const f = files(o);
@@ -1184,9 +1213,16 @@ async function decisionChecklist(o) {
 }
 
 function selfTest() {
+  if (demandKeywords({ keywords: [{ keyword: 'queens puzzle hints' }], names: ['Queens explained hints', 'techniques'] }).join('|') !== 'queens puzzle hints') {
+    throw new Error('显式查询词不能被页面 slug 或内部实体名扩充');
+  }
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'game-opportunity-'));
   try {
     const o = parseArgs(['render', '--date', '2099-01-02', '--project-root', tmp]);
+    if (!dated({ generatedAt: new Date(2099, 0, 2, 0, 30).toISOString() }, o.date)
+      || dated({ generatedAt: 'invalid' }, o.date) || dated({ date: '2099-01-01' }, o.date)) {
+      throw new Error('采集验收应按本地报告日期核对 UTC 时间戳');
+    }
     const merged = mergeCandidates([
       { names: ['Foo Game'], urls: ['https://example.com/foo'], keywords: [{ keyword: 'foo', semrushVolume: 5000, semrushGlobalVolume: 12000, semrushKd: 22 }], playable: true, demandProof: { intentValidated: true, independentDemand: true } },
       { names: ['foo-game'], urls: ['https://example.com/foo/'], evidenceLinks: ['https://reddit.com/r/games/foo'] },
@@ -1223,6 +1259,11 @@ function selfTest() {
     if (normalised[0].carryForward?.recheckDue !== false) throw new Error('carryForward 未能通过规范化');
     if (normalised[0].playable !== true || inputCandidates({ candidates: [{ names: ['P'], urls: ['https://example.com/p'], playLinks: ['https://example.com/p/play'] }] }, 'x')[0].playable !== null) throw new Error('playable 不应从 playLink 推断');
     if (previousReportPool({ date: '2099-01-01', candidates: [{ names: ['Aged'], firstSeen: '2098-12-31', action: 'develop' }] }, o.date)[0].carryForward.ageDays !== 2) throw new Error('计划阶段未给上一份报告计龄');
+    const watchPoolFile = path.join(tmp, '.rankup/tasks/game-opportunity-watch-pool.json');
+    fs.mkdirSync(path.dirname(watchPoolFile), { recursive: true });
+    writeJson(watchPoolFile, { active: [{ entityId: 'pool-due', name: 'Pool Due', url: 'https://example.com/pool-due', firstSeen: '2098-12-30', nextDeepCheck: '2099-01-01', action: 'watch' }] });
+    const poolDue = watchPoolCandidates(o)[0];
+    if (poolDue?.carryForward?.recheckDue !== true || poolDue?.carryForward?.ageDays !== 3) throw new Error('观察池到期候选未进入深查计划');
     // decision-checklist runs evaluate with no --evaluation, so the conventional
     // dated file has to be found on its own or every judgement field is lost.
     const evalFiles = files(o);
@@ -1261,6 +1302,8 @@ function selfTest() {
     if (cleanPageTitle(meta.title) !== 'Cute Mahjong Connect' || meta.iframeUrl !== 'https://games.example/catalog/play/index.html') throw new Error('title 清洗或 iframe 相对地址解析失败');
     if (playableEmbed('https://www.youtube.com/embed/trailer') || !playableEmbed('https://games.example/play/index.html')) throw new Error('视频 iframe 被误判为可玩入口');
     if (cleanPageTitle('スネークデュエル｜対戦バトル｜無料ゲームならワウゲーム') !== 'スネークデュエル') throw new Error('全角站点后缀清洗失败');
+    if (cleanPageTitle('Save 33% on GRIDFALL on Steam') !== 'GRIDFALL') throw new Error('Steam 折扣标题清洗失败');
+    if (cleanKeyword('Save 33% on GRIDFALL on Steam') !== '') throw new Error('Steam 折扣关键词未排除');
     saveReport(o, merged, []);
     const f = files(o);
     if (overlayCandidates([{ entityId: 'foo', names: ['Foo'], urls: ['https://example.com/foo'] }], { candidates: [{ entityId: 'foo', keywordStrategy: { entityType: 'brand' } }] }).length !== 1) throw new Error('entityId 覆盖合并失败');
@@ -1280,7 +1323,7 @@ function selfTest() {
     if (!demandPlan.pool.some((row) => row.selected === false)) throw new Error('未选中的候选没有留在池里给 AI 看');
     writeJson(f.demandSelection, ['foo-game']);
     const aiPlan = buildDemandPlan(o).plan;
-    if (aiPlan.selectionRule !== 'ai-selection-file' || aiPlan.candidates.length !== 1 || !aiPlan.globalKeywords.includes('foo') || !aiPlan.candidates[0].latinKeywords.includes('Foo Game')) throw new Error('AI 深查名单计划失败');
+    if (aiPlan.selectionRule !== 'ai-selection-file' || aiPlan.candidates.length !== 1 || !aiPlan.globalKeywords.includes('foo') || !aiPlan.candidates[0].latinKeywords.includes('foo')) throw new Error('AI 深查名单计划失败');
     fs.rmSync(f.demandSelection, { force: true });
     // 未查询与测得为零必须字节级可分辨。
     const overlayRows = demandOverlay(o,

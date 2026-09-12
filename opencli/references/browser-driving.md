@@ -15,6 +15,7 @@
 - [compound 表单控件](#compound)
 - [成本表](#cost)
 - [配方](#recipes)
+- [跨源 iframe 与扩展注入面板](#oopif)
 - [坑](#pitfalls)
 - [排障速查](#troubleshooting)
 
@@ -100,7 +101,8 @@ opencli browser gmail unbind    # 解绑，不关标签页
 | `state --compare-sources` | 只出指标的 DOM vs AX 对比（数量和体积，不含页面文本），用来判断某个站该不该默认走 AX |
 | `find --css <sel> [--limit N]` | 跑一次 CSS 查询，每个匹配返回 `{nth, ref, tag, role, text, attrs, visible, compound?}`。会给上次快照没打标的匹配分配 ref。已知选择器时比 `state` 便宜 |
 | `find --role button --name Save` | 语义定位查询。也支持 `--label` / `--text` / `--testid`。控件有可访问标签时优先于裸 CSS |
-| `frames` | 列出跨源 iframe 目标，索引传给 `eval --frame` |
+| `frames` | 列出跨源 iframe 目标，索引传给 `eval --frame`。**需要扩展 ≥ 1.1.0**，低于它一律返回 `[]` 且不报错 |
+| `frames --debug` | 同上，外加 `debug` 块（`treeChildCount` / `autoAttachError` / `getTargetsError` / `attachedEventCount` / `domFrameUrls`），用来判断卡在哪一层。**需要 CLI ≥ 1.9.0** |
 | `screenshot [path]` | 视口 PNG。不给路径就输出 base64 |
 | `screenshot --annotate [path]` | 视觉 ref 地图：刷新 DOM ref 并把可见的 `[N]` 叠在图上。图标按钮、图表、纯视觉布局时用 |
 
@@ -246,18 +248,83 @@ opencli browser "$S" get text 7             # 验证可见的已选标签
 
 ### 跨源 iframe
 
+见下面专门的 [跨源 iframe 与扩展注入面板](#oopif) 一节。
+
+`state --source ax` 仍然可能拿不到跨源 iframe 内容，或者无法把动作路由进去；
+那种情况一律走 `frames` + `eval --frame`。
+
+---
+
+<a id="oopif"></a>
+## 跨源 iframe 与扩展注入面板
+
+**2026-09-11 起跨源 iframe 是真能用的**（扩展 1.1.0 / CLI 1.9.0，见
+[`our-fork.md`](our-fork.md)）。在那之前 `frames` 对任何跨源 iframe 都返回 `[]`，
+`eval --frame N` 永远 out of range——**静默的，没有报错**。
+所以遇到 `frames` 为空，第一件事是查扩展版本，不是怀疑页面。
+
 **需要扩展 ≥ 1.1.1；1.1.0 在面板反复开合后 `eval` 会静默落回主页面**（见
 [`our-fork.md`](our-fork.md) 的「已知回归与修复」一节）。
 
 ```bash
 opencli browser "$S" frames
-# -> [{"index": 0, "url": "https://checkout.stripe.com/...", ...}]
-opencli browser "$S" eval "(() => document.querySelector('input[name=x]')?.value)()" --frame 0
+# -> [{"index": 0, "url": "https://aitdk.com/", ...}]
+opencli browser "$S" eval '(() => document.querySelectorAll("[role=tab]").length)()' --frame 0
+opencli browser "$S" frames --debug     # 空了就看这个，定位卡在哪一层
 ```
 
-`state --source ax` 可能拿不到跨源 iframe 内容，或者无法把动作路由进去
-（Chrome 不一定给扩展暴露可附加的 OOPIF 目标）。那种情况用
-`frames` + `eval --frame`、普通 DOM `state`，或者干脆直接导航到 iframe 的 URL。
+### 浏览器扩展的侧边面板就是一个普通跨源 iframe
+
+这条能省掉一整套错误做法。**别人家的浏览器扩展注入的侧边面板，
+通常是 content script 在 shadow root 里放的一个 `<iframe src="https://<厂商域>/">`**
+（AITDK SEO 扩展是 `plasmo-csui#aitdk-csui` 的 shadowRoot 内、带 `credentialless`）。
+
+它是一个普通 https 页面。于是：
+
+- `frames` 能列出它，`eval --frame N` 能直接读它的 DOM；
+- **不需要读剪贴板**，也**不需要按坐标点击截图里的按钮**。
+
+坐标点击和剪贴板是上一代做法，在这里是纯粹的绕路。
+
+### 扩展热键：`browser keys` 触发不了，要派发合成事件
+
+扩展热键（AITDK 是 `Alt+D`，底层是 hotkeys-js 监听 `document` 的 keydown）
+**用 `browser keys "Alt+d"` 触发不了**——那条走 CDP `Input.dispatchKeyEvent`，
+到不了扩展那一层。要用 `eval` 自己派发：
+
+```bash
+opencli browser "$S" eval '(()=>{for(const t of ["keydown","keyup"]){document.dispatchEvent(new KeyboardEvent(t,{key:"d",code:"KeyD",keyCode:68,which:68,altKey:true,bubbles:true}))}return true})()'
+```
+
+**面板是 toggle，派发前先查状态**，否则连发两次等于开了又关。
+判据用 iframe 的 `getBoundingClientRect().width > 0`。
+
+### iframe 里的 React 按钮：`.click()` 无效
+
+Radix Tabs 这类组件监听的是 pointer 事件，`element.click()` 什么都不会发生。
+要派发完整序列：
+
+```js
+for (const t of ["pointerdown","mousedown","pointerup","mouseup","click"]) {
+  el.dispatchEvent(new MouseEvent(t, {bubbles:true, cancelable:true, button:0}));
+}
+```
+
+### 恢复面板绝不 reload 页面
+
+**reload 之后新 iframe 是在 load 阶段附着的，实测拿不到 `eval --frame` 的 target，
+opencli 会静默退回主页面执行。** 症状很阴——你在"iframe 里"找按钮，找到的是宿主页
+的同名按钮，脚本一路绿着跑完，结果全错。
+
+面板没了只用 toggle 关再开，不要 reload。
+
+### 这一节的其他前提
+
+- **`eval` 体一律包 IIFE**（见[坑](#pitfalls)）。eval 上下文跨调用持续，
+  顶层 `const` 会 `already been declared`，**在 iframe 上下文里同样成立**。
+- **脚本里用 `sleep`，不要用 `wait time`**——它在 1.8.7 仍是坏的，见[等待](#commands)。
+- **实测参考实现**：`~/.claude/skills/rankup/scripts/aitdk-opencli.sh`，
+  跑完 15 个 section 用 2 分 08 秒。要驱动别家扩展面板时照着它改，比从零写快得多。
 
 ---
 
@@ -290,9 +357,11 @@ opencli browser "$S" eval "(() => document.querySelector('input[name=x]')?.value
 | 刚 `state` 完就 `selector_not_found` | 页面变了。`wait selector "..."` 再重试 |
 | 每条命令都 `stale_ref` | 你在复用上一个页面的 ref。重新 `state` |
 | `click` 成功但没反应 | 命中的多半是一个装饰性包装元素，它把点击从真正的目标那里偷走了。用更窄的 `find --css` 打内层元素 |
-| `frames`/`contexts` 都对，`eval --frame`/`--context` 还是读到主页面，面板反复开合后必现 | 扩展 1.1.0 的已知回归（OOPIF context 缓存按 tabId 撞号）。升级扩展到 ≥ 1.1.1 并在 `chrome://extensions` reload；命中会报 `frame_not_attached`。见[`our-fork.md`](our-fork.md) |
 | `type` 看起来打完了但值不对 | 联想框、掩码输入，或 React 受控重渲染。`get value` 验证，加 `keys Enter` 或重打 |
 | `get html` 输出巨大 | 加 `--selector` + `--as json --depth 3 --children-max 20 --text-max 200` |
 | 网络缓存像是过期了 | 调小 `--ttl` 或等它过期。缓存在 `~/.opencli/cache/browser-network/` |
+| `frames` 返回 `[]`，但页面上明明有跨源 iframe | **先看扩展版本**：`opencli doctor` 的 Extension 行 < 1.1.0 就是没有 OOPIF 支持，而它是静默的。够版本了再跑 `frames --debug` 看卡在哪一层 |
+| `eval --frame N` 读到的像是宿主页的 DOM | 页面 reload 过，新 iframe 拿不到 target，opencli 静默退回主页面。用 toggle 恢复面板，不要 reload。见[跨源 iframe 与扩展注入面板](#oopif) |
+| `frames`/`contexts` 都对，`eval --frame`/`--context` 还是读到主页面，面板反复开合后必现 | 扩展 1.1.0 的已知回归（OOPIF context 缓存按 tabId 撞号）。升级扩展到 ≥ 1.1.1 并在 `chrome://extensions` reload；命中会报 `frame_not_attached`。见[`our-fork.md`](our-fork.md) |
 | 读回来的页面根本不是你导航的那个 | 会话撞名。见 [`session-laws.md`](session-laws.md) 的诊断顺序 |
 | `doctor` 红、连不上、`session_not_found` | 见 [`troubleshooting.md`](troubleshooting.md) |

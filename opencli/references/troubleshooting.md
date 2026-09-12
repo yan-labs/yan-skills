@@ -105,6 +105,9 @@ opencli browser sessions    # 当前活跃的租约
 | 每条命令都 `session_not_found` | 见下一节 | |
 | 改了扩展源码但行为没变 | Chrome 加载的还是旧构建 | `chrome://extensions` 里手动 reload；**CLI 侧改动重启守护进程即可，扩展侧不会自动生效** |
 | 读回来的页面不是你导航的那个 | 会话撞名 | 先 `opencli browser sessions` 看有没有别人的名字 |
+| `frames` 返回 `[]`，页面上明明有跨源 iframe | 扩展 < 1.1.0，没有 OOPIF 支持，**而且它是静默的** | `opencli doctor` 看 Extension 行；够 1.1.0 了再跑 `frames --debug` 看 `attachedEventCount` / `autoAttachError` |
+| `No iframe target found … Candidates: none` | 同上；或者页面刚 reload 过，新 iframe 在 load 阶段附着，拿不到 target | 别 reload 恢复面板，用 toggle 关再开。详见 [`browser-driving.md`](browser-driving.md) 的「跨源 iframe 与扩展注入面板」 |
+| `unknown option '--debug'`（跑 `frames --debug` 时） | 该选项已随 **v1.9.0-yan.2** 发布；全局装的仍是旧 tgz | `npm i -g https://github.com/yan-labs/OpenCLI/releases/download/v1.9.0-yan.2/opencli-cli-1.9.0-yan.2.tgz`，再 `opencli daemon restart`。见 [`our-fork.md`](our-fork.md) |
 
 ---
 

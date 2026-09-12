@@ -1,8 +1,8 @@
 ---
 name: rankup
-description: 网站从零到一与长期增长的总控 Skill。用于新建网站、SaaS、工具站或内容站，规划或初始化 TanStack Start Monorepo，使用 Cloudflare Workers、D1、R2 部署全栈应用，接入支付，执行 SEO、内容、外链、上线验证和持续迭代；也负责 Google Trends 查询、关键词难度（KD）估算与选词工作流；2026 AI 搜索范式（AI Overviews、AI Mode、Preferred Sources、Discover 独立算法、Information Gain、引用优先于排名）；AI Agent 就绪度评分（is-agentic、agent readiness、llms.txt、MCP 可发现性、AI 代理优化）。用户提到 rankup、rankup init、rankup check、环节闸门、检查清单、checklist、"现在该做什么"、"到哪一步了"、"这个环节能不能过"、"本轮还差什么"、建站、网站改版、搜索流量、GSC、排名、关键词、CTR、索引、网站增长，或提到 谷歌趋势、Google Trends、搜索热度、热度对比、搜索趋势、trending、"XX 和 YY 哪个更火"、"今天美国/日本在搜什么"、每日热搜、"这个词能不能做站"、"哪个市场/国家有机会"、帮我选 SEO 关键词、选词、选品调研、市场探测、挖需求、找需求、需求挖掘、找方向、找选题、"最近有什么能做的"、"找几个关键词"、"挖个新词的工具站"、"看看有什么游戏站能做"、竞品调研、榜单调研、差评挖掘、反查谁在赚钱、关键词难度、KD、竞争度、SERP 分析、"这个词难不难做"、"做这个词要多少外链"，或提到 哥飞、web.cafe、哥飞论坛、哥飞的朋友们、悬赏、悬赏问答、经验帖、"群里怎么说的"、"社群里有没有讲过"、"论坛里搜一下"、"哥飞说过什么"、哥飞.ai，或提到 AI 搜索优化、AI Overviews、AI Mode、被 AI 引用、AEO、GEO、Preferred Sources、Discover 优化、Google 算法更新、核心更新、spam 更新、Information Gain，或提到 AI Agent 就绪度、is-agentic、agent readiness、llms.txt、对 AI 代理友好、AI 代理优化、agent-friendly、agentic score 时使用。也覆盖用户真正会打出来的模糊说法：我想让流量涨一点、今天弄下 SEO、帮我看看这个站有什么问题、优化一下我的网站、流量掉了、排名没了、是不是被 K 了、怎么一直不收录、新页面多久能进索引、提交 sitemap、IndexNow、站慢不慢、跑个性能、Core Web Vitals、PageSpeed、Lighthouse、全站内链失效、TDK、标题描述怎么写、关键词密度、能不能上线了、上线前还差什么、帮我搞点外链、外链、反链、去哪发外链、抓一下后台数据、导出报表、数据面板、这站没有 API、访客不注册、没人付费、定价怎么定、要不要上多语言、hreflang、发个 Product Hunt、跑一下小游戏监测。也覆盖：词根、扩词、扩词树、占位链接、占位文案、变现、PayPal、域名黑历史、域名前世、单语种、hello@、"这个域名能不能用"、"看下这批数据有没有能做的关键词"、"调研一下这个词"、"review 一下我的站"、"数据检测平台都接入了吗"、"把 Ahrefs 的检验结果都修了"、"我们开始执行这个项目的计划"、"一步步来"、"调研一下这关键词"、"我们做个网站吧"、"我们做个内页吧"、"把这个关键词做成内页"、"看一下 GEO 有没有问题"、"SEO 有没有问题"、"把这个经验写进 rankup"、"记下来更新到源码里"、"帮我生成 logo"、配图、封面、og 图、"写一下这页的文案"、"AI 味太重"、"帮我改稿"、"语言结构理顺"、"文案怎么写才有人点"、"用户为什么不买"、"Reddit 上怎么说"、"X 上有没有人讨论"、社区验证、社区调研、"做个好看的页面"、设计参考、组件库参考、"Hero 怎么设计"、"landing page 怎么排"、动画效果、动效、页面设计灵感、21st.dev。
+description: 网站从零到一与长期增长的总控 Skill。用于新建网站、SaaS、工具站或内容站，规划或初始化 TanStack Start Monorepo，使用 Cloudflare Workers、D1、R2 部署全栈应用，接入支付，执行 SEO、内容、外链、上线验证和持续迭代；也负责 Google Trends 查询、关键词难度（KD）估算与选词工作流；2026 AI 搜索范式（AI Overviews、AI Mode、Preferred Sources、Discover 独立算法、Information Gain、引用优先于排名）；AI Agent 就绪度评分（is-agentic、agent readiness、llms.txt、MCP 可发现性、AI 代理优化）。用户提到 rankup、rankup init、rankup check、环节闸门、检查清单、checklist、"现在该做什么"、"到哪一步了"、"这个环节能不能过"、"本轮还差什么"、建站、网站改版、搜索流量、GSC、排名、关键词、CTR、索引、网站增长，或提到 谷歌趋势、Google Trends、搜索热度、热度对比、搜索趋势、trending、"XX 和 YY 哪个更火"、"今天美国/日本在搜什么"、每日热搜、"这个词能不能做站"、"哪个市场/国家有机会"、帮我选 SEO 关键词、选词、选品调研、市场探测、挖需求、找需求、需求挖掘、找方向、找选题、选品、"这个方向能不能做"、"值不值得做"、"帮我看看这个想法"、"最近有什么能做的"、"找几个关键词"、"挖个新词的工具站"、"看看有什么游戏站能做"、竞品调研、榜单调研、差评挖掘、反查谁在赚钱、关键词难度、KD、竞争度、SERP 分析、"这个词难不难做"、"做这个词要多少外链"，或提到 哥飞、web.cafe、哥飞论坛、哥飞的朋友们、悬赏、悬赏问答、经验帖、"群里怎么说的"、"社群里有没有讲过"、"论坛里搜一下"、"哥飞说过什么"、哥飞.ai，或提到 AI 搜索优化、AI Overviews、AI Mode、被 AI 引用、AEO、GEO、Preferred Sources、Discover 优化、Google 算法更新、核心更新、spam 更新、Information Gain，或提到 AI Agent 就绪度、is-agentic、agent readiness、llms.txt、对 AI 代理友好、AI 代理优化、agent-friendly、agentic score 时使用。也覆盖用户真正会打出来的模糊说法：我想让流量涨一点、今天弄下 SEO、帮我看看这个站有什么问题、优化一下我的网站、流量掉了、排名没了、是不是被 K 了、怎么一直不收录、新页面多久能进索引、提交 sitemap、IndexNow、站慢不慢、跑个性能、Core Web Vitals、PageSpeed、Lighthouse、全站内链失效、TDK、标题描述怎么写、关键词密度、能不能上线了、上线前还差什么、帮我搞点外链、外链、反链、去哪发外链、抓一下后台数据、导出报表、数据面板、这站没有 API、访客不注册、没人付费、定价怎么定、要不要上多语言、hreflang、发个 Product Hunt、跑一下小游戏监测。也覆盖：词根、扩词、扩词树、占位链接、占位文案、变现、PayPal、域名黑历史、域名前世、单语种、hello@、"这个域名能不能用"、"看下这批数据有没有能做的关键词"、"调研一下这个词"、"review 一下我的站"、"数据检测平台都接入了吗"、"把 Ahrefs 的检验结果都修了"、"我们开始执行这个项目的计划"、"一步步来"、"调研一下这关键词"、"我们做个网站吧"、"我们做个内页吧"、"把这个关键词做成内页"、"看一下 GEO 有没有问题"、"SEO 有没有问题"、"把这个经验写进 rankup"、"记下来更新到源码里"、"帮我生成 logo"、配图、封面、og 图、"写一下这页的文案"、"AI 味太重"、"帮我改稿"、"语言结构理顺"、"文案怎么写才有人点"、"用户为什么不买"、"Reddit 上怎么说"、"X 上有没有人讨论"、社区验证、社区调研、"做个好看的页面"、设计参考、组件库参考、"Hero 怎么设计"、"landing page 怎么排"、动画效果、动效、页面设计灵感、21st.dev。
 metadata:
-  version: "3.8.8"
+  version: "3.9.1"
 ---
 
 # Rankup 3.0
@@ -19,9 +19,12 @@ metadata:
 |---|---|---|
 | 「看下这批数据有没有能做的关键词」「找几个关键词」「挖点需求」「最近有什么能做的」 | 1 | [`playbooks/research.md`](references/playbooks/research.md)（P0 分流 → 词根调研） |
 | 「调研一下这个词」「调研一下这关键词」「调研的关键词」「这个词能不能做站」「这词难不难」「帮我扩词」 | 1 | `research.md` **P2 词根调研**：任何词都是词根，先直接搜再扩树（旧 P3 已并入 P2，不再有单独的扩词流水线） |
+| 「找个方向」「这个方向能不能做」「值不值得做」「选品」「有什么能做的」「帮我看看这个想法」 | 1 | [`playbooks/selection.md`](references/playbooks/selection.md)：先过七道选品闸门判"该不该做"（硬约束/频次/痛点/付费信号/护城河/获客可行性，几乎零配额），过闸的候选才把主词交给 `research.md` P2 花配额查清楚——不要跳过闸门直接进 P2 |
 | 「谁在赚钱」「反查这个站」「竞品最近在做什么」「帖子说月入 X 是真的吗」 | 1 | `research.md` P4 + [`demand-sources.md`](references/demand-sources.md) 第十节 |
 | 「XX 和 YY 哪个更火」「今天美国/日本在搜什么」「哪个国家有机会」 | 1–2 | [`trends.md`](references/trends.md)，`scripts/gt.py` |
-| 「有什么游戏站能做」「跑一下小游戏监测」 | 1 | `game-opportunity` Skill；建站再读 [`game-sites.md`](references/game-sites.md) |
+| 「有什么游戏站能做」「跑一下小游戏监测」「游戏关键词怎么找」 | 1 | [`game-sites.md`](references/game-sites.md)：Rankup 总控发现、探索、研究和是否值得做的判断，内部按需调用 `game-opportunity` |
+| 「小游戏机会每日采集」 | 1 | [`game-sites.md` 每日采集](references/game-sites.md#每日采集)：读项目参数，采集、全池轻筛、写当天交接 |
+| 「小游戏机会每日决策」 | 1–2 | [`game-sites.md` 每日决策](references/game-sites.md#每日决策)：读当天交接，选深查名单、验证、判读并维护观察池 |
 | 「这个方向做不做」「做哪个语种」「要不要上多语言」「做成工具还是内容站」 | 2 | [`lifecycle.md`](references/lifecycle.md) 段 2 |
 | 「我们做个网站吧」「新建个站」「想做个工具站」「帮我搭起来」 | 2→3 | 先过段 2 立项定位，再段 3 初始化；手上没有词树先回段 1，不许跳过 |
 | 「一步步来」「我们开始执行这个项目的计划」 | check | 先 `rankup check` 定位当前段与第一个没过的闸，然后按 [`checklists.md`](references/checklists.md) 逐环节推进，每过一闸记 `checks.md`；不要跳过 check 直接猜段 |
@@ -63,11 +66,12 @@ metadata:
 
 ### 1 调研
 
-- **触发**：给了一批数据、一个词、一个帖子、一个域名，问「能不能做」。
-- **入口**：[`playbooks/research.md`](references/playbooks/research.md)（P0 只看输入分流：什么都没有 → P1；一个词 → **P2 词根调研**；一个域名 → P4）；判读 [`demand-discovery.md`](references/experiences/demand-discovery.md)；意图核验在 [`lifecycle.md`](references/lifecycle.md) 段 1 · 1.2；验收单 `research-checklist.md`（不是入口）。常用脚本：`scripts/demand/suggest.mjs`（三引擎下拉联想）、`scripts/seo-webcafe.mjs kd`（默认经 OpenCLI 驱动已登录 Chrome 跑登录/VIP 档，游客 10/日只在 OpenCLI 不可用或显式 `--guest` 时出现，是降级不是默认）、`backlink/scripts/semrush-keyword.mjs`；面板取证 `scripts/rankup-cli.mjs`（`npx @yan-labs/rankup audit similarweb`）。
+- **触发**：给了一批数据、一个词、一个帖子、一个域名，问「能不能做」；或者只有一个模糊方向，问「该不该做」「值不值得做」——后者先进 `selection.md`，不要直接进 `research.md`。
+- **入口**：候选方向先过 [`playbooks/selection.md`](references/playbooks/selection.md)（七道选品闸门：硬约束/频次/痛点/付费信号/护城河/获客可行性/量化验证，前六道几乎零配额，判"该不该做"）；过闸的候选，或用户已经给了一个具体词/域名，再进 [`playbooks/research.md`](references/playbooks/research.md)（P0 只看输入分流：什么都没有 → P1；一个词 → **P2 词根调研**；一个域名 → P4，判"怎么把它查清楚"）；判读 [`demand-discovery.md`](references/experiences/demand-discovery.md)；意图核验在 [`lifecycle.md`](references/lifecycle.md) 段 1 · 1.2；验收单 `research-checklist.md`（不是入口）。常用脚本：`scripts/demand/suggest.mjs`（三引擎下拉联想）、`scripts/seo-webcafe.mjs kd`（默认经 OpenCLI 驱动已登录 Chrome 跑登录/VIP 档，游客 10/日只在 OpenCLI 不可用或显式 `--guest` 时出现，是降级不是默认）、`backlink/scripts/semrush-keyword.mjs`；面板取证 `scripts/rankup-cli.mjs`（`npx @yan-labs/rankup audit similarweb`）。
 
 | 硬规则 | 为什么 |
 |---|---|
+| 新方向/候选先过 `selection.md` 七道闸门（0 硬约束、1 使用频次、2 痛点证据、3 付费信号、4 护城河、5 获客可行性、6 量化验证），闸门 6 才移交 `research.md` P2 花配额 | 六轮 546 次搜索证明：旧顺序把最贵的关键词配额放第一步，绝大多数配额烧在了后来被免费判据（硬约束/低频/无护城河）就能秒杀的候选身上——最便宜、最能杀死候选的判据必须排最前 |
 | 用户给的任何词都是**词根**：先直接搜，再扩成树（面板相关词 + Google/Bing/DDG 下拉；叶子再扩，最多两层；叶子月量低于阈值或 KD 高于阈值就停） | 用户给的是方向不是答案，一个词查完就下结论会漏掉整棵树 |
 | 筛子：月量太低且 CPC 低 = 否；KD 低好上手 | 量低又没人出价，说明没人为它付钱 |
 | **Semrush / Similarweb 报的月量必须用 Google Trends 锚点法交叉验证**：默认锚点 `gpts`（美国实测约 5,400/月，KD 77，2026-09-09 Semrush 实测），量级差 10 倍以上再换同量级第二锚点；每轮都要重拉一次锚点自己的 12 个月曲线取均值校准，不能沿用旧均值或只看最近几周（`references/trends.md`「〇·六」） | 面板对刚起量的新词有滞后、对头部通用词又容易估得偏宽，本轮实测两个方向的偏差都到过 6–14 倍（`ai headshot generator` 报 22,200 被两次独立锚点判定只有 0.07–0.18 倍；`ugc ads ai` 报 210 被判定低估到 1.4–3.3 倍）；不交叉验证就是直接把面板的方向性误差当结论用 |
@@ -274,7 +278,7 @@ G 组那条线：`scripts/review.mjs --project-root .` 出五块报告；再挖�
 
 ## 安装与版本
 
-先装 `opencli`（`npx skills add yan-labs/yan-skills --skill opencli -g -y`）：凡是碰浏览器的动作都落在它那一层，且 OpenCLI 本体要装我们自己的构建，不是应用商店版（商店版默认前台抢标签页，失败不报错）。`opencli doctor` 报扩展版本过低时照它说的做。
+先装 `opencli`（`npx skills add yan-labs/yan-skills --skill opencli -g -y`）：OpenCLI 本体要装我们自己的构建，不是应用商店版（商店版默认前台抢标签页，失败不报错）。`opencli doctor` 报扩展版本过低时照它说的做。**凡是碰用户已登录浏览器的动作，一律走它，不得用其他浏览器自动化工具（含 Claude 自带的 Claude in Chrome 一类）替代**——理由与判据见 [`discipline.md`](references/discipline.md) 五。
 
 ```bash
 npx skills add yan-labs/yan-skills --skill rankup -g -y   # 全局安装

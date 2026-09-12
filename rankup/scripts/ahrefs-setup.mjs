@@ -160,6 +160,16 @@ function stampAndClick(js, label) {
   scene(`clicked-${label.replace(/[^\w一-鿿-]/g, "_")}`)
 }
 
+/** opencli 新版 `type` 要求显式 target（不再支持只传 text 打到当前焦点元素）。
+ *  这里复用 stampAndClick 的打标签思路：先用 evalJs 给目标元素打上唯一属性，
+ *  再用该属性做 CSS 选择器传给 opencli type <target> <text>。 */
+function stampAndType(js, text, label) {
+  evalJs(`const el=${js};if(!el)throw new Error('找不到: ${label}');el.setAttribute('data-rankup-target','1')`)
+  cli(`type "[data-rankup-target=\\"1\\"]" "${text}"`)
+  evalJs(`document.querySelector('[data-rankup-target]')?.removeAttribute('data-rankup-target')`)
+  scene(`typed-${label.replace(/[^\w一-鿿-]/g, "_")}`)
+}
+
 // ── status：列出所有项目 ──────────────────────────────────
 async function doStatus() {
   open("https://app.ahrefs.com/dashboard")
@@ -207,16 +217,29 @@ async function doCreate() {
 
   // 填写域名
   const domainInput = `document.querySelector('input[placeholder*="域" i],input[placeholder*="domain" i],input[placeholder*="路径" i],input[placeholder*="path" i]')`
-  evalJs(`const el=${domainInput};if(!el)throw new Error('找不到域名输入框');el.focus();el.value='';`)
-  cli(`type "${site}"`)
+  evalJs(`const el=${domainInput};if(!el)throw new Error('找不到域名输入框');el.value='';`)
+  stampAndType(domainInput, site, "域名输入框")
   settle(1000)
 
-  // 填写项目名称（如果输入框已自动填充则跳过）
-  const nameInput = `document.querySelector('input[id*="name" i],input[placeholder*="name" i]')`
+  // 填写项目名称（如果输入框已自动填充则跳过）。
+  // 中文界面下这个字段没有 name/id/placeholder 特征（标签在旁边的 <div> 里，
+  // 不在 input 属性上），所以英文属性选择器会落空——改成：找所有可见文本
+  // input，排除已经填过域名的那个，取第一个空的当作项目名称框；找不到就
+  // 退化成"就近找标注为 项目名称/project name 的容器里的 input"。
+  const nameInput = `(() => {
+    const domainEl = ${domainInput};
+    const texts = [...document.querySelectorAll('input[type="text"],input:not([type])')]
+      .filter(el => el.offsetParent !== null && el !== domainEl);
+    let byLabel = texts.find(el => {
+      const label = el.closest('div')?.parentElement?.textContent || '';
+      return /项目名称|project name/i.test(label);
+    });
+    return byLabel || texts.find(el => !el.value);
+  })()`
   const currentName = evalJs(`const el=${nameInput};return el?.value||''`)
   if (!currentName || currentName === "") {
-    evalJs(`const el=${nameInput};if(el){el.focus();el.value='';}`)
-    cli(`type "${name}"`)
+    evalJs(`const el=${nameInput};if(el){el.value='';}`)
+    stampAndType(nameInput, name, "项目名称输入框")
     settle(500)
   }
 
@@ -348,22 +371,25 @@ async function doVerifyWithId(projectId) {
   open(`https://app.ahrefs.com/project-settings/${projectId}/ownership`)
   settle(5000)
 
-  // 2. 展开「谷歌搜索控制台（建议）」折叠区域
+  // 2. 展开「谷歌搜索控制台（建议）」折叠区域。
+  // 实盘验证过（2026-09-10）：这个 Ahrefs 页面是 css-in-js 出来的哈希类名，
+  // 没有任何 accordion/Accordion/details/section 标记——折叠标题就是一个
+  // textContent 精确等于"谷歌搜索控制台（建议）"的最小 DIV，点它本身
+  // （它自己挂了 onclick，cursor:pointer）。展开状态用"标题后面紧跟的正文
+  // 是否已经出现"选择谷歌账号/连接您的谷歌帐号"这类展开态才有的文案"判断，
+  // 而不是找 class 或 aria-expanded（页面上都没有）。
+  const gscLabelJs = `[...document.querySelectorAll('div')].filter(el=>/谷歌搜索控制台|Google Search Console/i.test(el.textContent)).sort((a,b)=>a.textContent.length-b.textContent.length)[0]`
   const alreadyExpanded = evalJs(`
-    const gsc = [...document.querySelectorAll('[class*="accordion"],[class*="Accordion"],details,section')]
-      .find(el => /谷歌搜索控制台|Google Search Console/i.test(el.textContent));
+    const gsc = ${gscLabelJs};
     if (!gsc) return 'not_found';
-    const expanded = gsc.querySelector('[aria-expanded="true"]') ||
-                     gsc.querySelector('.open,[class*="expanded"],[class*="Expanded"]') ||
-                     gsc.hasAttribute('open');
-    return expanded ? 'expanded' : 'collapsed';
+    const t = document.body.innerText;
+    const idx = t.indexOf(gsc.textContent.trim());
+    const after = idx >= 0 ? t.slice(idx, idx + 200) : '';
+    return /选择谷歌账号|连接您的谷歌帐号|Select.*Google.*account|Connect.*Google/i.test(after) ? 'expanded' : 'collapsed';
   `)
 
   if (alreadyExpanded === 'collapsed') {
-    stampAndClick(
-      `[...document.querySelectorAll('button,[role="button"],summary,h3,h4,div[class*="header"]')].find(el=>/谷歌搜索控制台|Google Search Console/i.test(el.textContent))`,
-      "GSC 折叠标题"
-    )
+    stampAndClick(gscLabelJs, "GSC 折叠标题")
     settle(2000)
   } else if (alreadyExpanded === 'not_found') {
     bail("gsc-section-not-found", "找不到 GSC 验证区域。页面结构可能已变化——现在长什么样，看截图。")
