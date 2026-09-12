@@ -132,6 +132,68 @@
  *      `<out-dir>/clusters.md`。**已知局限**：exact-match 聚类召回率不高，
  *      两个措辞不同但其实是同一需求的候选（比如 "Invoice Maker" vs
  *      "Invoice Pro"）不会被聚到一起——这是刻意的保守取舍，不是遗漏。
+ *      **⚠️ 2026-09-13 二轮实测已推翻本条里"开发者名当第二把聚类钥匙"这个设计**
+ *      ——见下面新增的「2026-09-13 二轮实测复盘」，devKey 这把钥匙已经移除，
+ *      不要再照这一条的描述去理解当前代码。
+ *
+ * 2026-09-13 二轮实测复盘（对着真实产出的 344 条候选/44 个多源聚类/57 条被过滤巨头
+ * 做的人工核验，不是凭空猜的，三处都能在当前数据里复现，逐条记录修法）：
+ *   6) **"多源命中"是假信号：appstore 和 gplay 不是两个独立方法论，是同一个信号
+ *      （这个 App 火）在两个商店的两次观测。** 真实数据里 44 个"命中 ≥2 个信号源"
+ *      的聚类，**100% 是 appstore+gplay 组合，没有一个跨真正独立方法论**
+ *      （ads 买量 / appstore+gplay 冲榜 / stripe 收钱这三类里，appstore 和 gplay
+ *      本质是同一类"冲榜"观测的两个采样点）。引入 `SOURCE_FAMILY`：appstore/gplay
+ *      同属 `app-charts` 族，ads 和 stripe 各自独立成族。`clusterCandidates` 现在
+ *      同时算 `sourcesHit/sourceCount`（按信号源，原样保留，仅供参考）和
+ *      `familiesHit/familyCount`（按信号源族，**这才是"独立方法论互证"的真实计数**），
+ *      排序也改成先按 familyCount 降序。`renderClustersMarkdown`/`report --cluster`
+ *      把"跨族命中"（真正的多方法论验证）和"同族内多店命中"（同一个 App 在
+ *      appstore+gplay 都出现，是有价值的补充信息，但不能读成"独立验证"）分成两张表，
+ *      不再混在一起打印成一个笼统的"命中源数"。
+ *   7) **聚类误并——开发者名这把第二钥匙的害处大于好处，已移除。** 真实数据复现了
+ *      一条链式误并：candidateClusterKeys 原来会用 `extra.artist`/`extra.developer`
+ *      （开发者名）当第二把聚类钥匙，本意是让"同一家公司的域名/公司名/App 名"互相
+ *      连起来。但代工壳公司（app farm）批量挂靠同一个开发者账号做**完全不相关**的
+ *      App 太常见了——真实例子：开发者「BEGAMOB GLOBAL LIMITED」同时挂着一款
+ *      "Authenticator ℠ App" 和一款 "Universal Remote TV Control ·"，这两款 App
+ *      通过开发者名钥匙被直接并进同一个簇，链式传递下去，最终把 4 家互不相干的
+ *      "认证器"和"电视遥控器"壳厂商的 8 条候选全挤进一个簇——这正是"不该合并的合并
+ *      了"。与此同时，"该合并的没合并"（跨垂类同模式、名字毫无相似度的独立公司）
+ *      开发者名钥匙也从来救不了，因为不同公司的开发者名本来就不一样。字符串匹配
+ *      做不了模式识别，硬凑一把"开发者名"钥匙只换来确定会发生的误并和从未在真实
+ *      数据里验证过的潜在收益——所以直接移除，`candidateClusterKeys` 现在只返回
+ *      候选名本身归一化后的一把钥匙。聚类因此收窄定位为**同名/同域名去重**（比如
+ *      同一个 App 在 appstore/gplay 都叫 "ChatGPT"，或者同一个域名同时在 ads
+ *      creatives 和 stripe 里出现），不再宣称"能发现跨垂类的同模式产品"——那类
+ *      模式识别交给读数据的人/LLM 去看候选原始字段（下面第 8 条的 JSONL 导出就是
+ *      为这个用途准备的），本脚本自己不再假装能做语义匹配。`--help` 和
+ *      `renderClustersMarkdown` 里的措辞已同步改掉。
+ *   8) **appstore/gplay 巨头过滤两边判据不一致——同一个 App（ChatGPT）在 gplay 因
+ *      安装量 1.5B 被过滤，在 appstore 因为发行商「OpenAI OpCo, LLC」不在硬编码
+ *      巨头名单里而放行。** appstore-charts.mjs 默认榜单确实不带安装量/评分字段
+ *      （只有传 `--lookup` 才会额外拉 `rating`/`ratingCount`，见该脚本文件头），
+ *      这是硬约束、改不了 demand/ 下的脚本（不在本文件职责范围）。真正统一不了
+ *      两边判据这件事本身**如实承认**，做法是：
+ *        a) **跨商店同名匹配**（`crossStoreGiantMatch`/`buildAppChartGiantIndex`）
+ *           ——用已有的名字归一化，把这次 appstore/gplay 的候选和 `<out-dir>` 下
+ *           累积的 candidates.json/filtered-giants.json 里对面商店的同名候选对照：
+ *           对面商店只要判过巨头，这边直接继承判定（reason 里写清楚"跨商店同名
+ *           匹配"，不装成是本店自己判出来的）。这是三个可选方向（评分数量/榜单
+ *           排名/发行商跨商店匹配）里最硬的一个——不用猜换算系数，直接借用另一边
+ *           真实的安装量结论。**已知局限**：冷启动时（还没有累积过对面商店的数据）
+ *           这条路径无效，多轮扫描两边商店之后才会生效。
+ *        b) appstore 有 `ratingCount`（评分数）时，允许调用方显式传
+ *           `--max-rating-count <n>` 启用一个弱代理阈值判据——**不设默认值**：
+ *           评分率随品类/上架年限浮动极大，编一个"看起来精确"的默认数字反而是
+ *           假精确，不如让人根据自己的场景选。没传 `--lookup` 时这个字段本来就
+ *           拿不到，判据自然用不上。
+ *        c) **没有走到 a/b 两条的 appstore 候选，判据确实只剩开发者名单一条**，
+ *           比 gplay 弱——这是如实标注、不是掩盖。`classifyGiant` 现在会返回
+ *           `basis`（这条候选实际被哪些判据检查过），`partitionGiants` 把
+ *           `giantCheckBasis` 写进**每一条**候选（kept 和 filtered 都有，不止
+ *           被过滤的那些），`--help` 里也补了这条已知局限。
+ *      硬编码的 `KNOWN_GIANT_PUBLISHERS` 名单本身仍然只是人工维护的示例清单
+ *      （约 50 个全球级名字），覆盖不全——`--help` 明确写了这一点，不装作是权威名单。
  */
 
 import fs from 'node:fs';
@@ -155,6 +217,20 @@ export const SOURCE_META = {
   stripe: { script: 'stripe-referring', signal: 'stripe-referrer', label: 'Stripe 引荐流量榜（谁在真收钱）' },
 };
 export const SOURCE_IDS = Object.keys(SOURCE_META);
+
+/** 【2026-09-13 二轮修复 6】信号源"族"：appstore/gplay 是同一类观测（App 冲榜）
+ * 的两个采样点，不是两个独立方法论——放进同一族 `app-charts`。ads（买量）和
+ * stripe（收钱）各自方法论独立，各自成族。"跨族命中"才是真正的"多个独立方法论
+ * 撞到同一方向"；同族内的多源命中（同一个 App 同时上 appstore 和 gplay 榜）只是
+ * 同一个观测的重复确认，有参考价值但不构成独立验证——两者在输出里必须分开算、
+ * 分开显示，不能混成一个"命中源数"。 */
+export const SOURCE_FAMILY = {
+  ads: 'ads-spend',
+  appstore: 'app-charts',
+  gplay: 'app-charts',
+  stripe: 'stripe-revenue',
+};
+export function familyOf(source) { return SOURCE_FAMILY[source] || source; }
 
 // ── 纯函数：解析 / 映射 / 去重 / 渲染（自测只测这一段，离线可跑）───────────
 
@@ -282,7 +358,16 @@ export function mapRowToCandidate(source, row, opts = {}) {
     case 'appstore':
       return {
         name: row.name || row.appId || '(unknown)', evidenceUrl: row.url || null,
-        extra: { rank: row.rank ?? null, chart: row.chart ?? null, country: row.country ?? null, artist: row.artist ?? null, genres: row.genres ?? null },
+        extra: {
+          rank: row.rank ?? null, chart: row.chart ?? null, country: row.country ?? null, artist: row.artist ?? null, genres: row.genres ?? null,
+          // rating/ratingCount/primaryGenre/price/currency 只有调用方对 appstore-charts.mjs
+          // 传了 --lookup 才会有值（默认榜单没有这些字段，见 appstore-charts.mjs 文件头
+          // "已知坑"）——这里原样透传，不在时就是 null，不假装有。ratingCount 是
+          // classifyGiant 里可选的弱代理巨头判据（见【2026-09-13 二轮修复 8】），
+          // primaryGenre 是给 LLM 导出用的更精确垂类线索（比 genres 数组更干净）。
+          rating: row.rating ?? null, ratingCount: row.ratingCount ?? null, primaryGenre: row.primaryGenre ?? null,
+          price: row.price ?? null, currency: row.currency ?? null,
+        },
       };
     case 'gplay':
       return {
@@ -290,8 +375,16 @@ export function mapRowToCandidate(source, row, opts = {}) {
         extra: {
           position: row.position ?? row.rank ?? null, rating: row.rating ?? null, installs: row.installs ?? null,
           // developer 之前没有被映射进来：--ranking 模式（HELP 推荐的模式）的行里一直带着这个
-          // 字段，是「按开发者规模过滤巨头」（classifyGiant）和跨源聚类的开发者钥匙的数据来源。
+          // 字段，是「按开发者规模过滤巨头」（classifyGiant）的数据来源（2026-09-13 二轮修复后
+          // 不再是跨源聚类的钥匙，见 candidateClusterKeys 的说明）。
           developer: row.developer ?? null,
+          // category/chart/rankCategory：给 LLM 导出用的垂类线索，--ranking 总榜
+          // （rank-category=all）才有 category，其余模式可能是 null，不强求。
+          // recentInstalls：--ranking 模式独有的"近期新增安装量"，比累计 installs
+          // 更能反映"现在还在不在长"，同样只是原样透传给下游读数据的人/LLM 判断，
+          // 本文件不对它做任何阈值判断。
+          category: row.category ?? null, chart: row.chart ?? null, rankCategory: row.rankCategory ?? null,
+          recentInstalls: row.recentInstalls ?? null,
         },
       };
     case 'stripe': {
@@ -607,30 +700,117 @@ export function parseInstallsApprox(installsStr) {
   return num * mult;
 }
 
-/** 【修复 4】判定一条 appstore/gplay 候选是不是"巨头条目"：开发者名撞已知巨头
- * 名单，或者（仅 gplay，appstore 榜单没有安装量字段）安装量 ≥ 阈值。任一条件
- * 命中就判定为巨头，附上人读的判定理由（写进 giantFilterReason，方便复核）。 */
-export function classifyGiant(candidate, { maxInstalls = 50_000_000 } = {}) {
+/** 【2026-09-13 二轮修复 8】appstore/gplay 巨头过滤最硬的一条补救：跨商店同名匹配。
+ * appstore 默认没有安装量字段，猜一个"评分数→安装量"换算系数是假精确；但如果同一个
+ * App 名字在**对面商店**已经被判定过巨头（比如 gplay 侧靠真实安装量判过 ChatGPT 是
+ * 巨头），这边可以直接借用那个结论，不用重新发明判据。
+ * index：由 buildAppChartGiantIndex 从 <out-dir> 累积的 candidates.json（kept，视为
+ * "上次检查时不是巨头"）+ filtered-giants.json（filtered，视为"巨头"）构建，key 是
+ * normalizeForCluster 算出来的名字钥匙（和聚类用的是同一套归一化，appstore/gplay 的
+ * 同一个 App 名字通常逐字相等，能对上）。
+ * **已知局限**：冷启动（<out-dir> 里还没有对面商店的历史数据）时这条路径找不到匹配，
+ * 不是"确认不是巨头"，只是"这次没有可借用的信息"——调用方不要把 null 读成安全。 */
+export function buildAppChartGiantIndex(existingCandidates, filteredGiants) {
+  const map = new Map();
+  const add = (c, giant, reason) => {
+    if (!c || (c.source !== 'appstore' && c.source !== 'gplay')) return;
+    const key = normalizeForCluster(c);
+    if (!key) return;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push({ source: c.source, giant, reason: reason ?? null });
+  };
+  for (const c of existingCandidates || []) add(c, false, null);
+  for (const c of filteredGiants || []) add(c, true, c.giantFilterReason || null);
+  return map;
+}
+
+export function crossStoreGiantMatch(candidate, indexByNameKey) {
+  if (!indexByNameKey) return null;
+  const key = normalizeForCluster(candidate);
+  if (!key) return null;
+  const entries = indexByNameKey.get(key);
+  if (!entries) return null;
+  const hit = entries.find((e) => e.source !== candidate.source && e.giant);
+  if (!hit) return null;
+  return {
+    giant: true,
+    reason: `同名候选已在${SOURCE_META[hit.source]?.label || hit.source}被判定为巨头` +
+      `（${hit.reason || '原因未记录'}）——跨商店同名匹配，不是本店自己的判据判出来的`,
+  };
+}
+
+/** 【修复 4 / 2026-09-13 二轮修复 8】判定一条 appstore/gplay 候选是不是"巨头条目"：
+ *   1) 开发者名撞已知巨头名单（两边都有这个字段，判据一致）；
+ *   2) gplay 安装量 ≥ 阈值（appstore 默认榜单没有这个字段，两边**不一致**，见下）；
+ *   3) 【新增，可选】appstore 有 ratingCount（需要调用方对 appstore-charts.mjs 传了
+ *      --lookup）且显式传了 --max-rating-count 时，评分数 ≥ 阈值——不设默认阈值，
+ *      评分率因品类/年限浮动极大，编一个默认数字是假精确；
+ *   4) 【新增】跨商店同名匹配（见 crossStoreGiantMatch）——appstore 缺字段时最硬的
+ *      补救，不需要猜换算系数。
+ * 任一条件命中就判定为巨头，返回值里的 `basis` 记录这条候选**实际被哪些判据检查过**
+ * （不管最后判没判定为巨头）——appstore 在没有 --lookup/没有跨商店历史数据时，basis
+ * 会明确显示"只查了开发者名单"，比 gplay 少一层检查，这是如实标注，不是掩盖成"两边
+ * 判据一致"。 */
+export function classifyGiant(candidate, { maxInstalls = 50_000_000, maxRatingCount = null, crossStoreIndex = null } = {}) {
+  const basis = ['dev-list'];
   const dev = candidate?.source === 'appstore' ? candidate?.extra?.artist
     : candidate?.source === 'gplay' ? candidate?.extra?.developer : null;
-  if (dev && isLikelyGiantPublisher(dev)) return { giant: true, reason: `发行商「${dev}」命中已知巨头名单` };
-  if (candidate?.source === 'gplay' && candidate?.extra?.installs) {
-    const n = parseInstallsApprox(candidate.extra.installs);
-    if (n != null && n >= maxInstalls) {
-      return { giant: true, reason: `安装量 ${candidate.extra.installs} ≥ 阈值 ${maxInstalls.toLocaleString()}` };
+  if (dev && isLikelyGiantPublisher(dev)) return { giant: true, reason: `发行商「${dev}」命中已知巨头名单`, basis };
+
+  if (candidate?.source === 'gplay') {
+    // 真实数据里 gplay-charts.mjs 几乎总能给出 installs（2026-09-13 核对过 150 条
+    // 真实候选，0 条缺失）——但仍然如实标注"这次到底有没有拿到值"，不假设它永远在，
+    // 和 appstore 的 ratingCount availability 标注保持同一套写法，不搞双重标准。
+    if (candidate?.extra?.installs) {
+      basis.push('gplay-installs');
+      const n = parseInstallsApprox(candidate.extra.installs);
+      if (n != null && n >= maxInstalls) {
+        return { giant: true, reason: `安装量 ${candidate.extra.installs} ≥ 阈值 ${maxInstalls.toLocaleString()}`, basis };
+      }
+    } else {
+      basis.push('gplay-installs(unavailable:这条候选没有 installs 字段)');
     }
   }
-  return { giant: false, reason: null };
+
+  if (candidate?.source === 'appstore') {
+    if (candidate?.extra?.ratingCount != null) {
+      basis.push(maxRatingCount != null ? 'appstore-rating-count' : 'appstore-rating-count(available-but-no-threshold-set)');
+      if (maxRatingCount != null) {
+        const rc = Number(candidate.extra.ratingCount);
+        if (Number.isFinite(rc) && rc >= maxRatingCount) {
+          return {
+            giant: true,
+            reason: `App Store 评分数 ${rc.toLocaleString()} ≥ 阈值 ${Number(maxRatingCount).toLocaleString()}` +
+              '（弱代理信号，不等于真实安装量，评分率因品类/年限浮动很大）',
+            basis,
+          };
+        }
+      }
+    } else {
+      basis.push('appstore-rating-count(unavailable:未对 appstore-charts.mjs 传 --lookup)');
+    }
+  }
+
+  if (crossStoreIndex) {
+    basis.push('cross-store');
+    const cross = crossStoreGiantMatch(candidate, crossStoreIndex);
+    if (cross) return { giant: true, reason: cross.reason, basis };
+  }
+
+  return { giant: false, reason: null, basis };
 }
 
 /** 【修复 4】把一批候选分成 kept/filtered 两组，纯函数，不做任何 I/O——
- * filtered 组不是被丢弃，调用方要把它落盘保留，"过滤掉的要能查看"是硬要求。 */
+ * filtered 组不是被丢弃，调用方要把它落盘保留，"过滤掉的要能查看"是硬要求。
+ * 【2026-09-13 二轮修复 8】giantCheckBasis 写进**每一条**输出（kept 和 filtered
+ * 都有），不止被过滤的那些——"这条候选到底被哪些判据查过"对 kept 的条目同样重要，
+ * 否则使用者会误以为一条 appstore 候选和 gplay 候选经过了同一套检查。 */
 export function partitionGiants(candidates, opts = {}) {
   const kept = [], filtered = [];
   for (const c of candidates) {
     const verdict = classifyGiant(c, opts);
-    if (verdict.giant) filtered.push({ ...c, giantFilterReason: verdict.reason });
-    else kept.push(c);
+    if (verdict.giant) filtered.push({ ...c, giantFilterReason: verdict.reason, giantCheckBasis: verdict.basis });
+    else kept.push({ ...c, giantCheckBasis: verdict.basis });
   }
   return { kept, filtered };
 }
@@ -665,33 +845,30 @@ export function normalizeForCluster(candidate) {
   return normalizeCompanyName(raw);
 }
 
-/** 【修复 5】一个候选可能贡献 1-2 把聚类钥匙：候选名本身，加上"这个候选背后的公司名"
- * （appstore 的 extra.artist、gplay 的 extra.developer、ads creatives 的
- * extra.advertiserName——后者是「同一个域名，既在投广告又在冲榜」这种跨源信号
- * 真正连起来的关键：ads creatives 候选名是域名，devKey 用公司名去匹配 ads
- * advertisers 或 appstore/gplay 里同一家公司，否则域名字面量和公司名/App 名
- * 永远聚不到一起）。两把钥匙都走同一套归一化，保证能互相匹配上。 */
+/** 【2026-09-13 二轮修复 7】只返回候选名本身归一化后的一把钥匙——**开发者名这把
+ * 第二钥匙已经移除**。原设计是想让"appstore 的 extra.artist / gplay 的
+ * extra.developer / ads creatives 的 extra.advertiserName"互相连起来，抓"同一家
+ * 公司既在投广告又在冲榜"这种跨源信号；但真实数据证明代工壳公司（app farm）挂靠
+ * 同一个开发者账号做完全不相关的 App 太常见——开发者名钥匙的链式传递会把毫不相干的
+ * 产品（认证器 App、电视遥控器 App）挤进同一个簇，这个误并的代价在真实数据里已经
+ * 发生过，而"同一家公司跨源撞车"这个收益从未在真实数据里验证过一次（ads 源当时只有
+ * 1 条候选）。宁可漏合并，不错误合并——保留这一条设计哲学，但开发者名不再是称职的
+ * 聚类钥匙，函数签名不变（仍返回数组，方便未来如果找到更安全的第二钥匙可以加回来），
+ * 现在恒定只含 0-1 个元素。 */
 export function candidateClusterKeys(candidate) {
-  const keys = [];
   const nameKey = normalizeForCluster(candidate);
-  if (nameKey) keys.push(nameKey);
-  const devRaw = candidate?.source === 'appstore' ? candidate?.extra?.artist
-    : candidate?.source === 'gplay' ? candidate?.extra?.developer
-    : candidate?.source === 'ads' && candidate?.extra?.mode === 'creatives' ? candidate?.extra?.advertiserName
-    : null;
-  if (devRaw) {
-    const devKey = normalizeForCluster({ name: devRaw });
-    if (devKey && !keys.includes(devKey)) keys.push(devKey);
-  }
-  return keys;
+  return nameKey ? [nameKey] : [];
 }
 
-/** 【修复 5】跨源聚类主函数：并查集，任何两个候选只要共享一把聚类钥匙
- * （candidateClusterKeys）就合并到同一簇。没有可用钥匙的候选各自独立成
- * 单元素簇（sourceCount=1，仍然是合法输出，只是不构成"多源撞车"信号）。
- * 每个簇原样保留全部原始候选对象（含各自的证据链接），不做任何字段合并/
- * 覆盖——"保留每个原始来源的证据链接，不要合并时丢证据"是硬要求。
- * 按命中的独立信号源数量降序排序，其次按累计出现次数降序。 */
+/** 【修复 5 / 2026-09-13 二轮修复 6】跨源聚类主函数：并查集，任何两个候选只要共享
+ * 一把聚类钥匙（candidateClusterKeys，现在只有候选名归一化这一把）就合并到同一簇。
+ * 没有可用钥匙的候选各自独立成单元素簇。每个簇原样保留全部原始候选对象（含各自的
+ * 证据链接），不做任何字段合并/覆盖。
+ * **familyCount 才是"多个独立方法论撞到同一方向"的真实计数**：appstore/gplay 同属
+ * `app-charts` 族（见 SOURCE_FAMILY），两者都命中只算 familyCount=1——同一个观测的
+ * 两次采样，不是两种独立验证。sourceCount 原样保留（按信号源去重计数），仅供参考，
+ * 不要单独拿它当"多方法论验证"的证据。排序先按 familyCount 降序，其次 sourceCount，
+ * 最后按累计出现次数降序。 */
 export function clusterCandidates(candidates) {
   const n = candidates.length;
   const parent = Array.from({ length: n }, (_, i) => i);
@@ -715,38 +892,325 @@ export function clusterCandidates(candidates) {
 
   return [...groups.values()].map((members) => {
     const sourcesHit = [...new Set(members.map((m) => m.source))].sort();
+    const familiesHit = [...new Set(members.map((m) => familyOf(m.source)))].sort();
     return {
       clusterKey: normalizeForCluster(members[0]) || members.map((m) => m.name).join(' / '),
       sourcesHit,
       sourceCount: sourcesHit.length,
+      familiesHit,
+      familyCount: familiesHit.length,
       members,
       totalSeen: members.reduce((sum, m) => sum + (m.seenCount || 1), 0),
       evidence: members.filter((m) => m.evidenceUrl).map((m) => ({ source: m.source, name: m.name, url: m.evidenceUrl })),
     };
-  }).sort((a, b) => b.sourceCount - a.sourceCount || b.totalSeen - a.totalSeen);
+  }).sort((a, b) => b.familyCount - a.familyCount || b.sourceCount - a.sourceCount || b.totalSeen - a.totalSeen);
 }
 
-/** 【修复 5】聚类清单渲染成人读 Markdown，只列出命中 ≥2 个独立信号源的簇
- * （单源的簇本质就是普通候选，去看 candidates.md 就够了，这里只突出"撞车"信号）。 */
+/** 【修复 5 / 2026-09-13 二轮修复 6+7】聚类清单渲染成人读 Markdown。
+ * 重新定位：这不是"发现跨垂类同模式产品"的模式识别（字符串匹配做不了这个，见
+ * candidateClusterKeys 的说明），是**同名/同域名去重**——同一个 App 在 appstore/
+ * gplay 都叫同一个名字，或者同一个域名同时出现在 ads/stripe 里。
+ * 输出拆成两张表，不再混成一个笼统的"命中源数"：
+ *   1) 跨族命中（familyCount ≥ 2）——真正的"多个独立方法论撞到同一方向"，这是
+ *      本脚本设计上最有价值的信号，但目前的真实数据里非常罕见（ads/stripe 候选少）。
+ *   2) 同族内多店命中（familyCount === 1 且 sourceCount ≥ 2）——同一个 App 同时
+ *      上了 appstore 和 gplay 榜，是有参考价值的补充信息（说明这个 App 确实在推广/
+ *      有一定规模），但**不构成跨方法论验证**，不要和第 1 张表的信号混为一谈。 */
 export function renderClustersMarkdown(clusters) {
   const L = [];
-  L.push('# 跨源聚类（同一需求被几个独立信号源命中）');
+  L.push('# 候选去重与信号族聚类');
   L.push('');
   L.push('聚类判据是"归一化后名字完全相等"（域名剥 TLD、公司名去掉 Inc/LLC 等噪声词后逐字比较）——');
   L.push('**刻意不做模糊相似度匹配**：错误合并两个不同需求，比漏合并更糟。');
-  L.push('只列出命中 ≥ 2 个独立信号源的聚类；命中 1 个源的候选去看 candidates.md。');
+  L.push('这一步的定位是**同名/同域名去重**，不是"发现跨垂类同模式产品"的模式识别——');
+  L.push('字符串匹配做不到语义/模式识别，那部分判断请读原始候选字段（见 candidates.md 或');
+  L.push('`report --export-jsonl` 导出的紧凑格式）自己看，或交给能读数据的 LLM。');
   L.push('');
-  const multi = clusters.filter((c) => c.sourceCount >= 2);
-  L.push(`共 ${clusters.length} 个聚类，其中 ${multi.length} 个被 ≥2 个独立信号源命中。`);
+  L.push('**信号源族**：appstore + gplay 同属 `app-charts` 族（同一个"App 冲榜"观测的两次');
+  L.push('采样，不是两个独立方法论）；ads（买量）、stripe（收钱）各自独立成族。');
+  L.push('**只有跨族命中（familyCount ≥ 2）才是"多个独立方法论撞到同一方向"的硬信号**；');
+  L.push('同族内的多店命中（比如同一个 App 同时上 appstore 和 gplay）只是同一个观测的');
+  L.push('重复确认，有参考价值，但不能读成"跨方法论验证"——下面两张表分开列，不要混着看。');
   L.push('');
-  L.push('| 聚类 | 命中源数 | 命中来源 | 候选（来源:名称） | 证据 |');
-  L.push('|---|---|---|---|---|');
-  for (const c of multi) {
-    const names = c.members.map((m) => `${m.source}:${String(m.name).replace(/\|/g, '\\|')}`).join('; ');
-    const ev = c.evidence.map((e) => `[${e.source}](${e.url})`).join(' ') || '—';
-    L.push(`| ${String(c.clusterKey).replace(/\|/g, '\\|')} | ${c.sourceCount} | ${c.sourcesHit.join(', ')} | ${names} | ${ev} |`);
+  const crossFamily = clusters.filter((c) => c.familyCount >= 2);
+  const sameFamilyMulti = clusters.filter((c) => c.familyCount === 1 && c.sourceCount >= 2);
+  L.push(`共 ${clusters.length} 个聚类：其中 ${crossFamily.length} 个跨族命中（真正的多方法论验证），` +
+    `另有 ${sameFamilyMulti.length} 个是同族内多店命中（仅供参考，不算独立验证）。`);
+  L.push('');
+  L.push('## 1) 跨族命中（≥2 个独立信号族，真正的多方法论验证）');
+  L.push('');
+  if (!crossFamily.length) {
+    L.push('（本次没有跨族命中——这是真实情况，不代表脚本坏了。ads/stripe 候选数量少时很常见，');
+    L.push('多跑几轮 `scan --source ads` / `scan --source stripe` 累积数据后再看。）');
+  } else {
+    L.push('| 聚类 | 跨族命中数 | 命中信号族 | 候选（来源:名称） | 证据 |');
+    L.push('|---|---|---|---|---|');
+    for (const c of crossFamily) {
+      const names = c.members.map((m) => `${m.source}:${String(m.name).replace(/\|/g, '\\|')}`).join('; ');
+      const ev = c.evidence.map((e) => `[${e.source}](${e.url})`).join(' ') || '—';
+      L.push(`| ${String(c.clusterKey).replace(/\|/g, '\\|')} | ${c.familyCount} | ${c.familiesHit.join(', ')} | ${names} | ${ev} |`);
+    }
+  }
+  L.push('');
+  L.push('## 2) 同族内多店命中（同一个 App 上了 appstore 又上 gplay，仅供参考，不算独立验证）');
+  L.push('');
+  if (!sameFamilyMulti.length) {
+    L.push('（本次没有同族内多店命中的候选。）');
+  } else {
+    L.push('| 候选 | 命中来源 | 候选（来源:名称） | 证据 |');
+    L.push('|---|---|---|---|');
+    for (const c of sameFamilyMulti) {
+      const names = c.members.map((m) => `${m.source}:${String(m.name).replace(/\|/g, '\\|')}`).join('; ');
+      const ev = c.evidence.map((e) => `[${e.source}](${e.url})`).join(' ') || '—';
+      L.push(`| ${String(c.clusterKey).replace(/\|/g, '\\|')} | ${c.sourcesHit.join(', ')} | ${names} | ${ev} |`);
+    }
   }
   return L.join('\n');
+}
+
+// ── 【2026-09-13 三轮：工厂识别，独立旁路信号，不是聚类钥匙】──────────────────
+//
+// 背景：devKey 当聚类钥匙已经在二轮修复中彻底移除（见上面第 7 条）——真实数据证明
+// 代工壳公司挂靠同一开发者账号做不相关 App 太常见，用开发者名当聚类钥匙会造成链式
+// 误并（BEGAMOB GLOBAL LIMITED 同时挂 Authenticator 和 TV Remote 就是实证）。
+// 那次删除是对的，不撤销。
+//
+// 但随后一次真实闸门调研（候选"AI 收藏品识别与估值"）发现开发者名字段还有另一种
+// 独立于聚类的用途：区分"多个独立团队各自验证同一模式"（真机会信号）和"一家工厂
+// 批量复制模板到每个垂类"（这片地已被工业化收割，没有空位）。生成器数据显示 CoinSnap
+// （gplay，1400 万装）/CoinIn（310 万）/Collectr（310 万）/AntiqSnap（110 万）像是
+// "四款不同公司做同一模式"；实测 Google Play 开发者页后推翻——CoinSnap 和 AntiqSnap
+// 其实是同一家公司（Next Vision Limited，实为 Glority），该公司已把"拍照识别+估值"
+// 模板复制到硬币/古董/运动卡/TCG/纸币/黑卡/矿物/水晶等 9+ 个垂类；CoinIn 的开发者
+// PlantIn 也独立复制了同一模式到 4 个垂类；只有 Collectr 是真正独立的创业公司。区分
+// 这两种截然相反的含义，唯一的线索就是开发者字段——所以把它加回来，但**不是聚类钥匙，
+// 是一个完全旁路的独立信号**：identifyFactories 只统计"同一个开发者账号在当前数据集
+// 里挂了几个候选"，不做任何候选合并，candidateClusterKeys/clusterCandidates 完全不
+// 感知这里的结果（下面有回归测试锁死这一点）。
+//
+// ⚠️ 工厂标记 ≠ 巨头标记，是两个独立维度：
+//   - 巨头（classifyGiant/KNOWN_GIANT_PUBLISHERS/安装量阈值）判的是"这一个产品体量
+//     大，或发行商是已知大厂"——单个爆款也可能被判巨头。
+//   - 工厂（identifyFactories）判的是"这个开发者账号名下在当前数据集里挂了好几个
+//     候选"——可能是小公司批量出货，跟单个产品体量无关，也可能这家公司同时也是巨头
+//     （两者互不排斥）。
+//   两者不共用同一套名单/阈值，一条候选完全可能"是工厂产品但不是巨头"（真实数据里的
+//   BEGAMOB GLOBAL LIMITED 就是——两款产品，不在 KNOWN_GIANT_PUBLISHERS 里，gplay
+//   侧也没有安装量字段可判），也可能反过来。
+//
+// ⚠️ 工厂标记的含义是"这片垂类可能已经被批量收割，空位存疑"，不是"这个产品不好"——
+//   Collectr 的案例说明同一片赛道里也可能混着真正独立的创业公司，标记只是提醒"去
+//   核实一下开发者页"，不是自动判负。
+//
+// ⚠️ 同一开发者跨垂类 ≠ 同一需求：工厂矩阵里的每个产品仍然是独立候选，不会因为开发者
+//   相同被合并——那正是二轮修复删掉的错误。
+
+export const DEFAULT_MIN_FACTORY_PRODUCTS = 2;
+
+/** 候选的"开发者/发行商"标识，只在字段语义明确对应"这是谁做的"时才返回值：
+ *   - appstore：extra.artist（App Store 发行商展示名，150/150 真实候选都有这个字段）
+ *   - gplay：extra.developer（**只有 gplay-charts.mjs 的 --ranking 模式才带这个字段**，
+ *     默认搜索/分类列表模式——字段是 position 而不是 rank 的那种——拿不到，见 mapRowToCandidate
+ *     的 gplay 分支注释。2026-09-13 三轮用真实的 344 条候选核对：150 条 gplay 候选里
+ *     0 条带 developer，因为当时的 scan 没有用 --ranking 模式——这不是本文件的 bug，
+ *     是这次采集没有拿到能对照的字段，如实标注在 --help / renderFactoriesMarkdown 里）
+ *   - ads creatives：extra.advertiserName（只有 creatives 子命令的行才有；advertisers
+ *     子命令的候选本身就是广告主展示名/域名，没有独立于候选名的"开发者"字段，不适用）
+ *   - stripe：没有公司/开发者字段，只有域名，不适用
+ * 返回 null 表示这条候选没有可用的开发者线索，调用方要跳过，不能当 0 条产品处理。 */
+export function developerKeyOf(candidate) {
+  const extra = candidate?.extra || {};
+  if (candidate?.source === 'appstore') return extra.artist || null;
+  if (candidate?.source === 'gplay') return extra.developer || null;
+  if (candidate?.source === 'ads' && extra.mode === 'creatives') return extra.advertiserName || null;
+  return null;
+}
+
+/** 开发者名归一化——单独一份，不复用 normalizeCompanyName（候选名用的那份）：真实
+ * 开发者法务全称后缀比候选名更多样（S.r.l./S.L./s.r.o./Limited/PLC/Pte 等，候选名
+ * 归一化那份没覆盖）。同样刻意保守：只折叠大小写/空白/常见法律实体后缀/商标符号，
+ * **不做别名或 DBA 映射**——两个开发者名折叠后不完全相等就不算同一家公司，哪怕看起来
+ * 像（宁可漏识别，不错误合并两家不相关的公司）。这也是为什么 Glority 对外显示成
+ * "Next Vision Limited" 这种情况字符串匹配找不出来，只能靠人工核实开发者页——这是
+ * 如实的已知局限，不是能靠正则解决的问题。折叠后压缩掉空白的长度 < 3 视为太短太通用
+ * （比如 "X Corp." 去掉 "corp" 后只剩 "x"），返回 null，调用方跳过。 */
+export function normalizeDeveloperName(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  // 先去掉所有句点，把 "s.r.l." / "S.L." 这类带点缩写折成 "srl" / "sl"，再统一走
+  // 下面的整词后缀匹配——避免正则同时兼容"带点"和"不带点"两种写法。
+  const noDots = s.replace(/\./g, '');
+  const cleaned = noDots
+    .toLowerCase()
+    .replace(/[™®©℠·＊*,]/g, ' ')
+    .replace(/\b(inc|llc|ltd|limited|co|corp|corporation|gmbh|oy|ab|kg|plc|pty|pte|srl|sro|sl|sa)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim().replace(/\s+/g, ' ');
+  return cleaned.replace(/\s+/g, '').length >= 3 ? cleaned : null;
+}
+
+/** 【核心】按开发者归组，返回"产品数 ≥ 阈值"的疑似工厂清单，纯函数、不做 I/O、
+ * 不修改传入的 candidates。默认阈值 2：四个 app-charts 信号源每次 scan 只采样约
+ * 150 个头部榜单位置，不同开发者账号的数量通常是这个量级的数倍（真实数据里 150 条
+ * appstore 候选对应了 140+ 个不同的 artist），同一个开发者在这么稀疏的采样里重复
+ * 出现两次已经是有意义的集中信号，不是巧合——所以不需要等到 3 次以上才报。阈值可调
+ * （--min-factory-products / opts.minFactoryProducts），调用方觉得 2 太敏感可以调高。
+ * 排序：产品数降序，同产品数按开发者名字典序（稳定，方便回归测试断言）。 */
+export function identifyFactories(candidates, opts = {}) {
+  const minProducts = Number(opts.minFactoryProducts ?? DEFAULT_MIN_FACTORY_PRODUCTS);
+  const groups = new Map(); // normalizeDeveloperName 的结果 → { rawNames:Map<原始名,出现次数>, members:[候选,...] }
+  for (const c of candidates || []) {
+    const raw = developerKeyOf(c);
+    if (!raw) continue;
+    const key = normalizeDeveloperName(raw);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, { rawNames: new Map(), members: [] });
+    const g = groups.get(key);
+    g.rawNames.set(raw, (g.rawNames.get(raw) || 0) + 1);
+    g.members.push(c);
+  }
+  const factories = [];
+  for (const [key, g] of groups) {
+    if (g.members.length < minProducts) continue;
+    factories.push({
+      developerKey: key,
+      developerNames: [...g.rawNames.keys()].sort(), // 同一家公司在不同源里字面写法可能有细微差异（大小写/后缀），这里保留全部见过的原始写法，不假装只有一种
+      productCount: g.members.length,
+      sources: [...new Set(g.members.map((m) => m.source))].sort(),
+      products: g.members.map((m) => ({
+        name: m.name, source: m.source, evidenceUrl: m.evidenceUrl || null,
+        // 垂类线索只是给人读的参考，不用来做"是不是不同垂类"的自动判断——App Store
+        // 的 genre 粒度很粗（Authenticator 和 TV Remote 都是 "Utilities"），字符串
+        // 匹配在这个粒度上做不出可靠判断，交给人自己看产品名。
+        vertical: m.extra?.primaryGenre
+          || (Array.isArray(m.extra?.genres) ? m.extra.genres.join('/') : m.extra?.genres)
+          || m.extra?.category || m.extra?.rankCategory || null,
+      })),
+    });
+  }
+  return factories.sort((a, b) => b.productCount - a.productCount || a.developerKey.localeCompare(b.developerKey));
+}
+
+/** identifyFactories 的结果转成 O(1) 查找表，供 candidateToLLMRecord 逐条打标使用。 */
+export function buildFactoryIndex(factories) {
+  return new Map((factories || []).map((f) => [f.developerKey, f]));
+}
+
+/** 工厂矩阵渲染成人读 Markdown，挂在 `report --factories` 下。所有"工厂 ≠ 巨头"
+ * "工厂 ≠ 判负""不做合并"的语义区分都在这里显式写出来，不能只在代码注释里讲。 */
+export function renderFactoriesMarkdown(factories, opts = {}) {
+  const minProducts = opts.minFactoryProducts ?? DEFAULT_MIN_FACTORY_PRODUCTS;
+  const L = [];
+  L.push('# 疑似"App 工厂"开发者矩阵');
+  L.push('');
+  L.push(`判据：同一个开发者账号（appstore \`extra.artist\` / gplay \`extra.developer\` / ads creatives ` +
+    `\`extra.advertiserName\`）在当前累积候选里挂了 ≥ ${minProducts} 个候选——阈值可调（\`--min-factory-products\`）。`);
+  L.push('默认取 2：app-charts 信号源每次只采样约 150 个头部位置，不同开发者数量通常是这个量级的数倍，');
+  L.push('同一个开发者在这么稀疏的采样里重复出现两次已经是有意义的集中信号，不是巧合。');
+  L.push('');
+  L.push('⚠️ **工厂标记 ≠ 巨头标记，是两个独立维度**，不共用同一套名单或阈值：巨头判的是"这一个');
+  L.push('产品体量大/发行商是知名大厂"，工厂判的是"这个开发者账号名下挂了好几个产品"——可能是');
+  L.push('小公司批量出货，跟产品体量无关。一条候选完全可能"是工厂产品但不是巨头"，或反过来。');
+  L.push('');
+  L.push('⚠️ **工厂标记的含义是"这片垂类可能已被批量收割，空位存疑"，不是"这个产品不好"**——');
+  L.push('实地调研过的真实案例：CoinSnap/AntiqSnap 表面像两个独立团队做同一模式，实测开发者页后');
+  L.push('发现是同一家公司（Glority/Next Vision Limited）把"拍照识别+估值"模板复制到了 9+ 个垂类；');
+  L.push('但同一片赛道里的 Collectr 却是真正独立的创业公司——工厂标记只是提醒"去核实一下"，不是自动判负。');
+  L.push('');
+  L.push('⚠️ **同一开发者跨垂类 ≠ 同一需求，这里不做任何合并**：矩阵里的每个产品仍然是');
+  L.push('`report --cluster` 里的独立候选，不会因为开发者相同被并进一个簇——"开发者名"当聚类钥匙');
+  L.push('已经在 2026-09-13 二轮修复里因为链式误并（BEGAMOB GLOBAL LIMITED 同时挂 Authenticator 和');
+  L.push('TV Remote）被移除，这里的工厂标记是完全旁路的独立信号，不会反过来影响聚类结果。');
+  L.push('');
+  L.push('已知局限：');
+  L.push('  - ads **advertisers** 子命令的候选本身就是广告主，没有独立于候选名的"开发者"字段，不参与');
+  L.push('    工厂识别；只有 **creatives** 子命令（带 advertiserName 字段）才适用。');
+  L.push('  - stripe 候选只有域名，没有公司/开发者字段，不参与工厂识别。');
+  L.push('  - gplay 的 developer 字段**只有 `--ranking` 模式的行才带**——默认搜索/分类列表模式（字段是');
+  L.push('    `position` 而不是 `rank`）拿不到开发者名。这些候选不会出现在这里，不代表它们的开发者');
+  L.push('    不是工厂，只是这次采集没拿到能对照的字段——想让 gplay 侧的工厂识别生效，scan 时要给');
+  L.push('    gplay-charts.mjs 传 `--ranking`。');
+  L.push('  - 开发者名只做大小写/空白/常见法律后缀折叠，**不做别名/DBA 映射**——同一家公司对外用');
+  L.push('    完全不同的品牌名（比如 Glority 对外显示成 "Next Vision Limited"）时字符串匹配找不出来，');
+  L.push('    需要人工核实开发者页。');
+  L.push('');
+  if (!factories.length) {
+    L.push(`（本次没有识别到 ≥ ${minProducts} 个产品的开发者——真实情况，不代表脚本坏了；`);
+    L.push('可能是数据集本身开发者字段覆盖不足，见上面的已知局限，也可能真的没有集中度。）');
+    return L.join('\n');
+  }
+  L.push(`共识别到 ${factories.length} 个疑似工厂开发者：`);
+  L.push('');
+  L.push('| 开发者 | 产品数 | 来源 | 产品（名称/来源/垂类线索） |');
+  L.push('|---|---|---|---|');
+  for (const f of factories) {
+    const devName = f.developerNames.join(' / ').replace(/\|/g, '\\|');
+    const products = f.products.map((p) => `${p.name}(${p.source}${p.vertical ? `/${p.vertical}` : ''})`).join('; ').replace(/\|/g, '\\|');
+    L.push(`| ${devName} | ${f.productCount} | ${f.sources.join(', ')} | ${products} |`);
+  }
+  return L.join('\n');
+}
+
+/** 【2026-09-13 二轮修复 7】模式识别（"这几个候选其实是同一类需求换了个垂类"）交给
+ * 读数据的人/LLM，不是这个脚本自己假装能做字符串匹配做不到的事。这里只负责把候选
+ * 整理成干净、字段完整、一眼能扫完的原材料——每行一个候选、只有值得看的字段（不是
+ * 整个 extra 原样转储），方便人或 LLM 通读 300+ 条找模式。
+ * 【2026-09-13 三轮补】factorySuspect/factoryProductCount 两个字段是新加的工厂信号
+ * （见上面 identifyFactories）——factoryIndex 由调用方（renderCandidatesJsonl）算好
+ * 传进来，这个函数自己不重新扫全量候选（避免每条候选都重新做一次 O(n) 分组）。 */
+export function candidateToLLMRecord(c, factoryIndex = null) {
+  const family = familyOf(c.source);
+  const extra = c.extra || {};
+  const verticalHint = extra.primaryGenre || (Array.isArray(extra.genres) ? extra.genres.join('/') : extra.genres)
+    || extra.category || extra.rankCategory || extra.chart || null;
+  const scaleSignal = extra.installs || extra.recentInstalls
+    || (extra.ratingCount != null ? `${extra.ratingCount} ratings` : null)
+    || (extra.visits != null ? `${extra.visits} stripe visits` : null)
+    || (extra.minAds != null ? `${extra.minAds}-${extra.maxAds ?? '?'} ads` : null)
+    || (extra.daysRunning != null ? `ad running ${extra.daysRunning}d` : null)
+    || null;
+  // 【2026-09-13 三轮】工厂信号：用 developerKeyOf 拿这条候选自己的开发者线索（和
+  // identifyFactories 分组用的是同一个函数，不会对不上），再去 factoryIndex 里查
+  // "这个开发者有没有过阈值"。factoryIndex 为 null（调用方没算）时 factorySuspect
+  // 恒为 false——不是"确认不是工厂"，只是"这次没有可对照的信息"，和 crossStoreGiantMatch
+  // 那条已知局限是同一种性质，不重复展开。
+  const devRaw = developerKeyOf(c);
+  const devKey = devRaw ? normalizeDeveloperName(devRaw) : null;
+  const factory = devKey && factoryIndex ? factoryIndex.get(devKey) : null;
+  return {
+    name: c.name,
+    source: c.source,
+    family,
+    verticalHint,
+    scaleSignal,
+    rank: extra.rank ?? extra.position ?? null,
+    developer: extra.developer ?? extra.artist ?? extra.advertiserName ?? null,
+    // factorySuspect/factoryProductCount：见文件头「三轮：工厂识别」——独立于
+    // giantCheckBasis 的另一个维度，不要混用。true 不代表"这个候选不好"，只代表
+    // "这个开发者在当前数据集里挂了 ≥ 阈值个候选，值得去核实一下是不是同一套模板
+    // 复制到了不同垂类"。
+    factorySuspect: !!factory,
+    factoryProductCount: factory ? factory.productCount : null,
+    country: extra.country ?? null,
+    seenCount: c.seenCount || 1,
+    giantCheckBasis: c.giantCheckBasis || null,
+    evidenceUrl: c.evidenceUrl || null,
+    firstSeenAt: c.firstSeenAt || c.discoveredAt || null,
+    lastSeenAt: c.lastSeenAt || c.discoveredAt || null,
+  };
+}
+
+/** 紧凑的 JSONL 导出（一行一个候选），比 candidates.md 的表格更适合喂给 LLM 通读——
+ * 表格要固定列宽/转义竖线，JSONL 没有这些噪音，字段名自解释。纯函数，调用方决定
+ * 落盘到哪。
+ * 【2026-09-13 三轮】opts.minFactoryProducts 透传给 identifyFactories（不传就用默认
+ * 阈值 2）；opts.factories 允许调用方传已经算好的工厂清单，跳过重新分组（cmdReport
+ * 的 --export-jsonl 场景可能已经算过一次）。两者都不传时函数自己算，单参数调用
+ * （历史上的调用方式）保持可用，不是破坏性变更。 */
+export function renderCandidatesJsonl(candidates, opts = {}) {
+  const factories = opts.factories ?? identifyFactories(candidates, opts);
+  const factoryIndex = buildFactoryIndex(factories);
+  return candidates.map((c) => JSON.stringify(candidateToLLMRecord(c, factoryIndex))).join('\n');
 }
 
 // ── 有副作用的部分：子进程调用、文件落盘 ────────────────────────────────────
@@ -942,9 +1406,27 @@ B2B 式长描述词天然容易 0 命中，0 命中不代表"这个方向没人�
 本脚本会侦测这个特征并进入跨进程冷却（<out-dir>/block-state.json），冷却期内
 拒绝再发请求——**看到"🚫 被墙"字样时不要立刻重跑**，等冷却结束或换个信号源。
 
+⚠️ 【2026-09-13 二轮实测修正，别再按旧认知理解这两块】
+  1) **appstore/gplay 不是两个独立方法论**，它们同属信号源族 \`app-charts\`（同一个
+     "App 冲榜"观测的两次采样点）。"多个独立方法论撞到同一方向"这个硬信号，只能看
+     \`report --cluster\` 输出里的**跨族命中（familyCount≥2）**，不能看"命中源数"——
+     appstore+gplay 都命中只算同族内 1 族，不构成跨方法论验证，见下面 --cluster 说明。
+  2) **聚类不做模式识别，只做同名/同域名去重。** 之前设计过"开发者名"当第二把聚类
+     钥匙去抓"同一家公司跨源撞车"，真实数据证明代工壳公司挂靠同一账号做不相关 App
+     太常见，这把钥匙的链式传递会把无关产品误并——已移除。想发现"措辞不同但其实是
+     同一类需求"这种跨垂类模式，字符串匹配做不到，交给人/LLM 通读原始候选（\`report
+     --export-jsonl\` 导出的紧凑格式就是为这个用途准备的），本脚本自己不装能做语义匹配。
+  3) 【2026-09-13 三轮新增】**开发者名被加回来了，但不是当聚类钥匙**，是一个完全
+     旁路的独立信号——\`report --factories\`：同一个开发者账号在当前数据集里挂了
+     ≥ 阈值个候选，就标成"疑似工厂"，提醒去核实是不是同一套模板批量复制到了不同
+     垂类（真实案例：Glority/Next Vision Limited 把"拍照识别+估值"复制到 9+ 个垂类）。
+     **这不会让候选被合并**——candidateClusterKeys 和之前一样只认候选名/域名。
+     **工厂 ≠ 巨头**：--giants 判的是"这一个产品体量大/发行商是知名大厂"，--factories
+     判的是"这个开发者名下挂了好几个产品"，两套判据/名单/阈值完全独立，不要混着看。
+
 用法:
   node leading-indicator.mjs scan --source ads|appstore|gplay|stripe [选项] -- <透传给对应 demand 脚本的参数>
-  node leading-indicator.mjs report [--out-dir <dir>] [--source <s>] [--json] [--cluster] [--giants]
+  node leading-indicator.mjs report [--out-dir <dir>] [--source <s>] [--json] [--cluster] [--giants] [--factories] [--export-jsonl]
   node leading-indicator.mjs --self-test
   node leading-indicator.mjs --help
 
@@ -969,17 +1451,44 @@ scan 选项:
                             skill），是子进程 \`sleep\` 做的真实阻塞。
   --no-filter               关掉 appstore/gplay 的巨头过滤（默认开启，见下）
   --max-installs <n>        gplay 巨头过滤的安装量阈值，默认 50000000（5000 万）
+  --max-rating-count <n>    appstore 巨头过滤的评分数阈值，**默认不设**（不猜"评分数≈
+                            安装量"的换算系数，那是假精确）。只有对 appstore-charts.mjs
+                            传了 --lookup 才会有 ratingCount 字段，这个阈值才用得上。
+  --min-factory-products <n>  工厂识别阈值，默认 2（见下面 --factories 说明的取值理由）。
+                            影响本次 scan 自动落盘的 candidates-llm.jsonl 里 factorySuspect/
+                            factoryProductCount 两个字段用哪个阈值算出来的。
   -- <...>                  之后的参数原样透传给 --source 对应的 demand 脚本
 
 report 选项:
   --out-dir <dir>           同 scan
   --source <s>              只看某个信号源（和 --cluster 同传时会被忽略并提示，聚类本来就是要跨源看）
   --json                    输出 JSON 而不是表格
-  --cluster                 【推荐】按跨源聚类展示——把指向同一需求的候选合并，按"被几个独立
-                            信号源命中"降序排。这是本脚本最有价值的视角：单个源出现一次不算什么，
-                            三个独立方法论（买量/冲榜/收钱）撞到同一个方向才是硬信号。落盘
-                            <out-dir>/clusters.md。
-  --giants                  查看被巨头过滤掉的 appstore/gplay 条目（<out-dir>/filtered-giants.json）
+  --cluster                 【推荐】按候选名/域名去重后展示，拆成两张表：① 跨族命中
+                            （familyCount≥2，appstore/gplay 算同一族）——这是真正的
+                            "多个独立方法论撞到同一方向"，本脚本设计上最有价值的信号，
+                            但目前数据里很罕见（ads/stripe 候选少）；② 同族内多店命中
+                            （同一个 App 同时上 appstore 和 gplay）——仅供参考，**不算
+                            跨方法论验证**，不要和①混着看。落盘 <out-dir>/clusters.md。
+                            这一步只做同名/同域名去重，不做模式识别（字符串匹配做不到
+                            "措辞不同但其实是同一类需求"这种判断，想看这个用
+                            --export-jsonl 把原始候选导出来自己/交给 LLM 通读）。
+  --giants                  查看被巨头过滤掉的 appstore/gplay 条目（<out-dir>/filtered-giants.json），
+                            表格里的 giantCheckBasis 列显示这条候选实际被哪些判据查过——
+                            appstore 和 gplay 不完全一致，见下面「已知局限」。
+  --factories                【2026-09-13 三轮新增】疑似"App 工厂"开发者矩阵：同一个开发者
+                            账号（appstore extra.artist / gplay extra.developer / ads
+                            creatives extra.advertiserName）在当前累积候选里挂了 ≥ 阈值个
+                            候选，就列出来（不合并、不判负，只是提醒"去核实一下"）。落盘
+                            <out-dir>/factories.md。**和 --giants 是两套独立判据**，不要
+                            混着看——见上面「2026-09-13 三轮新增」那条提醒和下面「已知局限」。
+  --min-factory-products <n>  --factories / --export-jsonl 的工厂识别阈值，默认 2。
+                            默认取 2 的理由：app-charts 信号源每次只采样约 150 个头部位置，
+                            不同开发者数量通常是这个量级的数倍，同一个开发者在这么稀疏的
+                            采样里重复出现两次已经是有意义的集中信号，不是巧合。
+  --export-jsonl            把累积的候选导出成紧凑 JSONL（<out-dir>/candidates-llm.jsonl，
+                            一行一个候选，字段含 verticalHint/scaleSignal/factorySuspect/
+                            factoryProductCount 等）——scan 时已经会自动写一份，这个开关是
+                            重新导出/换目录/换 --min-factory-products 阈值时手动触发用的。
 
 四个信号源对应的脚本与典型用法:
   ads       scripts/demand/ads-transparency.mjs（子命令 advertisers/creatives，透传；
@@ -987,7 +1496,10 @@ report 选项:
             advertisers 是字面子串匹配广告主展示名/域名，不是语义搜索——0 命中先看
             运行时提示给的换词建议，别直接读成"没人做"）
   appstore  scripts/demand/appstore-charts.mjs（--chart/--country，透传；默认过滤掉
-            开发者命中已知巨头名单的条目，--no-filter 关闭）
+            开发者命中已知巨头名单、或跨商店同名匹配到 gplay 已判过巨头的条目，
+            --no-filter 关闭。**默认榜单没有安装量/评分数字段**——这是 appstore
+            自己的限制，不是本文件没做；传 --lookup 才会有 rating/ratingCount，
+            配合 --max-rating-count 才能多一层判据，见下面「已知局限」）
   gplay     scripts/demand/gplay-charts.mjs（--ranking/--rank-category 更可信，透传；
             --ranking 模式的名次字段是 rank，默认搜索/分类列表模式是 position，
             两个本文件都认，语义相同；默认过滤掉开发者命中巨头名单或安装量超阈值的条目）
@@ -998,10 +1510,50 @@ report 选项:
 示例:
   node leading-indicator.mjs scan --source ads --ads-mode advertisers --dry-run -- advertisers "invoice generator" --region us --limit 40
   node leading-indicator.mjs scan --source appstore -- --chart top-grossing --country us
+  node leading-indicator.mjs scan --source appstore --max-rating-count 1000000 -- --chart top-grossing --country us --lookup
   node leading-indicator.mjs scan --source gplay -- --ranking top_grossing --rank-category productivity
   node leading-indicator.mjs scan --source stripe --web-check --web-check-query "invoice automation saas" -- top --new-only --limit 20
   node leading-indicator.mjs report --cluster
   node leading-indicator.mjs report --giants
+  node leading-indicator.mjs report --factories
+  node leading-indicator.mjs report --factories --min-factory-products 3
+  node leading-indicator.mjs report --export-jsonl
+
+已知局限（如实列出，别假装没有）:
+  - **巨头名单是人工维护的示例清单**（KNOWN_GIANT_PUBLISHERS，约 50 个全球级名字），
+    不是权威数据源，覆盖不全——没在名单里的巨头（比如非游戏/非大厂的独角兽）会漏判，
+    只能靠 gplay 安装量阈值或跨商店同名匹配兜底。
+  - **appstore 和 gplay 的巨头过滤判据不完全一致**：gplay 有真实安装量，appstore
+    默认没有。已用「跨商店同名匹配」（对面商店判过巨头就借用结论）和可选的
+    「评分数阈值」（--max-rating-count，需要 --lookup）两条路补救，但一个只在
+    appstore/gplay 的候选名字面相同时才命中、一个默认不开——**没有跨商店同名匹配、
+    也没传 --max-rating-count 时，appstore 候选只经过开发者名单这一层判据，比
+    gplay 弱**。每条候选（kept 和 filtered 都有）的 giantCheckBasis 字段记录了
+    它实际被哪些判据查过，\`report --giants\` 会显示这一列，不要假设两边判据一致。
+  - **跨商店同名匹配冷启动无效**：<out-dir> 里还没有对面商店的历史数据时，这条
+    路径找不到匹配——不是"确认不是巨头"，只是"这次没有可借用的信息"。appstore/
+    gplay 两边都跑过几轮之后，这条路径才会真正生效。
+  - **聚类只做同名/同域名去重，不做模式识别**：两个措辞不同但其实是同一类需求的
+    候选（比如 "Invoice Maker" vs "Invoice Pro"，或者用不同垂类包装的同一个模式）
+    不会被聚到一起——这是刻意的保守取舍。想发现这类模式，用 --export-jsonl 把
+    候选导出成紧凑格式，自己通读或喂给 LLM。
+  - 【2026-09-13 三轮新增】**工厂识别（--factories）只在开发者字段实际有值时才起作用，
+    覆盖面因信号源而不同**：
+      · appstore：extra.artist 每次 scan 都会带（2026-09-13 用真实 344 条候选核对，
+        150/150 appstore 候选都有），覆盖最完整。
+      · gplay：extra.developer **只有 gplay-charts.mjs 的 --ranking 模式才带**——
+        默认搜索/分类列表模式（字段是 position）拿不到，真实数据里 150/150 条 gplay
+        候选当时都是默认模式采的，0 条有 developer，工厂识别在这批数据的 gplay 侧
+        完全测不出来。想让 gplay 参与工厂识别，scan 时要显式加 --ranking。
+      · ads：只有 creatives 子命令（extra.advertiserName）适用，advertisers 子命令
+        的候选本身就是广告主，没有独立的开发者字段可对照。
+      · stripe：只有域名，不参与。
+    这不是 bug，是"这个信号只能在有对应字段的地方起作用"的如实局限——数据缺字段时
+    --factories 会如实显示"本次没有识别到"，不会假装扫过了。
+  - 【2026-09-13 三轮新增】**工厂识别不做别名/DBA 映射**：同一家公司如果用完全不同的
+    对外品牌名（比如 Glority 对外显示成 "Next Vision Limited"），字符串折叠找不出来，
+    只能人工核实开发者页——真实调研里 CoinSnap/AntiqSnap 就是这样被发现的，不是本
+    脚本自动测出来的。normalizeDeveloperName 只做大小写/空白/常见法律后缀折叠。
 
 设计说明:
   - 候选去重键是 source+name；同一个候选反复出现会累加 seenCount 而不是重复
@@ -1010,6 +1562,8 @@ report 选项:
     scripts/select/gate-runner.mjs 走七道闸门。
   - 被墙/限流是"信号源暂时不可用"，不是"没有数据"——两者在输出里长得不一样
     （前者带 🚫，后者是普通的"0 条"/"未检测"），报告结论前先分清楚是哪一种。
+  - 信号源族：appstore/gplay 同属 app-charts 族，ads/stripe 各自独立成族——
+    "多个独立方法论撞到同一方向"看 familyCount，不是 sourceCount，见 --cluster。
 `.trim();
 
 function cmdScan(args, passthrough) {
@@ -1020,6 +1574,12 @@ function cmdScan(args, passthrough) {
   const evDir = path.join(outDir, 'evidence');
   const dryRun = !!args['dry-run'];
   const timeout = Number(args.timeout || 120000);
+  const storePath = path.join(outDir, 'candidates.json');
+  const giantsPath = path.join(outDir, 'filtered-giants.json');
+  // 提前读一次累积文件：merge 步骤要用，跨商店同名匹配（crossStoreGiantMatch）也要用
+  // ——只读一次，两处复用，不重复 I/O。
+  const existing = fs.existsSync(storePath) ? JSON.parse(fs.readFileSync(storePath, 'utf8')) : [];
+  const existingGiants = fs.existsSync(giantsPath) ? JSON.parse(fs.readFileSync(giantsPath, 'utf8')) : [];
 
   // ads 的行形状（advertisers/creatives）不能靠猜——显式声明优先，其次从透传子命令自动识别，
   // 两条都没有才落回字段探测（见 mapRowToCandidate 里 resolveAdsMode 的报错逻辑）。
@@ -1046,19 +1606,28 @@ function cmdScan(args, passthrough) {
     console.log('\n' + adsZeroHitAdvice(extractAdsQueryArg(passthrough)));
   }
 
-  // 【修复 4】appstore/gplay 榜单默认过滤掉疑似巨头条目，过滤掉的不丢弃、累积落盘。
+  // 【修复 4 / 2026-09-13 二轮修复 8】appstore/gplay 榜单默认过滤掉疑似巨头条目，
+  // 过滤掉的不丢弃、累积落盘。crossStoreIndex 用累积的 existing/existingGiants 构建，
+  // 让 appstore 侧能借用 gplay 侧（或反过来）已经判过的巨头结论——见 classifyGiant
+  // 顶部注释，这是补 appstore 缺安装量字段这个判据不一致问题的主要手段。
   let filteredGiants = [];
   if ((source === 'appstore' || source === 'gplay') && !args['no-filter'] && incoming.length) {
     const maxInstalls = Number(args['max-installs'] || 50_000_000);
-    const partition = partitionGiants(incoming, { maxInstalls });
+    const maxRatingCount = args['max-rating-count'] != null ? Number(args['max-rating-count']) : null;
+    const crossStoreIndex = buildAppChartGiantIndex(existing, existingGiants);
+    const partition = partitionGiants(incoming, { maxInstalls, maxRatingCount, crossStoreIndex });
     incoming = partition.kept;
     filteredGiants = partition.filtered;
     if (filteredGiants.length) {
-      console.log(`过滤掉 ${filteredGiants.length} 条疑似巨头条目（开发者命中已知巨头名单，或 gplay 安装量 ≥ ${maxInstalls.toLocaleString()}）——` +
-        '用 --no-filter 可以关掉这个过滤，或用 report --giants 看完整清单。');
-      const giantsPath = path.join(outDir, 'filtered-giants.json');
-      const existingGiants = fs.existsSync(giantsPath) ? JSON.parse(fs.readFileSync(giantsPath, 'utf8')) : [];
+      console.log(`过滤掉 ${filteredGiants.length} 条疑似巨头条目（开发者命中已知巨头名单 / gplay 安装量 ≥ ${maxInstalls.toLocaleString()} / ` +
+        `跨商店同名匹配${maxRatingCount != null ? ` / appstore 评分数 ≥ ${maxRatingCount.toLocaleString()}` : ''}）——` +
+        '用 --no-filter 可以关掉这个过滤，或用 report --giants 看完整清单（含每条的 giantCheckBasis，能看出这条到底被哪些判据查过）。');
       fs.writeFileSync(giantsPath, JSON.stringify(mergeCandidates(existingGiants, filteredGiants), null, 2) + '\n');
+    }
+    if (source === 'appstore' && !maxRatingCount) {
+      console.log('提示：appstore 巨头过滤本次只用了「开发者名单」和「跨商店同名匹配」两条判据——' +
+        '默认榜单没有安装量/评分数字段，和 gplay 不完全一致，这是已知局限（见 --help）。' +
+        '想加一层评分数判据，对 appstore-charts.mjs 传 --lookup 再加 --max-rating-count <n>。');
     }
   }
 
@@ -1082,12 +1651,18 @@ function cmdScan(args, passthrough) {
     }
   }
 
-  const storePath = path.join(outDir, 'candidates.json');
-  const existing = fs.existsSync(storePath) ? JSON.parse(fs.readFileSync(storePath, 'utf8')) : [];
   const merged = mergeCandidates(existing, incoming);
   fs.writeFileSync(storePath, JSON.stringify(merged, null, 2) + '\n');
   const mdPath = path.join(outDir, 'candidates.md');
   fs.writeFileSync(mdPath, renderCandidatesMarkdown(merged) + '\n');
+  // 【2026-09-13 二轮修复 7】和 candidates.md 一起自动落盘：紧凑 JSONL，一眼扫完 300+ 条
+  // 的原材料，交给人/LLM 自己做模式识别——本脚本不再假装能靠字符串匹配发现跨垂类模式。
+  // 【2026-09-13 三轮】--min-factory-products 可调工厂识别阈值（不传用默认 2，见
+  // DEFAULT_MIN_FACTORY_PRODUCTS 的取值理由）；每次 scan 自动写的这份 JSONL 会带上
+  // factorySuspect/factoryProductCount，不需要额外手动跑一次 report --export-jsonl。
+  const jsonlPath = path.join(outDir, 'candidates-llm.jsonl');
+  const minFactoryProducts = args['min-factory-products'] != null ? Number(args['min-factory-products']) : DEFAULT_MIN_FACTORY_PRODUCTS;
+  fs.writeFileSync(jsonlPath, renderCandidatesJsonl(merged, { minFactoryProducts }) + '\n');
 
   // 【修复 1】被墙这件事必须在最终总结里可见，不能被"新增 0 条"这种平淡的措辞盖过去。
   if (scanResult.blocked) {
@@ -1097,23 +1672,29 @@ function cmdScan(args, passthrough) {
         : '已停止本次调用，不做原地重试；详情见上面的错误信息与证据文件。'));
   }
   console.log(`\n来源 ${source}（${SOURCE_META[source].label}）：本次新增/更新候选 ${incoming.length} 条，累计候选 ${merged.length} 条。`);
-  console.log(`候选清单：${storePath}\n           ${mdPath}`);
+  console.log(`候选清单：${storePath}\n           ${mdPath}\n           ${jsonlPath}（LLM 友好的紧凑格式）`);
   if (rawEvidenceFile) console.log(`原始证据：${rawEvidenceFile}`);
 }
 
 function cmdReport(args) {
   const outDir = path.resolve(process.cwd(), args['out-dir'] || DEFAULT_DIR);
 
-  // 【修复 4】--giants：看被过滤掉的疑似巨头条目，不需要 candidates.json 也能独立工作。
+  // 【修复 4 / 2026-09-13 二轮修复 8】--giants：看被过滤掉的疑似巨头条目，不需要
+  // candidates.json 也能独立工作。giantCheckBasis 列显示这条候选实际被哪些判据查过——
+  // appstore 和 gplay 判据不完全一致，这里如实显示，不装成两边一样。
   if (args.giants) {
     const giantsPath = path.join(outDir, 'filtered-giants.json');
     if (!fs.existsSync(giantsPath)) { console.log(`(${giantsPath} 不存在——这次还没有被过滤掉的巨头条目，或者 scan 时传了 --no-filter)`); return; }
     const giants = JSON.parse(fs.readFileSync(giantsPath, 'utf8'));
     if (args.json) { console.log(JSON.stringify(giants, null, 2)); return; }
-    printTable(giants.map((g) => ({ name: g.name, source: g.signalLabel, reason: g.giantFilterReason || '—' })), [
-      { key: 'name', label: '候选', max: 30 },
-      { key: 'source', label: '信号来源', max: 26 },
-      { key: 'reason', label: '过滤原因', max: 48 },
+    printTable(giants.map((g) => ({
+      name: g.name, source: g.signalLabel, reason: g.giantFilterReason || '—',
+      basis: (g.giantCheckBasis || []).join(', ') || '—',
+    })), [
+      { key: 'name', label: '候选', max: 26 },
+      { key: 'source', label: '信号来源', max: 20 },
+      { key: 'reason', label: '过滤原因', max: 40 },
+      { key: 'basis', label: '判据（appstore/gplay 不完全一致）', max: 30 },
     ]);
     console.log(`\n共 ${giants.length} 条被过滤的疑似巨头条目——scan 时加 --no-filter 可以关掉这个过滤。`);
     return;
@@ -1123,25 +1704,79 @@ function cmdReport(args) {
   if (!fs.existsSync(storePath)) { console.log(`(${storePath} 不存在，还没跑过 scan)`); return; }
   const candidates = JSON.parse(fs.readFileSync(storePath, 'utf8'));
 
-  // 【修复 5】--cluster：跨源聚类视角，本来就是要跨源看，--source 在这里没意义、直接忽略并提示。
+  // 【2026-09-13 三轮】--factories：疑似"App 工厂"开发者矩阵，见文件头「三轮：工厂
+  // 识别」整段说明。**独立于 --giants**——工厂标记不是巨头判据，两套判据/名单/阈值
+  // 互不共用；**也独立于 --cluster**——这里不做任何候选合并，只是给每个开发者数一下
+  // 它在当前数据集里挂了几个候选。
+  if (args.factories) {
+    const minFactoryProducts = args['min-factory-products'] != null ? Number(args['min-factory-products']) : DEFAULT_MIN_FACTORY_PRODUCTS;
+    const factories = identifyFactories(candidates, { minFactoryProducts });
+    const factoriesMdPath = path.join(outDir, 'factories.md');
+    fs.writeFileSync(factoriesMdPath, renderFactoriesMarkdown(factories, { minFactoryProducts }) + '\n');
+    if (args.json) { console.log(JSON.stringify(factories, null, 2)); return; }
+    if (!factories.length) {
+      console.log(`本次没有识别到 ≥ ${minFactoryProducts} 个产品的开发者（阈值可用 --min-factory-products 调整；` +
+        '也可能是数据集里 gplay 候选缺 developer 字段——只有 --ranking 模式才带，见 --help）。');
+    } else {
+      printTable(factories.map((f) => ({
+        dev: f.developerNames.join(' / '), count: f.productCount, sources: f.sources.join(', '),
+        products: f.products.map((p) => p.name).join('; '),
+      })), [
+        { key: 'dev', label: '开发者', max: 24 },
+        { key: 'count', label: '产品数' },
+        { key: 'sources', label: '来源', max: 16 },
+        { key: 'products', label: '产品（不做合并，仍是各自独立的候选）', max: 46 },
+      ]);
+    }
+    console.log(`\n共 ${factories.length} 个疑似工厂开发者（阈值 ${minFactoryProducts}，--min-factory-products 可调）。完整清单：${factoriesMdPath}`);
+    console.log('⚠️ 工厂标记 ≠ 巨头标记（--giants 是另一套独立判据）；工厂标记也不会让这些候选被合并聚类（--cluster 结果不受影响）。');
+    return;
+  }
+
+  // 【2026-09-13 二轮修复 7】--export-jsonl：不用重新 scan，直接从累积的 candidates.json
+  // 重新生成一份 LLM 友好的紧凑 JSONL（正常 scan 时已经会自动写一份，这个开关是给
+  // "候选没变但想重新导出/换个 --out-dir 位置看"这种场景用的）。
+  // 【2026-09-13 三轮】minFactoryProducts 同样透传给 renderCandidatesJsonl，让导出的
+  // factorySuspect/factoryProductCount 用和 --factories 一致的阈值。
+  if (args['export-jsonl']) {
+    const jsonlPath = path.join(outDir, 'candidates-llm.jsonl');
+    const minFactoryProducts = args['min-factory-products'] != null ? Number(args['min-factory-products']) : DEFAULT_MIN_FACTORY_PRODUCTS;
+    fs.writeFileSync(jsonlPath, renderCandidatesJsonl(candidates, { minFactoryProducts }) + '\n');
+    console.log(`已导出 ${candidates.length} 条候选到 ${jsonlPath}（每行一个 JSON 对象，字段：` +
+      'name/source/family/verticalHint/scaleSignal/rank/developer/factorySuspect/factoryProductCount/country/' +
+      'seenCount/giantCheckBasis/evidenceUrl/firstSeenAt/lastSeenAt）。');
+    console.log('这是给人/LLM 通读找模式用的原材料，本脚本自己不做模式识别（字符串匹配做不到）。');
+    return;
+  }
+
+  // 【修复 5 / 2026-09-13 二轮修复 6】--cluster：候选去重视角，本来就是要跨源看，
+  // --source 在这里没意义、直接忽略并提示。真正的"多方法论撞车"看 familyCount，
+  // 不是 sourceCount——appstore+gplay 是同一族，两者都命中不算跨方法论验证。
   if (args.cluster) {
     if (args.source) console.log(`注意：--cluster 会忽略 --source（聚类本来就是要跨源看），已按全部 ${candidates.length} 条候选聚类。`);
     const clusters = clusterCandidates(candidates);
     const clusterMdPath = path.join(outDir, 'clusters.md');
     fs.writeFileSync(clusterMdPath, renderClustersMarkdown(clusters) + '\n');
     if (args.json) { console.log(JSON.stringify(clusters, null, 2)); return; }
-    const multi = clusters.filter((c) => c.sourceCount >= 2);
-    printTable(multi.map((c) => ({
-      cluster: c.clusterKey, sources: c.sourceCount, hit: c.sourcesHit.join(', '),
-      names: c.members.map((m) => m.name).join('; '),
-    })), [
-      { key: 'cluster', label: '聚类', max: 26 },
-      { key: 'sources', label: '命中源数' },
-      { key: 'hit', label: '命中来源', max: 24 },
-      { key: 'names', label: '候选（去重前）', max: 40 },
-    ]);
-    console.log(`\n共 ${clusters.length} 个聚类，其中 ${multi.length} 个被 ≥2 个独立信号源命中。完整聚类清单：${clusterMdPath}`);
-    console.log('三个独立方法论（买量/冲榜/收钱）撞到同一个方向，是这个生成器最强的信号——优先看命中源数多的簇。');
+    const crossFamily = clusters.filter((c) => c.familyCount >= 2);
+    const sameFamilyMulti = clusters.filter((c) => c.familyCount === 1 && c.sourceCount >= 2);
+    console.log('## 跨族命中（≥2 个独立信号族，真正的多方法论验证）');
+    if (crossFamily.length) {
+      printTable(crossFamily.map((c) => ({
+        cluster: c.clusterKey, families: c.familyCount, hit: c.familiesHit.join(', '),
+        names: c.members.map((m) => m.name).join('; '),
+      })), [
+        { key: 'cluster', label: '聚类', max: 26 },
+        { key: 'families', label: '跨族命中数' },
+        { key: 'hit', label: '命中信号族', max: 24 },
+        { key: 'names', label: '候选（去重前）', max: 40 },
+      ]);
+    } else {
+      console.log('（本次没有跨族命中——真实情况，不是脚本坏了；ads/stripe 候选少时很常见。）');
+    }
+    console.log(`\n## 同族内多店命中（同一个 App 同时上了 appstore/gplay，共 ${sameFamilyMulti.length} 个——仅供参考，不算跨方法论验证）`);
+    console.log(`\n共 ${clusters.length} 个聚类，其中 ${crossFamily.length} 个跨族命中。完整清单（含同族内多店命中表）：${clusterMdPath}`);
+    console.log('appstore/gplay 属于同一个信号族（app-charts）——两者都命中只是同一个观测的两次采样，不构成独立验证；只有跨族命中才是"多个独立方法论撞到同一方向"的硬信号。');
     return;
   }
 
@@ -1214,6 +1849,14 @@ function selfTest() {
 
   const app = mapRowToCandidate('appstore', { rank: 3, name: 'Invoice Pro', appId: '123', url: 'https://apps.apple.com/x', chart: 'top-grossing', country: 'us' });
   check('mapRowToCandidate appstore: name/extra.rank 正确', app.name === 'Invoice Pro' && app.extra.rank === 3);
+  check('mapRowToCandidate appstore: 默认榜单没有 --lookup 字段时，rating/ratingCount 原样是 null（不是假装有）',
+    app.extra.rating === null && app.extra.ratingCount === null);
+  // 2026-09-13 二轮修复 8：appstore-charts.mjs --lookup 才会带的 rating/ratingCount/
+  // primaryGenre/price/currency，之前完全没被映射进 extra——这次补上，classifyGiant
+  // 的评分数阈值判据和 candidateToLLMRecord 的垂类线索都要用到。
+  const appWithLookup = mapRowToCandidate('appstore', { rank: 1, name: 'Big App', appId: '456', url: 'https://apps.apple.com/y', artist: 'Some Co', rating: 4.7, ratingCount: 123456, primaryGenre: 'Productivity', price: 0, currency: 'USD' });
+  check('mapRowToCandidate appstore(--lookup 形状): rating/ratingCount/primaryGenre 都被映射进 extra',
+    appWithLookup.extra.rating === 4.7 && appWithLookup.extra.ratingCount === 123456 && appWithLookup.extra.primaryGenre === 'Productivity');
 
   const gp = mapRowToCandidate('gplay', { position: 5, name: 'Invoice Maker', appId: 'com.x', rating: 4.5, url: 'https://play.google.com/x' });
   check('mapRowToCandidate gplay: name/extra.position 正确', gp.name === 'Invoice Maker' && gp.extra.position === 5);
@@ -1221,6 +1864,9 @@ function selfTest() {
   const gpRank = mapRowToCandidate('gplay', { rank: 7, change: 'up', appId: 'com.y', name: 'Invoice Ranker', developer: 'X Inc', category: 'productivity', rating: '4.3', installs: '1M+', recentInstalls: '10K+', url: 'https://play.google.com/y', chart: 'top_grossing', rankCategory: 'productivity', country: 'US' });
   check('mapRowToCandidate gplay(--ranking 形状): extra.position 落到 rank 字段', gpRank.extra.position === 7);
   check('mapRowToCandidate gplay(--ranking 形状): name 仍然正确', gpRank.name === 'Invoice Ranker');
+  check('mapRowToCandidate gplay(--ranking 形状，2026-09-13 二轮修复补的字段): category/chart/rankCategory/recentInstalls 都映射进 extra 了',
+    gpRank.extra.category === 'productivity' && gpRank.extra.chart === 'top_grossing' &&
+    gpRank.extra.rankCategory === 'productivity' && gpRank.extra.recentInstalls === '10K+');
 
   const st = mapRowToCandidate('stripe', { domain: 'billing.example.com', visits: 1200, isNew: true });
   check('mapRowToCandidate stripe: name 取 domain，evidenceUrl 拼 https', st.name === 'billing.example.com' && st.evidenceUrl === 'https://billing.example.com');
@@ -1333,6 +1979,25 @@ function selfTest() {
   const mdWithWebcheck = renderCandidatesMarkdown([{ ...merged[0], webPresence: { checked: false, note: 'opencli 没连上，具体绕法见上' } }]);
   check('renderCandidatesMarkdown: webPresence.checked=false 渲染成"未检测(...)"', mdWithWebcheck.includes('未检测'));
 
+  // ── 【2026-09-13 二轮修复 7】candidateToLLMRecord / renderCandidatesJsonl：
+  //    给人/LLM 通读用的紧凑原材料导出，不做模式识别，只负责把字段挑干净。
+  const llmSrcAppstore = buildCandidate('appstore', { rank: 2, name: 'Coin Snap', appId: 'id-coin', artist: 'CoinCo', url: 'https://apps.apple.com/coin', chart: 'top-grossing', genres: ['Finance'], primaryGenre: 'Finance', ratingCount: 42000 }, { discoveredAt: '2026-03-01T00:00:00.000Z' });
+  const llmRecord = candidateToLLMRecord(llmSrcAppstore);
+  check('candidateToLLMRecord: family 字段正确归族（appstore → app-charts）', llmRecord.family === 'app-charts');
+  check('candidateToLLMRecord: verticalHint 优先取 primaryGenre（比 genres 数组更干净）', llmRecord.verticalHint === 'Finance');
+  check('candidateToLLMRecord: scaleSignal 从 ratingCount 拼出可读文案', llmRecord.scaleSignal === '42000 ratings');
+  check('candidateToLLMRecord: developer 字段从 artist 兜底取到', llmRecord.developer === 'CoinCo');
+  check('candidateToLLMRecord: rank 字段正确', llmRecord.rank === 2);
+  const llmSrcStripe = buildCandidate('stripe', { domain: 'demo2.com', visits: 777 }, { discoveredAt: '2026-03-02T00:00:00.000Z' });
+  const llmRecordStripe = candidateToLLMRecord(llmSrcStripe);
+  check('candidateToLLMRecord: stripe 候选 family 归为 stripe-revenue，scaleSignal 带上 visits',
+    llmRecordStripe.family === 'stripe-revenue' && llmRecordStripe.scaleSignal === '777 stripe visits');
+  const jsonl = renderCandidatesJsonl([llmSrcAppstore, llmSrcStripe]);
+  const jsonlLines = jsonl.split('\n');
+  check('renderCandidatesJsonl: 一行一个候选（不是一个大 JSON 数组）', jsonlLines.length === 2);
+  check('renderCandidatesJsonl: 每一行都是能单独解析的合法 JSON', jsonlLines.every((l) => { try { JSON.parse(l); return true; } catch { return false; } }));
+  check('renderCandidatesJsonl: 内容包含候选名，方便直接 grep/通读', jsonl.includes('Coin Snap') && jsonl.includes('demo2.com'));
+
   // ══════════════════════════════════════════════════════════════════════
   // 2026-09-13 首跑复盘修复：回归测试
   // ══════════════════════════════════════════════════════════════════════
@@ -1415,51 +2080,255 @@ function selfTest() {
   check('classifyGiant: gplay 安装量超阈值 → giant:true（哪怕开发者不是巨头）', classifyGiant(giantByInstalls, { maxInstalls: 50_000_000 }).giant === true);
   check('classifyGiant: 独立开发者、安装量不高 → giant:false', classifyGiant(normalApp, { maxInstalls: 50_000_000 }).giant === false);
   check('classifyGiant: 判定理由是人读文案，不是空的', classifyGiant(giantByDev).reason.includes('Google LLC'));
+  check('classifyGiant: basis 字段记录了这条候选被哪些判据查过（gplay 至少查过 dev-list 和 gplay-installs）',
+    Array.isArray(classifyGiant(normalApp, { maxInstalls: 50_000_000 }).basis) &&
+    classifyGiant(normalApp, { maxInstalls: 50_000_000 }).basis.includes('gplay-installs'));
   const partition = partitionGiants([giantByDev, giantByInstalls, normalApp], { maxInstalls: 50_000_000 });
-  check('partitionGiants: kept 只留下独立开发者条目', partition.kept.length === 1 && partition.kept[0] === normalApp);
+  check('partitionGiants: kept 只留下独立开发者条目（结构相等，不再要求引用相等——kept 现在会带上 giantCheckBasis）',
+    partition.kept.length === 1 && partition.kept[0].name === normalApp.name && partition.kept[0].source === normalApp.source);
   check('partitionGiants: filtered 保留了另外两条，没有被丢弃', partition.filtered.length === 2);
   check('partitionGiants: filtered 条目带上了 giantFilterReason，方便复核（不是被静默吞掉）', partition.filtered.every((g) => typeof g.giantFilterReason === 'string' && g.giantFilterReason.length > 0));
+  check('partitionGiants: 【2026-09-13 二轮修复 8】kept 和 filtered 都带上了 giantCheckBasis（不止过滤掉的才标注检查过什么）',
+    partition.kept.every((c) => Array.isArray(c.giantCheckBasis)) && partition.filtered.every((c) => Array.isArray(c.giantCheckBasis)));
 
-  // ── 【修复 5】跨源聚类：宁可保守，不做模糊匹配
-  // 设计成"传递闭包"场景：ads(creatives, 候选名是域名) 靠 advertiserName 和
-  // ads(advertisers, 候选名是公司名) 连起来，ads(advertisers) 又靠公司名和
-  // appstore(开发者名) 连起来，stripe 靠同一个域名直接和 ads(creatives) 连起来——
-  // 四条候选应该经由钥匙传递闭包合并成一个跨 3 个独立信号源（ads/appstore/stripe）
-  // 的聚类，这正是"三个独立方法论撞到同一个方向"这个核心价值主张的最小复现。
+  // ── 【2026-09-13 二轮修复 8，appstore/gplay 巨头过滤判据不一致】
+  // 这组测试直接复现真实数据里的 ChatGPT 案例：gplay 侧因安装量 1.5B 被判定巨头，
+  // appstore 侧发行商是 "OpenAI OpCo, LLC"（不在 KNOWN_GIANT_PUBLISHERS 硬编码名单
+  // 里）、且没有传 --lookup 所以没有 ratingCount——旧代码里这条会被判 giant:false，
+  // 就是这次要修的判据不一致。
+  const chatgptAppstore = { source: 'appstore', name: 'ChatGPT', extra: { artist: 'OpenAI OpCo, LLC', rank: 1, chart: 'top-grossing' } };
+  const chatgptGplayGiantRecord = { source: 'gplay', name: 'ChatGPT', extra: { developer: 'unused-in-index' }, giantFilterReason: '安装量 1.5 B ≥ 阈值 50,000,000' };
+  check('【判据不一致回归】classifyGiant: 不给 crossStoreIndex 时，appstore 的 ChatGPT（发行商不在硬编码名单、无 ratingCount）判不出巨头——这就是原来的 bug 本体',
+    classifyGiant(chatgptAppstore, { maxInstalls: 50_000_000 }).giant === false);
+  check('【判据不一致回归】classifyGiant: 这种情况下 basis 如实标注 "appstore-rating-count(unavailable...)"，不是假装查过',
+    classifyGiant(chatgptAppstore, { maxInstalls: 50_000_000 }).basis.some((b) => b.startsWith('appstore-rating-count(unavailable')));
+  const crossIdx = buildAppChartGiantIndex([], [chatgptGplayGiantRecord]);
+  check('buildAppChartGiantIndex: 从 filtered-giants 记录里为 gplay 的 ChatGPT 建好了索引项',
+    crossIdx.has(normalizeForCluster({ name: 'ChatGPT' })));
+  const crossMatch = crossStoreGiantMatch(chatgptAppstore, crossIdx);
+  check('crossStoreGiantMatch: appstore 的 ChatGPT 借用 gplay 侧已判过的巨头结论', crossMatch && crossMatch.giant === true);
+  check('crossStoreGiantMatch: reason 里说明是"跨商店同名匹配"，不装成本店自己判出来的', /跨商店同名匹配/.test(crossMatch?.reason || ''));
+  check('【判据不一致回归，核心修复验证】classifyGiant: 给了 crossStoreIndex 之后，appstore 的 ChatGPT 现在也能被判定为巨头了',
+    classifyGiant(chatgptAppstore, { maxInstalls: 50_000_000, crossStoreIndex: crossIdx }).giant === true);
+  check('crossStoreGiantMatch: 冷启动（索引里没有这个名字）时返回 null，不是误判为巨头',
+    crossStoreGiantMatch({ source: 'appstore', name: 'Totally Unknown App' }, crossIdx) === null);
+  check('crossStoreGiantMatch: 同一商店内自己不会跟自己比对（source 必须不同）',
+    crossStoreGiantMatch({ source: 'gplay', name: 'ChatGPT' }, buildAppChartGiantIndex([], [{ source: 'gplay', name: 'ChatGPT', giantFilterReason: 'x' }])) === null);
+
+  // maxRatingCount：可选、不设默认阈值
+  const appstoreWithRatingCount = { source: 'appstore', name: 'Some Huge App', extra: { artist: 'Unknown Indie Ltd', ratingCount: 2_000_000 } };
+  check('classifyGiant: 不传 --max-rating-count 时，即使 ratingCount 很大也不会被判巨头（没有默认阈值，避免假精确）',
+    classifyGiant(appstoreWithRatingCount).giant === false);
+  check('classifyGiant: 显式传 --max-rating-count 且 ratingCount ≥ 阈值 → giant:true', classifyGiant(appstoreWithRatingCount, { maxRatingCount: 1_000_000 }).giant === true);
+  check('classifyGiant: 显式传 --max-rating-count 但 ratingCount 没到阈值 → giant:false', classifyGiant(appstoreWithRatingCount, { maxRatingCount: 5_000_000 }).giant === false);
+  check('classifyGiant: --max-rating-count 判定理由标注这是"弱代理信号"，不是真实安装量', /弱代理信号/.test(classifyGiant(appstoreWithRatingCount, { maxRatingCount: 1_000_000 }).reason || ''));
+
+  // ── 【修复 5 / 2026-09-13 二轮修复 6+7】跨源聚类：devKey 已移除，只按候选名去重；
+  //    familyCount 才是"独立方法论互证"的真实计数，sourceCount 只是参考。
+
+  // (a) 仍然有效的合法跨族匹配：ads creatives 候选名本来就是域名，stripe 候选名
+  //     也是域名——两者字面相同时靠 nameKey 本身就能合并，不需要 devKey。这是
+  //     "多个独立方法论撞到同一方向"的真实最小复现：ads（买量）+ stripe（收钱）
+  //     两个不同族都命中同一个域名。
+  const domainAds = buildCandidate('ads', { domain: 'invoiceapp.com', advertiserId: 'AR1', daysRunning: 90, advertiserName: 'Acme Inc', previewUrl: 'https://ads.example/prev1' }, { discoveredAt: '2026-01-01T00:00:00.000Z' });
+  const domainStripe = buildCandidate('stripe', { domain: 'invoiceapp.com', visits: 500 }, { discoveredAt: '2026-01-02T00:00:00.000Z' });
+  // (b) 旧设计里靠 devKey（都叫 "Acme Inc"）把这两条桥接进 (a) 的簇——这条路径
+  //     已经被拆掉，这是刻意接受的召回损失（recall loss），不是遗漏：
+  const acmeAdvertisers = buildCandidate('ads', { name: 'Acme Inc', advertiserId: 'AR2', minAds: 5, maxAds: 20, url: 'https://adstransparency.google.com/advertiser/AR2' }, { discoveredAt: '2026-01-03T00:00:00.000Z' });
+  const acmeAppstore = buildCandidate('appstore', { name: 'Acme Invoice Tracker', appId: 'id1', artist: 'Acme Inc', rank: 3, url: 'https://apps.apple.com/id1' }, { discoveredAt: '2026-01-04T00:00:00.000Z' });
+
+  // (c) 【真实数据复现的误并回归用例】2026-09-13 在真实产出（344 条候选）里发现：
+  //     开发者「BEGAMOB GLOBAL LIMITED」同时挂着一款 "Authenticator ℠ App" 和一款
+  //     "Universal Remote TV Control ·"——旧版 devKey 会把这两个完全不相关的产品
+  //     经由共享开发者名并进同一个簇，链式传递下去能把认证器和电视遥控器挤成一团。
+  //     这里用最小复现：同一个开发者名同时出现在"Authenticator App"和
+  //     "TV Remote - Universal Control"两条不同名字的候选上。
+  const authApp1 = buildCandidate('appstore', { name: 'Authenticator App', appId: 'id-auth-1', artist: '2Stable', rank: 10, url: 'https://apps.apple.com/auth1' }, { discoveredAt: '2026-01-07T00:00:00.000Z' });
+  const authApp2 = buildCandidate('appstore', { name: 'Authenticator App', appId: 'id-auth-2', artist: 'BEGAMOB GLOBAL LIMITED', rank: 12, url: 'https://apps.apple.com/auth2' }, { discoveredAt: '2026-01-08T00:00:00.000Z' });
+  const tvRemoteAppstore = buildCandidate('appstore', { name: 'TV Remote - Universal Control', appId: 'id-tv-1', artist: 'BEGAMOB GLOBAL LIMITED', rank: 20, url: 'https://apps.apple.com/tv1' }, { discoveredAt: '2026-01-09T00:00:00.000Z' });
+  const tvRemoteGplay = buildCandidate('gplay', { name: 'TV Remote - Universal Control', appId: 'com.tv.remote', developer: 'EVOLLY.APP', rating: 4.1, url: 'https://play.google.com/tv1' }, { discoveredAt: '2026-01-10T00:00:00.000Z' });
+
+  // (d) "措辞不同但其实是同一需求"的保守边界（和 devKey 无关，是 nameKey exact-match
+  //     本身的既有取舍，devKey 移除后依然成立）：
+  const invoiceMakerGplay = buildCandidate('gplay', { name: 'Invoice Maker', appId: 'com.x', developer: 'Totally Different Studio', rating: 4.2, url: 'https://play.google.com/com.x' }, { discoveredAt: '2026-01-11T00:00:00.000Z' });
+  const invoiceProAppstore = buildCandidate('appstore', { name: 'Invoice Pro', appId: 'id2', artist: 'Another Studio', rank: 5, url: 'https://apps.apple.com/id2' }, { discoveredAt: '2026-01-12T00:00:00.000Z' });
+
   const clusterFixture = [
-    buildCandidate('ads', { domain: 'invoiceapp.com', advertiserId: 'AR1', daysRunning: 90, advertiserName: 'Acme Inc', previewUrl: 'https://ads.example/prev1' }, { discoveredAt: '2026-01-01T00:00:00.000Z' }),
-    buildCandidate('stripe', { domain: 'invoiceapp.com', visits: 500 }, { discoveredAt: '2026-01-02T00:00:00.000Z' }),
-    buildCandidate('ads', { name: 'Acme Inc', advertiserId: 'AR2', minAds: 5, maxAds: 20, url: 'https://adstransparency.google.com/advertiser/AR2' }, { discoveredAt: '2026-01-03T00:00:00.000Z' }),
-    buildCandidate('appstore', { name: 'Acme Invoice Tracker', appId: 'id1', artist: 'Acme Inc', rank: 3, url: 'https://apps.apple.com/id1' }, { discoveredAt: '2026-01-04T00:00:00.000Z' }),
-    buildCandidate('gplay', { name: 'Invoice Maker', appId: 'com.x', developer: 'Totally Different Studio', rating: 4.2, url: 'https://play.google.com/com.x' }, { discoveredAt: '2026-01-05T00:00:00.000Z' }),
-    buildCandidate('appstore', { name: 'Invoice Pro', appId: 'id2', artist: 'Another Studio', rank: 5, url: 'https://apps.apple.com/id2' }, { discoveredAt: '2026-01-06T00:00:00.000Z' }),
+    domainAds, domainStripe, acmeAdvertisers, acmeAppstore,
+    authApp1, authApp2, tvRemoteAppstore, tvRemoteGplay,
+    invoiceMakerGplay, invoiceProAppstore,
   ];
   const clusters = clusterCandidates(clusterFixture);
-  const megaCluster = clusters.find((c) => c.members.some((m) => m.name === 'invoiceapp.com'));
-  check('clusterCandidates: 域名(ads creatives+stripe) 经由 advertiserName 钥匙和公司名(ads advertisers+appstore) 传递闭包合并',
-    megaCluster && megaCluster.members.length === 4);
-  check('clusterCandidates: 合并后的簇命中 3 个独立信号源（ads/appstore/stripe），这正是本脚本要挖的核心信号',
-    megaCluster && megaCluster.sourceCount === 3 && megaCluster.sourcesHit.join(',') === 'ads,appstore,stripe');
-  check('clusterCandidates: 簇内保留了每条原始候选各自的证据链接，没有合并时丢证据（4 条候选各自的证据 URL 都在）',
-    megaCluster && megaCluster.evidence.length === 4 && new Set(megaCluster.evidence.map((e) => e.url)).size === 4);
+
+  const domainCluster = clusters.find((c) => c.members.some((m) => m.name === 'invoiceapp.com'));
+  check('clusterCandidates: ads(creatives)+stripe 字面同域名仍然合并（不需要 devKey，nameKey 本身就够）',
+    domainCluster && domainCluster.members.length === 2);
+  check('clusterCandidates: 合并后的簇跨 2 个独立信号族（ads-spend/stripe-revenue）——这才是真正的多方法论验证',
+    domainCluster && domainCluster.familyCount === 2 && domainCluster.familiesHit.join(',') === 'ads-spend,stripe-revenue');
+  check('clusterCandidates（接受的召回损失）: "Acme Inc" 广告主候选和 "Acme Invoice Tracker" appstore 候选不再靠开发者名桥接进域名簇了',
+    domainCluster.members.every((m) => m.name !== 'Acme Inc' && m.name !== 'Acme Invoice Tracker'));
+  check('clusterCandidates: 簇内保留了每条原始候选各自的证据链接，没有合并时丢证据',
+    domainCluster.evidence.length === 2 && new Set(domainCluster.evidence.map((e) => e.url)).size === 2);
+
+  const authCluster = clusters.find((c) => c.members.some((m) => m.name === 'Authenticator App'));
+  const tvCluster = clusters.find((c) => c.members.some((m) => m.name === 'TV Remote - Universal Control'));
+  check('【误并回归】clusterCandidates: 两条 "Authenticator App"（不同开发者）互相合并（这是合法的同名去重）',
+    authCluster && authCluster.members.length === 2);
+  check('【误并回归】clusterCandidates: 两条 "TV Remote - Universal Control"（appstore+gplay，不同开发者）也合并',
+    tvCluster && tvCluster.members.length === 2);
+  check('【误并回归，核心断言】clusterCandidates: 即使 "BEGAMOB GLOBAL LIMITED" 同时挂着 Authenticator 和 TV Remote 两款产品，' +
+    '这两个簇也不会被开发者名链式合并到一起（devKey 已移除，这是真实数据复现过的误并，必须锁死不能回归）',
+    authCluster && tvCluster && authCluster !== tvCluster &&
+    !authCluster.members.some((m) => m.name === 'TV Remote - Universal Control') &&
+    !tvCluster.members.some((m) => m.name === 'Authenticator App'));
+  check('clusterCandidates: TV Remote 簇跨 appstore+gplay 两个来源，但同属 app-charts 一个信号族（同族内多店命中，不是跨族验证）',
+    tvCluster.sourceCount === 2 && tvCluster.familyCount === 1);
+
   const invoiceMakerCluster = clusters.find((c) => c.members.length === 1 && c.members[0].name === 'Invoice Maker');
   const invoiceProCluster = clusters.find((c) => c.members.length === 1 && c.members[0].name === 'Invoice Pro');
   check('clusterCandidates（保守边界）: "Invoice Maker" 和 "Invoice Pro" 措辞不同，不做模糊合并，各自独立成单源簇',
     !!invoiceMakerCluster && !!invoiceProCluster && invoiceMakerCluster.sourceCount === 1 && invoiceProCluster.sourceCount === 1);
-  check('clusterCandidates（保守边界）: 两个不相关的开发者名（Totally Different Studio / Another Studio）不会被误撞到一起',
+  check('clusterCandidates（保守边界）: 两个不相关的开发者名不会让 "Invoice Maker"/"Invoice Pro" 被撞到一起',
     invoiceMakerCluster.clusterKey !== invoiceProCluster.clusterKey);
-  check('clusterCandidates: 按命中源数降序排序（多源命中的簇排在前面）',
-    clusters[0].sourceCount >= clusters[clusters.length - 1].sourceCount && clusters[0] === megaCluster);
+  check('clusterCandidates: 排序先按 familyCount 降序（跨族命中的 domainCluster 排最前面）',
+    clusters[0] === domainCluster);
+  check('clusterCandidates: familyCount 相同时按 sourceCount 降序（tvCluster 的 sourceCount=2 该排在只有 sourceCount=1 的簇前面）',
+    clusters.findIndex((c) => c === tvCluster) < clusters.findIndex((c) => c === authCluster));
   check('normalizeForCluster: 太短/太通用的名字返回 null，不当聚类钥匙（避免误撞）', normalizeForCluster({ name: 'Co' }) === null);
-  check('candidateClusterKeys: stripe 候选即使 extra 里塞了 artist 字段也不会被当开发者钥匙用（只认 appstore/gplay/ads-creatives）',
+
+  // ── candidateClusterKeys：devKey 已彻底移除，不管候选带不带 artist/developer/
+  //    advertiserName，都只贡献候选名本身这一把钥匙（长度恒为 0 或 1）。
+  check('candidateClusterKeys: appstore 候选即使 extra 里有 artist，也不再贡献开发者钥匙（devKey 已移除）',
+    candidateClusterKeys({ name: 'Foo Widgets', source: 'appstore', extra: { artist: 'Bar Corp' } }).length === 1);
+  check('candidateClusterKeys: gplay 候选即使 extra 里有 developer，也不再贡献开发者钥匙',
+    candidateClusterKeys({ name: 'Foo Widgets', source: 'gplay', extra: { developer: 'Bar Corp' } }).length === 1);
+  check('candidateClusterKeys: ads creatives 候选即使 extra 里有 advertiserName，也不再贡献开发者钥匙',
+    candidateClusterKeys({ name: 'foowidgets.com', source: 'ads', extra: { mode: 'creatives', advertiserName: 'Bar Corp' } }).length === 1);
+  check('candidateClusterKeys: stripe 候选即使 extra 里塞了 artist 字段也不会被当开发者钥匙用（本来就不该认）',
     candidateClusterKeys({ name: 'Foo Widgets', source: 'stripe', extra: { artist: 'Bar Corp' } }).length === 1);
-  check('candidateClusterKeys: ads advertisers 模式（非 creatives）不会额外贡献开发者钥匙（只有候选名本身这一把）',
-    candidateClusterKeys({ name: 'Foo Widgets', source: 'ads', extra: { mode: 'advertisers', country: 'US' } }).length === 1);
+
   const clustersMd = renderClustersMarkdown(clusters);
   check('renderClustersMarkdown: 声明"刻意不做模糊相似度匹配"', clustersMd.includes('不做模糊相似度匹配'));
-  check('renderClustersMarkdown: 包含跨源命中的聚类内容', clustersMd.includes('invoiceapp.com') && clustersMd.includes('Acme'));
-  check('renderClustersMarkdown: 单源簇（Invoice Maker/Invoice Pro）不出现在多源表格里（只列 ≥2 源的簇）',
-    !new RegExp(`\\|[^|]*Invoice Maker[^|]*\\|`).test(clustersMd) && !new RegExp(`\\|[^|]*Invoice Pro[^|]*\\|`).test(clustersMd));
+  check('renderClustersMarkdown: 声明这一步是"同名/同域名去重"，不是模式识别', clustersMd.includes('同名/同域名去重'));
+  check('renderClustersMarkdown: 跨族命中表包含域名簇内容', clustersMd.includes('invoiceapp.com'));
+  check('renderClustersMarkdown: 区分"跨族命中"和"同族内多店命中"两张表', clustersMd.includes('跨族命中') && clustersMd.includes('同族内多店命中'));
+  check('renderClustersMarkdown: 单源簇（Invoice Maker/Invoice Pro/Authenticator App）不出现在任何多命中表格里',
+    !new RegExp(`\\|[^|]*Invoice Maker[^|]*\\|`).test(clustersMd) &&
+    !new RegExp(`\\|[^|]*Invoice Pro[^|]*\\|`).test(clustersMd) &&
+    !new RegExp(`\\|[^|]*Authenticator App[^|]*\\|`).test(clustersMd));
+  check('renderClustersMarkdown: TV Remote（同族内多店命中）出现在第二张表，不出现在跨族命中表',
+    clustersMd.includes('TV Remote - Universal Control'));
+
+  // ── 【2026-09-13 二轮修复 6】family 计数本身的独立单元测试（不依赖完整聚类流程）
+  const familyFixtureSameApp = [
+    buildCandidate('appstore', { name: 'ChatDemo', appId: 'id-cd-1', artist: 'Demo OpCo', rank: 1, url: 'https://apps.apple.com/cd' }, { discoveredAt: '2026-02-01T00:00:00.000Z' }),
+    buildCandidate('gplay', { name: 'ChatDemo', appId: 'com.demo.chat', developer: 'Demo OpCo', rating: 4.9, url: 'https://play.google.com/cd' }, { discoveredAt: '2026-02-02T00:00:00.000Z' }),
+  ];
+  const familyClusters = clusterCandidates(familyFixtureSameApp);
+  check('familyCount：appstore+gplay 同名命中只算 1 个信号族（同族内两次采样，不是跨方法论验证）',
+    familyClusters.length === 1 && familyClusters[0].sourceCount === 2 && familyClusters[0].familyCount === 1);
+  check('familyOf: appstore/gplay 归到同一族 app-charts，ads/stripe 各自独立成族',
+    familyOf('appstore') === familyOf('gplay') && familyOf('ads') !== familyOf('appstore') && familyOf('stripe') !== familyOf('ads'));
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 2026-09-13 三轮：工厂识别（developerKeyOf/normalizeDeveloperName/identifyFactories/
+  // buildFactoryIndex/renderFactoriesMarkdown/candidateToLLMRecord 打标）——独立旁路
+  // 信号，不是聚类钥匙。直接复用上面已经声明的 clusterFixture 及其成员变量（domainAds/
+  // domainStripe/acmeAdvertisers/acmeAppstore/authApp1/authApp2/tvRemoteAppstore/
+  // tvRemoteGplay/invoiceMakerGplay/invoiceProAppstore/authCluster/tvCluster），不新写
+  // 空壳 fixture——BEGAMOB GLOBAL LIMITED 同时挂 Authenticator App 和 TV Remote 这个
+  // 真实复现的案例，本身就是"工厂"信号最合适的回归素材。
+  // ══════════════════════════════════════════════════════════════════════
+
+  // developerKeyOf：四个源里只有 appstore/gplay/ads(creatives) 有独立于候选名的开发者
+  // 字段，ads(advertisers) 的候选本身就是广告主、stripe 只有域名，必须返回 null（不能瞎猜）。
+  check('developerKeyOf: appstore 取 extra.artist', developerKeyOf(authApp2) === 'BEGAMOB GLOBAL LIMITED');
+  check('developerKeyOf: gplay 取 extra.developer', developerKeyOf(tvRemoteGplay) === 'EVOLLY.APP');
+  check('developerKeyOf: ads creatives 取 extra.advertiserName', developerKeyOf(domainAds) === 'Acme Inc');
+  check('developerKeyOf: ads advertisers 没有独立开发者字段，返回 null（候选本身就是广告主）', developerKeyOf(acmeAdvertisers) === null);
+  check('developerKeyOf: stripe 没有开发者字段，返回 null', developerKeyOf(domainStripe) === null);
+
+  // normalizeDeveloperName：折叠大小写/空白/常见法律后缀，折叠后太短（比如 "X Corp."
+  // 去掉 "corp" 只剩 "x"）返回 null，避免用一两个字符当分组钥匙造成误撞。
+  check('normalizeDeveloperName: 折叠大小写与常见法律后缀（Inc）', normalizeDeveloperName('Acme Inc') === normalizeDeveloperName('ACME inc.'));
+  check('normalizeDeveloperName: 折叠 S.r.l. 这类带点缩写', normalizeDeveloperName('Mosaic S.r.l.') === 'mosaic');
+  check('normalizeDeveloperName: 折叠后太短（"X Corp." 去掉 corp 只剩 x）返回 null（保守边界，不当分组钥匙）', normalizeDeveloperName('X Corp.') === null);
+  check('normalizeDeveloperName: 空/无效输入返回 null', normalizeDeveloperName('') === null && normalizeDeveloperName(null) === null);
+  check('normalizeDeveloperName: 两个不相关的开发者名折叠后依然不同（不做模糊匹配）', normalizeDeveloperName('2Stable') !== normalizeDeveloperName('Another Studio'));
+
+  // identifyFactories（【回归 1/3：工厂阈值判定】）：在 clusterFixture（10 条候选）上跑，
+  // 默认阈值 2 应该识别出恰好 2 个工厂——
+  //   "acme"：domainAds（ads creatives，advertiserName "Acme Inc"）+ acmeAppstore
+  //           （appstore，artist "Acme Inc"）——跨源命中同一个开发者；acmeAdvertisers
+  //           不计入（ads advertisers 没有独立开发者字段，developerKeyOf 已经验证过返回 null）。
+  //   "begamob global"：authApp2 + tvRemoteAppstore，同一个开发者 BEGAMOB GLOBAL LIMITED
+  //           挂着两款产品名字毫不相关的 App（认证器 vs 电视遥控器）——这正是二轮修复
+  //           删掉 devKey 聚类钥匙的那个真实案例，工厂识别要能测出来，但不能让它复活合并。
+  const factories = identifyFactories(clusterFixture);
+  check('identifyFactories: 默认阈值 2，从 10 条候选里识别出恰好 2 个疑似工厂', factories.length === 2);
+  const acmeFactory = factories.find((f) => f.developerKey === 'acme');
+  const begamobFactory = factories.find((f) => f.developerKey.startsWith('begamob'));
+  check('identifyFactories: "acme" 工厂正确跨源聚合（ads creatives + appstore），产品数 2',
+    !!acmeFactory && acmeFactory.productCount === 2 && acmeFactory.sources.join(',') === 'ads,appstore');
+  check('identifyFactories: "acme" 工厂没有把 ads(advertisers) 的 "Acme Inc" 候选算进去',
+    !!acmeFactory && !acmeFactory.products.some((p) => p.source === 'ads' && p.name === 'Acme Inc'));
+  check('identifyFactories: BEGAMOB 工厂识别出 2 款完全不相关的产品（认证器 + 电视遥控器）',
+    !!begamobFactory && begamobFactory.productCount === 2 &&
+    begamobFactory.products.some((p) => p.name === 'Authenticator App') &&
+    begamobFactory.products.some((p) => p.name === 'TV Remote - Universal Control'));
+  check('identifyFactories（阈值判定）: 阈值调高到 3 后，两个工厂（都只有 2 个产品）都不再出现',
+    identifyFactories(clusterFixture, { minFactoryProducts: 3 }).length === 0);
+  check('identifyFactories（阈值判定）: 阈值调低到 1 会让更多单产品开发者也被算进来，工厂数变多',
+    identifyFactories(clusterFixture, { minFactoryProducts: 1 }).length > factories.length);
+
+  // 【回归 3/3，核心断言】工厂标记不是聚类钥匙：BEGAMOB 的两款产品被识别成同一个工厂，
+  // 但 clusterCandidates（上面已经跑过、authCluster/tvCluster 已经算好）里它们依然各自
+  // 独立成簇——工厂信号完全旁路，不能让二轮修复删掉的链式误并复活。
+  check('【核心断言】工厂标记不影响聚类结果：BEGAMOB 是同一个工厂，但 authCluster 和 tvCluster 依然是两个不同的簇',
+    !!begamobFactory && authCluster !== tvCluster &&
+    authCluster.members.some((m) => m.name === 'Authenticator App' && m.extra.artist === 'BEGAMOB GLOBAL LIMITED') &&
+    tvCluster.members.some((m) => m.name === 'TV Remote - Universal Control' && m.extra.artist === 'BEGAMOB GLOBAL LIMITED'));
+  check('candidateClusterKeys: 打上 factorySignal 字段也不会多贡献聚类钥匙（工厂标记和聚类钥匙完全无关）',
+    candidateClusterKeys({ ...authApp2, factorySignal: { isFactorySuspect: true, factoryProductCount: 2 } }).length === candidateClusterKeys(authApp2).length);
+
+  // 【回归 2/3，核心断言】工厂 ≠ 巨头：BEGAMOB 不在 KNOWN_GIANT_PUBLISHERS 名单里，
+  // 也没有 installs/ratingCount/跨商店匹配可用，classifyGiant 判它不是巨头——但它确实
+  // 是 identifyFactories 判出来的工厂。反过来，真正的巨头（Google）哪怕只挂 1 款产品
+  // 也会被判巨头，不需要凑够"工厂"意义上的多产品——两个维度互相独立，不共用同一套
+  // 名单/阈值。
+  check('【核心断言】工厂 ≠ 巨头：BEGAMOB 的两款产品都被 classifyGiant 判定为"不是巨头"',
+    classifyGiant(authApp2).giant === false && classifyGiant(tvRemoteAppstore).giant === false);
+  check('【核心断言】工厂 ≠ 巨头（反过来）：真巨头（Google）哪怕只有 1 款产品也判巨头，不需要"多产品"这个工厂判据',
+    classifyGiant(buildCandidate('appstore', { name: 'Solo Giant App', appId: 'id-solo', artist: 'Google', rank: 1 })).giant === true);
+
+  // candidateToLLMRecord / renderCandidatesJsonl：工厂标记要透传到 JSONL 导出，读数据
+  // 的人/LLM 不用自己重新跑 identifyFactories 就能看出"这个垂类是不是被工厂铺的"。
+  const factoryIndex = buildFactoryIndex(factories);
+  const begamobRecord = candidateToLLMRecord(authApp2, factoryIndex);
+  check('candidateToLLMRecord: BEGAMOB 候选被打上 factorySuspect:true', begamobRecord.factorySuspect === true);
+  check('candidateToLLMRecord: BEGAMOB 候选的 factoryProductCount 正确（2）', begamobRecord.factoryProductCount === 2);
+  const soloRecord = candidateToLLMRecord(authApp1, factoryIndex);
+  check('candidateToLLMRecord: 只有 1 款产品的开发者（2Stable）不被标成工厂', soloRecord.factorySuspect === false && soloRecord.factoryProductCount === null);
+  const noIndexRecord = candidateToLLMRecord(authApp2);
+  check('candidateToLLMRecord: 不传 factoryIndex 时恒为 false（"没算过"不是"确认不是工厂"，这里只是安全默认值）', noIndexRecord.factorySuspect === false);
+  const factoryJsonl = renderCandidatesJsonl(clusterFixture);
+  const factoryJsonlRecords = factoryJsonl.split('\n').map((l) => JSON.parse(l));
+  check('renderCandidatesJsonl: 单参数调用（不传 opts）也会自动算工厂标记，向后兼容不是破坏性变更',
+    factoryJsonlRecords.find((r) => r.name === 'Authenticator App' && r.developer === 'BEGAMOB GLOBAL LIMITED')?.factorySuspect === true);
+  check('renderCandidatesJsonl（阈值判定）: --min-factory-products 阈值透传生效，阈值 3 时没有任何候选被标 factorySuspect:true',
+    renderCandidatesJsonl(clusterFixture, { minFactoryProducts: 3 }).includes('"factorySuspect":true') === false);
+
+  // renderFactoriesMarkdown：三处语义区分（工厂≠巨头、不代表产品不好、不做合并）和
+  // 已知局限必须显式写在输出里，不能只在代码注释里讲。
+  const factoriesMd = renderFactoriesMarkdown(factories, { minFactoryProducts: 2 });
+  check('renderFactoriesMarkdown: 声明"工厂标记 ≠ 巨头标记"', factoriesMd.includes('工厂标记 ≠ 巨头标记'));
+  check('renderFactoriesMarkdown: 声明"不是这个产品不好"', factoriesMd.includes('不是"这个产品不好"'));
+  check('renderFactoriesMarkdown: 声明这里不做任何合并', factoriesMd.includes('不做任何合并'));
+  check('renderFactoriesMarkdown: 已知局限提到 gplay 需要 --ranking 模式才有 developer 字段', factoriesMd.includes('--ranking'));
+  check('renderFactoriesMarkdown: 已知局限提到 ads advertisers 不适用', factoriesMd.includes('advertisers'));
+  check('renderFactoriesMarkdown: 表格里包含 BEGAMOB 的两款产品名', factoriesMd.includes('Authenticator App') && factoriesMd.includes('TV Remote - Universal Control'));
+  const emptyFactoriesMd = renderFactoriesMarkdown([], { minFactoryProducts: 5 });
+  check('renderFactoriesMarkdown: 0 个工厂时明确说"真实情况，不代表脚本坏了"，不是空白', emptyFactoriesMd.includes('不代表脚本坏了'));
 
   // ── 端到端集成自测：scan --dry-run（只做本地文件 I/O，不 spawn 子进程、不联网）
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'leading-indicator-selftest-'));
@@ -1496,11 +2365,31 @@ function selfTest() {
     fs.writeFileSync(path.join(tmp, 'candidates.md'), renderCandidatesMarkdown(JSON.parse(fs.readFileSync(storePath, 'utf8'))) + '\n');
     check('集成: candidates.json 落盘且可读回', fs.existsSync(storePath) && JSON.parse(fs.readFileSync(storePath, 'utf8')).length === 1);
     check('集成: candidates.md 落盘且含候选名', fs.readFileSync(path.join(tmp, 'candidates.md'), 'utf8').includes('demo.com'));
+    // 【2026-09-13 二轮修复 7】cmdScan 现在会和 candidates.md 一起自动写一份 jsonl，
+    // 这里模拟同一段逻辑，验证落盘格式确实是"一行一个候选"。
+    const jsonlPath = path.join(tmp, 'candidates-llm.jsonl');
+    fs.writeFileSync(jsonlPath, renderCandidatesJsonl(JSON.parse(fs.readFileSync(storePath, 'utf8'))) + '\n');
+    check('集成: candidates-llm.jsonl 落盘且每行是合法 JSON、含候选名',
+      fs.readFileSync(jsonlPath, 'utf8').trim().split('\n').every((l) => { try { return JSON.parse(l).name; } catch { return false; } }));
 
     // 集成: report --giants 依赖的 filtered-giants.json 落盘格式（cmdScan 里用 mergeCandidates 累积写）
+    // 顺带写一条 gplay 侧的巨头记录（"Docs Sync Pro"，靠安装量判定），下面的跨商店
+    // 索引测试要用它模拟"另一个商店已经判过巨头"这个真实场景。
     const giantsPath = path.join(tmp, 'filtered-giants.json');
-    fs.writeFileSync(giantsPath, JSON.stringify(mergeCandidates([], [{ ...partition.filtered[0], key: 'appstore::google docs' }]), null, 2) + '\n');
-    check('集成: filtered-giants.json 落盘且可读回、带着过滤理由（不是静默丢弃）', JSON.parse(fs.readFileSync(giantsPath, 'utf8'))[0].giantFilterReason.includes('Google LLC'));
+    const gplayGiantOnDisk = { ...buildCandidate('gplay', { name: 'Docs Sync Pro', appId: 'com.docssync', developer: 'Some Reseller', installs: '200M+' }, { discoveredAt: '2026-01-01T00:00:00.000Z' }), giantFilterReason: '安装量 200M+ ≥ 阈值 50,000,000', giantCheckBasis: ['dev-list', 'gplay-installs'] };
+    fs.writeFileSync(giantsPath, JSON.stringify(mergeCandidates([], [{ ...partition.filtered[0], key: 'appstore::google docs' }, gplayGiantOnDisk]), null, 2) + '\n');
+    check('集成: filtered-giants.json 落盘且可读回、带着过滤理由（不是静默丢弃）', JSON.parse(fs.readFileSync(giantsPath, 'utf8')).find((g) => g.name === 'Google Docs').giantFilterReason.includes('Google LLC'));
+
+    // 集成：【2026-09-13 二轮修复 8】模拟 cmdScan 里"用累积的 existing+filtered-giants
+    // 建跨商店索引"这段真实流程——appstore 那批候选进 partitionGiants 之前，先从刚
+    // 落盘的 filtered-giants.json（这里有一条 gplay 的 "Docs Sync Pro" 巨头记录）读
+    // 出来建索引，验证 appstore 侧同名、不同发行商字面量的候选能借用到这个结论。
+    const existingForCrossStore = JSON.parse(fs.readFileSync(storePath, 'utf8'));
+    const existingGiantsForCrossStore = JSON.parse(fs.readFileSync(giantsPath, 'utf8'));
+    const idxFromDisk = buildAppChartGiantIndex(existingForCrossStore, existingGiantsForCrossStore);
+    const appstoreCounterpart = { source: 'appstore', name: 'Docs Sync Pro', extra: { artist: 'Totally Unlisted Reseller LLC' } };
+    check('集成：跨商店索引从磁盘上的 filtered-giants.json 读出来后，appstore 同名候选（发行商字面量不同、不在硬编码名单里）也能借用到 gplay 侧判过的巨头结论',
+      classifyGiant(appstoreCounterpart, { crossStoreIndex: idxFromDisk }).giant === true);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
