@@ -144,6 +144,20 @@
 | 集成在目标环境端到端验证 | 不是本地 mock 通过就算；Stripe 与 PayPal 各有一条 | `.rankup/integrations.md` | 按 [`integrations.md`](integrations.md) 逐项验证 | 每轮 |
 | 回调签名、幂等、错误路径 | 三类各有一次真实验证记录 | `.rankup/integrations.md` | 构造真实回调与重复回调 | 一次 |
 | 四处均未暴露密钥 | 代码、日志、Git、`.rankup/` 扫描都干净 | `.rankup/secrets.md` | 扫描 | 每轮 |
+| **D1 · `SITE_URL` 构建期注入客户端** | 真实浏览器打开预览域，`document.querySelectorAll('link[rel=canonical]').length === 1` 且 outerHTML 不含占位域名；水合前后 canonical/og:url 一致；取不到 `SITE_URL` 时构建**直接失败**而不是回落占位默认值 | 真实浏览器 DOM 快照（非 `curl`）进 `.rankup/audit.md` | 做法见 [`lifecycle.md`](lifecycle.md) 段 3 · 3.2「脚手架初始化当天默认清单」D1；`curl` 看不出这项，必须真实浏览器渲染后读 | 一次 |
+| D2 · 边缘缓存随脚手架就位 | 与本表「匿名页 HTML 边缘缓存已实现且线上验证」同一项，验证补一条：**用 GET 而不是 HEAD**——多数实现的缓存键只对 GET 生效，HEAD 会得到假阴性 | 同上 | 见 [`cloudflare-stack.md`](cloudflare-stack.md)「12」 | 一次 |
+| D3 · 字体策略当天定死 | 判据见闸门 6「Web 字体总字节是独立判据」一行，本行不重复；CJK 系统字体栈、拉丁自托管子集化、不 `preload` 非首屏字重 | 同闸门 6 | 见 [`seo-box.md`](seo-box.md) 一 | 一次 |
+| D4 · 分析脚本延迟加载 | 与段 5「第三方分析脚本延迟到首次交互或 6s 兜底」同一判据，脚手架当天即接入这个加载策略，不留到接入分析平台那天 | 同段 5 | 见 [`analytics-platforms.md`](analytics-platforms.md) | 一次 |
+| **D5 · 图片默认已到位** | logo/favicon 源图、hero 图、装饰图均为 WebP+PNG 回退且按显示尺寸出图（含 2x）、标注 `width`/`height`；首屏 LCP 图有 `fetchpriority="high"`，非首屏图有 `loading="lazy"`；`og:image` 不在首屏渲染路径里；**任意一张首屏图片原始文件 > 200KB 视为不通过** | 图片体积清单进 `.rankup/audit.md` | `curl -sI` 逐张图取 `content-length`，检查首屏 HTML 里的 `fetchpriority`/`loading` 属性 | 一次 |
+| **D6 · 大数据不进入口 bundle** | 构建产物分析（`vite build --report` 或等价）确认入口 chunk 不含题库/条目库这类大数据；路由 loader 数据随 HTML dehydrate，客户端**没有**针对同一份数据的二次 `import()` | 构建产物分析记录进 `.rankup/audit.md` | 看构建产物体积分布 + 网络面板确认无冗余请求 | 一次 |
+| D7 · DOM 与动画默认项 | 列表/网格缩略图用单个 SVG/canvas 而非逐格 `div`；首屏下内容有 `content-visibility: auto`；动画属性检查（`transition`/`animation`）只涉及 `transform`/`opacity`；无「主内容 `opacity: 0` 靠 JS 淡入」的写法 | grep + DOM 节点计数进 `.rankup/audit.md` | 浏览器 DevTools 数节点数，grep 动画 CSS 属性 | 一次 |
+| D8 · CSS 内联策略已实测选定 | CSS gzip 体积记录在案；若 ≤ 约 10KB 选择整份内联，若更大选择关键 CSS 提取，且两种方案都做过**实测对比**（记录内联前后 LCP/渲染阻塞时间），不是凭经验直接选一种 | 实测对比记录进 `.rankup/experiments.md` | PSI 网页版跑内联前后各一次 | 一次 |
+| D9 · 路由与协商中间件已处理边界 | 尾斜杠 301 规范化到全站统一形态；`curl -H 'Accept: text/markdown' <404路径>` 与 `curl -H 'Accept: application/json'` 均不返回 500 | curl 输出进 `.rankup/audit.md` | 逐条构造非常规 `Accept` 头请求 | 一次 |
+| D10 · sitemap 策略已裁定 | sitemap 只含有独立搜索意图的页（首页/分类页/说明法律页）；模板化内页默认不进 sitemap，`.rankup/decisions.md` 写明触发补入条件（GSC 收录比例阈值）；sitemap 由运行时路由生成，仓库里**没有**构建期写死的静态 sitemap 文件 | `.rankup/decisions.md` + sitemap 源码位置 | 见 [`lifecycle.md`](lifecycle.md) 段 3 D10；段 4「一个关键词对应一个内页」不等于「模板化内页都要进 sitemap」 | 一次 |
+| D11 · og 图渲染失败必须可见 | CJK/RTL 站已用真实文本验证过至少一张 og 图渲染成功（非静态占位、非 0 字节 200）；渲染管线里模拟一次失败输入，确认返回非 200 而不是空图 200 | 渲染验证记录 + 故障注入结果进 `.rankup/audit.md` | 手动构造一次会导致渲染失败的输入 | 一次 |
+| D12 · JSON-LD 注入方式与类型选择已定 | 全站 JSON-LD 统一走路由 `head()` 的 `scripts` 字段（grep 业务组件内没有手写 `<script type="application/ld+json">`）；`Organization.sameAs` 里每个链接真实可访问；`author`/`datePublished`/`dateModified` 是构建期注入的真实日期，不是硬编码占位日期 | grep 输出 + 抽样 curl 验证 `sameAs` 链接 | 见 [`lifecycle.md`](lifecycle.md) 段 3 D12 与闸门 4b | 一次 |
+| D13 · a11y 属性组件级核对 | 网格/按钮类组件的 `role`/`aria-label`/`aria-pressed` 逐一核对不缺失；纯装饰图 `alt=""` | 组件审计记录进 `.rankup/audit.md` | 抽查 `components/ui/` 之外自己包装的交互组件 | 一次 |
+| D14 · 部署与仓库卫生当天完成 | Workers Builds Git 集成已连接（判据同段 5「Cloudflare Git 集成已连接」一行）且 `wrangler.jsonc` 注释记录了接入日期；`lint`/`test` 命令脚手架跑通当天即为绿并已进 `ship` 命令；`.env`/`.cf-token` 类文件在首次提交前已入 `.gitignore`（`git log --all --full-history -- .env` 应为空） | `wrangler.jsonc` 注释 + `git log` 输出 | 见 [`lifecycle.md`](lifecycle.md) 段 3 D14 | 一次 |
 
 ## 段 4 · 上线前 SEO/GEO（预览域 noindex；九行闸门）
 
@@ -173,6 +187,12 @@
 | 闸门 6 · 性能 / CWV | 抽样首页 + 每类模板页各至少一个 + 一个内容/说明页，移动端与桌面端都跑（`--strategy both`）；**硬下限，不是项目自设**：每份报告实验室性能分 ≥ 90，LCP ≤ 2.5s、CLS ≤ 0.1、TBT ≤ 200ms（INP 有现场数据时 ≤ 200ms），任一不达标闸门不过；**opportunity 与 diagnostic 逐条必修**——每条要么修掉重跑证明消失，要么写明改不动的原因（第三方脚本、平台限制等）并在 `checks.md` 标 ⏸，不许「分数够了就不看清单」；现场（CrUX）无数据如实记「现场无数据（流量不足）」，段 5 在正式域名补，有现场数据以现场为准；**先验仪器再信读数**；**PSI 抽样至少跑两次，其中一次要在边缘缓存热身之后（先访问一次让缓存命中，再跑 PSI）**；**TTFB（初始服务器响应时间）> 600ms 视为不通过，先查匿名页 HTML 边缘缓存是否命中**（`x-edge-cache` 头），命中仍慢才排查别的原因；**Web 字体总字节是独立判据**：CJK 站默认系统字体栈，拉丁站自托管子集化到实际用到的字符与字重、单站字体总量控制在几十 KB 级、不 `preload` 首屏用不到的字重，`font-display: swap/optional` 只解决绘制阻塞不省字节，看 PSI 网页版「第三方/资源分解」与「网络依赖树」的字体总字节；**只认 PSI 网页版读数，本地 Lighthouse（simulate 或 devtools 节流）不能替代**——实测同一时刻本地 93–99 分而 PSI 57 分的情况出现过，本地 Lighthouse 只用于迭代定位，读报告顺序是「第三方分解 / 网络依赖树」先于「渲染阻塞资源」审计；**`checks.md` 里没有这一行等于没过**，不能因为其他闸门全绿就记段 4 通过 | `.rankup/evidence/pagespeed-<date>/`（每 URL × 策略一份原始 JSON + 修复前后对照表）与 `.rankup/baseline.md` | `pagespeed.mjs plan <抽样 URL…> --strategy both` 出链接与读数清单，再**在浏览器里打开 pagespeed.web.dev 读数**（2026-08-31 起走网页版，零 key 零配额；也可 `pagespeed.mjs collect …` 采双证人存进 `.rankup/evidence/pagespeed-<date>/`）——**网页版一屏同时给实验室（Lighthouse）与现场（CrUX）**；单跑 Lighthouse 只给实验室，这条闸门只能过一半而表面是绿的。`--strategy both` 另指移动端 + 桌面端都跑。**现场那一块不存在 = CrUX 流量不足，原样记「现场无数据（流量不足）」，不是 0、不等于通过，更别留空**（见 [`seo-box.md`](seo-box.md)「一 · PageSpeed 网页版 → 补上闸门 6 缺的那一半」） | 动了页面 |
 | 封板声明（分数接近满分时） | 剩余建议逐条判「不做」并写理由 | `.rankup/audit.md` | 不封板，团队会持续消耗在零边际收益的项上，而真正的瓶颈动都不动 | 每轮 |
 | **改动即全套重跑** | 本段内（以及段 7 之后）每一次页面改动，上面九行闸门**全部**重跑并留了本轮证据，对比数字进 `experiments.md`；**没有「只重跑第 4、6 行」这类抽样记录** | `.rankup/experiments.md` | `is-agentic.mjs diff` 与 `pagespeed.mjs plan --strategy both` 只是其中两行的对比工具，不是全套 | 动了页面 |
+| **P1 · 内页 TDK 规格达标** | title 40–60 字且主词在句首、分隔符按语种（日文全角「｜」，拉丁站用 `-`/`\|`）；description 140–160 字且含本页真实事实（具体数字，不是套话）；H1 唯一含目标词；H2 ≥ 2、H3 ≥ 2 | seo-audit `--json` 输出 + 人工核对分隔符与事实 | 见 [`lifecycle.md`](lifecycle.md) 段 4「新增内页 / 新模板的随手清单」P1 | 动了页面 |
+| **P2 · 内容形状随模板带** | 每个内容页有 `<table>` 规格信息、≥1 条 `<cite>`+外链的外部来源、FAQ 用 H3 + `FAQPage` JSON-LD、可见更新日期；模板化内页正文 ≥ 150 字且含本页独有事实（不是同模板复制文案）；首屏第一句话说清本页解决什么 | `.rankup/evidence/aitdk-geo-<date>/` 与人工抽查 | 与闸门 4b 判据一致，本行是「新增内页当场自查」，闸门 4b 是「批量体检」 | 动了页面 |
+| **P3 · 独立 og + 内链闭环** | 每页 og:image 真实、体积 > 10KB、不与其他页共用；canonical 自引；面包屑 + 同类上一项/下一项 + 回分类页三件套都在；分类页样板控件文案（「开始」「查看」等）在 `aria-label` 里、不进 SSR 正文 | seo-audit `--json` + `--density-only` top15 无样板词 | 见段 4 内页清单 P3 | 动了页面 |
+| **P4 · 新页四张清单同步** | 新增页面已出现在：边缘缓存白名单（判据同「匿名页 HTML 边缘缓存」一行）、markdown 协商白名单（判据同闸门 1「技术 SEO」）、sitemap（仅当有独立搜索意图，按 D10 裁定）、本轮 IndexNow 增量推送清单 | `.rankup/audit.md` 逐页勾选 | 四项各自的验证命令见对应闸门；本行只判「四项都过了一遍，不是漏了某一项」 | 动了 URL |
+| **P5 · 新模板 PSI 抽样已覆盖** | 新增模板首次上线前，PSI 抽样清单里已包含该模板至少一个真实页面（不是复用旧模板的抽样结果代表新模板）；判据同闸门 6 | `.rankup/evidence/pagespeed-<date>/` | 见段 4 内页清单 P5 | 动了页面 |
+| P6 · 无 JS 内容占比 | 判据同闸门 3「关键词密度」，样板文案不进 SSR 正文（同 P3） | 同闸门 3 | 见段 4 内页清单 P6 | 动了页面 |
 
 ## 段 5 · 上线与接入
 
