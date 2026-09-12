@@ -151,6 +151,16 @@ backlink/
 │   │                               plain domain list, for targets-select --ledger
 │   │                               and anyone else who just needs the exclusion set)
 │   ├── discovery-queue.mjs         recursive competitor/commenter expansion
+│   ├── footprint-discover.mjs      Google search-operator footprints (`inurl:submit`,
+│   │                               `"write for us"`, …) → submission-page leads.
+│   │                               Collects + shape-scores only, per
+│   │                               <law-ref id="scripts-collect-ai-judges"/>; stops
+│   │                               and leaves a scene on any CAPTCHA signal rather
+│   │                               than working around it. Real Google only — see
+│   │                               its header comment for why anysearch/Bing/DDG
+│   │                               cannot substitute. Method and the effective/noisy
+│   │                               footprint table: references/discovery-loop.md
+│   │                               § Footprint discovery
 │   ├── harvest-commenters.mjs      pull commenter domains off an article
 │   ├── third-party-list-ingest.mjs someone else's list → screened leads + diff
 │   ├── fingerprint-forms.mjs       ★ cluster targets by FORM SHAPE, not by site. Field
@@ -261,6 +271,7 @@ pointers. Rows are grouped; within a group the later row is the more specific.
 | 「竞品的外链是从哪来的」 | <ref file="../platforms/semrush/backlink-analytics/OVERVIEW.md"/>（backlinks / refdomains / anchors / backlink-gap 各页能给什么、坑在哪），再决定跑哪个采集 |
 | 「谁在给他导流量」「他的推荐流量来源」 | <ref file="../platforms/similarweb/referrals/OVERVIEW.md"/>（incoming / outgoing） |
 | 「帮我找一批新机会」「顺着竞品往下挖」 | references/discovery-loop.md + `scripts/discovery-queue.mjs`（递归展开竞品与评论者），挖到的必须并回登记库 |
+| 「用 Google 搜索指令挖提交页」「inurl:submit」「write for us 挖投稿站」「搜索指令挖外链」 | references/discovery-loop.md 的「Footprint discovery」一节 → `node scripts/footprint-discover.mjs --keyword "<垂类词>" --preset submit`。只能走真 Google（真人已登录 Chrome），anysearch/Bing/DuckDuckGo 都不执行 `inurl:`/`intitle:` 运算符；命中 CAPTCHA 就停，不绕过 |
 | 「他和我的受众重合吗」 | <ref file="../platforms/similarweb/audience/OVERVIEW.md"/>（三域名韦恩图，一条深链就是一次三方对比） |
 ]]></group>
 
@@ -3648,6 +3659,21 @@ node scripts/harvest-commenters.mjs --session "discovery-commenters" --url https
 node scripts/discovery-queue.mjs import-commenters --file .backlink/discovery.json --input .backlink/commenters.json
 node scripts/discovery-queue.mjs next --file .backlink/discovery.json --limit 10
 ]]></cmd>
+<footprint>
+A second, non-recursive lane: search-operator footprints instead of competitor
+backlink rows. Real Google only — general search APIs and Bing/DuckDuckGo do
+not execute `inurl:`/`intitle:` operators. See
+references/discovery-loop.md § "Footprint discovery" for the effective/noisy
+footprint table and the CAPTCHA policy before running a real sweep.
+<cmd><![CDATA[
+node scripts/health.mjs   # confirm opencli before opening a browser
+node scripts/footprint-discover.mjs --keyword "browser games" --preset submit \
+  --num 20 --out .backlink/footprint-browser-games.jsonl
+# writes JSONL incrementally; stops and leaves a scene under
+# .backlink/footprint-browser-games.jsonl.evidence/ on any CAPTCHA signal.
+# --resume picks a stopped run back up later without re-running done queries.
+]]></cmd>
+</footprint>
 <recon>
 Domain overview is one page out of five that matter; the other four have no
 export button and are where competitor recon actually happens. **Pass the same
