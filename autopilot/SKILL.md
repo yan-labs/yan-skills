@@ -704,31 +704,60 @@ loop-goal = <loop-goal> 定义的完成判定
   <rule id="model">
     根据当前宿主平台选择可用的原生 subagent 模型，不把某个外部 CLI 当作审查前提。
 
-    **Claude 环境：默认使用自定义 agent `opus-medium`（Opus + medium effort）。**
-    已配置的基础设施：
-    - `~/.claude/agents/opus-medium.md`：frontmatter `model: opus` + `effort: medium`
-    - `~/.claude/settings.json` 的 `env.CLAUDE_CODE_SUBAGENT_MODEL = "opus"` 作为兜底
+    **Claude 环境：按 phase 性质路由到对应的 `executor-*` 档位，不再对所有 subagent 一律使用 Opus。**
+    这条规则 2026-09-12 从"默认全用 opus-medium"改为按任务实际权衡路由，和
+    macmini 工作区全局 CLAUDE.md 的模型档位原则保持一致：默认给 sonnet 一次机会，
+    只有答错代价明显超过多花的钱和时间时才升 opus，纯机械/大批量任务下放 haiku，
+    方向不明的棘手问题先找 fable 当顾问。
 
-    **分派方式**：每次调 Agent 工具时传 `subagent_type: "opus-medium"`。
-    这同时锁定模型（Opus）和推理程度（medium），不需要再单独传 `model` 参数。
-    只有以下两种例外：
-    - 需要使用内置 agent 类型时（如 `Explore`、`Plan`），直接用内置类型，
-      它们会被 `CLAUDE_CODE_SUBAGENT_MODEL` 环境变量兜底到 Opus。
-    - 明确判断为轻量只读任务（单次 grep、读一个文件）时可传 `model: "sonnet"`，
-      并说明为什么降档。
+    已配置的基础设施（`~/.claude/agents/`）：
+    - `executor-haiku.md`：`model: haiku`，无固定 effort，`disallowedTools: Agent`
+    - `executor-sonnet.md`：`model: sonnet`，`effort: xhigh`，`disallowedTools: Agent`
+    - `executor-opus.md`：`model: opus`，`effort: high`，`disallowedTools: Agent`
+    - `executor-fable.md`：`model: fable`，`effort: medium`，`disallowedTools: Agent`，顾问定位（只判断/给方案，不落地执行）
+    - `executor-opus-medium.md`：`model: opus`，`effort: medium`，**没有** `disallowedTools` 限制——历史遗留（原 `opus-medium`），不再是默认路由目标，仅作为需要"Opus 能力但允许继续调用 Agent"这种特殊场景的手动选项保留
+
+    **按 phase 路由**：
+
+    | Phase | 默认档位 | 升级条件 |
+    | --- | --- | --- |
+    | investigate / scope | `executor-sonnet` | 根因本身极难定位、反复卡壳 → `executor-opus` |
+    | plan / design | `executor-sonnet` | 深度架构决策、feature-completeness-checklist 覆盖面大 → `executor-opus`；wrong-approach 重新规划前先过一轮 `executor-fable`（见下） |
+    | implement | `executor-sonnet` | 同一失败签名反复失败、涉及不可逆操作或安全敏感改动 → `executor-opus` |
+    | local-verify（跑 tsc/lint/test 报结果） | `executor-haiku` | 需要诊断失败原因 → 算作 implement，回到 sonnet |
+    | deploy（跑固定部署命令/脚本） | `executor-haiku` | 部署失败需要排查 → 回到 sonnet |
+    | e2e（checker） | `executor-sonnet` | 涉及复杂链路取证、静默 fallback 排查 → `executor-opus` |
+    | review（checker） | `executor-sonnet` | 对抗性 review、subtle logic、安全审查 → `executor-opus` |
+    | issue-finalize | `executor-sonnet`（把已有证据写成结构化记录，需要判断和综合，不是纯机械） | — |
+    | cleanup（git status 核对 + 删已知临时文件） | `executor-haiku` | git 冲突、暂存区混杂、任何"该不该删这个"的判断 → 回到 sonnet |
+
+    这张表是判断方向，不是穷举条件——遇到表里没覆盖的 phase，回到"答错代价
+    是否明显超过多花的钱和时间"这个问题本身判断，不要因为找不到匹配行就卡住。
+
+    **wrong-approach 失败路径专用**：`failure-classification` 判定为 wrong-approach
+    （方案本身有问题，需要真正的新方向）时，先派 `executor-fable` 做一轮方向判断——
+    它只负责"这个方向对不对、该往哪走"，不接触代码、不落地执行；拿到它的判断后，
+    把具体的重新规划和实现转交 `executor-sonnet`（或视复杂度转 `executor-opus`）去做。
+    不要让 fable 自己去改代码、跑测试或部署——这违反它的顾问定位，也违反它
+    `disallowedTools: Agent` 之外仍应该遵守的"只判断不执行"原则。
+
+    **分派方式**：每次调 Agent 工具时传对应的 `subagent_type`（如 `executor-sonnet`），
+    这同时锁定模型和推理程度，不需要再单独传 `model` 参数。内置 agent 类型
+    （如 `Explore`、`Plan`）仍可在适合的场景直接用，不必强行套进 executor-* 体系。
 
     **全局默认配置机制**：
     - `CLAUDE_CODE_SUBAGENT_MODEL` 环境变量：设置 subagent 默认模型，
       放在 `settings.json` 的 `env` 块或 shell 环境变量中均可。
-    - `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`：强制所有 subagent（含内置 Explore/Plan）
-      使用指定模型，覆盖 frontmatter 和 per-call 参数。需 v2.1.257+。
+    - `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`：强制所有 subagent（含内置 Explore/Plan
+      和本节的 `executor-*` 类型）使用指定模型，覆盖 frontmatter 和 per-call 参数。
+      需 v2.1.257+。**注意**：这个开关一旦设置会直接废掉上面整张按 phase 路由的表——
+      不要为了图省事设置它，除非明确要临时把所有 subagent 钉死在一个模型上排障。
     - 模型解析优先级：per-call `model` 参数 → frontmatter `model:` → 环境变量 → 主会话模型。
 
     **reasoning effort**：Agent 工具调用时**不能**逐次指定 effort，
     但自定义 agent 定义文件（`~/.claude/agents/*.md`）的 frontmatter 支持
-    `effort:` 字段（`low/medium/high/xhigh/max`），会覆盖会话级 effort。
-    这就是为什么用 `subagent_type: "opus-medium"` 而不是裸传 `model: "opus"`——
-    前者能同时控制 effort，后者不能。
+    `effort:` 字段（`low/medium/high/xhigh/max`），会覆盖会话级 effort——
+    这正是上面每个 `executor-*` 类型各自锁定不同 effort 的原理。
 
     Claude 侧的已知限制：
     - `model` 只接受 `sonnet` / `opus` / `haiku` / `fable` **四个档位别名，
