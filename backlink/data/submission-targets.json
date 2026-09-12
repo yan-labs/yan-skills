@@ -1259,6 +1259,47 @@
       }
     },
     {
+      "domain": "agentic.ai",
+      "route": "https://agentic.ai/submit",
+      "name": "List Your AI Tool | Agentic.ai",
+      "kind": "ai-directory",
+      "gate": "account",
+      "gates": [
+        "account"
+      ],
+      "cohort": "account",
+      "payment": "optional",
+      "price": "$99 / $299",
+      "priceCheckedAt": "2026-09-12",
+      "status": "gated",
+      "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
+      "notes": null,
+      "lastProbedAt": "2026-09-12",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "reachable 200, gates observed: account",
+        "httpStatus": 200,
+        "finalUrl": "https://agentic.ai/submit",
+        "title": "List Your AI Tool | Agentic.ai",
+        "rawHtml": "probe.json.evidence/agentic.ai.html"
+      },
+      "traffic": {
+        "monthlyVisits": 119294,
+        "checkedAt": "2026-09-12T08:12:21.463Z",
+        "source": "similarweb",
+        "db": null,
+        "globalRank": 317912,
+        "evidence": {
+          "stopReason": "stable",
+          "parse": "parsed",
+          "windowLabel": "Mar 2026 - Aug 2026 (6 月)",
+          "screenshot": "sw.jsonl.evidence/agentic.ai.png",
+          "raw": "sw.jsonl.evidence/agentic.ai.txt",
+          "jsonl": "/private/tmp/claude-501/-Users-kcsx-Project-kcsx-macmini/1f6f17b3-a84e-447e-8b60-5bef87b8b730/scratchpad/footprint-run2/sw.jsonl"
+        }
+      }
+    },
+    {
       "domain": "ahhhhfs.com",
       "route": "https://www.ahhhhfs.com/",
       "name": "ahhhhfs",
@@ -9262,6 +9303,47 @@
       }
     },
     {
+      "domain": "coolmathgames.com",
+      "route": "https://www.coolmathgames.com/submit-a-game",
+      "name": "Submit your game to Coolmath Games",
+      "kind": "unknown",
+      "gate": "account",
+      "gates": [
+        "account"
+      ],
+      "cohort": "account",
+      "payment": "none-seen",
+      "price": null,
+      "priceCheckedAt": null,
+      "status": "gated",
+      "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
+      "notes": null,
+      "lastProbedAt": "2026-09-12",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "reachable 200, gates observed: account",
+        "httpStatus": 200,
+        "finalUrl": "https://www.coolmathgames.com/submit-a-game",
+        "title": "Submit your game to Coolmath Games",
+        "rawHtml": "probe.json.evidence/coolmathgames.com.html"
+      },
+      "traffic": {
+        "monthlyVisits": 12000000,
+        "checkedAt": "2026-09-12T08:14:04.936Z",
+        "source": "similarweb",
+        "db": null,
+        "globalRank": 6214,
+        "evidence": {
+          "stopReason": "stable",
+          "parse": "parsed",
+          "windowLabel": "Mar 2026 - Aug 2026 (6 月)",
+          "screenshot": "sw.jsonl.evidence/coolmathgames.com.png",
+          "raw": "sw.jsonl.evidence/coolmathgames.com.txt",
+          "jsonl": "/private/tmp/claude-501/-Users-kcsx-Project-kcsx-macmini/1f6f17b3-a84e-447e-8b60-5bef87b8b730/scratchpad/footprint-run2/sw.jsonl"
+        }
+      }
+    },
+    {
       "domain": "copainsdavant.linternaute.com",
       "route": "https://copainsdavant.linternaute.com/",
       "name": "Photos de classe, souvenirs et retrouvailles - Copains d'avant",
@@ -11710,6 +11792,47 @@
           "capturedAt": "2026-09-09"
         }
       ]
+    },
+    {
+      "domain": "epirus.vc",
+      "route": "https://www.epirus.vc/ai-tools-directory/submit-ai-tool",
+      "name": "Get Your AI Tool Featured – Submit to Our Directory of Leading AI Solutions",
+      "kind": "ai-directory",
+      "gate": "open-form",
+      "gates": [
+        "open-form"
+      ],
+      "cohort": "open",
+      "payment": "none-seen",
+      "price": null,
+      "priceCheckedAt": null,
+      "status": "usable",
+      "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
+      "notes": null,
+      "lastProbedAt": "2026-09-12",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "reachable 200, 2 form(s), no CAPTCHA/login/reciprocal signal in raw HTML",
+        "httpStatus": 200,
+        "finalUrl": "https://www.epirus.vc/ai-tools-directory/submit-ai-tool",
+        "title": "Get Your AI Tool Featured – Submit to Our Directory of Leading AI Solutions",
+        "rawHtml": "probe.json.evidence/epirus.vc.html"
+      },
+      "traffic": {
+        "monthlyVisits": 5763,
+        "checkedAt": "2026-09-12T08:10:52.550Z",
+        "source": "similarweb",
+        "db": null,
+        "globalRank": 3022951,
+        "evidence": {
+          "stopReason": "stable",
+          "parse": "parsed",
+          "windowLabel": "最后 28 天数 (As of Sep 09)",
+          "screenshot": "sw.jsonl.evidence/epirus.vc.png",
+          "raw": "sw.jsonl.evidence/epirus.vc.txt",
+          "jsonl": "/private/tmp/claude-501/-Users-kcsx-Project-kcsx-macmini/1f6f17b3-a84e-447e-8b60-5bef87b8b730/scratchpad/footprint-run2/sw.jsonl"
+        }
+      }
     },
     {
       "domain": "erikalancaster.com",
@@ -14869,6 +14992,47 @@
       }
     },
     {
+      "domain": "gpadtester.net",
+      "route": "https://gpadtester.net/write-for-us/",
+      "name": "Write For Us Gaming - Guides And Reviews - Gamepad Tester",
+      "kind": "search-engine",
+      "gate": "account",
+      "gates": [
+        "account"
+      ],
+      "cohort": "account",
+      "payment": "none-seen",
+      "price": null,
+      "priceCheckedAt": null,
+      "status": "gated",
+      "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
+      "notes": null,
+      "lastProbedAt": "2026-09-12",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "reachable 200, gates observed: account",
+        "httpStatus": 200,
+        "finalUrl": "https://gpadtester.net/write-for-us/",
+        "title": "Write For Us Gaming - Guides And Reviews - Gamepad Tester",
+        "rawHtml": "probe.json.evidence/gpadtester.net.html"
+      },
+      "traffic": {
+        "monthlyVisits": 242793,
+        "checkedAt": "2026-09-12T08:14:27.636Z",
+        "source": "similarweb",
+        "db": null,
+        "globalRank": 230794,
+        "evidence": {
+          "stopReason": "stable",
+          "parse": "parsed",
+          "windowLabel": "Mar 2026 - Aug 2026 (6 月)",
+          "screenshot": "sw.jsonl.evidence/gpadtester.net.png",
+          "raw": "sw.jsonl.evidence/gpadtester.net.txt",
+          "jsonl": "/private/tmp/claude-501/-Users-kcsx-Project-kcsx-macmini/1f6f17b3-a84e-447e-8b60-5bef87b8b730/scratchpad/footprint-run2/sw.jsonl"
+        }
+      }
+    },
+    {
       "domain": "gpt3demo.com",
       "route": "https://gpt3demo.com/partner/request",
       "name": "Become a partner | Discover AI use cases",
@@ -15163,6 +15327,47 @@
         "httpStatus": 200,
         "finalUrl": "https://www.gtawebdirectory.com/",
         "title": "Toronto Directory Real Estate Ontario Canada Directory and GTA Toronto business Hotels and lawyers listings and yellow pages"
+      }
+    },
+    {
+      "domain": "guestbookproject.org",
+      "route": "http://guestbookproject.org/submit-your-video/",
+      "name": "Submit Your Video &#8211; Guestbook Project",
+      "kind": "dev-community",
+      "gate": "open-form",
+      "gates": [
+        "open-form"
+      ],
+      "cohort": "open",
+      "payment": "none-seen",
+      "price": null,
+      "priceCheckedAt": null,
+      "status": "usable",
+      "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
+      "notes": null,
+      "lastProbedAt": "2026-09-12",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "reachable 200, 1 form(s), no CAPTCHA/login/reciprocal signal in raw HTML",
+        "httpStatus": 200,
+        "finalUrl": "http://guestbookproject.org/submit-your-video/",
+        "title": "Submit Your Video &#8211; Guestbook Project",
+        "rawHtml": "probe.json.evidence/guestbookproject.org.html"
+      },
+      "traffic": {
+        "monthlyVisits": 1587,
+        "checkedAt": "2026-09-12T08:11:48.578Z",
+        "source": "similarweb",
+        "db": null,
+        "globalRank": 13258941,
+        "evidence": {
+          "stopReason": "stable",
+          "parse": "parsed",
+          "windowLabel": "Mar 2026 - Aug 2026 (6 月)",
+          "screenshot": "sw.jsonl.evidence/guestbookproject.org.png",
+          "raw": "sw.jsonl.evidence/guestbookproject.org.txt",
+          "jsonl": "/private/tmp/claude-501/-Users-kcsx-Project-kcsx-macmini/1f6f17b3-a84e-447e-8b60-5bef87b8b730/scratchpad/footprint-run2/sw.jsonl"
+        }
       }
     },
     {
@@ -23029,6 +23234,48 @@
       ]
     },
     {
+      "domain": "projectpedia.net",
+      "route": "https://projectpedia.net/submit-tool/",
+      "name": "Submit Tool -",
+      "kind": "ai-directory",
+      "gate": "account",
+      "gates": [
+        "account",
+        "email-verify"
+      ],
+      "cohort": "account",
+      "payment": "none-seen",
+      "price": null,
+      "priceCheckedAt": null,
+      "status": "gated",
+      "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
+      "notes": null,
+      "lastProbedAt": "2026-09-12",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "reachable 200, gates observed: account + email-verify",
+        "httpStatus": 200,
+        "finalUrl": "https://projectpedia.net/submit-tool/",
+        "title": "Submit Tool -",
+        "rawHtml": "probe.json.evidence/projectpedia.net.html"
+      },
+      "traffic": {
+        "monthlyVisits": 28577,
+        "checkedAt": "2026-09-12T08:12:37.633Z",
+        "source": "similarweb",
+        "db": null,
+        "globalRank": 2394781,
+        "evidence": {
+          "stopReason": "stable",
+          "parse": "parsed",
+          "windowLabel": "Mar 2026 - Aug 2026 (6 月)",
+          "screenshot": "sw.jsonl.evidence/projectpedia.net.png",
+          "raw": "sw.jsonl.evidence/projectpedia.net.txt",
+          "jsonl": "/private/tmp/claude-501/-Users-kcsx-Project-kcsx-macmini/1f6f17b3-a84e-447e-8b60-5bef87b8b730/scratchpad/footprint-run2/sw.jsonl"
+        }
+      }
+    },
+    {
       "domain": "prolinkdirectory.com",
       "route": "https://www.prolinkdirectory.com/submit.php",
       "name": "Submit Link - ProLinkDirectory",
@@ -24087,6 +24334,47 @@
       ]
     },
     {
+      "domain": "ryrob.com",
+      "route": "https://www.ryrob.com/guest-post-guidelines/",
+      "name": "6 Guest Post Guidelines Template Essentials (Free Template)",
+      "kind": "unknown",
+      "gate": "open-form",
+      "gates": [
+        "open-form"
+      ],
+      "cohort": "open",
+      "payment": "none-seen",
+      "price": null,
+      "priceCheckedAt": null,
+      "status": "usable",
+      "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
+      "notes": null,
+      "lastProbedAt": "2026-09-12",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "reachable 200, 2 form(s), no CAPTCHA/login/reciprocal signal in raw HTML",
+        "httpStatus": 200,
+        "finalUrl": "https://www.ryrob.com/guest-post-guidelines/",
+        "title": "6 Guest Post Guidelines Template Essentials (Free Template)",
+        "rawHtml": "probe.json.evidence/ryrob.com.html"
+      },
+      "traffic": {
+        "monthlyVisits": 196741,
+        "checkedAt": "2026-09-12T08:11:31.170Z",
+        "source": "similarweb",
+        "db": null,
+        "globalRank": null,
+        "evidence": {
+          "stopReason": "stable",
+          "parse": "parsed",
+          "windowLabel": "Mar 2026 - Aug 2026 (6 月)",
+          "screenshot": "sw.jsonl.evidence/ryrob.com.png",
+          "raw": "sw.jsonl.evidence/ryrob.com.txt",
+          "jsonl": "/private/tmp/claude-501/-Users-kcsx-Project-kcsx-macmini/1f6f17b3-a84e-447e-8b60-5bef87b8b730/scratchpad/footprint-run2/sw.jsonl"
+        }
+      }
+    },
+    {
       "domain": "saasaitools.com",
       "route": "https://saasaitools.com/",
       "name": "SaaS AI Tools &#124; Directory of Generative AI Tools",
@@ -24778,6 +25066,47 @@
       ]
     },
     {
+      "domain": "sentisight.ai",
+      "route": "https://www.sentisight.ai/write-for-us/",
+      "name": "Write For Us - SentiSight.ai",
+      "kind": "search-engine",
+      "gate": "open-form",
+      "gates": [
+        "open-form"
+      ],
+      "cohort": "open",
+      "payment": "none-seen",
+      "price": null,
+      "priceCheckedAt": null,
+      "status": "usable",
+      "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
+      "notes": null,
+      "lastProbedAt": "2026-09-12",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "reachable 200, 2 form(s), no CAPTCHA/login/reciprocal signal in raw HTML",
+        "httpStatus": 200,
+        "finalUrl": "https://www.sentisight.ai/write-for-us/",
+        "title": "Write For Us - SentiSight.ai",
+        "rawHtml": "probe.json.evidence/sentisight.ai.html"
+      },
+      "traffic": {
+        "monthlyVisits": 52809,
+        "checkedAt": "2026-09-12T08:11:08.451Z",
+        "source": "similarweb",
+        "db": null,
+        "globalRank": 789037,
+        "evidence": {
+          "stopReason": "stable",
+          "parse": "parsed",
+          "windowLabel": "Mar 2026 - Aug 2026 (6 月)",
+          "screenshot": "sw.jsonl.evidence/sentisight.ai.png",
+          "raw": "sw.jsonl.evidence/sentisight.ai.txt",
+          "jsonl": "/private/tmp/claude-501/-Users-kcsx-Project-kcsx-macmini/1f6f17b3-a84e-447e-8b60-5bef87b8b730/scratchpad/footprint-run2/sw.jsonl"
+        }
+      }
+    },
+    {
       "domain": "serchen.com",
       "route": "https://serchen.com/",
       "name": "Just a moment...",
@@ -25150,6 +25479,47 @@
         "httpStatus": 200,
         "finalUrl": "https://www.similarweb.com/website/",
         "title": "Website Traffic Checker - Free Analytics For Any Website | Similarweb"
+      }
+    },
+    {
+      "domain": "siteefy.com",
+      "route": "https://siteefy.com/submit-tool",
+      "name": "Submit Your AI Tool for Free Review | Siteefy",
+      "kind": "ai-directory",
+      "gate": "account",
+      "gates": [
+        "account"
+      ],
+      "cohort": "account",
+      "payment": "required",
+      "price": "$39",
+      "priceCheckedAt": "2026-09-12",
+      "status": "gated",
+      "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
+      "notes": null,
+      "lastProbedAt": "2026-09-12",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "reachable 200, gates observed: account",
+        "httpStatus": 200,
+        "finalUrl": "https://siteefy.com/submit-tool",
+        "title": "Submit Your AI Tool for Free Review | Siteefy",
+        "rawHtml": "probe.json.evidence/siteefy.com.html"
+      },
+      "traffic": {
+        "monthlyVisits": 65193,
+        "checkedAt": "2026-09-12T08:13:29.896Z",
+        "source": "similarweb",
+        "db": null,
+        "globalRank": 648916,
+        "evidence": {
+          "stopReason": "stable",
+          "parse": "parsed",
+          "windowLabel": "Mar 2026 - Aug 2026 (6 月)",
+          "screenshot": "sw.jsonl.evidence/siteefy.com.png",
+          "raw": "sw.jsonl.evidence/siteefy.com.txt",
+          "jsonl": "/private/tmp/claude-501/-Users-kcsx-Project-kcsx-macmini/1f6f17b3-a84e-447e-8b60-5bef87b8b730/scratchpad/footprint-run2/sw.jsonl"
+        }
       }
     },
     {
@@ -29616,6 +29986,47 @@
       ]
     },
     {
+      "domain": "tooljunction.io",
+      "route": "https://www.tooljunction.io/write-for-us",
+      "name": "Write For Us: SaaS &amp; AI Tools Guest Posts | ToolJunction",
+      "kind": "ai-directory",
+      "gate": "account",
+      "gates": [
+        "account"
+      ],
+      "cohort": "account",
+      "payment": "optional",
+      "price": "$1",
+      "priceCheckedAt": "2026-09-12",
+      "status": "gated",
+      "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
+      "notes": null,
+      "lastProbedAt": "2026-09-12",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "reachable 200, gates observed: account",
+        "httpStatus": 200,
+        "finalUrl": "https://www.tooljunction.io/write-for-us",
+        "title": "Write For Us: SaaS &amp; AI Tools Guest Posts | ToolJunction",
+        "rawHtml": "probe.json.evidence/tooljunction.io.html"
+      },
+      "traffic": {
+        "monthlyVisits": 41712,
+        "checkedAt": "2026-09-12T08:12:53.136Z",
+        "source": "similarweb",
+        "db": null,
+        "globalRank": 560347,
+        "evidence": {
+          "stopReason": "stable",
+          "parse": "parsed",
+          "windowLabel": "Mar 2026 - Aug 2026 (6 月)",
+          "screenshot": "sw.jsonl.evidence/tooljunction.io.png",
+          "raw": "sw.jsonl.evidence/tooljunction.io.txt",
+          "jsonl": "/private/tmp/claude-501/-Users-kcsx-Project-kcsx-macmini/1f6f17b3-a84e-447e-8b60-5bef87b8b730/scratchpad/footprint-run2/sw.jsonl"
+        }
+      }
+    },
+    {
       "domain": "toolpilot.ai",
       "route": "https://www.toolpilot.ai/pages/submit-your-ai-tool",
       "name": "Submit Your AI Tool &ndash; ToolPilot",
@@ -30196,6 +30607,47 @@
       ]
     },
     {
+      "domain": "tubeonai.com",
+      "route": "https://tubeonai.com/write-for-us/",
+      "name": "Guest Post Agreement- TubeOnAI - TubeOnAI",
+      "kind": "search-engine",
+      "gate": "account",
+      "gates": [
+        "account"
+      ],
+      "cohort": "account",
+      "payment": "none-seen",
+      "price": null,
+      "priceCheckedAt": null,
+      "status": "gated",
+      "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
+      "notes": null,
+      "lastProbedAt": "2026-09-12",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "reachable 200, gates observed: account",
+        "httpStatus": 200,
+        "finalUrl": "https://tubeonai.com/write-for-us/",
+        "title": "Guest Post Agreement- TubeOnAI - TubeOnAI",
+        "rawHtml": "probe.json.evidence/tubeonai.com.html"
+      },
+      "traffic": {
+        "monthlyVisits": 137601,
+        "checkedAt": "2026-09-12T08:13:09.226Z",
+        "source": "similarweb",
+        "db": null,
+        "globalRank": 311361,
+        "evidence": {
+          "stopReason": "stable",
+          "parse": "parsed",
+          "windowLabel": "Mar 2026 - Aug 2026 (6 月)",
+          "screenshot": "sw.jsonl.evidence/tubeonai.com.png",
+          "raw": "sw.jsonl.evidence/tubeonai.com.txt",
+          "jsonl": "/private/tmp/claude-501/-Users-kcsx-Project-kcsx-macmini/1f6f17b3-a84e-447e-8b60-5bef87b8b730/scratchpad/footprint-run2/sw.jsonl"
+        }
+      }
+    },
+    {
       "domain": "tumblr.com",
       "route": "https://www.tumblr.com/",
       "name": "Tumblr",
@@ -30316,6 +30768,47 @@
         "checkedAt": "2026-08-19T20:31:11.646Z",
         "source": "semrush-organic",
         "globalRank": null
+      }
+    },
+    {
+      "domain": "twelve.games",
+      "route": "https://www.twelve.games/submit",
+      "name": "Submit your Game Free — Indie Game Discovery | Twelve Games",
+      "kind": "unknown",
+      "gate": "open-form",
+      "gates": [
+        "open-form"
+      ],
+      "cohort": "open",
+      "payment": "none-seen",
+      "price": null,
+      "priceCheckedAt": null,
+      "status": "usable",
+      "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
+      "notes": null,
+      "lastProbedAt": "2026-09-12",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "reachable 200, 1 form(s), no CAPTCHA/login/reciprocal signal in raw HTML",
+        "httpStatus": 200,
+        "finalUrl": "https://www.twelve.games/submit",
+        "title": "Submit your Game Free — Indie Game Discovery | Twelve Games",
+        "rawHtml": "probe.json.evidence/twelve.games.html"
+      },
+      "traffic": {
+        "monthlyVisits": null,
+        "checkedAt": "2026-09-12T08:12:06.064Z",
+        "source": "similarweb",
+        "db": null,
+        "globalRank": null,
+        "evidence": {
+          "stopReason": "empty-state",
+          "parse": "no-data-marker",
+          "windowLabel": null,
+          "screenshot": "sw.jsonl.evidence/twelve.games.png",
+          "raw": "sw.jsonl.evidence/twelve.games.txt",
+          "jsonl": "/private/tmp/claude-501/-Users-kcsx-Project-kcsx-macmini/1f6f17b3-a84e-447e-8b60-5bef87b8b730/scratchpad/footprint-run2/sw.jsonl"
+        }
       }
     },
     {
@@ -32091,6 +32584,47 @@
       ]
     },
     {
+      "domain": "wordle0.com",
+      "route": "https://wordle0.com/write-for-us/",
+      "name": "Write For Us - Wordle",
+      "kind": "search-engine",
+      "gate": "account",
+      "gates": [
+        "account"
+      ],
+      "cohort": "account",
+      "payment": "none-seen",
+      "price": null,
+      "priceCheckedAt": null,
+      "status": "gated",
+      "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
+      "notes": null,
+      "lastProbedAt": "2026-09-12",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "reachable 200, gates observed: account",
+        "httpStatus": 200,
+        "finalUrl": "https://wordle0.com/write-for-us/",
+        "title": "Write For Us - Wordle",
+        "rawHtml": "probe.json.evidence/wordle0.com.html"
+      },
+      "traffic": {
+        "monthlyVisits": 1361,
+        "checkedAt": "2026-09-12T08:13:46.533Z",
+        "source": "similarweb",
+        "db": null,
+        "globalRank": null,
+        "evidence": {
+          "stopReason": "stable",
+          "parse": "parsed",
+          "windowLabel": "Mar 2026 - Aug 2026 (6 月)",
+          "screenshot": "sw.jsonl.evidence/wordle0.com.png",
+          "raw": "sw.jsonl.evidence/wordle0.com.txt",
+          "jsonl": "/private/tmp/claude-501/-Users-kcsx-Project-kcsx-macmini/1f6f17b3-a84e-447e-8b60-5bef87b8b730/scratchpad/footprint-run2/sw.jsonl"
+        }
+      }
+    },
+    {
       "domain": "wordpress.com",
       "route": "https://wordpress.com",
       "name": "WordPress.com",
@@ -32680,6 +33214,46 @@
           "capturedAt": "2026-09-09"
         }
       ]
+    },
+    {
+      "domain": "yy2k.com",
+      "route": "https://www.yy2k.com/SubmitGames/",
+      "kind": "unknown",
+      "gate": "account",
+      "gates": [
+        "account"
+      ],
+      "cohort": "account",
+      "payment": "none-seen",
+      "price": null,
+      "priceCheckedAt": null,
+      "status": "gated",
+      "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
+      "notes": null,
+      "lastProbedAt": "2026-09-12",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "reachable 200, gates observed: account",
+        "httpStatus": 200,
+        "finalUrl": "https://www.yy2k.com/SubmitGames/",
+        "title": null,
+        "rawHtml": "probe.json.evidence/yy2k.com.html"
+      },
+      "traffic": {
+        "monthlyVisits": 5630,
+        "checkedAt": "2026-09-12T08:14:45.744Z",
+        "source": "similarweb",
+        "db": null,
+        "globalRank": 3722717,
+        "evidence": {
+          "stopReason": "stable",
+          "parse": "parsed",
+          "windowLabel": "Mar 2026 - Aug 2026 (6 月)",
+          "screenshot": "sw.jsonl.evidence/yy2k.com.png",
+          "raw": "sw.jsonl.evidence/yy2k.com.txt",
+          "jsonl": "/private/tmp/claude-501/-Users-kcsx-Project-kcsx-macmini/1f6f17b3-a84e-447e-8b60-5bef87b8b730/scratchpad/footprint-run2/sw.jsonl"
+        }
+      }
     },
     {
       "domain": "zeleur.com",
