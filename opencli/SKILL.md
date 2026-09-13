@@ -263,13 +263,15 @@ await reconcileSessions(before, { prefix: 'tm-' });   // 只关自己那批
 差集也比 idle alarm 快：实测 2026-08-28 有 31 个标签页是靠 idle 自己掉的，
 在它掉之前用户的标签栏一直是脏的。
 
-### 三个窗口模式，默认已经是不打扰的那个
+### 五个窗口模式，默认已经是不打扰的那个
 
 | `--window` | 行为 | 什么时候用 |
 |---|---|---|
 | `background` | **默认**。在用户当前那个 normal 窗口里开标签页，不抬窗口、不切活动标签页。**`opencli browser` 与 adapter 命令（`opencli <site> …`）都是这样**——1.0.33 起 adapter 不再自己开窗口 | 几乎所有情况 |
-| `foreground` | 抬起窗口并选中标签页 | **只有**需要用户亲自完成验证码、或他明确说要看着的时候 |
+| `active` | 把标签页设为它所在窗口的活动标签（扩展只调 `chrome.tabs.update({active:true})`，不调 `chrome.windows.update({focused:true})`），不抬 OS 窗口，标签页不被节流。**落点和 `background` 一样**：用户开着自己的 Chrome 窗口时，标签页会被放进用户窗口，于是会切走他正在看的标签页；窗口被别的应用完全遮挡时仍读成 `hidden` | 要"选中/可见"又不能抢 OS 焦点，且确认用户没在用那个窗口；要稳定可见见下面「要可见又不抢焦点」 |
+| `foreground` | 抬起窗口（`chrome.windows.update({focused:true})`，把 Chrome 带到 OS 前台）并选中标签页 | **只有**需要用户亲自完成验证码、或他明确说要看着的时候 |
 | `isolated` | 后台，但不在用户那个窗口里——自动化自己的独立窗口（多个 isolated 会话共用这一个独立窗口，各自仍是自己的标签页组） | 长时间批量作业，不想在用户标签栏里堆东西 |
+| `dedicated` | 具名 slot 的专用窗口：`focused:false` 创建，永不聚焦；autoSelect 默认让会话标签在每条命令执行前都变成该窗口的活动标签（`visible`）；不是 OpenCLI 开的"外来标签"默认会被移出（evict） | 长时间批量作业，或者懒加载报表需要真正渲染出来，但又不能打扰用户正在用的窗口 |
 
 标志位置在**会话名和子命令之间**（放在子命令后面也能工作）：
 
@@ -278,6 +280,8 @@ opencli browser <session> --window isolated open "https://..."
 ```
 
 放在会话名**前面**会报 `unknown command: <你的会话名>`，读起来像装坏了，其实是语法错。
+
+`dedicated` 的完整生命周期、定位、隔离、可观测细节见下面「专用窗口」小节。
 
 **需要扩展 ≥ 1.0.33**（`opencli doctor` 那行就是判据）。旧扩展上默认仍是前台、
 `isolated` 会被静默忽略——那正是下面那张表里的坑。
@@ -329,7 +333,7 @@ UA 不含 `Headless`、`plugins.length` 为 5。
 
 | 错误做法 | 正确做法 | 为什么错 |
 |---|---|---|
-| `--window foreground`（除非用户要亲自操作） | 什么都不加（默认就是 background） | 实测会把用户的**活动标签页切走**（从第 1 个跳到第 3 个）。注意最前端**应用**不变，所以只查应用焦点的测量看不见它 |
+| `--window foreground`（除非用户要亲自操作） | 什么都不加（默认就是 background） | 实测会把用户的**活动标签页切走**（从第 1 个跳到第 3 个）。2026-08-23 那次测量里最前端**应用**不变；但之后的扩展在建标签页租约时会 `chrome.windows.update({focused:true})`，2026-09-13 起有用户反馈被反复抬到前台——「foreground 不换前台应用」已经不成立，别再据此放行 |
 | 调 adapter 时用前台「方便看页面」 | `--keep-tab true` + `screenshot` / `state` | 调试是高频动作，一轮能打断十几次。标签页留着，用户想看自己切过去 |
 | 在旧扩展（< 1.0.33）上省略 `--window background` | 先看 `doctor` 的扩展版本；旧版就每条命令都显式带 | 旧版两层默认都是前台，省略等于每条命令都抬一次窗口 |
 | 给 `PUBLIC` / `LOCAL` 命令加 `--window` | 不加 | 它们不接受这个标志，会报 `unknown option '--window'`；这类命令本来也不开浏览器 |
@@ -355,6 +359,106 @@ UA 不含 `Headless`、`plugins.length` 为 5。
 **怎么确认自己拿到的是修好的版本**：`opencli doctor` 的 Extension 那行 ≥ 1.0.33；
 再跑 `opencli browser <s> --window isolated open <url>` 之后 `opencli browser sessions`，
 它那一行的 `windowId` 应该与默认模式会话的不同，且默认模式那行**没有** `[new window: …]`。
+
+### 专用窗口（扩展 ≥ 1.2.0 / CLI ≥ 1.10.0）
+
+第五种模式 `dedicated`：`OPENCLI_WINDOW=dedicated` 或 `--window dedicated` 显式开启，不配置时默认仍是
+`background`，其余四种模式行为逐字节不变。它是"专门给自动化用、但仍在用户**同一个 Chrome、同一份 profile**
+里"的窗口——不是另开一个 Chrome 实例，也不是另建 user-data-dir。
+
+**生命周期**：按 `--window-slot`（或 `OPENCLI_WINDOW_SLOT`，默认 `default`）分窗口——一个 slot 一个专用窗口，
+slot 名满足 `^[A-Za-z0-9_.-]{1,40}$`。需要并发可见的多个会话，各起一个 slot（比如 `semrush`、`similarweb`）
+即可各占一个窗口。专用窗口被用户关掉 → 这个 slot 被遗忘、其下所有租约释放，下一条 `dedicated` 命令按同样的
+定位规则重建窗口。slot 里最后一个租约释放时，窗口不关，标签退化成占位标签。窗口 id 记在
+`chrome.storage.session` 里，扛得住 MV3 worker 重启，但随浏览器会话消失。
+
+**定位**：优先级 显式 bounds > 按虚拟屏名匹配的分格 > 都不给（Chrome 默认位置）。分格算法：每格
+1280×900（按显示器边界裁切），这块显示器上的列数 = `floor(宽/1280)`、行数 = `floor(高/900)`，放得下时
+0 号格再整体偏移 `(+80,+60)`；一个 slot 占该显示器上最低的空闲格。扩展用 `chrome.system.display` 探测有
+哪些显示器，坐标系与 `chrome.windows` 是同一套。`--window-display`/`OPENCLI_WINDOW_DISPLAY` 是显示器名
+pattern（`/正则/` 或大小写不敏感子串）；给了 pattern 但没匹配到任何显示器时，不会为了它去建/挪窗口——
+`ensure` 返回里 `placement.displayFound=false`（如果窗口本来不存在，仍可能被创建但不定位，看 `created` 字段）。
+
+**隔离**：会话标签页只活在自己 slot 的专用窗口里，绝不出现在用户窗口——创建时就是
+`chrome.windows.create({focused:false, left, top, width, height})`，之后永不聚焦。不是 OpenCLI 开的
+"外来标签"（用户拖进来的、Cmd+T 新开的、别的 app 甩过来的链接）一旦出现在专用窗口里，默认策略是
+`evict`：移回用户最近聚焦过的普通窗口、在那边设为活动标签，但不聚焦那个窗口；配 `tolerate` 就原地保留，
+但这类标签永远不会被当成租约候选。会话本来在专用窗口外的现有租约标签，会被直接 `tabs.move` 挪进 slot
+窗口（不刷新页面）。反过来，用户把会话标签页手动拖出专用窗口，这个标签就归用户了——租约释放，标签不关。
+
+**可见性**：autoSelect 默认对 `dedicated` 开启——每条页面相关命令执行前，把该会话的标签设成专用窗口的
+活动标签（只调 `chrome.tabs.update({active:true})`，不调 `chrome.windows.update({focused:true})`），所以
+这条标签的 `visibilityState` 会是 `visible`，但从来不会去抢 OS 焦点。不想要这个行为用
+`OPENCLI_WINDOW_AUTOSELECT=0` 关掉。并发需要可见的多个会话，做法是各开一个 slot、分别摆在虚拟屏不同的
+空闲分格上，而不是排队抢同一把"可见性锁"——跨进程的可见性锁得有持有者、TTL、僵尸进程回收这一整套机制，
+目前没做，所以设计上选的是"分 slot 并存"而不是"抢锁排队"。
+
+**可观测**：两个新的、与会话无关的命令：
+
+```bash
+opencli browser window [status] [--slot <name>] [-f table|json]
+opencli browser window ensure [--slot <name>] [--bounds x,y,w,h] [--display <pattern>] [--foreign-tabs evict|tolerate] [-f table|json]
+```
+
+`status -f json` 给 `supported`、`protocol`、`capabilities`（数组，含 `"dedicated-window"`、`"window-slots"`、
+`"window-bounds"`、`"window-display"`、`"auto-select"`、`"foreign-tab-policy"`）、`displays`（每个显示器的
+id/name/primary/internal/bounds/workArea；`chrome.system.display` 用不了时是 `null` 并带 `displaysError`）、
+`windows`（每个 slot 一条 DedicatedWindowInfo：windowId、exists、state、bounds、placement、onDisplay、
+activeTab、标签统计、sessions、autoSelect、foreignTabPolicy、evictedTabs）。`ensure` 会补建缺失的 slot
+窗口（占位标签起步）、窗口中心不在目标范围内（bounds 矩形，或匹配到的显示器）就挪过去，返回
+`DedicatedWindowInfo & {created, moved}`。`opencli browser sessions` 表格新增 `[dedicated:<slot>]` 标出
+会话所属 slot、`*` 标出当前活动标签；json 里对应新增 `dedicatedSlot`、`tabActive` 字段。
+
+**特性检测**：跑 `opencli browser window status -f json`——只有 JSON 能解析、`supported===true`、且
+`capabilities` 里有 `dedicated-window`，才算这套扩展支持 `dedicated`。旧扩展对这类未知 op 会直接答一个
+"纯数组"的会话列表（这个形状本身就是判据：不是预期的对象），老 CLI 印 help/报错、桥连不上，都一律当不
+支持，退回旧路径——桥连不上时打印 `{"supported":false,"reason":"bridge-unavailable",...}` 并 exit 1，
+老扩展则打印 `{"supported":false,"reason":"extension-too-old"}` 并 exit 0。
+
+**接口**：`opencli browser` 组新增选项（覆盖同名 env，仅当次调用生效）：`--window dedicated`、
+`--window-slot <name>`、`--window-bounds <x,y,w,h>`、`--window-display <pattern>`。adapter 命令能接
+`--window dedicated`，但定位（slot/bounds/display）只能走 env，不接受这几个 flag。对应六个 env 变量
+（都可选，非法值报错并指名变量）：
+
+| env | 取值 |
+|---|---|
+| `OPENCLI_WINDOW` | 新增取值 `dedicated` |
+| `OPENCLI_WINDOW_SLOT` | slot 名，默认 `default` |
+| `OPENCLI_WINDOW_BOUNDS` | `x,y,w,h` 整数（x,y 可负） |
+| `OPENCLI_WINDOW_DISPLAY` | 显示器名 pattern |
+| `OPENCLI_WINDOW_AUTOSELECT` | `1/0/true/false/on/off`，默认 on |
+| `OPENCLI_DEDICATED_FOREIGN_TABS` | `evict` / `tolerate` |
+
+**升级后要手动 reload 一次扩展**：manifest 这版新增了 `system.display` 权限，装上新版扩展后如果没去
+`chrome://extensions` 手动点一次 reload，`window status`/`ensure` 拿不到这个新权限——表现为 `displays`
+是 `null`、带 `displaysError`。
+
+**待实测（还没验证过，别当结论用）**：
+- `chrome.windows.update` 挪动窗口位置这一步，会不会顺带把窗口激活——"不抢焦点"这条还需要专门验证；
+- `chrome.system.display` 报的显示器 `name`，和 macOS `NSScreen.localizedName` 是不是一套命名——直接
+  决定 `OPENCLI_WINDOW_DISPLAY` 的 pattern 该怎么写；
+- 主屏幕熄屏/系统锁屏时，专用窗口和标签选中会是什么行为。
+
+### 要可见又不抢焦点：isolated + 虚拟屏幕 + tab select（2026-09-14 实测）
+
+> 这是**旧版扩展（< 1.2.0）**的手工组合方案。扩展 ≥ 1.2.0 应优先用上一节的「专用窗口」——`dedicated`
+> 原生做了同样的事（不抢焦点又保持可见），还带了隔离和可观测性；没升级到 1.2.0 之前，这套手工组合依然
+> 有效，留着供参考。
+
+`background` 标签页恒为 `hidden`；`active`/`foreground` 能拿到 `visible`，但窗口一旦被别的应用**完全遮挡**，
+macOS 会让 Chrome 把活动标签页也标成 `hidden`（数秒内，rAF 与 IntersectionObserver 停摆），懒加载报表因此不挂载。
+以前的补救是 `open -a "Google Chrome"` 抬前台——打断用户。不抢焦点又保持可见的组合：
+
+1. `opencli browser <s> --window isolated open <http(s) 占位页>`：扩展以 `focused:false` 建独立窗口
+   （`open` 只接受 http/https，`about:blank` 会报 Blocked URL scheme）；
+2. `osascript -e 'tell application "Google Chrome" to set bounds of window id <windowId> to {…}'`：把**这个**窗口
+   移到一块没人看的虚拟屏幕上（`windowId` 取自 `opencli browser sessions -f json`）。这条不激活 Chrome；
+3. `opencli browser <s> tab select <page>`：让它成为窗口活动标签（同一窗口只有活动标签 `visible`），
+   读回 `document.visibilityState` 再导航。
+
+限制：`active`/`background` 单独不行（用户开着窗口时会进用户窗口）；自动化窗口里只要混进一个非 opencli 标签页，
+扩展就把它判为借用窗口，下次 isolated 会另开新窗口（默认落在主屏）；只移动确认全是 opencli 标签页的窗口，
+绝不移动用户窗口。backlink Skill 的 `scripts/lib-automation-window.mjs` 是这套流程的实现（检测、移窗、恢复、回退）。
 
 ---
 
@@ -392,7 +496,7 @@ opencli <site> <command> --help    # 位置参数、专属标志、输出列
 | `-f, --format <fmt>` | `table`（TTY 默认）· `yaml`（非 TTY 默认）· `json` · `plain` · `md` · `csv`。**agent 基本都要 `-f json`** |
 | `--trace <mode>` | `off`（默认）· `on` · `retain-on-failure`。排障和写 adapter 时用 |
 | `-v, --verbose` | 调试日志 + 失败栈 |
-| `--window <mode>` | `background`（默认）/ `foreground` / `isolated`。**`PUBLIC` / `LOCAL` 策略的命令不接受它**——加了直接报 `unknown option '--window'`，读起来像装坏了，其实是这类命令根本不开浏览器（实测 342 个 public + 25 个 local 命令）。先看 `strategy` 再决定加不加 |
+| `--window <mode>` | `background`（默认）/ `active` / `foreground` / `isolated` / `dedicated`（语义见上面「五个窗口模式」）。`dedicated` 的定位/隔离参数（slot、bounds、display）走 env 或 `--window-slot` / `--window-bounds` / `--window-display`，不是这个标志本身管。**`PUBLIC` / `LOCAL` 策略的命令不接受它**——加了直接报 `unknown option '--window'`，读起来像装坏了，其实是这类命令根本不开浏览器（实测 342 个 public + 25 个 local 命令）。先看 `strategy` 再决定加不加 |
 | `--site-session <mode>` | `ephemeral`（默认）/ `persistent`。**同一站点批量调用一律 `persistent`**：复用 `site:<x>` 一个标签页、已在域内就跳过站点根预导航；默认模式每次新开标签页并先导航站点根，看起来像「一直刷新首页」。见 [session-laws](references/session-laws.md#site-session) |
 | `--keep-tab <bool>` | 结束后是否保留标签页租约 |
 
