@@ -112,17 +112,24 @@ written straight out.
 intervalMs, needed, abortIf })` for exactly this. Fingerprint **every field you
 are going to write out** — a fingerprint that watches A while the parser emits B
 is not a stability check; the strongest form is to fingerprint the parser's own
-output, which is what `semrush-report.mjs` does. Every script that scrapes a
-number now goes through it (`--stable-interval` everywhere, `--stable-reads` on
-the overview):
+output, which is what `semrush-report.mjs` does. Every other script that
+scrapes a number goes through it (`--stable-interval` everywhere):
 
 | Script | Fingerprint |
 |---|---|
-| `semrush-overview.mjs` | the six overview metrics |
 | `semrush-batch.mjs` | organic traffic + Authority Score |
 | `similarweb-batch.mjs` | total visits + ranks, or the empty-state marker |
-| `similarweb-query.mjs` | the report's own payload (metrics / channels / page text) |
+| `similarweb-query.mjs` | the report's own payload (metrics / channels / page text) **plus** the page's own rendered window label — a same-tab query can inherit the previous navigation's stale date range even though the new URL asked for a different one, so the window label is folded into the fingerprint rather than left out of what "stable" means |
 | `semrush-report.mjs` | `spec.parse()`'s entire return value, all 6 reports |
+
+`semrush-overview.mjs` (rewritten 2026-09-13) no longer goes through this
+shared helper — its per-section readiness rule in `lib-semrush-overview.mjs`
+is stricter: **each of the 23 sections** gets its own fingerprint that must
+read stable twice **and** the page's network must be quiet in the same round
+(CDP-captured `/dpa/rpc` sent count == resource-timing completed count, no
+in-flight request, hook pending 0) before that section — and the whole page —
+counts as done. See `SKILL.md`'s 「semrush-overview.mjs：整页抓取与完成判定」
+subsection and `lib-semrush-overview.mjs` for the full state machine.
 
 `abortIf` exists for states where waiting cannot help — the transient 「出错了」
 page wants a reload, not a longer timeout, and without an early exit it burns
