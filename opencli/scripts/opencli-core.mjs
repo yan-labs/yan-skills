@@ -425,7 +425,32 @@ async function withAccessLog(args, fn) {
   }
 }
 
-export async function opencli(args, options = {}) {
+/**
+ * 窗口模式——单一入口。opencli 实际支持四档（见 opencli 源码 `src/runtime.ts`
+ * 的 `BrowserWindowMode`）：foreground（raise + select）/ active（选中标签页、
+ * 不节流，但不夺 OS 焦点）/ background（默认，复用当前窗口，不选中不夺焦点）/
+ * isolated（在自己的独立窗口里开）。2026-09-14 之前 `opencli()`/`batchBrowser()`
+ * 各自写了一份「只认 foreground，其余一律 background」的二值化三元表达式，会把
+ * active/isolated 静默压成 background——改成这个透传+校验的纯函数，所有既有
+ * 调用点行为保持不变，只是让 active/isolated 从「接口存在但从不生效」变成
+ * 「真的生效」。三处调用方都必须走这一个函数，不许各自重新发明。
+ */
+// 2026-09-14 加入第五档 dedicated：opencli 新增的专用窗口模式（会话标签页焊死在一个
+// 按 slot 命名的独立窗口里，扩展负责隔离与自动选中）。旧版 opencli/旧扩展不认这个值，
+// 调用方要先探测支持（`opencli browser window status`）再决定用不用；这里只负责让它
+// 和其余四档一样能透传、能校验，不做能力探测。
+export const ALLOWED_WINDOW_MODES = ['foreground', 'active', 'background', 'isolated', 'dedicated'];
+
+export function normalizeWindowMode(value, fallback = 'background') {
+  return ALLOWED_WINDOW_MODES.includes(value) ? value : fallback;
+}
+
+/**
+ * 纯函数：给定原始 `opencli` args 和调用方的 windowMode 相关 options，算出
+ * 「要不要在 args 里插进 `--window`，插哪个值」。调用方已经在 args 字面量里
+ * 显式写了 `--window` 时完全不碰：那是调用方自己要的值，原样透传。
+ */
+export function resolveBrowserWindowArgs(args, options = {}) {
   const resolved = [...args];
   // `sessions` / `cleanup` 不是会话名，是子命令本身。给它们注入 --window 会让
   // CLI 把子命令当成会话名解析，命令整个失败——而调用方通常 allowFailure，
@@ -433,15 +458,19 @@ export async function opencli(args, options = {}) {
   if (resolved[0] === 'browser' && resolved[1] && !BARE_BROWSER_SUBCOMMANDS.has(resolved[1])
       && !resolved.includes('--window')) {
     const requested = options.windowMode || options.env?.OPENCLI_WINDOW || 'background';
-    const windowMode = requested === 'foreground' ? 'foreground' : 'background';
-    resolved.splice(2, 0, '--window', windowMode);
+    resolved.splice(2, 0, '--window', normalizeWindowMode(requested, 'background'));
   }
+  return resolved;
+}
+
+export async function opencli(args, options = {}) {
+  let resolved = resolveBrowserWindowArgs(args, options);
   // Default `state` snapshots to AX (accessibility-tree) format — compact,
   // fewer tokens than the full DOM tree.  Callers can still override with an
   // explicit `--source dom`.
   if (resolved[0] === 'browser' && !resolved.includes('--source')) {
     const sub = resolved.findIndex((a, i) => i >= 2 && a === 'state');
-    if (sub >= 0) resolved.splice(sub + 1, 0, '--source', 'ax');
+    if (sub >= 0) { resolved = [...resolved]; resolved.splice(sub + 1, 0, '--source', 'ax'); }
   }
   return await withAccessLog(resolved, () => run('opencli', resolved, options));
 }
@@ -480,12 +509,17 @@ export function printJson(value) {
  * {cmd, args} matching the `opencli browser <session> batch` contract.
  * Returns the parsed results array; each element has {cmd, index, ok, result?, error?}.
  */
-export async function batchBrowser(session, commands, options = {}) {
-  const windowMode = options.windowMode || options.env?.OPENCLI_WINDOW || 'background';
-  const args = [
-    'browser', session, '--window', windowMode === 'foreground' ? 'foreground' : 'background',
+/** 纯函数版的 batchBrowser 参数构造——同样的「能直接断言、不用起子进程」理由。 */
+export function buildBatchBrowserArgs(session, commands, options = {}) {
+  const requested = options.windowMode || options.env?.OPENCLI_WINDOW || 'background';
+  return [
+    'browser', session, '--window', normalizeWindowMode(requested, 'background'),
     'batch', '--commands', JSON.stringify(commands),
   ];
+}
+
+export async function batchBrowser(session, commands, options = {}) {
+  const args = buildBatchBrowserArgs(session, commands, options);
   const result = await withAccessLog(args, () => run('opencli', args, options));
   return JSON.parse(result.stdout);
 }

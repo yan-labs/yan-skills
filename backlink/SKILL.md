@@ -53,6 +53,24 @@ backlink/
 │   ├── self-test.mjs               end-to-end smoke over the core scripts
 │   ├── health.mjs                  run before ANY browser task
 │   ├── opencli-core.mjs            ★ defaultSession(), batchBrowser(), openAndEval(), run(), closeSession()
+│   ├── lib-automation-window.mjs   ★ virtual-display strategy for visibility-dependent reports
+│   │                               (2026-09-14). launchTool({window:'virtual-display'}) holds the tool lock,
+│   │                               detects a non-primary screen whose name matches /虚拟|Virtual/ (override:
+│   │                               --automation-display <name|/re/|off>, or BACKLINK_AUTOMATION_DISPLAY in env /
+│   │                               the Skill .env), keeps the session tab in an opencli `--window isolated`
+│   │                               window, moves ONLY that window onto the screen (AppleScript set bounds —
+│   │                               refused if the window holds any tab opencli does not know), `tab select`s
+│   │                               it and reads visibilityState back before the caller navigates. Never
+│   │                               activates Chrome, never `open -a` (source-guard test). A hidden read runs a
+│   │                               bounded recovery (re-detect → move back → tab select). No screen ⇒
+│   │                               mode:"fallback" and the caller's previous behaviour. Default for
+│   │                               semrush-overview / semrush-traffic / similarweb-query / similarweb-batch /
+│   │                               similarweb-keywords; opt-in (--window virtual-display) for semrush-report /
+│   │                               semrush-keyword / tools-share-open. Output: automationWindow {mode, display,
+│   │                               windowId, moves, tabSelects, recoveries, visibility, frontmostAppSamples}.
+│   │                               Do not drag your own tabs into the automation window during a run: the
+│   │                               extension then treats it as borrowed and the next isolated run opens a new
+│   │                               window on the main screen. See references/authorized-data-sources.md
 │   ├── lib-tools-share.mjs         ★ the ONE panel launcher
 │   ├── tools-share-open.mjs        launch a tool by name; --goto for a deep link
 │   ├── tools-share-node.mjs        `list` a tool's nodes (read-only) or `probe` them one by
@@ -75,7 +93,9 @@ backlink/
 │   │                               session; table reports paginate — pass --all-pages or it warns
 │   ├── semrush-traffic.mjs         Traffic & Market (.Trends) TOTAL visits — the only
 │   │                               Semrush number comparable with Similarweb. Runs
-│   │                               **foreground by default**, alone in this Skill:
+│   │                               **visible by default** — virtual-display first
+│   │                               (lib-automation-window.mjs), `--window foreground`
+│   │                               only when no virtual screen is found:
 │   │                               the summary never hydrates if it *loads* hidden.
 │   │                               But "empty" has two unrelated causes with opposite
 │   │                               remedies — not hydrated vs never had a table — and
@@ -300,7 +320,7 @@ pointers. Rows are grouped; within a group the later row is the more specific.
 | 「这表有 1,430 页，只采到第 1 页」「怎么翻页 / 全量导出」 | <ref file="references/pagination-harvest.md"/> + `scripts/harvest-paginated.mjs`（判据全在纯函数层 <ref file="scripts/lib-pagination.mjs"/>：分页器解析、采页计划、断点续跑状态机、行数自检，离线可测）。**先判机制（`--probe`）、再试水 2 页、最后才加量**；`--max-pages` 默认 5，**绝不默认全量**——1,430 页按实测节奏是 4–8 小时且全程占着机器级配额锁 |
 | 「打开面板/授权账号在哪」「配额还剩多少」「换个节点」 | references/authorized-data-sources.md → `scripts/tools-share-open.mjs`（唯一的面板启动器）· `scripts/tools-share-node.mjs`（每个 node 是不同的共享账号：配额满了是换 node，不是重试） |
 | 「这个页面我们没测过 / 手册里没有」「先勘测一下这页有没有数据」 | `node scripts/ground-truth.mjs --url <url> --out <evidence-dir>` —— 双证人采集：穿透 shadow DOM 的 census + 成对截图。**它只采集，不下结论**；「有数据/空/功能不存在」由你拿两个证人对质后判，见 <law-ref id="every-measurement-needs-two-witnesses"/>。判完把结论写回对应 `PAGE.md` 的验证记录 |
-| 「一个域名的总体盘面」「AS / 自然流量 / 引荐域名」 | `scripts/semrush-overview.mjs`；.Trends 的总访问量（唯一能和 Similarweb 对比的数字）走 `scripts/semrush-traffic.mjs`（**默认前台**，见 <law-ref id="hidden-tabs-do-not-hydrate"/>） |
+| 「一个域名的总体盘面」「AS / 自然流量 / 引荐域名」 | `scripts/semrush-overview.mjs`；.Trends 的总访问量（唯一能和 Similarweb 对比的数字）走 `scripts/semrush-traffic.mjs`（**默认可见**：先走虚拟屏幕，检测不到才回退前台，见 <law-ref id="hidden-tabs-do-not-hydrate"/>） |
 ]]></group>
 
 <group name="收尾与自查"><![CDATA[
@@ -806,6 +826,10 @@ while it was visible".** The protocol that has been measured to work:
 
 Three things still do not flip an already-hidden tab back: not the env, not
 `open --window foreground`, and least of all `tab select` (details below).
+(2026-09-14 boundary: what none of them fixes is **occlusion**. When the window
+itself is unoccluded — e.g. parked on a virtual display — `tab select` does turn
+a non-active, hidden tab visible, measured; that is the whole basis of
+`scripts/lib-automation-window.mjs`.)
 (There is also a read-only trick — redefine `document.visibilityState` to
 `visible` inside the page and dispatch `visibilitychange`. Measured as barely
 better than nothing; **it is not admissible as the basis of a verdict.** It also
@@ -1113,7 +1137,9 @@ not dismiss it by analogy either.
 
 **Confirmed affected — first hydration only:** the Semrush Traffic &amp; Market
 (.Trends) traffic-overview summary block, when it *loads* while hidden.
-`scripts/semrush-traffic.mjs` therefore defaults to `--window foreground`; that
+`scripts/semrush-traffic.mjs` therefore defaults to a visible load (since
+2026-09-14 the virtual-display strategy, falling back to `--window foreground`
+when no virtual screen is attached); that
 is a per-report property, not a global one, and it protects the load, not the
 read.
 

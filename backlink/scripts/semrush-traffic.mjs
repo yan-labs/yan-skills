@@ -22,8 +22,10 @@
  *       --settle --timeout --stable-interval 调节等待，正常不用给。
  *       --scroll-segments[=N] / --scroll-pause 分段滚动，**默认关闭**，理由见调用点注释。
  *       （`--input-timeout` 已废弃：这条路由上没有输入框，见下面第 3 条。）
- *       --window 默认 **foreground**（全仓唯一例外，见下面 DEFAULT_WINDOW 的注释：
- *       这张报表在后台标签页里不水合），可显式覆盖成 background / isolated。
+ *       --window 默认 **virtual-display**（2026-09-14）：把自动化窗口放到虚拟屏幕上并选中标签页，
+ *       可见但不抢焦点；检测不到虚拟屏幕时回退为 **foreground**（见下面 DEFAULT_WINDOW 的注释：
+ *       这张报表在后台标签页里不水合）。可显式覆盖成 foreground / active / background / isolated
+ *       （原样透传，不走虚拟屏幕）。--automation-display <name|/re/|off> 调虚拟屏幕名匹配。
  *
  * ──────────────────────────────────────────────────────────────────────
  * 已实测确认的 DOM 契约（2026-08-28 canva.com，**照抄，不要凭直觉改**）
@@ -98,6 +100,7 @@
 import { parseFlags, printJson, resolveSession, showHelpIfRequested } from './opencli-core.mjs';
 import { captureStable, expiryWarning, gotoInTool, launchTool, redactSecrets } from './lib-tools-share.mjs';
 import { parseNumber } from './lib-similarweb.mjs';
+import { plainAutomationSummary, resolveWindowStrategy, VIRTUAL_DISPLAY_WINDOW } from './lib-automation-window.mjs';
 import { classifyTargetScope } from './lib-report-readiness.mjs';
 import { DEEP_DOM_JS, scrollThroughSegments } from './lib-deep-dom.mjs';
 // 2026-08-30 双证人化：失败路径在退出前 captureScene（穿透 census + 截图）成对
@@ -604,6 +607,7 @@ async function main() {
 
   let output;
   let launched;
+  const windowStrategy = resolveWindowStrategy({ windowFlag: flags.window, fallbackWindowMode: DEFAULT_WINDOW });
   let deepLink = null;
   let targetCheck = null;
   // 失败现场的落点。默认贴着 --out（`x.json.evidence/`），没有 --out 进 .backlink/。
@@ -616,7 +620,10 @@ async function main() {
       tool: 'semrush',
       node: flags.node,
       // 见本文件顶部 DEFAULT_WINDOW 的注释：这张报表在后台标签页里不水合。
-      window: flags.window || DEFAULT_WINDOW,
+      // 2026-09-14：默认先走虚拟屏幕（可见、不抢焦点），DEFAULT_WINDOW 退为检测不到时的回退模式。
+      window: windowStrategy.launchWindow,
+      fallbackWindow: windowStrategy.fallbackWindowMode,
+      automationDisplay: flags['automation-display'],
       wait: Number(flags.wait || 7),
       timeout: Number(flags.launchTimeout || 60),
       allowParallelSession: Boolean(flags['allow-parallel-session']),
@@ -629,6 +636,7 @@ async function main() {
     // 那会开一个没有登录态的新标签页。
     // **目标带在 URL 里**，不在页面上填。见头部注释第 2/3 条。
     const requested = buildTrafficUrl(origin, domain);
+    await launched.automationWindow?.ensureVisible('before-report-navigation');
     await gotoInTool(evalPage, requested, Number(flags.settle || 8));
 
     // 瞬时错误页先重载掉，再做深链校验——否则会把「出错了」误判成「query 被吞了」。
@@ -669,6 +677,7 @@ async function main() {
       }
     }
 
+    await launched.automationWindow?.ensureVisible('before-summary-read');
     const loaded = await loadSummary(evalPage, {
       timeout: Number(flags.timeout || 120),
       intervalMs: Number(flags['stable-interval'] || 3) * 1000,
@@ -755,6 +764,7 @@ async function main() {
       parsed,
       rawSummary: sliceSummary(cap.bodyText),
       rawText: cap.bodyText.slice(0, 20000),
+      automationWindow: launched.automationWindow?.summary() ?? plainAutomationSummary({ windowMode: windowStrategy.launchWindow }),
     };
   } catch (error) {
     // **先取证后死**：所有失败分支（瞬时错误页、深链没落地、摘要区不稳、页头
@@ -782,6 +792,8 @@ async function main() {
       deepLink,
       targetCheck,
       error: { code: 'traffic_overview_unavailable', message: redactSecrets(error.message) },
+      automationWindow: launched?.automationWindow?.summary() ?? error?.automationWindow
+        ?? plainAutomationSummary({ windowMode: windowStrategy.fallbackWindowMode, reason: windowStrategy.strategy === VIRTUAL_DISPLAY_WINDOW ? 'launch-failed-before-prepare' : 'explicit-window-mode' }),
     };
   } finally {
     await launched?.releaseBrowserLocks?.();

@@ -15,8 +15,11 @@
  * 可能被面板计作新的客户端登录。
  */
 import {
-  defaultSession, firstJson, guardSessionName, opencli, quotaSession, sessionForUrl,
+  defaultSession, firstJson, guardSessionName, normalizeWindowMode, opencli, quotaSession, sessionForUrl,
 } from './opencli-core.mjs';
+import {
+  VIRTUAL_DISPLAY_WINDOW, createAutomationWindow, defaultAutomationDeps, fallbackHint, resolveDisplayMatcher,
+} from './lib-automation-window.mjs';
 import { readFileSync } from 'node:fs';
 import { rmSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -207,12 +210,25 @@ export const REUSE_PROBE = '(() => { const bodyText = (document.body?.innerText|
  * 所以 `semrush-traffic.mjs` 的 `DEFAULT_WINDOW = 'foreground'` 单靠自己不够：
  * 它只在走完整启动流程时生效，复用会绕过去。
  *
- * 判据只在调用方**要求 foreground** 时才收紧：background 调用方是明确不要抢焦点的
- * （见 SKILL.md 的 background-by-default），不能因为这条修复把它们全推去抢窗口。
+ * 判据只在调用方**要求 foreground 或 active** 时才收紧：background/isolated 调用方
+ * 是明确不要抢焦点的（见 SKILL.md 的 background-by-default），不能因为这条修复把它们
+ * 全推去抢窗口。
+ *
+ * 2026-09-14 加入 `active`：它和 `foreground` 一样是"调用方明确要这个标签页可见/
+ * 不节流"的请求，只是不夺 OS 焦点；`hidden` 判据要认的是"调用方想不想要可见"，
+ * 不是"愿不愿意抢 OS 焦点"，所以这两档要一起收紧。`background`/`isolated` 仍然
+ * 保持旧行为不变——它们从来没有触发过这条 relaunch 分支，这次也不会。
+ *
+ * 2026-09-14 再加入 `dedicated`：它和 foreground/active 同属"调用方明确要可见"这一档——
+ * dedicated 窗口默认开着 auto-select（契约：每次页面级命令前都把会话标签页选成活动
+ * 标签），意图就是保持可见，不是"不在乎可不可见"。复用快路径不点卡片、不触发这次
+ * auto-select，如果探针读到 hidden，说明这次复用不会真的可见（窗口被恢复中/摆放中/
+ * 扩展状态还没追上），必须和 foreground/active 一样拒绝复用、close 掉让完整启动流程
+ * 重新来一遍——而不是被当成"不要求可见"的 background/isolated 悄悄放过去。
  */
 export function reuseDecision(capture, { origin, windowMode } = {}) {
   if (!isReusableToolCapture(capture, origin)) return { reuse: false, relaunch: false, reason: 'not-on-tool-origin' };
-  if (windowMode === 'foreground' && capture?.vis === 'hidden') {
+  if ((windowMode === 'foreground' || windowMode === 'active' || windowMode === 'dedicated') && capture?.vis === 'hidden') {
     return { reuse: false, relaunch: true, reason: 'hidden-tab' };
   }
   return { reuse: true, relaunch: false, reason: 'existing-tool-session' };
@@ -242,6 +258,17 @@ export async function attemptToolSessionReuse({ evalPage, origin, windowMode, cl
 }
 
 /**
+ * launchToolInner 的 env 组装，抽成纯函数是为了能直接断言——不用真的起 opencli 子进程
+ * 就能钉住"dedicated 的 slot/display 只在 automationWindow 真正走了 dedicated 策略时
+ * 才出现"这条规则。`opencliEnv` 来自 `automationWindow.opencliEnv`（见
+ * lib-automation-window.mjs）：非 dedicated 时恒为 `{}`，这里的行为就退回接入前的
+ * 唯一一行，一字不差。
+ */
+export function buildToolLaunchEnv(windowMode, opencliEnv = {}) {
+  return { OPENCLI_WINDOW: normalizeWindowMode(windowMode, 'background'), ...opencliEnv };
+}
+
+/**
  * 打开面板、（可选）选节点、点「打开」、等落到工具域名。
  * 返回 { evalPage, state, landed, tool }，evalPage 已绑定会话，供调用方继续驱动工具页。
  */
@@ -250,6 +277,7 @@ async function launchToolInner({
   tool: toolKey,
   node,
   window: windowMode = 'background',
+  opencliEnv = {},
   wait = 7,
   timeout = 40,
   evalTimeoutMs = 60_000,
@@ -257,7 +285,12 @@ async function launchToolInner({
 }) {
   const tool = TOOLS[String(toolKey || '').toLowerCase()];
   if (!tool) throw new Error(`tool must be one of: ${Object.keys(TOOLS).join(', ')}`);
-  const env = { OPENCLI_WINDOW: windowMode === 'foreground' ? 'foreground' : 'background' };
+  // 单一入口：foreground/active/background/isolated/dedicated 五档原样透传给 opencli，
+  // 不认识的值退回 background（见 opencli-core.mjs 的 normalizeWindowMode 注释）。
+  // dedicated 时 opencliEnv 还带着 OPENCLI_WINDOW_SLOT/_DISPLAY，让面板导航、eval 等
+  // 后续调用都落在 automationWindow 摆好的那扇 dedicated 窗口里,而不是被扩展当成
+  // 一个没有 slot 的新窗口。
+  const env = buildToolLaunchEnv(windowMode, opencliEnv);
 
   const evalPage = async (expression, timeoutMs = evalTimeoutMs) =>
     firstJson((await opencli(['browser', session, 'eval', expression], { env, timeoutMs })).stdout);
@@ -509,16 +542,57 @@ export function toolSession(toolKey, { session, allowParallelSession = false, ba
   return fixed;
 }
 
+/**
+ * `window: 'virtual-display'`（2026-09-14）：不是 opencli 的窗口模式，是本启动器的一个策略——
+ * 持锁之后、启动之前先把本 session 的自动化窗口放到虚拟屏幕上并选中标签页（见
+ * lib-automation-window.mjs 头注），然后整个启动流程用 `--window isolated` 跑；
+ * 检测不到虚拟屏幕就用 `fallbackWindow`（默认 active）跑，与接入前一致。
+ * 返回值多一个 `automationWindow` 控制器（其它 window 值时为 null），调用方在导航/读数前
+ * 调 `ensureVisible()`，输出里写 `summary()`。
+ *
+ * opencli 支持 dedicated 窗口模式时，`automationWindow.windowMode` 会是 `'dedicated'`
+ * 而不是 `'isolated'`——这里不用特殊分支，`window = automationWindow.windowMode` 已经
+ * 原样接住了。唯一要额外做的是把 `automationWindow.opencliEnv`（dedicated 时带
+ * OPENCLI_WINDOW_SLOT/_DISPLAY，否则是 `{}`）传给 `launchToolInner`，让面板导航/eval
+ * 这些后续调用也落在同一扇 dedicated 窗口里，见 `buildToolLaunchEnv`。
+ *
+ * 其它 window 值（foreground/active/background/isolated/dedicated/未传）走的路径一个
+ * 字节都没变。
+ */
 export async function launchTool(options) {
   const toolKey = String(options.tool || '').toLowerCase();
   // 收敛放在这里而不是每个脚本里：这是 11 个调用方唯一都要经过的地方，
   // 逐个脚本改的话，第一个忘记的人就把 19 个标签页带回来了。
   const session = toolSession(toolKey, options);
   const locks = await acquireToolsShareBrowserLocks(session, toolKey);
+  let automationWindow = null;
   try {
-    const launched = await launchToolInner({ ...options, session });
-    return { ...launched, session, releaseBrowserLocks: locks.release };
+    let window = options.window;
+    if (window === VIRTUAL_DISPLAY_WINDOW) {
+      const fallbackWindowMode = normalizeWindowMode(options.fallbackWindow, 'active');
+      automationWindow = createAutomationWindow({
+        session,
+        deps: options.automationDeps || defaultAutomationDeps({ session }),
+        matcher: resolveDisplayMatcher({ flag: options.automationDisplay }),
+        fallbackWindowMode,
+        log: (m) => console.error(m),
+      });
+      await automationWindow.prepare();
+      window = automationWindow.windowMode;
+      if (automationWindow.mode !== 'virtual-display') {
+        console.error(`[automation-window] ${fallbackHint({
+          reason: automationWindow.fallbackReason,
+          maxActivations: Number(options.fallbackMaxActivations) || 0,
+          fallbackWindowMode,
+        })}`);
+      }
+    }
+    const launched = await launchToolInner({ ...options, window, session, opencliEnv: automationWindow ? automationWindow.opencliEnv : {} });
+    // 启动流程可能 close + 重开标签页（会话焊死 / hidden 复用），新标签页在 isolated 窗口里默认不是活动标签。
+    if (automationWindow) await automationWindow.ensureVisible('after-launch');
+    return { ...launched, session, automationWindow, releaseBrowserLocks: locks.release };
   } catch (error) {
+    if (automationWindow && error && typeof error === 'object') error.automationWindow = automationWindow.summary();
     await locks.release();
     throw error;
   }

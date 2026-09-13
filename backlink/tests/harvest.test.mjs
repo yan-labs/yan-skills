@@ -391,8 +391,10 @@ test("semrush-traffic.mjs 默认走前台标签页", async () => {
   assert.equal(mod.DEFAULT_WINDOW, "foreground");
 
   const source = await readFile(path.join(skillRoot, "scripts", "semrush-traffic.mjs"), "utf8");
-  // 显式 --window 必须仍然能覆盖默认值。
-  assert.match(source, /window:\s*flags\.window\s*\|\|\s*DEFAULT_WINDOW/);
+  // 2026-09-14：默认先走虚拟屏幕策略（可见且不抢焦点），DEFAULT_WINDOW（foreground）是检测不到
+  // 虚拟屏幕时的回退；显式 --window 必须仍然能覆盖默认值（resolveWindowStrategy 原样透传四档）。
+  assert.match(source, /resolveWindowStrategy\(\{\s*windowFlag:\s*flags\.window,\s*fallbackWindowMode:\s*DEFAULT_WINDOW\s*\}\)/);
+  assert.match(source, /window:\s*windowStrategy\.launchWindow/);
   // 公共默认不许被改成前台：那会让所有脚本都去抢用户的活动标签页。
   const shared = await readFile(path.join(skillRoot, "scripts", "lib-tools-share.mjs"), "utf8");
   assert.match(shared, /windowMode\s*=\s*'background'/);

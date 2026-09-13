@@ -40,7 +40,10 @@ const DRIVERS = {
   'backlink/scripts/semrush-overview.mjs':     { args: ['--domain', 'example.com', '--db', 'us'], expect: 'semrush-nav' },
   'backlink/scripts/semrush-batch.mjs':        { args: ['--domains-file', '@DOMAINS@', '--db', 'us', '--out', '@OUT@'], expect: 'semrush-nav' },
   'backlink/scripts/semrush-keyword.mjs':      { args: ['--kw', 'test', '--db', 'us'], expect: 'semrush-nav' },
-  'backlink/scripts/semrush-report.mjs':       { args: ['--report', 'keyword-magic', '--keyword', 'test'], expect: 'semrush-nav' },
+  // keyword-magic has no worldwide selector and lands on an unpredictable country
+  // without --db (2026-09-13), so it now hard-exits before ever reaching opencli —
+  // --db must be passed here just to get far enough to observe the session name.
+  'backlink/scripts/semrush-report.mjs':       { args: ['--report', 'keyword-magic', '--keyword', 'test', '--db', 'us'], expect: 'semrush-nav' },
   'backlink/scripts/semrush-traffic.mjs':      { args: ['--domain', 'example.com'], expect: 'semrush-nav' },
   'backlink/scripts/similarweb-batch.mjs':     { args: ['--domains', 'example.com', '--out', '@OUT@'], expect: 'similarweb-nav' },
   'backlink/scripts/similarweb-keywords.mjs':  { args: ['--domain', 'example.com', '--seed', 'test'], expect: 'similarweb-nav' },
@@ -119,9 +122,14 @@ function sessionUsedBy(relScript, args) {
       SIM_GMITM: '',
       // 锁目录隔离：别去抢真实任务留在系统 tmp 里的 tools-share 锁。
       TMPDIR: work,
+      // 2026-09-14：几个脚本默认走虚拟屏幕策略，启动前会读本机屏幕（osascript）并查
+      // `browser sessions`。这条测试只关心会话名，不许依赖跑测试那台机器接没接虚拟屏幕。
+      BACKLINK_AUTOMATION_DISPLAY: 'off',
     },
   });
-  const line = readFileSync(log, 'utf8').split('\n').find((l) => l.startsWith('browser '));
+  // `browser sessions` / `browser cleanup` 是子命令，不是会话名（同 opencli-core 的 BARE_BROWSER_SUBCOMMANDS）。
+  const line = readFileSync(log, 'utf8').split('\n')
+    .find((l) => l.startsWith('browser ') && !/^browser (sessions|cleanup)\b/.test(l));
   assert.ok(line, `${relScript} 没有向 opencli 发出任何 browser 命令——参数表可能过时了，先修参数再谈会话名`);
   return line.split(/\s+/)[1];
 }

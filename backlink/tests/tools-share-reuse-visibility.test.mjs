@@ -60,6 +60,34 @@ test('background callers keep the old behaviour — a hidden tab is what they as
   assert.equal(s.calls.close, 0);
 });
 
+// 2026-09-14：`active` 是"要可见/不节流，但不夺 OS 焦点"——跟 foreground 一样
+// 属于"调用方明确要可见"，hidden 时必须触发同一条 relaunch 分支，不能被当成
+// background 悄悄放过去。
+test('hidden tab + caller asked active: refuse reuse, close so the full launch re-selects the tab', async () => {
+  const s = fakeSession({ vis: 'hidden' });
+  const got = await attemptToolSessionReuse({ ...s, origin: ORIGIN, windowMode: 'active' });
+  assert.equal(got.reused, false);
+  assert.equal(got.closed, true);
+  assert.equal(got.reason, 'hidden-tab');
+  assert.equal(s.calls.close, 1);
+});
+
+test('visible tab + caller asked active: reuse normally', async () => {
+  const s = fakeSession({ vis: 'visible' });
+  const got = await attemptToolSessionReuse({ ...s, origin: ORIGIN, windowMode: 'active' });
+  assert.equal(got.reused, true);
+  assert.equal(got.closed, false);
+  assert.equal(s.calls.close, 0);
+});
+
+// isolated 跟 background 一样是"不要可见"的显式请求，hidden 不该触发 relaunch。
+test('isolated callers keep the old (background-like) behaviour', async () => {
+  const s = fakeSession({ vis: 'hidden' });
+  const got = await attemptToolSessionReuse({ ...s, origin: ORIGIN, windowMode: 'isolated' });
+  assert.equal(got.reused, true);
+  assert.equal(s.calls.close, 0);
+});
+
 test('restarts are bounded: one probe, at most one close per attempt, no self-recursion', async () => {
   const s = fakeSession({ vis: 'hidden' });
   for (let i = 0; i < 5; i += 1) {
@@ -104,6 +132,10 @@ test('reuseDecision is the whole rule, in one table', () => {
   assert.equal(reuseDecision(cap('hidden'), { origin: ORIGIN, windowMode: 'foreground' }).reuse, false);
   assert.equal(reuseDecision(cap('visible'), { origin: ORIGIN, windowMode: 'foreground' }).reuse, true);
   assert.equal(reuseDecision(cap('hidden'), { origin: ORIGIN, windowMode: 'background' }).reuse, true);
+  // active 跟 foreground 同一档「要可见」；isolated 跟 background 同一档「不要求可见」。
+  assert.equal(reuseDecision(cap('hidden'), { origin: ORIGIN, windowMode: 'active' }).reuse, false);
+  assert.equal(reuseDecision(cap('visible'), { origin: ORIGIN, windowMode: 'active' }).reuse, true);
+  assert.equal(reuseDecision(cap('hidden'), { origin: ORIGIN, windowMode: 'isolated' }).reuse, true);
   // vis 缺失（老的探针、或页面没交回来）不当 hidden 处理：宁可复用，也不要凭空多一次 launch。
   assert.equal(reuseDecision(cap(undefined), { origin: ORIGIN, windowMode: 'foreground' }).reuse, true);
 });
