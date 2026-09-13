@@ -77,12 +77,59 @@ backlink/
 │   │                               one — each node is a DIFFERENT shared account, so a node
 │   │                               capped on its daily report quota is fixed by switching node,
 │   │                               not by retrying
-│   ├── similarweb-query.mjs        performance | channels | similar-sites | audience-geo | site-keywords
+│   ├── similarweb-query.mjs        performance | channels | similar-sites | audience-geo | site-keywords |
+│   │                               audience-interests | audience-overlap | audience-demographics.
+│   │                               site-keywords takes --traffic-tab total|organic|paid (default total,
+│   │                               direct-URL cold nav, not click — clicking flips the window to 6m).
+│   │                               A confirmed window mismatch stops the query with
+│   │                               status:"scope-mismatch" + exit 1 (data under unconfirmed*, not
+│   │                               the normal fields) unless --accept-window-fallback is passed;
+│   │                               anything only-unverified (not confirmed-wrong) is status:
+│   │                               "ok-unverified" + warnings[], never indistinguishable from "ok".
+│   │                               "变动" (change) columns return null + ...DirectionUnknown:true
+│   │                               when the up/down icon+color can't be resolved — never +
+│   │                               --window <mode> virtual-display(default)|foreground|active|background|
+│   │                               isolated: unset ⇒ virtual-display (lib-automation-window.mjs); with no
+│   │                               virtual screen it falls back to the mode resolved below. An explicit
+│   │                               opencli mode reaches opencli unchanged; that fallback defaults to
+│   │                               `active` (tab selected, un-throttled, but never raises the OS
+│   │                               window — see opencli's own `--window` help text). --activate-chrome
+│   │                               true|false (2026-09-14: **default flipped to false**):
+│   │                               audience-geo/channels/audience-interests/site-keywords used to
+│   │                               auto-force `--window foreground` (a real OS-level raise, reported
+│   │                               as disruptive) whenever this was true (the old default); now that
+│   │                               it defaults to false, those four reports fall back to the same
+│   │                               `active` default as everything else — the 2026-09-13 scroll A/B
+│   │                               runs (SCROLL_AB_CONCLUSIONS) already showed `active`-level
+│   │                               visibility is enough for all four. Pass `--activate-chrome true`
+│   │                               to opt back into the stronger OS-level foreground guarantee.
+│   │                               Turning it off (now the default) never relaxes the correctness
+│   │                               bar on three of the four reports: a captured hidden read still
+│   │                               forces warnings[].page_hidden_during_capture, independent of
+│   │                               scrollUnverified. The one exception is audience-interests — its
+│   │                               own A/B sample was captured entirely under hidden:true with row
+│   │                               counts matching the visible run, so for that report alone a
+│   │                               hidden capture is recorded (pageWasHiddenDuringCapture,
+│   │                               hiddenCaptureRelaxed:true) but no longer independently forces
+│   │                               ok-unverified
+│   ├── dev/similarweb-scroll-ab.mjs  zero-scroll vs scrolled-to-bottom A/B for the four
+│   │                               scroll-gated reports above — written 2026-09-13, never run
+│   │                               (Chrome was occupied by Semrush's live testing). Defaults
+│   │                               --activate-chrome to false, same as the main script since
+│   │                               2026-09-14 (this note used to say "unlike the main script's
+│   │                               preserved true" — that was the pre-2026-09-14 default, now
+│   │                               stale). Writes a verdict but never edits SCROLL_AB_CONCLUSIONS
+│   │                               itself — that switch is a manual step
 │   ├── similarweb-keywords.mjs     seed keyword → thousands of related keywords.
 │   │                               The keyword-research entry point the pipeline was missing.
-│   │                               Column-major DOM table; parsing lives in lib-similarweb.mjs
+│   │                               Column-major DOM table; parsing lives in lib-similarweb.mjs.
+│   │                               Same scope-mismatch/ok-unverified/--accept-window-fallback
+│   │                               contract as similarweb-query.mjs, per seed
 │   ├── similarweb-batch.mjs        bulk traffic screen — one login, N domains, resumable;
-│   │                               emits evidence rows (value+stopReason+screenshot), no verdicts
+│   │                               emits evidence rows (value+stopReason+screenshot), no verdicts;
+│   │                               a confirmed window mismatch marks only that row
+│   │                               stopReason:"window-scope-mismatch" (auto-retried on resume,
+│   │                               other rows unaffected) unless --accept-window-fallback
 │   ├── semrush-batch.mjs           same, on the other card's quota (organic traffic).
 │   │                               Same domain-overview page as semrush-overview.mjs,
 │   │                               so the same scope rule applies: no --db ⇒ global

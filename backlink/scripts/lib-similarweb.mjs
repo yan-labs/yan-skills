@@ -22,6 +22,21 @@
  * 一个月访问 2 万的站被写成「国家排名第 28」，而且不报错。
  * **错报比漏报危险得多，所以宁可返回 null。**
  */
+import { normalizeWindowMode } from './opencli-core.mjs';
+
+/**
+ * `--window` 的统一入口，给不需要「按报表判断要不要强制 foreground」这类复杂
+ * 逻辑的调用方用（`similarweb-batch.mjs` / `similarweb-keywords.mjs`）——
+ * `similarweb-query.mjs` 自己的 `resolveWindowMode` 要按 report 决定要不要强制
+ * foreground，逻辑更复杂，留在它自己文件里，不复用这个。
+ *
+ * 2026-09-14：默认从 `background` 改成 `active`（选中标签页、不节流，但不夺
+ * OS 焦点）；显式传值原样透传（用 `normalizeWindowMode` 兜底校验，认不出的值
+ * 退回新默认 `active`，不是退回旧默认 `background`）。
+ */
+export function resolveSimilarwebWindowMode(windowFlag) {
+  return typeof windowFlag === 'string' && windowFlag ? normalizeWindowMode(windowFlag, 'active') : 'active';
+}
 
 /** 页面上出现的指标标签。`nextValue` 用它当扫描边界。 */
 export const SW_LABELS = [
@@ -47,7 +62,14 @@ export function parseNumber(value) {
   const belowBound = String(value ?? '').trim().match(/^[<＜]\s*([\d.,]+)\s*%?$/);
   if (belowBound) return Number(belowBound[1].replace(/,/g, ''));
   const normalized = String(value ?? '').replace(/,/g, '').trim();
-  const match = normalized.match(/^([\d.]+)\s*([KMB万亿])?$/i);
+  // **2026-09-13 第六轮实测确认：负数是真的会出现的合法值**——canva.com「显示
+  // 广告」的「热门媒体」变动列实测到过 "-96%"（这一期比上一期跌了 96%，不是
+  // 占位符，`-` 不是独占整个字符串，后面跟着数字）。旧正则 `[\d.]+` 不允许
+  // 前导负号，"-96" 直接判 null，静默丢真实的跌幅方向和数值——跟本文件顶部
+  // 「静默丢真实数据」的历史事故是同一类问题。这里允许可选的前导 `-`；
+  // 其它调用点（访问量/排名/关键词量这些从不该是负数的字段）目前也没有任何
+  // 真实样本出现过负号，放开这个口子不会把它们的正常正数值变成误判。
+  const match = normalized.match(/^(-?[\d.]+)\s*([KMB万亿])?$/i);
   if (!match) return null;
   const multipliers = { k: 1e3, m: 1e6, b: 1e9, 万: 1e4, 亿: 1e8 };
   const raw = Number(match[1]);
@@ -76,7 +98,7 @@ export function parseRank(value) {
  * 但解析失败」，假阳性打在这个信号最该被信任的地方；(b) `swText('不可用')`
  * 会把字符串 `不可用` 原样当成真实值放出去，`country: "不可用"`、
  * `topUrl: "不可用"` 就这么混进结果里。现在全文件只有这一条定义，
- * `swCell`/`swText`/`parseSignedPercent`/`parseDuration`/`auditColumns`
+ * `swCell`/`swText`/`parseSignedPercentCell`/`parseDuration`/`auditColumns`
  * 全部认它，不许各写各的。
  */
 const NO_VALUE = /^(?:[-—–]|N\/A|n\/a|--|不可用)$/i;
@@ -86,6 +108,20 @@ const NO_VALUE = /^(?:[-—–]|N\/A|n\/a|--|不可用)$/i;
 function isPlaceholder(value) {
   return NO_VALUE.test(String(value ?? '').trim());
 }
+
+/**
+ * site-keywords「变动」列实测到的两个非数字特殊值——**不是占位符（页面明说
+ * 没有），也不是解析失败，是第三种合法状态**：
+ *   - "NEW"：新词，没有上一期数据可比。
+ *   - "LOST"：2026-09-13 第二轮实跑 howolddoyoulook.com 实测到的第二个特殊
+ *     值——这个词丢失了排名/点击数据，跟"NEW"是同一类"没有可比较的变化量"，
+ *     只是方向相反。**实跑当场抓到过一次真实回归**：这两个值原来只在
+ *     `hint.special` 里认，而 dirHintOf 从来没打过 'lost' 标签，于是 8/23 行
+ *     的"LOST"被 partialLossColumns 当成解析失败报出去——直接检查文本本身
+ *     （不依赖 hint 有没有打对标签）才是不会再漏的做法。
+ * 两者都不计入涨跌方向的丢失/未知统计，也不计入"这一格解析出了负值"。
+ */
+const NON_COMPARABLE_CHANGE = /^(?:new|lost)$/i;
 
 /**
  * 从标签往后找第一个匹配的值。**碰到下一个标签、或碰到 `-`，立刻停。**
@@ -121,8 +157,89 @@ const RANKLINE = /^#?\s*[\d,]+$/;
  */
 const WINDOW_LINE = /^(?:最后\s*\d+\s*天数\s*\(As of[^)]*\)|[A-Za-z]{3}\s+\d{4}\s*-\s*[A-Za-z]{3}\s+\d{4}\s*\(\d+\s*月\))$/;
 
-function findWindowLabel(lines) {
+/** 导出给 similarweb-query/batch/keywords 用——这条判据本来只在「网站表现」页用,
+ * 但两种窗口行形态本身跟报表种类无关(审计实测四个报表全部能匹配上这两种形态之一:
+ * performance/channels 是「最后 N 天数」风格,audience-geo/site-keywords 是月份区间风格),
+ * 所以可以原样搬去做「这次落地的到底是哪个窗口」这件事的通用证据,不必每个报表各写一份。 */
+export function findWindowLabel(lines) {
   return lines.find((l) => WINDOW_LINE.test(l)) ?? null;
+}
+
+/** 请求 URL 里的窗口段(`28d`/`6m`/`3m`/`1m`)拆成 {amount, unit}。认不出就是 null。 */
+export function parseWindowSegment(seg) {
+  const m = String(seg ?? '').trim().match(/^(\d+)\s*([dwmy])$/i);
+  return m ? { amount: Number(m[1]), unit: m[2].toLowerCase(), raw: String(seg) } : null;
+}
+
+/** 页面自己渲染出来的窗口文案拆成 {amount, unit}——两种已知形态各拆一次。
+ * 「最后 N 天数」→ 天;「Mon YYYY - Mon YYYY (N 月)」→ 月。认不出就是 null。 */
+export function parseWindowLabelAmount(label) {
+  if (!label) return null;
+  const days = String(label).match(/^最后\s*(\d+)\s*天数/);
+  if (days) return { amount: Number(days[1]), unit: 'd', raw: label };
+  const months = String(label).match(/\((\d+)\s*月\)\s*$/);
+  if (months) return { amount: Number(months[1]), unit: 'm', raw: label };
+  return null;
+}
+
+/**
+ * 拿页面实际显示的窗口文案跟这次请求的窗口段比对。**这是证据,不是判决**——
+ * 面板把窗口从小站的 28d 悄悄放宽成 6m 是已知的正常产品行为(见
+ * lib-tools-share.mjs 的 routeWindow 大段注释),不能因为不一致就判定这次查询
+ * 失败,那会把大量小站查询变成永远超时。这里只负责说清楚「请求的是什么、
+ * 页面实际显示的是什么、两者是否一致」,一致与否交给调用方决定要不要拦截、
+ * 要不要在输出里标注。
+ *
+ * 返回 `matches: null` 代表两边至少有一边解析不出来(页面没显示窗口文案,或者
+ * 窗口段本身不是常见形态),这种「读不到」不能当成「不一致」——见
+ * windowUnverified 的用法。
+ */
+export function compareWindowToRequest(windowLabel, requestedSeg) {
+  const requested = parseWindowSegment(requestedSeg);
+  const landed = parseWindowLabelAmount(windowLabel);
+  const matches = requested && landed ? (requested.amount === landed.amount && requested.unit === landed.unit) : null;
+  return { requested, landed, matches };
+}
+
+/** 页面顶部过滤条里「设备」筛选器目前唯一在用的取值——本仓库所有 Similarweb 脚本
+ * 都只请求 webSource=Total,页面上对应显示为灰显、不可点的「所有流量」
+ * (审计截图实测)。只在这一个值上做弱信号核对:文本没读到就是 unverified,
+ * 不是「切换成了别的设备口径」——设备选择器本身在当前账号档位下是锁死的。 */
+const DEVICE_LABEL_TOTAL = '所有流量';
+/** 国家选择器实测显示「全球」,但审计没能定位到一个稳定的 CSS 选择器/唯一文本
+ * 锚点(「全球」这个词也会以「全球排名」等复合形式出现在别处,纯文本匹配只能是
+ * 弱证据)。只在 countryApplicable 为真时才检查;audience-geo 这个 tab 本身没有
+ * 国家筛选器,999 只是路由位置参数,999 对这里不生效——不要在没有筛选器的报表
+ * 上假装核对出了什么。 */
+const COUNTRY_LABEL_GLOBAL = '全球';
+
+/**
+ * 时间/国家/设备三个筛选器「页面自己怎么说」的证据,供调用方跟请求参数比对、
+ * 写进输出。**只给证据,不做判决**——具体报表要不要拿 windowMatchesRequest===false
+ * 当成失败,是调用方的选择(见 similarweb-query.mjs 里的用法和注释)。
+ *
+ * `lines` 是已经按行切分、trim 过、去空行的 bodyText(跟 deriveMetrics 等函数
+ * 吃的是同一种输入),不是原始字符串。
+ */
+export function deriveScopeEvidence(lines, { requestedWindowSeg = null, countryApplicable = true } = {}) {
+  const windowLabel = findWindowLabel(lines);
+  const window = compareWindowToRequest(windowLabel, requestedWindowSeg);
+  const deviceLabelObserved = lines.includes(DEVICE_LABEL_TOTAL);
+  const countryLabelObserved = countryApplicable ? lines.includes(COUNTRY_LABEL_GLOBAL) : null;
+  return {
+    windowLabel,
+    windowRequested: requestedWindowSeg,
+    windowMatchesRequest: window.matches,
+    // 读不到(两边任一边解析不出来)是「不知道」,不是「不一致」——见 compareWindowToRequest。
+    windowUnverified: windowLabel === null || window.matches === null,
+    countryApplicable,
+    countryLabelObserved,
+    // 不适用的报表(audience-geo)不算 unverified——那是「这个问题对这张报表没有意义」,
+    // 不是「查不到证据」,两者不该用同一个信号表达。
+    countryUnverified: countryApplicable ? !countryLabelObserved : false,
+    deviceLabelObserved,
+    deviceUnverified: !deviceLabelObserved,
+  };
 }
 
 /** 「网站表现」页的指标。**只有这一页有**——在渠道页上跑它会把筛选器里的字当数值抓。 */
@@ -183,6 +300,493 @@ export function deriveChannels(lines) {
   return { totalFromChannels: total || null, sharePercent, visits };
 }
 
+/**
+ * ============================================================================
+ * "网站表现"页 notCovered 区块的离线补抓——2026-09-13 第五轮。
+ *
+ * 背景：协调者要求"完全离线，用已保存的实跑输出/DOM 记录实现"，不许开
+ * 浏览器、不许猜结构。下面这批函数全部只依据本轮之前实跑 howolddoyoulook.com
+ * 时**已经拿到、已经在会话记录里**的真实 rawText 片段写成——不是凭印象编的
+ * 形状。每个函数吃的 `lines` 跟 `deriveMetrics` 一样：已经按 `\n+` 切分、
+ * trim 过、`filter(Boolean)` 去掉空行的 bodyText。
+ *
+ * 四态判定（每个区块函数的 `status` 字段）：
+ *   'data'             —— 解析出了具体数值/条目，形状跟已确认的真实样本一致。
+ *   'legit-empty'      —— 命中了页面自己正面渲染的空态文案（不是"读到 0 条"）。
+ *   'locked'           —— 命中"解锁/upgrade"这类付费墙提示（本轮的真实样本
+ *                         没有任何一个子区块落在这一态，检测逻辑仍然写了，
+ *                         避免真遇到时被误判成 unresolved 或者更糟地被当成
+ *                         confirmed-absent）。
+ *   'confirmed-absent' —— 连锚点文字都没找到，这个区块本身没有渲染出来。
+ *   'unresolved'       —— 锚点找到了，但接下来的内容既不匹配已确认的数据
+ *                         形状，也不匹配已知的空态/锁定文案——**不猜**，原样
+ *                         报 unresolved，调用方据此保持 ok-unverified，不能
+ *                         当成 confirmed-absent（区块明明存在）也不能当成
+ *                         data（没有可信的解析结果）。
+ * ============================================================================
+ */
+
+/** 页面自己正面渲染的两种"没有结果"文案——分别在"热门付费非品牌搜索词"
+ * （没有数据时）、"热门外链行业"、"出站流量·热门链接目的地"三处真实样本里
+ * 确认过，是同一套两行组合："没有结果" + 紧跟一句"尝试……"的引导语。 */
+const EMPTY_RESULT_TEXT = /^没有结果$/;
+const EMPTY_RESULT_HINT = /^尝试(?:其他网站、日期范围或国家\/地区|扩大您的参数量或搜索其他内容)。?$/;
+/** 本轮唯一实测到的付费墙提示（"网站表现"页历史趋势图旁的"解锁长达 15 个月
+ * 的历史数据"），泛化成一条通用检测，供所有子区块复用；不是任何一个已实现
+ * 子区块本身命中过的态。 */
+const LOCK_HINT = /解锁|upgrade|需要升级|仅限.*(?:套餐|计划|版)/i;
+/** 已知会出现在区块内部、但跟这个区块本身的数据无关的噪声行（日期范围、
+ * 国家/设备筛选器回显文案）——先滤掉再定位数据，比每个函数各写一套判断稳。 */
+const OVERVIEW_NOISE_LINE = /^(全球|所有流量|Include Subdomains|反馈|PoP|年同比)$/;
+function isOverviewNoiseLine(line) {
+  // 「XX构成网站流量的 YY%」这句整体占比句子——2026-09-13 第六轮用 canva.com
+  // 实测「社交」区块时发现：这句话跟标签+坐标轴+数据那套形状的区块紧挨着，
+  // 不滤掉的话会被 deriveLeadingLabelsTrailingValues 误当成第一个"标签"
+  // （它本身不是百分比专属格式，被判成"非数值 token"）。
+  return OVERVIEW_NOISE_LINE.test(line) || /\d{4}/.test(line) || /^Last \d+ days/i.test(line) || /As of/.test(line)
+    || /构成网站流量的/.test(line);
+}
+function isKnownEmptyBlock(scopeLines) {
+  const text = scopeLines.join('\n');
+  if (/抱歉，未找到与该搜索匹配的内容|没有足够的数据|Not enough data/.test(text)) return true;
+  for (let i = 0; i < scopeLines.length - 1; i++) {
+    if (EMPTY_RESULT_TEXT.test(scopeLines[i]) && EMPTY_RESULT_HINT.test(scopeLines[i + 1])) return true;
+  }
+  return false;
+}
+
+/** 「XX构成网站流量的 YY%」——"网站表现"页 5 个已确认的整体占比句子，
+ * 分别挂在自然搜索/付费搜索/外链/社交/展示广告 5 个小节里，是比下面各种
+ * 表格提取更简单、更不容易出错的信号源，跟表格类字段分开报，互相印证。 */
+const OVERVIEW_CHANNEL_SHARE_SENTENCE_PREFIX = {
+  organicSearch: '自然搜索构成网站流量的',
+  paidSearch: '付费搜索构成网站流量的',
+  referral: '外链流量构成网站流量的',
+  social: '社交流量构成网站流量的',
+  display: '展示型广告构成网站流量的',
+};
+function findChannelShareSentence(lines, key) {
+  const prefix = OVERVIEW_CHANNEL_SHARE_SENTENCE_PREFIX[key];
+  const re = new RegExp(`^${prefix}\\s*([<＜]?\\s*[\\d.]+\\s*%)$`);
+  for (const line of lines) {
+    const m = line.match(re);
+    if (m) return swCell(m[1], { percent: true });
+  }
+  return null;
+}
+
+/**
+ * 设备分发（Desktop/Mobile 占比）。实测原文（已脱敏无需脱敏——这条本身
+ * 就是通用文案）：
+ *   设备分发 / Aug 2026 - Sep 2026 / 全球 / Desktop / 20.30% / Mobile Web / 79.70%
+ * 噪声行（日期范围、"全球"）滤掉之后就是干净的 (标签, 百分比) 交替对，
+ * 停在"全球排名"这个下一个已知锚点之前。
+ */
+function deriveOverviewDeviceSplit(lines) {
+  const anchorIdx = lines.indexOf('设备分发');
+  if (anchorIdx < 0) return { status: 'confirmed-absent', devices: null };
+  const stopIdx = lines.indexOf('全球排名', anchorIdx);
+  const scopeEnd = stopIdx >= 0 ? stopIdx : Math.min(lines.length, anchorIdx + 12);
+  const scope = lines.slice(anchorIdx + 1, scopeEnd);
+  if (LOCK_HINT.test(scope.join('\n'))) return { status: 'locked', devices: null };
+  if (isKnownEmptyBlock(scope)) return { status: 'legit-empty', devices: null };
+  const cleaned = scope.filter((l) => !isOverviewNoiseLine(l));
+  if (cleaned.length === 0 || cleaned.length % 2 !== 0) return { status: 'unresolved', devices: null };
+  const devices = [];
+  for (let i = 0; i + 1 < cleaned.length; i += 2) {
+    const label = cleaned[i];
+    const value = cleaned[i + 1];
+    if (!/^[\d.]+\s*%$/.test(value)) return { status: 'unresolved', devices: null };
+    devices.push({ label, percent: swCell(value, { percent: true }) });
+  }
+  return { status: 'data', devices };
+}
+
+/**
+ * 品牌 vs.非品牌占比。实测原文（trim+filter(Boolean) 之后，原来夹在中间的
+ * 空白行已经被滤掉）：
+ *   品牌 vs.非品牌 / Aug 2026 / 全球 / 所有流量 / 品牌 / 0% / 非品牌 / 100%
+ * 按精确 token "品牌"/"非品牌" 定位，不受前面噪声行干扰——不像设备分发要
+ * 靠位置配对，这里两个标签本身就是可靠锚点。
+ */
+function deriveOverviewBrandShare(lines) {
+  const anchorIdx = lines.indexOf('品牌 vs.非品牌');
+  if (anchorIdx < 0) return { status: 'confirmed-absent', brandPercent: null, nonBrandPercent: null };
+  const stopIdx = lines.indexOf('查看搜索概况', anchorIdx);
+  const scopeEnd = stopIdx >= 0 ? stopIdx : Math.min(lines.length, anchorIdx + 10);
+  const scope = lines.slice(anchorIdx + 1, scopeEnd);
+  if (LOCK_HINT.test(scope.join('\n'))) return { status: 'locked', brandPercent: null, nonBrandPercent: null };
+  if (isKnownEmptyBlock(scope)) return { status: 'legit-empty', brandPercent: null, nonBrandPercent: null };
+  const brandIdx = scope.indexOf('品牌');
+  const nonBrandIdx = scope.indexOf('非品牌');
+  if (brandIdx < 0 || nonBrandIdx < 0) return { status: 'unresolved', brandPercent: null, nonBrandPercent: null };
+  const findPercentAfter = (idx) => {
+    for (let i = idx + 1; i < Math.min(scope.length, idx + 4); i++) {
+      if (/^[\d.]+\s*%$/.test(scope[i])) return swCell(scope[i], { percent: true });
+    }
+    return undefined;
+  };
+  const brandPercent = findPercentAfter(brandIdx);
+  const nonBrandPercent = findPercentAfter(nonBrandIdx);
+  if (brandPercent === undefined || nonBrandPercent === undefined) {
+    return { status: 'unresolved', brandPercent: null, nonBrandPercent: null };
+  }
+  return { status: 'data', brandPercent, nonBrandPercent };
+}
+
+/**
+ * 热门自然/付费非品牌搜索词 Top5。实测原文（自然，有数据）：
+ *   热门自然非品牌搜索词 / Aug 2026 / 全球 / 所有流量 /
+ *   how old do i lookAds / age guesserAds / ... （5 个，"Ads" 是页面自己拼接
+ *   的徽标文字后缀，不是关键词本身的一部分，剥掉） /
+ *   52.30% / 12.97% / 4.95% / 3.01% / 2.59% （份额，5 个）/
+ *   10.60% / 494.59% / 154.55% / - / - （变动，5 个，"-" 表示无可比数据）/
+ *   查看更多搜索词
+ * 实测原文（付费，没有数据）：
+ *   热门付费非品牌搜索词 / 没有结果 / 尝试扩大您的参数量或搜索其他内容。
+ * 变动列这里**没有配色/箭头 DOM 证据**（纯文本卡片），不能默认当正数——
+ * 每一条非"-"的变动都标 changePercentDirectionUnknown:true，跟其它已经用
+ * DOM 判据的表格区分开，不能装得比实际证据更确定。
+ */
+function deriveOverviewTopKeywords(lines, anchor, stopAnchor, maxWindow = 40) {
+  const anchorIdx = lines.indexOf(anchor);
+  if (anchorIdx < 0) return { status: 'confirmed-absent', keywords: null };
+  const stopIdx = stopAnchor ? lines.indexOf(stopAnchor, anchorIdx) : -1;
+  const scopeEnd = stopIdx >= 0 ? stopIdx : Math.min(lines.length, anchorIdx + maxWindow);
+  const scope = lines.slice(anchorIdx + 1, scopeEnd).filter((l) => !isOverviewNoiseLine(l));
+  if (LOCK_HINT.test(scope.join('\n'))) return { status: 'locked', keywords: null };
+  if (isKnownEmptyBlock(scope)) return { status: 'legit-empty', keywords: null };
+  const isPercent = (s) => /^[\d.]+\s*%$/.test(s);
+  const isChangeToken = (s) => s === '-' || /^[\d.]+\s*%$/.test(s);
+  let i = 0;
+  const keywordLines = [];
+  while (i < scope.length && !isPercent(scope[i])) { keywordLines.push(scope[i]); i += 1; }
+  const n = keywordLines.length;
+  if (n === 0) return { status: 'unresolved', keywords: null };
+  const shareLines = scope.slice(i, i + n);
+  const changeLines = scope.slice(i + n, i + 2 * n);
+  if (shareLines.length !== n || changeLines.length !== n
+    || !shareLines.every(isPercent) || !changeLines.every(isChangeToken)) {
+    return { status: 'unresolved', keywords: null };
+  }
+  const keywords = keywordLines.map((raw, idx) => {
+    const keyword = raw.replace(/Ads$/, '');
+    const changeRaw = changeLines[idx];
+    return {
+      keyword,
+      sharePercent: swCell(shareLines[idx], { percent: true }),
+      changePercent: swCell(changeRaw, { percent: true }),
+      changePercentDirectionUnknown: changeRaw !== '-',
+    };
+  });
+  return { status: 'data', keywords };
+}
+
+/**
+ * 「域/共享/变动」这类 3 列、按列渲染的小部件通用解析。实测原文（"领先
+ * 广告主"，5 行，最扎实的样本）：
+ *   域 / adobe.com / akakce.com / booking.com / dell.com / delltechnologies.com /
+ *   共享 / 0% / 0% / 0% / 0% / 0% / 变动 / - / - / - / - / -
+ * 「热门外链网站」是同页面相邻区块、同一形状（只是这次样本只有 1 行：
+ * 域=Referral / 共享=100% / 变动=-），视为同一套组件复用，不是另猜的形状。
+ * 「地理 Top5」的列头文字不同（国家/地区、流量来源、变动）但结构完全一样。
+ *
+ * **2026-09-13 第六轮用 canva.com 实测追加确认**：col1 的列头文字**不是
+ * 只有"域"一种**——「出站流量·热门链接目的地」实测是英文 "Domain"，
+ * 「显示广告·热门媒体」实测是 "发布商"，三种写法对应的是同一个"这一行的
+ * 标识列"概念，只是不同小部件各自的文案。`col1Header` 因此改成接受
+ * 字符串或字符串数组，数组时命中其中任意一个都算找到表头。变动列也是
+ * 同一轮确认到两件事：(1) 真的会出现负数（canva 热门媒体 "-96%"，已经
+ * 在 `parseNumber` 里放开负号支持）；(2) 会出现中文"新"（跟 site-keywords
+ * 表格的英文 "NEW" 是同一个概念——这一行上一期没有可比数据），跟 "-"
+ * （没有变动/没有比较）是两种不同的语义，不能混在一起都变成 null 之后
+ * 分不清是"没有变动"还是"没有可比数据"。
+ */
+const OVERVIEW_NON_COMPARABLE_CHANGE = /^(?:new|新)$/i;
+function deriveColumnTripleBlock(lines, { anchor, col1Header, col2Header, col3Header, stopAnchor, maxWindow = 40 }) {
+  const anchorIdx = lines.indexOf(anchor);
+  if (anchorIdx < 0) return { status: 'confirmed-absent', rows: null };
+  const stopIdx = stopAnchor ? lines.indexOf(stopAnchor, anchorIdx) : -1;
+  const scopeEnd = stopIdx >= 0 ? stopIdx : Math.min(lines.length, anchorIdx + maxWindow);
+  const scope = lines.slice(anchorIdx + 1, scopeEnd).filter((l) => !isOverviewNoiseLine(l));
+  if (LOCK_HINT.test(scope.join('\n'))) return { status: 'locked', rows: null };
+  if (isKnownEmptyBlock(scope)) return { status: 'legit-empty', rows: null };
+  const col1Candidates = [].concat(col1Header);
+  const h1 = scope.findIndex((l) => col1Candidates.includes(l));
+  const h2 = h1 >= 0 ? scope.indexOf(col2Header, h1 + 1) : -1;
+  const h3 = h2 >= 0 ? scope.indexOf(col3Header, h2 + 1) : -1;
+  if (h1 < 0 || h2 < 0 || h3 < 0) return { status: 'unresolved', rows: null };
+  const n = h2 - h1 - 1;
+  const col1 = scope.slice(h1 + 1, h2);
+  const col2 = scope.slice(h2 + 1, h3);
+  const col3 = scope.slice(h3 + 1, h3 + 1 + n);
+  if (n === 0 || col2.length !== n || col3.length !== n) return { status: 'unresolved', rows: null };
+  const rows = col1.map((label, idx) => {
+    const changeRaw = col3[idx];
+    const isSpecial = OVERVIEW_NON_COMPARABLE_CHANGE.test(changeRaw);
+    return {
+      label: swText(label),
+      sharePercent: swCell(col2[idx], { percent: true }),
+      changePercent: isSpecial ? null : swCell(changeRaw, { percent: true }),
+      changePercentDirectionUnknown: changeRaw !== '-' && !isSpecial,
+      // "新"/"New"：这一行上一期没有可比数据（跟 site-keywords 的 NEW/LOST
+      // 是同一类第三态），不是"没有变动"，也不是解析失败。
+      changeIsNew: isSpecial || null,
+    };
+  });
+  return { status: 'data', rows };
+}
+
+/**
+ * 「网站类别/流量份额」这类 2 列（没有变动列）的小部件——2026-09-13 第六轮
+ * 用 canva.com 实测确认的真实形态（「热门外链行业」，之前只见过它的空态
+ * 样本，误以为跟"领先广告主"是同一套 3 列组件，实测发现少一列）：
+ *   网站类别 / Computers Electronics and Technology - Other / Education /
+ *   Graphics Multimedia and Web Design / Search Engines / Photography /
+ *   流量份额 / 19.73% / 12.60% / 11.12% / 7.81% / 4.85% / 查看更多外链行业
+ */
+function deriveColumnPairBlock(lines, { anchor, col1Header, col2Header, stopAnchor, maxWindow = 40 }) {
+  const anchorIdx = lines.indexOf(anchor);
+  if (anchorIdx < 0) return { status: 'confirmed-absent', rows: null };
+  const stopIdx = stopAnchor ? lines.indexOf(stopAnchor, anchorIdx) : -1;
+  const scopeEnd = stopIdx >= 0 ? stopIdx : Math.min(lines.length, anchorIdx + maxWindow);
+  const scope = lines.slice(anchorIdx + 1, scopeEnd).filter((l) => !isOverviewNoiseLine(l));
+  if (LOCK_HINT.test(scope.join('\n'))) return { status: 'locked', rows: null };
+  if (isKnownEmptyBlock(scope)) return { status: 'legit-empty', rows: null };
+  const col1Candidates = [].concat(col1Header);
+  const h1 = scope.findIndex((l) => col1Candidates.includes(l));
+  const h2 = h1 >= 0 ? scope.indexOf(col2Header, h1 + 1) : -1;
+  if (h1 < 0 || h2 < 0) return { status: 'unresolved', rows: null };
+  const n = h2 - h1 - 1;
+  const col1 = scope.slice(h1 + 1, h2);
+  const col2 = scope.slice(h2 + 1, h2 + 1 + n);
+  if (n === 0 || col2.length !== n) return { status: 'unresolved', rows: null };
+  const rows = col1.map((label, idx) => ({ label: swText(label), sharePercent: swCell(col2[idx], { percent: true }) }));
+  return { status: 'data', rows };
+}
+
+/**
+ * 只确认过空态样本、从没见过"有数据"长什么样的区块——本轮（第六轮）用
+ * canva.com 实测把「热门外链行业」「出站流量·热门链接目的地」「社交」
+ * 三个原本挂在这里的区块都换成了真实解析（分别见
+ * `deriveColumnPairBlock`/`deriveColumnTripleBlock`/
+ * `deriveOverviewSocialBreakdown`），这个函数保留给下一个"只见过空态"的
+ * 区块用——命中已知空态就是 legit-empty（这本身是一个终态，不是"没做完"）；
+ * 不是空态、也不匹配任何已知形态时，如实报 unresolved。
+ */
+function deriveEmptyOnlyBlock(lines, anchor, maxWindow = 20) {
+  const anchorIdx = lines.lastIndexOf(anchor);
+  if (anchorIdx < 0) return { status: 'confirmed-absent' };
+  const scope = lines.slice(anchorIdx + 1, Math.min(lines.length, anchorIdx + maxWindow));
+  if (LOCK_HINT.test(scope.join('\n'))) return { status: 'locked' };
+  if (isKnownEmptyBlock(scope)) return { status: 'legit-empty' };
+  return { status: 'unresolved' };
+}
+
+/**
+ * "标签连续出现，然后是若干坐标轴刻度噪声，然后是紧挨着停止锚点之前的
+ * N 个数据值"——渠道摘要迷你图和社交细分列表共用的形状。**不需要知道
+ * 标签的固定词表**：标签就是"从 scope 开头数，数到第一个百分比/N-A 记号
+ * 之前"的那些行（不管是"直接/自然搜索/…"这种固定枚举，还是"Youtube/
+ * Facebook/Linkedin/…"这种因站而异的社媒平台名，规则完全一样）——数出来
+ * 多少个 N，真正的数据就是紧挨着停止锚点之前的最后 N 个百分比/N-A 记号，
+ * 不用管中间夹了几个坐标轴刻度。2026-09-13 第六轮用 canva.com 实测确认：
+ * 「社交」区块的平台名两次读到的都不一样（一次是 Instagram，一次是
+ * Linkedin）——如果用固定词表会漏，这也是把 `deriveOverviewChannelSummary`
+ * 原来那份写死的 `OVERVIEW_CHANNEL_LABELS_ZH` 词表换成这个通用算法的
+ * 直接原因（这个词表本身也一样得不到"以后不会有新渠道类型"的保证）。
+ */
+function deriveLeadingLabelsTrailingValues(scope) {
+  const isValueToken = (s) => /^[\d.]+\s*%$/.test(s) || /^N\/A$/i.test(s);
+  let n = 0;
+  while (n < scope.length && !isValueToken(scope[n])) n += 1;
+  if (n === 0 || scope.length < 2 * n) return null;
+  const labels = scope.slice(0, n);
+  const tail = scope.slice(-n);
+  if (!tail.every(isValueToken)) return null;
+  return { labels, values: tail };
+}
+
+/**
+ * 渠道摘要（"流量来源渠道"迷你饼图/条形图）。实测原文：
+ *   流量来源渠道 / Last 28 days.. / 全球 / 所有流量 /
+ *   直接 / 自然搜索 / 付费搜索 / 外链 / 自然社媒 / 付费社交媒体 / 生成式 AI /
+ *   0% / 20% / 40% / 60% （图表坐标轴刻度，数量不固定）/
+ *   26.62% / 44.39% / N/A / 27.46% / 0.89% / N/A / 0.64% （数据，7 个）/
+ *   查看完整概况
+ * "流量来源渠道" 这个词在侧边导航栏里也出现过一次（纯链接文字，不是这个
+ * 区块）——用 `lastIndexOf` 跳过它，取最后一次出现，也就是真正的区块标题。
+ * 标签个数用 `deriveLeadingLabelsTrailingValues` 通用算出，不再依赖固定
+ * 渠道名词表（2026-09-13 第六轮改，理由见该函数的注释）。
+ */
+function deriveOverviewChannelSummary(lines) {
+  const anchorIdx = lines.lastIndexOf('流量来源渠道');
+  if (anchorIdx < 0) return { status: 'confirmed-absent', channels: null };
+  const stopIdx = lines.indexOf('查看完整概况', anchorIdx);
+  if (stopIdx < 0) return { status: 'unresolved', channels: null };
+  const scope = lines.slice(anchorIdx + 1, stopIdx).filter((l) => !isOverviewNoiseLine(l));
+  if (LOCK_HINT.test(scope.join('\n'))) return { status: 'locked', channels: null };
+  if (isKnownEmptyBlock(scope)) return { status: 'legit-empty', channels: null };
+  const parsed = deriveLeadingLabelsTrailingValues(scope);
+  if (!parsed) return { status: 'unresolved', channels: null };
+  const channels = parsed.labels.map((label, idx) => ({ label, sharePercent: swCell(parsed.values[idx], { percent: true }) }));
+  return { status: 'data', channels };
+}
+
+/**
+ * 「社交」区块的平台细分列表——2026-09-13 第六轮用 canva.com 实测确认
+ * 真实结构（之前只见过 howolddoyoulook.com 的空态样本）：
+ *   社交流量构成网站流量的 6.21% / Last 28 days.. / 全球 / 所有流量 /
+ *   Youtube / Facebook / Facebook Messenger / Instagram / Pinterest / Other /
+ *   0% / 50% / 100% （坐标轴刻度）/
+ *   48.39% / 44.09% / 3.36% / 1.95% / 1.62% / 0.59% （数据）/ 查看完整概况
+ * 跟渠道摘要同一个形状，但平台名是开放词表（因站而异，两次实测就见过
+ * 不同的平台组合），用 `deriveLeadingLabelsTrailingValues` 而不是固定词表。
+ * 停止锚点"查看完整概况"这个词在"流量来源渠道"区块里也出现过一次——
+ * 用 `indexOf(..., anchorIdx)` 从社交区块自己的锚点之后开始找，不会挑到
+ * 前面那次。
+ */
+function deriveOverviewSocialBreakdown(lines) {
+  const anchorIdx = lines.lastIndexOf('社交');
+  if (anchorIdx < 0) return { status: 'confirmed-absent', platforms: null };
+  const stopIdx = lines.indexOf('查看完整概况', anchorIdx);
+  if (stopIdx < 0) return { status: 'unresolved', platforms: null };
+  const scope = lines.slice(anchorIdx + 1, stopIdx).filter((l) => !isOverviewNoiseLine(l));
+  if (LOCK_HINT.test(scope.join('\n'))) return { status: 'locked', platforms: null };
+  if (isKnownEmptyBlock(scope)) return { status: 'legit-empty', platforms: null };
+  const parsed = deriveLeadingLabelsTrailingValues(scope);
+  if (!parsed) return { status: 'unresolved', platforms: null };
+  const platforms = parsed.labels.map((label, idx) => ({ label, sharePercent: swCell(parsed.values[idx], { percent: true }) }));
+  return { status: 'data', platforms };
+}
+
+/**
+ * "网站表现"页汇总入口——把上面这些子区块拼在一起，加上 5 句"构成网站
+ * 流量的"整体占比句子。`domain` 可选，不传也能工作（各子函数不依赖它），
+ * 只有调用方想要更保险的话可以传（目前这批函数都没用到，占位保留接口一致）。
+ */
+export function deriveOverviewSupplementalBlocks(lines) {
+  return {
+    deviceSplit: deriveOverviewDeviceSplit(lines),
+    brandVsNonBrand: deriveOverviewBrandShare(lines),
+    topOrganicKeywords: deriveOverviewTopKeywords(lines, '热门自然非品牌搜索词', '查看更多搜索词'),
+    topPaidKeywords: deriveOverviewTopKeywords(lines, '热门付费非品牌搜索词', null),
+    referralSites: deriveColumnTripleBlock(lines, {
+      anchor: '热门外链网站', col1Header: '域', col2Header: '共享', col3Header: '变动', stopAnchor: 'See more referrals',
+    }),
+    // 2026-09-13 第六轮用 canva.com 实测确认真实形态（之前只见过空态）：
+    // 只有 2 列（网站类别/流量份额），没有变动列——跟 3 列组件不是同一个形状。
+    referralIndustries: deriveColumnPairBlock(lines, {
+      anchor: '热门外链行业', col1Header: '网站类别', col2Header: '流量份额', stopAnchor: '查看更多外链行业',
+    }),
+    // 2026-09-13 第六轮用 canva.com 实测确认：3 列结构没错，但列头是英文
+    // "Domain"，不是"域"——跟"热门外链网站"/"领先广告主"的中文列头是两种
+    // 写法，`col1Header` 传数组兼容两种。
+    outboundDestinations: deriveColumnTripleBlock(lines, {
+      anchor: '热门链接目的地', col1Header: ['域', 'Domain'], col2Header: '共享', col3Header: '变动', stopAnchor: '查看更多导出链接',
+    }),
+    displayAdvertisers: deriveColumnTripleBlock(lines, {
+      anchor: '领先广告主', col1Header: '域', col2Header: '共享', col3Header: '变动', stopAnchor: '查看更多发布商数据',
+    }),
+    // 2026-09-13 第六轮新增：「显示广告」自己的「热门媒体」子区块，跟上面
+    // 「导出广告→领先广告主」是页面上两个不同的小部件（本轮之前误把
+    // "displayAdvertisers" 当成覆盖了这一块，实际上从来没抓过它）——3 列，
+    // 列头是"发布商"，canva.com 实测样本还带出了"新"这个特殊变动值
+    // （见 OVERVIEW_NON_COMPARABLE_CHANGE）和负数变动（"-96%"）。
+    topMediaPublishers: deriveColumnTripleBlock(lines, {
+      anchor: '热门媒体', col1Header: '发布商', col2Header: '共享', col3Header: '变动', stopAnchor: '查看更多媒体',
+    }),
+    // 2026-09-13 第六轮用 canva.com 实测确认真实形态（之前只见过空态）——
+    // 跟渠道摘要同一个"标签+坐标轴噪声+末尾 N 个值"形状，见
+    // deriveOverviewSocialBreakdown 的注释。
+    socialBreakdown: deriveOverviewSocialBreakdown(lines),
+    geoTop5: deriveColumnTripleBlock(lines, {
+      anchor: '热门国家/地区', col1Header: '国家/地区', col2Header: '流量来源', col3Header: '变动', stopAnchor: '查看更多国家/地区',
+    }),
+    channelSummary: deriveOverviewChannelSummary(lines),
+    // 5 句整体占比——跟上面的表格类区块分开报，这是页面另一处更简单、更
+    // 可信的信号源，两边可能出现却对不上（值得留意但不是这里要处理的事）。
+    channelShareOverall: {
+      organicSearch: findChannelShareSentence(lines, 'organicSearch'),
+      paidSearch: findChannelShareSentence(lines, 'paidSearch'),
+      referral: findChannelShareSentence(lines, 'referral'),
+      social: findChannelShareSentence(lines, 'social'),
+      display: findChannelShareSentence(lines, 'display'),
+    },
+  };
+}
+
+/**
+ * 「受众兴趣」tab 的"行业分布"饼图。实测原文：
+ *   行业分布 / 计算机电子技术 > 社交网络和在线社区 / 计算机电子技术 > 搜索引擎 /
+ *   艺术与娱乐 > 电视、电影和流媒体 / 计算机电子技术 > 电子邮件 /
+ *   AI Chatbots and Tools / 其它 （6 个分类名，自由文本，没有固定词表）/
+ *   howolddoyoulook.com （查询域名自己的图例行）/
+ *   30.70% / 18.43% / 14.53% / 12.09% / 10.99% / 13.26% （6 个百分比）/
+ *   话题分布
+ * 分类名是自由文本，不能像 channelSummary 那样靠"已知词表数出 n"，但域名
+ * 图例行是可靠边界——传 `domain` 时直接找这一行；不传时退化成"从
+ * `话题分布` 往前数连续的百分比个数 n，再往前一行当图例、之前 n 行当分类名"，
+ * 两条路径在真实样本上给出同一个结果（已用真实样本核对过），互为印证。
+ */
+function deriveOverviewIndustryDistribution(lines, { domain } = {}) {
+  const anchorIdx = lines.indexOf('行业分布');
+  if (anchorIdx < 0) return { status: 'confirmed-absent', industries: null };
+  const stopIdx = lines.indexOf('话题分布', anchorIdx);
+  if (stopIdx < 0) return { status: 'unresolved', industries: null };
+  const scope = lines.slice(anchorIdx + 1, stopIdx);
+  if (LOCK_HINT.test(scope.join('\n'))) return { status: 'locked', industries: null };
+  if (isKnownEmptyBlock(scope)) return { status: 'legit-empty', industries: null };
+  const isPercent = (s) => /^[\d.]+\s*%$/.test(s);
+  let legendIdx = domain ? scope.indexOf(domain) : -1;
+  if (legendIdx < 0) {
+    let n = 0;
+    while (n < scope.length && isPercent(scope[scope.length - 1 - n])) n += 1;
+    if (n === 0) return { status: 'unresolved', industries: null };
+    legendIdx = scope.length - n - 1;
+    if (legendIdx < 0 || isPercent(scope[legendIdx])) return { status: 'unresolved', industries: null };
+  }
+  const percentLines = scope.slice(legendIdx + 1);
+  const labelLines = scope.slice(0, legendIdx);
+  if (percentLines.length === 0 || labelLines.length !== percentLines.length || !percentLines.every(isPercent)) {
+    return { status: 'unresolved', industries: null };
+  }
+  const industries = labelLines.map((label, idx) => ({ category: label, percent: swCell(percentLines[idx], { percent: true }) }));
+  return { status: 'data', industries };
+}
+
+/**
+ * 「受众兴趣」tab 的"话题分布"词云。实测原文：
+ *   话题分布 / share / social / social media / video / youtube videos / ... /
+ *   article （20 个左右的词）/ 导出 Excel
+ * 词云的字号大小是 CSS 视觉权重，不是文本节点——**这里只能拿到词表本身，
+ * 拿不到权重/排名**，如实标注在 `topicsOrderConfidence` 里，不假装这是一份
+ * 排好序的排行榜。第一个词"share"是不是词云本身的词、还是列头残留，本轮
+ * 无法确认，原样保留，不擅自剔除。
+ */
+function deriveOverviewTopicCloud(lines) {
+  const anchorIdx = lines.indexOf('话题分布');
+  if (anchorIdx < 0) return { status: 'confirmed-absent', topics: null };
+  const stopIdx = lines.indexOf('导出 Excel', anchorIdx);
+  const scopeEnd = stopIdx >= 0 ? stopIdx : Math.min(lines.length, anchorIdx + 40);
+  const scope = lines.slice(anchorIdx + 1, scopeEnd).filter((l) => !isOverviewNoiseLine(l));
+  if (LOCK_HINT.test(scope.join('\n'))) return { status: 'locked', topics: null };
+  if (isKnownEmptyBlock(scope)) return { status: 'legit-empty', topics: null };
+  if (scope.length === 0) return { status: 'unresolved', topics: null };
+  return { status: 'data', topics: scope, topicsOrderConfidence: 'dom-order-not-confirmed-as-rank' };
+}
+
+/**
+ * 「受众兴趣」tab 汇总入口——行业分布 + 话题词云。`domain` 可选，见
+ * `deriveOverviewIndustryDistribution` 的注释。
+ */
+export function deriveAudienceInterestsSupplemental(lines, { domain } = {}) {
+  return {
+    industryDistribution: deriveOverviewIndustryDistribution(lines, { domain }),
+    topicCloud: deriveOverviewTopicCloud(lines),
+  };
+}
+
 /** 「44%」「$1.21」这类带符号的值。空串与占位符一律 null，绝不落成 0。 */
 function swCell(value, { percent = false, currency = false } = {}) {
   const text = String(value ?? '').trim();
@@ -238,17 +842,108 @@ function buildColumnIndex(headers, wanted) {
   return { index, missingColumns };
 }
 
-/** 「-」「—」「N/A」「+」「↑」「↓」混在一起的涨跌值，例如「↑25%」「+6」「-1.23%」「-」。
- * 箭头/符号只决定正负，数值本身仍然只交给 parseNumber 处理——不写第二个数字解析器。
- * 单独一个「-」是占位符，必须先按 NO_VALUE 判掉，不能被当成负号吃掉。 */
-function parseSignedPercent(value) {
+/**
+ * 涨跌方向的 DOM 信号——真实页面上，「变动」这类列的方向不在 `innerText` 里
+ * （2026-09-13 两轮审计都实测确认：`cell.innerText` 只有数字本身，没有任何
+ * `↑`/`↓`/`+`/`-`）。老代码只认文本符号，认不出来就默认当正数——于是全量数据
+ * 的「下降」被系统性地记成了「上升」，这是本文件曾经出过的最严重的一类错报。
+ * **现在认不出方向必须是 null，不能默认正数。**
+ *
+ * `hint` 由 SW_ROW_MAJOR_TABLE_CELLS / SW_GEO_TABLE_CELLS 在页面里跟 innerText
+ * 一起提取。2026-09-13 第二轮用 Claude in Chrome 对 howolddoyoulook.com 的
+ * performance/channels/audience-geo(+demographics/interests/overlap)/
+ * site-keywords 实测，**证实这是两套完全不同的机制，不是同一套的两种写法**：
+ *
+ *   - **机制 A**（`.swReactTable-column` 系表格——audience-geo 的地理/受众兴趣
+ *     的 PoP变化列、channels 的流量来源明细表，均实测确认是同一套）：
+ *     `<div class="changePercentage positive|negative">` 包一个
+ *     `<i class="changePercentage-icon sw-icon-arrow-up5|sw-icon-arrow-down5">`；
+ *     占位是 `<div class="changePercentage">`（不带 positive/negative）。
+ *     **没有 SVG，之前设想的 data-icon/颜色在这套机制上根本用不上。**
+ *     `hint.direction` 由提取器直接读 wrapper class 判出来，这里只管信任它。
+ *   - **机制 B**（Ant Design 行渲染表——site-keywords 唯一实测到的这一种）：
+ *     `[data-automation="cell-value"]` 的 `data-automation-value` 属性是**精确
+ *     带符号的原始比值**（不是百分比，×100 才是显示的百分比），比图标/颜色都
+ *     可靠，提取器优先用它算出 `hint.direction`；退一步是
+ *     `.SWReactIcons[data-automation-icon-name]`（"arrow-up"/"arrow-down"，
+ *     2026-09-13 实测 fill 分别是 `#4FBF40`/`#FF442D`，证实了第一轮"红=降"的
+ *     猜测，也证实了此前没实测到的"绿=升"）；再退一步（提取器认不出上面两个）
+ *     才把颜色原样交出来给 `hint.fill`，这里用色相兜底。
+ *   - **特殊值 "NEW"**（site-keywords 独有：新词，没有上一期数据可比）：
+ *     `data-automation-value="New"`，提取器识别成 `hint.special === 'new'`——
+ *     这不是"方向读不出来"，是"没有方向这回事"，不能计入 directionUnknown，
+ *     也不能被上层的丢失统计当成解析失败（见 deriveSiteKeywordRows）。
+ *
+ * `hint.direction` 已经是提取器判好的 'up'/'down'/null，这里不重新猜；
+ * `hint.fill` 只在提取器自己也判不出方向时才会被填，是最后一道颜色兜底。
+ * 三条信号都认不出来（或者压根没给 hint）时，方向就是「不知道」，不是「正数」。
+ */
+
+/** 从一个 `#rrggbb` 或 `rgb(r,g,b)`/`rgba(r,g,b,a)` 字符串猜色相方向。要求某个
+ * 通道明显压过另外两个通道（1.2~1.3 倍）才判定，不是随便偏一点就算——降低
+ * 颜色本身有渐变、抗锯齿等噪音时被误判的概率。两个通道都不明显压倒时返回
+ * null，不猜。2026-09-13 实测：site-keywords 的下降/上升图标 fill 分别是
+ * `#FF442D`/`#4FBF40`，代入下面的判据都能正确分类。 */
+function hueDirection(colorText) {
+  const text = String(colorText ?? '').trim();
+  let r; let g; let b;
+  const hex = text.match(/^#([0-9a-f]{6})$/i);
+  if (hex) {
+    const n = parseInt(hex[1], 16);
+    r = (n >> 16) & 255; g = (n >> 8) & 255; b = n & 255;
+  } else {
+    const rgb = text.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (!rgb) return null;
+    [r, g, b] = [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+  }
+  if (r > g * 1.3 && r > b * 1.3) return 'down'; // 红——两轮审计都实测确认
+  if (g > r * 1.2 && g > b * 1.2) return 'up'; // 绿——2026-09-13 第二轮实测确认
+  return null;
+}
+
+/** 方向判定的优先级：文本里明写的符号 > 提取器已经判好的 hint.direction > 颜色
+ * 兜底。文本符号排第一是为了不破坏任何「文本里真的带了箭头/符号」的旧夹具或
+ * 未来变体页面。 */
+function resolveDirection(text, hint) {
+  if (/↓/.test(text)) return 'down';
+  if (/↑/.test(text)) return 'up';
+  if (/^-/.test(text)) return 'down';
+  if (/^\+/.test(text)) return 'up';
+  if (!hint) return null;
+  if (hint.direction === 'up' || hint.direction === 'down') return hint.direction;
+  return hueDirection(hint.fill ?? hint.color);
+}
+
+/**
+ * 「-」「—」「N/A」「+」「↑」「↓」混在一起的涨跌值，例如「↑25%」「+6」「-1.23%」「-」，
+ * 外加真实 DOM 里更常见的「纯数字，方向在 DOM class/属性上」这种形态
+ * （`hint` 参数，见上面大段注释里两套实测确认的机制）。
+ * 单独一个「-」是占位符，必须先按 NO_VALUE 判掉，不能被当成负号吃掉；
+ * `hint.special === 'new'`（site-keywords 的"NEW"）同样是"没有值可比"，
+ * 跟占位符走同一条 value:null 路径，但不是"方向未知"，也不是解析失败。
+ *
+ * 返回 `{ value, directionUnknown }`，不是裸数字——**这是这次修复的关键**：
+ * `value` 只有在方向明确（文本符号或 hint 指向一个方向）时才是带符号的数字；
+ * 方向解析不出来时 `value` 必须是 `null`，`directionUnknown` 才是 `true`，绝不能
+ * 把「不知道涨跌」悄悄当成「涨」输出——这正是审计发现的那个全量方向丢失的 bug。
+ * `value === null && directionUnknown === false` 仍然保留给「占位符」「NEW」或
+ * 「数字本身解析不出来」这三种旧含义，调用方不用改判断逻辑。
+ */
+export function parseSignedPercentCell(value, hint) {
   const text = String(value ?? '').trim();
-  if (!text || isPlaceholder(text)) return null;
-  const isDown = /↓/.test(text) || /^-/.test(text);
+  if (!text || isPlaceholder(text)) return { value: null, directionUnknown: false };
+  // 直接查文本本身，不依赖 hint 有没有打对标签——2026-09-13 实跑证明了这一点：
+  // hint.special 只在提取器主动识别时才有，漏识别时这里必须还有兜底。
+  if (NON_COMPARABLE_CHANGE.test(text) || hint?.special === 'new' || hint?.special === 'lost') {
+    return { value: null, directionUnknown: false };
+  }
+  const direction = resolveDirection(text, hint);
   const magnitudeText = text.replace(/[↑↓]/g, '').replace(/^[+-]/, '').replace(/%$/, '').trim();
   const magnitude = parseNumber(magnitudeText);
-  if (magnitude === null) return null;
-  return isDown ? -magnitude : magnitude;
+  if (magnitude === null) return { value: null, directionUnknown: false };
+  if (direction === 'down') return { value: -magnitude, directionUnknown: false };
+  if (direction === 'up') return { value: magnitude, directionUnknown: false };
+  return { value: null, directionUnknown: true };
 }
 
 /** 「00:03:58」之类的时长：原始字符串保留给人看，另外算出秒数给代码用。占位符一律两者都 null。 */
@@ -319,7 +1014,23 @@ export const SW_GEO_TABLE_CELLS = `(() => {
   const dataCols = all.filter((c) => c.children.length > 2);
   if (!dataCols.length || headerCols.length !== dataCols.length) return null;
   const headers = headerCols.map((c) => (c.children[0]?.innerText || '').trim());
+  // 「变动」这类方向性格子的方向不在 innerText 里——2026-09-13 第二轮实测确认
+  // 这套（audience-geo 地理/受众兴趣 PoP变化列/channels 流量来源明细表，三处
+  // 结构相同）的真实机制是 \`<div class="changePercentage positive|negative">\`
+  // 包一个 \`<i class="changePercentage-icon sw-icon-arrow-up5|down5">\`，占位是
+  // \`<div class="changePercentage">\`（不带 positive/negative）——**没有 SVG**，
+  // 见 lib-similarweb.mjs 里 resolveDirection 大段注释「机制 A」。
+  const dirHintOf = (el) => {
+    const wrapper = el.querySelector('.changePercentage');
+    if (!wrapper) return null;
+    const cls = wrapper.className || '';
+    const direction = /(?:^|\\s)positive(?:$|\\s)/.test(cls) ? 'up' : /(?:^|\\s)negative(?:$|\\s)/.test(cls) ? 'down' : null;
+    let fill = null;
+    if (!direction) { try { fill = getComputedStyle(wrapper).color; } catch (e) { fill = null; } }
+    return { direction, fill };
+  };
   const columns = dataCols.map((c) => [...c.children].map((x) => (x.innerText || '').trim()));
+  const dirHintColumns = dataCols.map((c) => [...c.children].map(dirHintOf));
   const lengths = columns.map((c) => c.length);
   const depth = Math.min(...lengths);
   // 「结构本身保证对齐」只保证第 j 个格子属于第 j 行，不保证每一列长度一样。
@@ -329,8 +1040,12 @@ export const SW_GEO_TABLE_CELLS = `(() => {
   // 这里把「列长度是否一致」暴露出来，交给 deriveGeoRows 决定要不要报警。
   const columnDepthMismatch = lengths.length > 0 && Math.max(...lengths) !== Math.min(...lengths);
   const rows = [];
-  for (let i = 0; i < depth; i++) rows.push(columns.map((c) => c[i]));
-  return { headers, rows, columnDepthMismatch };
+  const dirHints = [];
+  for (let i = 0; i < depth; i++) {
+    rows.push(columns.map((c) => c[i]));
+    dirHints.push(dirHintColumns.map((c) => c[i]));
+  }
+  return { headers, rows, dirHints, columnDepthMismatch };
 })()`;
 
 /**
@@ -344,7 +1059,37 @@ export const SW_ROW_MAJOR_TABLE_CELLS = `(() => {
   const bodyRows = [...document.querySelectorAll('.ant-table-tbody tr.ant-table-row')];
   if (!headerCells.length || !bodyRows.length) return null;
   const headers = headerCells.map((c) => (c.innerText || '').trim());
+  // 「变动」列的方向不在 innerText 里——2026-09-13 第二轮实测确认这张 Ant Design
+  // 表用的是它自己的一套 data-automation 体系，不是 Ant Design 官方图标（见
+  // lib-similarweb.mjs resolveDirection 大段注释「机制 B」）：
+  // \`[data-automation="cell-value"]\` 的 \`data-automation-value\` 是精确带符号的
+  // 原始比值（不是百分比），最可靠；退一步是 \`.SWReactIcons[data-automation-icon-name]\`
+  // （"arrow-up"/"arrow-down"，实测 fill 分别是 #4FBF40/#FF442D）；再退一步是颜色。
+  // 实测还有一个特殊值 "New"（新词，没有上一期数据可比，不是"方向未知"）。
+  const dirHintOf = (td) => {
+    const valueEl = td.querySelector('[data-automation="cell-value"]');
+    const raw = valueEl ? valueEl.getAttribute('data-automation-value') : null;
+    if (raw !== null && /^new$/i.test(raw)) return { direction: null, special: 'new' };
+    // "LOST"（词丢失了排名/点击数据）——2026-09-13 第二轮实跑 howolddoyoulook.com
+    // 实测到的第二个特殊值，跟 "NEW" 是同一类"没有可比较的变化量"，猜它的
+    // data-automation-value 也是 "Lost"（跟 "New" 是同一套命名风格），但这一条
+    // 本身没有像 "New" 那样从真实 DOM 里读到确认——lib-similarweb.mjs 里
+    // parseSignedPercentCell 直接查文本 "LOST" 兜底，不管这里猜没猜中都不会漏。
+    if (raw !== null && /^lost$/i.test(raw)) return { direction: null, special: 'lost' };
+    if (raw !== null) {
+      const num = Number(raw);
+      if (Number.isFinite(num) && num !== 0) return { direction: num < 0 ? 'down' : 'up' };
+    }
+    const iconDiv = td.querySelector('.SWReactIcons');
+    const iconName = iconDiv ? iconDiv.getAttribute('data-automation-icon-name') : null;
+    if (iconName === 'arrow-down') return { direction: 'down' };
+    if (iconName === 'arrow-up') return { direction: 'up' };
+    const fillEl = td.querySelector('svg path[fill]');
+    if (fillEl) return { direction: null, fill: fillEl.getAttribute('fill') };
+    return null;
+  };
   const rows = bodyRows.map((r) => [...r.querySelectorAll('td.ant-table-cell')].map((c) => (c.innerText || '').trim()));
+  const dirHints = bodyRows.map((r) => [...r.querySelectorAll('td.ant-table-cell')].map(dirHintOf));
   // 表头里的「关键词 (38,977,695)」是这个站点全站收录的关键词总数，跟这张表
   // 有没有分页是两回事——不能拿它冒充「一共有多少页/多少行没读到」。真正回答
   // 「这张表还有没有下一页」的是 Ant Design 的分页控件，这里顺手取一份。
@@ -362,13 +1107,63 @@ export const SW_ROW_MAJOR_TABLE_CELLS = `(() => {
     hasNext: !nextBtn.classList.contains('ant-pagination-disabled') && nextBtn.getAttribute('aria-disabled') !== 'true',
     pagerTitle,
   } : null;
-  return { headers, rows, pagination };
+  return { headers, rows, dirHints, pagination };
+})()`;
+
+/**
+ * 「网站关键词」页顶部 5 个统计卡（Cannibalization / 长尾机会 / SERP 充满机会 /
+ * 高流量机会 / 低潜力关键词）——2026-09-13 第二轮实测确认的结构：每张卡片是
+ * `[data-automation="preset-content"]`（数字 + 单位两个子 div），它的**上一个
+ * 兄弟节点**是标签容器（第一个子 div 的 innerText 是标签文本，如「长尾机会。」，
+ * 注意部分标签实测带一个全角句号）。外层某个祖先节点带
+ * `data-automation-button-loading="true"|"false"` 属性——**这是本次审计里
+ * 唯一一个逐区块可信的加载态信号**（不是猜的选择器，是这张页面自己的
+ * automation 属性），往上最多找 6 层。
+ */
+export const SW_SITE_KEYWORD_STAT_CARDS = `(() => {
+  const contents = [...document.querySelectorAll('[data-automation="preset-content"]')];
+  if (!contents.length) return null;
+  const cards = contents.map((el) => {
+    const labelWrapper = el.previousElementSibling;
+    const label = labelWrapper ? (labelWrapper.children[0]?.innerText || '').trim() : null;
+    let ancestor = el;
+    let loading = null;
+    for (let i = 0; i < 6 && ancestor; i++) {
+      const attr = ancestor.getAttribute && ancestor.getAttribute('data-automation-button-loading');
+      if (attr !== null) { loading = attr; break; }
+      ancestor = ancestor.parentElement;
+    }
+    return {
+      label,
+      value: (el.children[0]?.innerText || '').trim(),
+      unit: (el.children[1]?.innerText || '').trim(),
+      loading,
+    };
+  });
+  return { cards };
 })()`;
 
 /** 丢掉列切分深度不一致导致的尾部空行——**不能按某个具体字段是否为空来判断**，
  * 否则「改名/丢列导致该字段变 null」和「这本来就是占位空行」会被混为一谈。 */
 function nonEmptyRows(rows) {
   return (rows || []).filter((row) => Array.isArray(row) && row.some((v) => String(v ?? '').trim() !== ''));
+}
+
+/** 跟 nonEmptyRows 做同一件事，但把 dirHints 按同样的下标一起过滤，保证过滤后
+ * `rows[i]` 和 `dirHints[i]` 还是同一行。extractor 没给 dirHints（旧版 cells，
+ * 或者没有方向列的表）时退化成全 null，不影响其余逻辑——这也是自测夹具（大多
+ * 数不传 dirHints）能继续工作的原因。 */
+function nonEmptyRowsWithHints(rows, dirHints) {
+  const hints = Array.isArray(dirHints) ? dirHints : [];
+  const kept = [];
+  const keptHints = [];
+  (rows || []).forEach((row, i) => {
+    if (Array.isArray(row) && row.some((v) => String(v ?? '').trim() !== '')) {
+      kept.push(row);
+      keptHints.push(hints[i] || null);
+    }
+  });
+  return { rows: kept, dirHints: keptHints };
 }
 
 /**
@@ -470,17 +1265,65 @@ function sumShare(rows, key) {
   return { sum, contributing: values.length, ofRows: rows.length };
 }
 
+/**
+ * 滚动容器选择器与探针脚本——2026-09-13 第四轮用真实生产脚本（不是探索工具）
+ * 实测确认，供 `backlink/scripts/dev/similarweb-scroll-ab.mjs`（滚动 A/B
+ * 对照实验，第五轮新增，只写不跑）复用，避免那个诊断脚本自己重抄一遍探针。
+ * **`similarweb-query.mjs` 自己的 `SCROLL_TO_BOTTOM` 目前仍是内联字符串**，
+ * 没有改成引用这份 export——那是一条本轮"完全离线"约束下不去动的既有生产
+ * 路径（改了没法实测验证），等下一次允许连浏览器实测时再统一成一份，现在
+ * 保持两份内容一致就行（都是同一个选择器、同一套 gap<=8 判据）。
+ */
+export const SIMILARWEB_SCROLL_CONTAINER_SELECTOR = '.sw-layout-scrollable-element';
+export const SIMILARWEB_SCROLL_PROBE_JS = `(() => {
+  const el = document.querySelector(${JSON.stringify(SIMILARWEB_SCROLL_CONTAINER_SELECTOR)});
+  let containerFound = !!el;
+  if (el) { try { el.scrollTop = el.scrollHeight; } catch (e) { containerFound = false; } }
+  try { window.scrollTo(0, document.body.scrollHeight); } catch (e) {}
+  const gap = el ? el.scrollHeight - el.scrollTop - el.clientHeight : (document.documentElement.scrollHeight - window.scrollY - window.innerHeight);
+  return {
+    containerFound,
+    containerSelector: containerFound ? ${JSON.stringify(SIMILARWEB_SCROLL_CONTAINER_SELECTOR)} : null,
+    scrollTop: el ? el.scrollTop : window.scrollY,
+    scrollHeight: el ? el.scrollHeight : document.documentElement.scrollHeight,
+    clientHeight: el ? el.clientHeight : window.innerHeight,
+    atBottom: gap <= 8,
+    hidden: document.hidden,
+    visibilityState: document.visibilityState,
+  };
+})()`;
+/** 跟上面那份唯一的差别：不执行任何 `scrollTop=`/`scrollTo(...)`赋值，只读当前
+ * 状态——A/B 对照实验的"零滚动"那一组必须保证真的一次滚动都没发生过。 */
+export const SIMILARWEB_SCROLL_READ_ONLY_PROBE_JS = `(() => {
+  const el = document.querySelector(${JSON.stringify(SIMILARWEB_SCROLL_CONTAINER_SELECTOR)});
+  const gap = el ? el.scrollHeight - el.scrollTop - el.clientHeight : (document.documentElement.scrollHeight - window.scrollY - window.innerHeight);
+  return {
+    containerFound: !!el,
+    containerSelector: el ? ${JSON.stringify(SIMILARWEB_SCROLL_CONTAINER_SELECTOR)} : null,
+    scrollTop: el ? el.scrollTop : window.scrollY,
+    scrollHeight: el ? el.scrollHeight : document.documentElement.scrollHeight,
+    clientHeight: el ? el.clientHeight : window.innerHeight,
+    atBottom: gap <= 8,
+    hidden: document.hidden,
+    visibilityState: document.visibilityState,
+  };
+})()`;
+
 export function deriveGeoRows(cells) {
   if (!cells?.headers?.length || !Array.isArray(cells.rows)) {
     return {
       rows: [], missingColumns: ['<no DOM columns>'], suspectColumns: [], partialLossColumns: [],
+      directionUnknownColumns: [],
       totalRowsOnPage: null, rowsRead: 0, columnDepthMismatch: null,
+      rowsExpected: null, rowsCaptured: 0, truncated: null,
     };
   }
+  // 「变动」不放进 wanted/auditColumns 的通用比对——它现在要区分「格式解析不出来」
+  // 和「方向读不出来」两种不同性质的 null（见下面的专项统计），跟 site-keywords
+  // 里 点击量变动/排位变动 已经在用的处理方式一致，不要在这里另开一套逻辑。
   const wanted = {
     country: '国家/地区',
     trafficSharePercent: '流量份额',
-    changePercent: '变动',
     audienceSharePercent: '受众群体份额',
     countryRank: '国家/地区排名',
     visitDuration: '访问持续时间',
@@ -488,15 +1331,39 @@ export function deriveGeoRows(cells) {
   };
   const { index, missingColumns } = buildColumnIndex(cells.headers, wanted);
   const cell = (row, key) => (index[key] >= 0 ? row[index[key]] : undefined);
+  const cellAt = (row, i) => (typeof i === 'number' && i >= 0 && i < row.length ? row[i] : undefined);
+  const normalized = (cells.headers || []).map(normalizeHeader);
+  const changeIdx = normalized.indexOf('变动');
+  if (changeIdx < 0) missingColumns.push('变动');
 
-  const rawRows = nonEmptyRows(cells.rows);
+  const { rows: rawRows, dirHints: rawDirHints } = nonEmptyRowsWithHints(cells.rows, cells.dirHints);
+
+  let changeRealCount = 0;
+  let changeMagnitudeLostCount = 0;
+  let changeDirectionUnknownCount = 0;
+  const changeMagnitudeLostSamples = [];
+
   const rows = rawRows.map((row, i) => {
     const duration = parseDuration(cell(row, 'visitDuration'));
+    const changeText = String(cellAt(row, changeIdx) ?? '').trim();
+    const changeHint = changeIdx >= 0 ? (rawDirHints[i]?.[changeIdx] ?? null) : null;
+    const change = parseSignedPercentCell(cellAt(row, changeIdx), changeHint);
+    if (changeIdx >= 0 && changeText && !isPlaceholder(changeText)) {
+      changeRealCount += 1;
+      if (change.directionUnknown) changeDirectionUnknownCount += 1;
+      else if (change.value === null) {
+        changeMagnitudeLostCount += 1;
+        if (changeMagnitudeLostSamples.length < 3) changeMagnitudeLostSamples.push(changeText);
+      }
+    }
     return {
       rank: i + 1,
       country: swText(cell(row, 'country')),
       trafficSharePercent: swCell(cell(row, 'trafficSharePercent'), { percent: true }),
-      changePercent: parseSignedPercent(cell(row, 'changePercent')),
+      changePercent: change.value,
+      // 有原文、能解析出数值，但方向既没有文本符号也没能从 DOM hint 认出来——
+      // 绝不能因为「反正解析不出方向」就悄悄丢掉这行的存在，必须让调用方看见。
+      changePercentDirectionUnknown: change.directionUnknown,
       audienceSharePercent: swCell(cell(row, 'audienceSharePercent'), { percent: true }),
       countryRank: parseRank(cell(row, 'countryRank')),
       visitDuration: duration.raw,
@@ -505,21 +1372,392 @@ export function deriveGeoRows(cells) {
     };
   });
 
+  const { suspectColumns, partialLossColumns } = auditColumns(index, wanted, rawRows, rows);
+  if (changeIdx >= 0 && changeRealCount > 0 && changeMagnitudeLostCount > 0) {
+    if (changeMagnitudeLostCount / changeRealCount > 0.5) suspectColumns.push('变动');
+    else {
+      partialLossColumns.push({
+        column: '变动', lost: changeMagnitudeLostCount, of: changeRealCount,
+        samples: [...new Set(changeMagnitudeLostSamples)],
+      });
+    }
+  }
+  const directionUnknownColumns = [];
+  if (changeIdx >= 0 && changeDirectionUnknownCount > 0) {
+    directionUnknownColumns.push({ column: '变动', count: changeDirectionUnknownCount, of: changeRealCount });
+  }
+
+  const totalRowsOnPage = headerTotal(cells.headers, '国家/地区');
+  const truncated = totalRowsOnPage !== null ? rows.length < totalRowsOnPage : null;
+
   return {
     rows,
     missingColumns,
-    ...auditColumns(index, wanted, rawRows, rows),
+    suspectColumns,
+    partialLossColumns,
+    directionUnknownColumns,
     // 自洽校验：各国流量份额加起来应该 ≈ 100%。这是**不需要第二个数据源**就能
     // 做的交叉验证——页面自己声明了一个总量，各行是它的拆分。丢行、丢值、
     // 单位解析错，都会让这个和偏离。`< 0.01%` 那次事故里 121 国丢了 9 个，
     // 列检测因为只丢 7.4% 而沉默，但这个和会掉下来。
     trafficShareSum: sumShare(rows, 'trafficSharePercent'),
-    totalRowsOnPage: headerTotal(cells.headers, '国家/地区'),
+    totalRowsOnPage,
     rowsRead: rows.length,
+    // 跟 totalRowsOnPage/rowsRead 是同一对数字，只是换成审计报告要求的命名——
+    // 两组字段并存，不删旧的，任何已经在读 totalRowsOnPage/rowsRead 的调用方
+    // 不受影响。
+    rowsExpected: totalRowsOnPage,
+    rowsCaptured: rows.length,
+    truncated,
     // 提取器发现列长度不一致时置 true——说明最短的那一列把所有列都从底部
     // 截断了，`rowsRead` 可能比真实行数少，而且具体哪些国家被砍掉不确定。
     // 提取器给不出这个信息（比如 cells 是旧格式）时是 null，不是「确认没有」。
     columnDepthMismatch: cells.columnDepthMismatch === undefined ? null : Boolean(cells.columnDepthMismatch),
+  };
+}
+
+/**
+ * 「流量来源渠道」页下方那张更细的明细表——2026-09-13 第二轮 Claude in Chrome
+ * 实测确认：跟 audience-geo 的地理表是**同一套** `.swReactTable-column` 结构
+ * （复用 SW_GEO_TABLE_CELLS 这个通用提取器即可，不用再抄一份），列是（隐式排名）/
+ * 流量来源(N)/流量份额/变动/来源类型/全球排名，共 6 列（实测 howolddoyoulook.com
+ * 是 14 行）。这张表把 `deriveChannels` 的 10 大类渠道进一步拆到"具体来源"粒度
+ * （比如把「自然搜索」拆成 Google Search / Bing Search 等，各带自己的全球排名），
+ * 之前完全没有脚本碰过，记在 backlink 审计的 notCovered 里。
+ *
+ * **没有 `#` 这一列**（跟地理表一样，行号是隐式的），直接用行下标 +1。
+ */
+export function deriveChannelDetailRows(cells) {
+  if (!cells?.headers?.length || !Array.isArray(cells.rows)) {
+    return {
+      rows: [], missingColumns: ['<no DOM columns>'], suspectColumns: [], partialLossColumns: [],
+      directionUnknownColumns: [], totalRowsOnPage: null, rowsRead: 0,
+      rowsExpected: null, rowsCaptured: 0, truncated: null, columnDepthMismatch: null,
+    };
+  }
+  const wanted = {
+    source: '流量来源',
+    trafficSharePercent: '流量份额',
+    sourceType: '来源类型',
+    globalRank: '全球排名',
+  };
+  const { index, missingColumns } = buildColumnIndex(cells.headers, wanted);
+  const cell = (row, key) => (index[key] >= 0 ? row[index[key]] : undefined);
+  const cellAt = (row, i) => (typeof i === 'number' && i >= 0 && i < row.length ? row[i] : undefined);
+  const normalized = (cells.headers || []).map(normalizeHeader);
+  const changeIdx = normalized.indexOf('变动');
+  if (changeIdx < 0) missingColumns.push('变动');
+
+  const { rows: rawRows, dirHints: rawDirHints } = nonEmptyRowsWithHints(cells.rows, cells.dirHints);
+
+  let changeRealCount = 0;
+  let changeMagnitudeLostCount = 0;
+  let changeDirectionUnknownCount = 0;
+  const changeMagnitudeLostSamples = [];
+
+  const rows = rawRows.map((row, i) => {
+    const changeText = String(cellAt(row, changeIdx) ?? '').trim();
+    const changeHint = changeIdx >= 0 ? (rawDirHints[i]?.[changeIdx] ?? null) : null;
+    const change = parseSignedPercentCell(cellAt(row, changeIdx), changeHint);
+    if (changeIdx >= 0 && changeText && !isPlaceholder(changeText)) {
+      changeRealCount += 1;
+      if (change.directionUnknown) changeDirectionUnknownCount += 1;
+      else if (change.value === null) {
+        changeMagnitudeLostCount += 1;
+        if (changeMagnitudeLostSamples.length < 3) changeMagnitudeLostSamples.push(changeText);
+      }
+    }
+    return {
+      rank: i + 1,
+      source: swText(cell(row, 'source')),
+      trafficSharePercent: swCell(cell(row, 'trafficSharePercent'), { percent: true }),
+      changePercent: change.value,
+      changePercentDirectionUnknown: change.directionUnknown,
+      sourceType: swText(cell(row, 'sourceType')),
+      globalRank: parseRank(cell(row, 'globalRank')),
+    };
+  });
+
+  const { suspectColumns, partialLossColumns } = auditColumns(index, wanted, rawRows, rows);
+  if (changeIdx >= 0 && changeRealCount > 0 && changeMagnitudeLostCount > 0) {
+    if (changeMagnitudeLostCount / changeRealCount > 0.5) suspectColumns.push('变动');
+    else {
+      partialLossColumns.push({
+        column: '变动', lost: changeMagnitudeLostCount, of: changeRealCount,
+        samples: [...new Set(changeMagnitudeLostSamples)],
+      });
+    }
+  }
+  const directionUnknownColumns = [];
+  if (changeIdx >= 0 && changeDirectionUnknownCount > 0) {
+    directionUnknownColumns.push({ column: '变动', count: changeDirectionUnknownCount, of: changeRealCount });
+  }
+
+  const totalRowsOnPage = headerTotal(cells.headers, '流量来源');
+  const truncated = totalRowsOnPage !== null ? rows.length < totalRowsOnPage : null;
+
+  return {
+    rows,
+    missingColumns,
+    suspectColumns,
+    partialLossColumns,
+    directionUnknownColumns,
+    totalRowsOnPage,
+    rowsRead: rows.length,
+    rowsExpected: totalRowsOnPage,
+    rowsCaptured: rows.length,
+    truncated,
+    columnDepthMismatch: cells.columnDepthMismatch === undefined ? null : Boolean(cells.columnDepthMismatch),
+  };
+}
+
+/**
+ * 「受众兴趣」tab（selectedTab=audienceInterests）的「交叉访问网站」表——
+ * 2026-09-13 第二轮实测确认结构：同一套 `.swReactTable-column`（复用
+ * SW_GEO_TABLE_CELLS 即可），表头「域(N)」/行业/全球排名/相关性评分/交叉访问/
+ * PoP变化/AdSense，共 7 个具名列（实测原始列数是 12，其余 5 列没有确认到
+ * 用途，可能是隐藏/装饰列，不在 wanted 里）。
+ *
+ * **`crossVisit`/`adsense` 两个字段的取值格式本次没有实测到真实样本**（实测
+ * 那次这两列全是「-」占位符）——`crossVisit` 按通用数字解析（`swCell`），
+ * `adsense` 按原文文本保留（`swText`，如果它其实是一个只有图标没有文字的格子，
+ * `swText` 会读到 null，跟"这一格没有数据"分不清，这是本函数**唯一**没有实测
+ * confirmed 的两个字段，2026-09-13 第三轮用一个数据更丰富的对照域名只读实测
+ * 确认（只读查看一次，未落盘该域名的任何具体数据/名称到仓库，只把结论写下来）：
+ *   - `crossVisit`：是**百分比**（实测 "86.51%"），已改用 `swCell({percent:true})`。
+ *   - `AdSense`：**这一列不是每个站点都有**——howolddoyoulook.com 的表头有
+ *     这一列（7 列），对照的大流量站点反而没有（6 列）。这不是
+ *     解析失败，是页面按站点条件决定要不要渲染这一列，所以 `adsense` 不放进
+ *     `wanted`/`missingColumns` 的常规校验里（那套校验假设"列消失=结构变了"，
+ *     这里列消失是正常业务逻辑）——单独按下标查，找不到就是 `undefined`，
+ *     字段值为 `null`，不计入 missingColumns。
+ * 方向列走机制 A（PoP变化，跟 geography/channels 明细表同一套 changePercentage
+ * 判据）。**大站点会分页**（对照域名表头总数是 5 位数、只渲染当前页 ~100 行，
+ * 页面自带"1 out of 389"这类 footer，不是懒加载——见 similarweb-query.mjs 里
+ * RENDER_SIGNAL 对应分页 footer 的处理）。
+ */
+export function deriveAudienceInterestsRows(cells) {
+  if (!cells?.headers?.length || !Array.isArray(cells.rows)) {
+    return {
+      rows: [], missingColumns: ['<no DOM columns>'], suspectColumns: [], partialLossColumns: [],
+      directionUnknownColumns: [], totalRowsOnPage: null, rowsRead: 0,
+      rowsExpected: null, rowsCaptured: 0, truncated: null, columnDepthMismatch: null,
+    };
+  }
+  const wanted = {
+    domain: '域',
+    industry: '行业',
+    globalRank: '全球排名',
+    relevanceScore: '相关性评分',
+    crossVisit: '交叉访问',
+  };
+  const { index, missingColumns } = buildColumnIndex(cells.headers, wanted);
+  const cell = (row, key) => (index[key] >= 0 ? row[index[key]] : undefined);
+  const cellAt = (row, i) => (typeof i === 'number' && i >= 0 && i < row.length ? row[i] : undefined);
+  const normalized = (cells.headers || []).map(normalizeHeader);
+  const changeIdx = normalized.indexOf('PoP变化');
+  if (changeIdx < 0) missingColumns.push('PoP变化');
+  // AdSense 是条件列（不是每个站点都渲染），不走 wanted/missingColumns 那套
+  // "找不到=结构变了"的校验——见函数顶部注释。
+  const adsenseIdx = normalized.indexOf('AdSense');
+
+  const { rows: rawRows, dirHints: rawDirHints } = nonEmptyRowsWithHints(cells.rows, cells.dirHints);
+
+  let changeRealCount = 0;
+  let changeMagnitudeLostCount = 0;
+  let changeDirectionUnknownCount = 0;
+  const changeMagnitudeLostSamples = [];
+
+  const rows = rawRows.map((row, i) => {
+    const changeText = String(cellAt(row, changeIdx) ?? '').trim();
+    const changeHint = changeIdx >= 0 ? (rawDirHints[i]?.[changeIdx] ?? null) : null;
+    const change = parseSignedPercentCell(cellAt(row, changeIdx), changeHint);
+    if (changeIdx >= 0 && changeText && !isPlaceholder(changeText) && !NON_COMPARABLE_CHANGE.test(changeText)) {
+      changeRealCount += 1;
+      if (change.directionUnknown) changeDirectionUnknownCount += 1;
+      else if (change.value === null) {
+        changeMagnitudeLostCount += 1;
+        if (changeMagnitudeLostSamples.length < 3) changeMagnitudeLostSamples.push(changeText);
+      }
+    }
+    return {
+      domain: swText(cell(row, 'domain')),
+      industry: swText(cell(row, 'industry')),
+      globalRank: parseRank(cell(row, 'globalRank')),
+      relevanceScore: swCell(cell(row, 'relevanceScore')),
+      crossVisit: swCell(cell(row, 'crossVisit'), { percent: true }),
+      changePercent: change.value,
+      changePercentDirectionUnknown: change.directionUnknown,
+      // 条件列，找不到时 adsenseIdx 是 -1，cellAt 返回 undefined，swText 给 null——
+      // 跟"这个站点真的没有这一列"是同一个结果，不需要额外分支。
+      adsense: swText(cellAt(row, adsenseIdx)),
+    };
+  });
+
+  const { suspectColumns, partialLossColumns } = auditColumns(index, wanted, rawRows, rows);
+  if (changeIdx >= 0 && changeRealCount > 0 && changeMagnitudeLostCount > 0) {
+    if (changeMagnitudeLostCount / changeRealCount > 0.5) suspectColumns.push('PoP变化');
+    else {
+      partialLossColumns.push({
+        column: 'PoP变化', lost: changeMagnitudeLostCount, of: changeRealCount,
+        samples: [...new Set(changeMagnitudeLostSamples)],
+      });
+    }
+  }
+  const directionUnknownColumns = [];
+  if (changeIdx >= 0 && changeDirectionUnknownCount > 0) {
+    directionUnknownColumns.push({ column: 'PoP变化', count: changeDirectionUnknownCount, of: changeRealCount });
+  }
+
+  const totalRowsOnPage = headerTotal(cells.headers, '域');
+  const truncated = totalRowsOnPage !== null ? rows.length < totalRowsOnPage : null;
+
+  return {
+    rows,
+    missingColumns,
+    suspectColumns,
+    partialLossColumns,
+    directionUnknownColumns,
+    totalRowsOnPage,
+    rowsRead: rows.length,
+    rowsExpected: totalRowsOnPage,
+    rowsCaptured: rows.length,
+    truncated,
+    columnDepthMismatch: cells.columnDepthMismatch === undefined ? null : Boolean(cells.columnDepthMismatch),
+  };
+}
+
+/**
+ * 「受众重叠」tab（selectedTab=overlap）——**不是表格**，是文本区块：
+ * 「平均独立访客数」标签后跟着「域名/数字」交替对，直到「独立受众总数」标签，
+ * 后面紧跟一个总数。2026-09-13 第二轮实测原文（已脱敏域名）：
+ *   平均独立访客数 / howolddoyoulook.com / 51,025 / veriff.com / 462,211 /
+ *   faceage.ai / 62,062 / 独立受众总数 / 564,238
+ * 默认（没有手动添加对比站点）时页面会自动配几个相似站点做对比，实测确实
+ * 显示了真实数字，不是要求先添加站点的空态——但**没有实测到"完全没有可比较
+ * 站点"的空态长什么样**，这种情况下按下面的判据会落进 `dataConfirmed:false`
+ * 而不是被误判成有数据，见 `emptyStateObserved` 的用法。
+ *
+ * `lines` 是已经按行切分、trim 过的 bodyText（跟 deriveMetrics 等函数吃的
+ * 输入一样）。
+ */
+export function deriveAudienceOverlapMetrics(lines) {
+  const startIdx = lines.indexOf('平均独立访客数');
+  const totalLabelIdx = lines.indexOf('独立受众总数');
+  if (startIdx < 0 || totalLabelIdx < 0 || totalLabelIdx <= startIdx) {
+    return {
+      perSiteAvgVisitors: [],
+      totalUniqueAudience: null,
+      // 两个锚点文案都没读到——不知道是"这个 tab 还没渲染完"还是"页面结构变了"，
+      // 不能默认当空态，也不能默认当有数据。
+      dataConfirmed: false,
+      emptyStateObserved: /抱歉，未找到与该搜索匹配的内容|没有足够的数据|Not enough data/.test(lines.join('\n')),
+    };
+  }
+  const perSiteAvgVisitors = [];
+  for (let i = startIdx + 1; i + 1 < totalLabelIdx; i += 2) {
+    const domain = swText(lines[i]);
+    const visitors = parseNumber(lines[i + 1]);
+    if (domain && visitors !== null) perSiteAvgVisitors.push({ domain, avgVisitors: visitors });
+  }
+  const totalUniqueAudience = parseNumber(lines[totalLabelIdx + 1]);
+  return {
+    perSiteAvgVisitors,
+    totalUniqueAudience,
+    // 两个锚点都读到了、且至少解析出一个站点+总数，才算"确认有数据"。
+    dataConfirmed: perSiteAvgVisitors.length > 0 && totalUniqueAudience !== null,
+    emptyStateObserved: false,
+  };
+}
+
+/**
+ * 「受众人口特征」tab（selectedTab=demographicsUsersBased）。2026-09-13 第二轮
+ * 实测样本数据不全，第三轮用一个数据更丰富的对照域名只读实测拿到了完整样本
+ * （只读查看一次，未落盘该域名的名称/具体数据到仓库；下面的域名和数字都是
+ * 脱敏占位，只是为了标注每个字段在原文里出现的顺序，不是真实观测值），
+ * 确认原文结构：
+ *   Male / 59.59% / Female / 40.41% /
+ *   20.46%​20.46% / 25.74%​25.74% / 18.65%​18.65% / 15.17%​15.17% / 11.47%​11.47% / 8.52%​8.52% /
+ *   18-24 / 25-34 / 35-44 / 45-54 / 55-64 / 65+ /
+ *   各受众群体的流量和参与度 / 女性 / 18-24岁 /
+ *   域 / 竞争对手份额 / 受众群体份额 / 访问持续时间 / 页面数/访问 / 跳出率 /
+ *   example-site.test / 100% / 7.2% / 00:03:08 / 3.2 / 54.72%
+ * 三点已知局限，都在下面对应字段的注释里重复一遍：
+ *   1. 性别标签是英文 "Male"/"Female"（面板整体是中文 UI，这两个词没有翻译）。
+ *   2. 年龄分布是"6 个百分比先出现（每个值和自己之间夹了一个零宽字符，可能是
+ *      tooltip 重复），6 个年龄段标签后出现"——按 Similarweb 固定的年龄段顺序
+ *      做**位置配对**，不是按标签相邻取值；图表改版顺序变了会直接错位，没有
+ *      更强的锚点可用。
+ *   3. "各受众群体的流量和参与度"那张分段表只显示**当前下拉选中的一个
+ *      "性别×年龄"组合**（默认是"女性/18-24岁"），要拿全部组合需要模拟点击
+ *      切换下拉，本函数不做，只解析当前显示的这一行。
+ * 三态判据（`sectionAnchorFound`/`emptyStateObserved`/`hasGenderSplit`）保留
+ * 不变，用来兼容第二轮那种数据不全的样本；`genderMalePercent`/`ageDistribution`/
+ * `segment` 是第三轮新增的真实字段，解析不出来时各自为 null，不影响三态判断。
+ */
+export function deriveAudienceDemographicsSignal(lines) {
+  const text = lines.join('\n');
+  const sectionAnchorFound = lines.includes('各受众群体的流量和参与度');
+  const emptyStateObserved = /抱歉，未找到与该搜索匹配的内容|没有足够的数据|Not enough data/.test(text);
+  const genderMatch = text.match(/女性[\s\S]{0,20}?(\d+(?:\.\d+)?)\s*%/);
+  const hasGenderSplit = Boolean(genderMatch);
+
+  // 实测确认的性别分布——英文标签 "Male"/"Female"，紧跟一个百分比。
+  const genderFull = text.match(/Male\s*\n?\s*(\d+(?:\.\d+)?)\s*%\s*\n?\s*Female\s*\n?\s*(\d+(?:\.\d+)?)\s*%/);
+  const genderMalePercent = genderFull ? Number(genderFull[1]) : null;
+  const genderFemalePercentConfirmed = genderFull ? Number(genderFull[2]) : null;
+
+  // 年龄分布：按固定顺序位置配对，见函数顶部注释的局限 2。
+  const AGE_BRACKETS = ['18-24', '25-34', '35-44', '45-54', '55-64', '65+'];
+  let ageDistribution = null;
+  const ageLabelIdx = lines.indexOf(AGE_BRACKETS[0]);
+  if (ageLabelIdx >= AGE_BRACKETS.length) {
+    const labelLines = lines.slice(ageLabelIdx, ageLabelIdx + AGE_BRACKETS.length);
+    const pctLines = lines.slice(ageLabelIdx - AGE_BRACKETS.length, ageLabelIdx);
+    if (labelLines.join('|') === AGE_BRACKETS.join('|') && pctLines.length === AGE_BRACKETS.length) {
+      ageDistribution = AGE_BRACKETS.map((bracket, i) => {
+        const m = pctLines[i].match(/(\d+(?:\.\d+)?)\s*%/);
+        return { bracket, percent: m ? Number(m[1]) : null };
+      });
+    }
+  }
+
+  // 分段表：只有当前下拉选中组合的一行，见函数顶部注释的局限 3。
+  let segment = null;
+  const segHeaderIdx = lines.indexOf('域');
+  if (segHeaderIdx >= 0 && lines[segHeaderIdx - 1] && lines.slice(segHeaderIdx, segHeaderIdx + 6).join('|') === '域|竞争对手份额|受众群体份额|访问持续时间|页面数/访问|跳出率') {
+    const genderFilter = lines[segHeaderIdx - 2] || null;
+    const ageFilter = lines[segHeaderIdx - 1] || null;
+    const dataRow = lines.slice(segHeaderIdx + 6, segHeaderIdx + 12);
+    if (dataRow.length === 6) {
+      const duration = parseDuration(dataRow[3]);
+      segment = {
+        genderFilter, ageFilter,
+        domain: swText(dataRow[0]),
+        competitorSharePercent: swCell(dataRow[1], { percent: true }),
+        audienceSharePercent: swCell(dataRow[2], { percent: true }),
+        visitDuration: duration.raw,
+        visitDurationSeconds: duration.seconds,
+        pagesPerVisit: swCell(dataRow[4]),
+        bounceRatePercent: swCell(dataRow[5], { percent: true }),
+      };
+    }
+  }
+
+  return {
+    sectionAnchorFound,
+    emptyStateObserved,
+    hasGenderSplit,
+    genderFemalePercent: hasGenderSplit ? Number(genderMatch[1]) : null,
+    genderMalePercent,
+    // 跟上面 hasGenderSplit 走的粗正则不是同一条路径，两个 female 数字应该一致，
+    // 保留 genderFemalePercent（兼容旧字段名）不变，这个是同一个数的确认版本。
+    genderFemalePercentConfirmed,
+    ageDistribution,
+    segment,
+    // 有部分数据 / 确认空 / 都不是（未加载或结构没认出来）——三态由调用方
+    // 按这三个字段自己组合判断，这里不替调用方下结论。
+    dataConfirmed: hasGenderSplit || Boolean(genderFull),
   };
 }
 
@@ -528,14 +1766,24 @@ export function deriveGeoRows(cells) {
  * 不是真实 DOM 里的格子内容，2026-08-27 实测：只认斜杠会让这一列在真实页面上
  * 整表解析成 null，而 missingColumns 还是空的（列名本身找对了）。斜杠仍然接受，
  * 万一某个变体页面真是这么渲染的。份额单独拆出来是因为 top5SharePercent
- * 就是拿它累加的——调用方不该自己再拆一遍这个格式。 */
+ * 就是拿它累加的——调用方不该自己再拆一遍这个格式。
+ *
+ * **2026-09-13 第三轮离线排查：`suspectColumns` 里"点击量"整列可疑的根因**。
+ * 实跑 howolddoyoulook.com 的 site-keywords，75 行里超过一半是长尾词，点击量
+ * 格子实测是 `"< 50\n< 0.01%"` 这种形态——份额部分也会用「< 下限值」写法（跟
+ * audience-geo 的 `< 0.01%` 是同一种惯例），旧正则的份额分组只认纯数字
+ * `[\d.]+`，"<" 前缀让整行匹配失败，退到把原始多行文本整段扔给 `swCell()`
+ * （必然解析不出来），于是这一整列的 `realCount` 全部落进 `lost`，过半即报
+ * `suspectColumns`——这不是"数据本身丢了"，是解析器没认全一种早就在别处
+ * （`parseNumber` 的 belowBound 分支）处理过的写法。修法：份额分组放开
+ * `<`/`＜` 前缀，两边都交给 `parseNumber` 处理（它本来就认得 `< 0.01%`）。 */
 function parseClicksShare(value) {
   const text = String(value ?? '').trim();
   if (!text || isPlaceholder(text)) return { clicks: null, sharePercent: null };
   const unified = text.replace(/\s*\n\s*/g, '/');
-  const match = unified.match(/^(.+?)\/([\d.]+)\s*%$/);
+  const match = unified.match(/^(.+?)\/([<＜]?\s*[\d.,]+)\s*%$/);
   if (!match) return { clicks: swCell(text), sharePercent: null };
-  return { clicks: parseNumber(match[1].trim()), sharePercent: Number(match[2]) };
+  return { clicks: parseNumber(match[1].trim()), sharePercent: parseNumber(match[2].trim()) };
 }
 
 /**
@@ -593,13 +1841,26 @@ function deriveTop5SharePercent(rows) {
 export function deriveSiteKeywordRows(cells) {
   if (!cells?.headers?.length || !Array.isArray(cells.rows)) {
     return {
-      rows: [], missingColumns: ['<no DOM rows>'], suspectColumns: [], partialLossColumns: [], top5SharePercent: null,
+      rows: [], missingColumns: ['<no DOM rows>'], suspectColumns: [], partialLossColumns: [],
+      directionUnknownColumns: [], top5SharePercent: null,
       pageReportedKeywordTotal: null, rowsRead: 0, morePagesAvailable: null, currentPage: null, totalPages: null,
+      rowsExpected: null, rowsCaptured: 0, truncated: null,
     };
   }
+  // **2026-09-13 第六轮用 canva.com 的 paid 子 tab 实测确认：KD 和"排位/排位
+  // 变动"是 total/organic 子 tab 才有的列，paid 子 tab 的表头结构性地没有
+  // 这两样**（付费广告没有"自然排名"这个概念，KD/排位对它不适用）——不是
+  // 解析失败，是这个 tab 本来就没有。旧代码把 KD 放进 `wanted`（缺了就报
+  // missingColumns）、把"排位变动"缺失无条件当成"没解析出来"，于是每次跑
+  // paid 子 tab 都会在 missingColumns 里报出两个根本不该算"缺"的列名——
+  // 跟第四轮 AdSense 条件列是同一类问题：**表头本来就没有的列不该走
+  // "缺了=解析失败"这条路径**。KD 单独按下标查（找不到就是 undefined，字段
+  // 值 null，不计入 missingColumns）；"排位变动"只有在表头里**确实出现了
+  // 两个"变动"列**（说明这个 tab 本来就该有排位变动，只是没能正确定位到
+  // 是哪一个）时才算缺——只有一个"变动"列（paid 子 tab 的真实形态）时，
+  // 压根没有"第二个变动"这回事，不能报"缺"。
   const wanted = {
     keyword: '关键词',
-    kd: 'KD',
     intent: '意图',
     size: '规模',
     avgVolume: '平均体量',
@@ -611,6 +1872,7 @@ export function deriveSiteKeywordRows(cells) {
   const { index, missingColumns: baseMissing } = buildColumnIndex(cells.headers, wanted);
   const normalized = (cells.headers || []).map(normalizeHeader);
   const clicksIdx = normalized.indexOf('点击量');
+  const kdIdx = normalized.indexOf('KD');
   const changeIndices = normalized.reduce((acc, h, i) => (h === '变动' ? [...acc, i] : acc), []);
 
   // 按左邻列消歧，不按位置。见函数顶部注释：这不是「第一个/最后一个」，
@@ -632,26 +1894,80 @@ export function deriveSiteKeywordRows(cells) {
   // 「变动」，因为这张表里「变动」这个名字本来就不唯一，笼统报告诉不了任何人
   // 到底是哪一个丢了。
   if (clicksChangeIdx < 0) missingColumns.push('点击量变动');
-  if (rankChangeIdx < 0) missingColumns.push('排位变动');
+  // 只有表头里确实出现过「排位」这一列时，"排位变动"没被定位到才算缺——
+  // 「排位」本身都不在表头里（paid 子 tab 的真实形态：没有自然排名这个概念）
+  // 说明这个 tab 本来就没有排位变动，不是缺。用「排位」在不在，而不是
+  // 「变动」出现了几次——后者会被"表头里的变动列被意外砍掉但排位还在"这种
+  // 真实的抽取残缺情形骗到（旧夹具"kwRowsNoTrailingChange"就是这个场景：
+  // 排位列还在，配对的变动被剥离，这时候必须报缺，不能因为只剩 1 个"变动"
+  // 就放过）。
+  if (rankChangeIdx < 0 && normalized.includes('排位')) missingColumns.push('排位变动');
 
   const cellAt = (row, i) => (typeof i === 'number' && i >= 0 && i < row.length ? row[i] : undefined);
   const cell = (row, key) => (index[key] >= 0 ? row[index[key]] : undefined);
 
-  const rawRows = nonEmptyRows(cells.rows);
-  const rows = rawRows.map((row) => {
+  const { rows: rawRows, dirHints: rawDirHints } = nonEmptyRowsWithHints(cells.rows, cells.dirHints);
+
+  let clicksChangeRealCount = 0;
+  let clicksChangeMagnitudeLost = 0;
+  let clicksChangeDirectionUnknown = 0;
+  const clicksChangeMagnitudeLostSamples = [];
+  let rankChangeRealCount = 0;
+  let rankChangeMagnitudeLost = 0;
+  let rankChangeDirectionUnknown = 0;
+  const rankChangeMagnitudeLostSamples = [];
+
+  const rows = rawRows.map((row, i) => {
     const clicksShare = parseClicksShare(cellAt(row, clicksIdx));
+
+    const clicksChangeText = String(cellAt(row, clicksChangeIdx) ?? '').trim();
+    const clicksChangeHint = clicksChangeIdx >= 0 ? (rawDirHints[i]?.[clicksChangeIdx] ?? null) : null;
+    const clicksChange = parseSignedPercentCell(cellAt(row, clicksChangeIdx), clicksChangeHint);
+    // "NEW"/"LOST"（新词没有上一期数据可比 / 词丢失了排名数据，2026-09-13 第
+    // 二轮实跑 howolddoyoulook.com 两个都实测到了）不算丢数据——它们是合法的
+    // 第三态，不是占位符也不是解析失败，不能被 partialLossColumns/
+    // suspectColumns 当成"这一格解析不出来"报出去。查文本本身而不是只查
+    // hint.special——实跑证明了 hint 不一定打得上标签，文本判断更不会漏。
+    if (clicksChangeIdx >= 0 && clicksChangeText && !isPlaceholder(clicksChangeText) && !NON_COMPARABLE_CHANGE.test(clicksChangeText)) {
+      clicksChangeRealCount += 1;
+      if (clicksChange.directionUnknown) clicksChangeDirectionUnknown += 1;
+      else if (clicksChange.value === null) {
+        clicksChangeMagnitudeLost += 1;
+        if (clicksChangeMagnitudeLostSamples.length < 3) clicksChangeMagnitudeLostSamples.push(clicksChangeText);
+      }
+    }
+
+    const rankChangeText = String(cellAt(row, rankChangeIdx) ?? '').trim();
+    const rankChangeHint = rankChangeIdx >= 0 ? (rawDirHints[i]?.[rankChangeIdx] ?? null) : null;
+    const rankChange = parseSignedPercentCell(cellAt(row, rankChangeIdx), rankChangeHint);
+    // 同上——"NEW"/"LOST" 不算丢数据，即便这一列实测暂时只见过占位符也保持
+    // 一致处理，免得下次实测到这一列也出现这两个值时又漏一次。
+    if (rankChangeIdx >= 0 && rankChangeText && !isPlaceholder(rankChangeText) && !NON_COMPARABLE_CHANGE.test(rankChangeText)) {
+      rankChangeRealCount += 1;
+      if (rankChange.directionUnknown) rankChangeDirectionUnknown += 1;
+      else if (rankChange.value === null) {
+        rankChangeMagnitudeLost += 1;
+        if (rankChangeMagnitudeLostSamples.length < 3) rankChangeMagnitudeLostSamples.push(rankChangeText);
+      }
+    }
+
     return {
       keyword: swText(cell(row, 'keyword')),
       clicks: clicksShare.clicks,
       clicksSharePercent: clicksShare.sharePercent,
-      clicksChangePercent: clicksChangeIdx >= 0 ? parseSignedPercent(cellAt(row, clicksChangeIdx)) : null,
-      kd: swCell(cell(row, 'kd')),
+      clicksChangePercent: clicksChangeIdx >= 0 ? clicksChange.value : null,
+      // 有原文、能解析出数值，但方向既没有文本符号也没能从 DOM hint 认出来——
+      // 绝不能悄悄丢掉这行的存在，必须让调用方看见（审计发现的核心 bug 就是
+      // 这个字段过去恒为正数）。
+      clicksChangePercentDirectionUnknown: clicksChangeIdx >= 0 ? clicksChange.directionUnknown : false,
+      kd: swCell(cellAt(row, kdIdx)),
       intent: swText(cell(row, 'intent'))?.split(/\s+/).filter(Boolean) || [],
       size: swCell(cell(row, 'size')),
       avgVolume: swCell(cell(row, 'avgVolume')),
       cpc: swCell(cell(row, 'cpc'), { currency: true }),
       zeroClickPercent: swCell(cell(row, 'zeroClickPercent'), { percent: true }),
-      rankChangePercent: rankChangeIdx >= 0 ? parseSignedPercent(cellAt(row, rankChangeIdx)) : null,
+      rankChangePercent: rankChangeIdx >= 0 ? rankChange.value : null,
+      rankChangePercentDirectionUnknown: rankChangeIdx >= 0 ? rankChange.directionUnknown : false,
       topUrl: swText(cell(row, 'topUrl')),
       urlCount: swCell(cell(row, 'urlCount')),
     };
@@ -687,12 +2003,41 @@ export function deriveSiteKeywordRows(cells) {
     });
   };
   auditSpecial('点击量', clicksIdx, (ri) => rows[ri].clicks === null && rows[ri].clicksSharePercent === null);
-  auditSpecial('点击量变动', clicksChangeIdx, (ri) => rows[ri].clicksChangePercent === null);
-  // 独立检查报告确认过：这个目标站点的 #URL 涨跌列 100% 是占位符，这是真实
-  // 数据（这个站点这段时间排位确实没变），不是解析漏了——ratioSuspect 的分母
-  // 只数「有真实内容、不是占位符」的格子，全是占位符时 realCount 是 0，
-  // 自然不会被当成可疑，不需要专门为这种情况开后门。
-  auditSpecial('排位变动', rankChangeIdx, (ri) => rows[ri].rankChangePercent === null);
+  // KD 不在 `wanted` 里（见上面的大段注释：paid 子 tab 表头本来就没有这一列，
+  // 不能用"缺了=解析失败"那条通用路径），但列存在的时候，单元格本身解析
+  // 失败仍然是真实的丢数据，得用 auditSpecial 单独查一遍——不能因为挪出了
+  // `wanted` 就连这条本该有的审计也一起丢了。
+  auditSpecial('KD', kdIdx, (ri) => rows[ri].kd === null);
+  // 点击量变动/排位变动不再走 auditSpecial 的单一 null 判据——现在 null 有两种
+  // 不同性质（格式解析不出来 vs 方向读不出来），分开统计见上面 rows.map 那一段；
+  // 这里只把统计结果落进 suspectColumns/partialLossColumns/directionUnknownColumns，
+  // 独立检查报告确认过的「#URL 涨跌列 100% 是占位符」结论不受影响——两边都要求
+  // realCount > 0 才报，全占位符时 realCount 是 0，自然不会被当成可疑。
+  if (clicksChangeIdx >= 0 && clicksChangeRealCount > 0 && clicksChangeMagnitudeLost > 0) {
+    if (clicksChangeMagnitudeLost / clicksChangeRealCount > 0.5) suspectColumns.push('点击量变动');
+    else {
+      partialLossColumns.push({
+        column: '点击量变动', lost: clicksChangeMagnitudeLost, of: clicksChangeRealCount,
+        samples: [...new Set(clicksChangeMagnitudeLostSamples)],
+      });
+    }
+  }
+  if (rankChangeIdx >= 0 && rankChangeRealCount > 0 && rankChangeMagnitudeLost > 0) {
+    if (rankChangeMagnitudeLost / rankChangeRealCount > 0.5) suspectColumns.push('排位变动');
+    else {
+      partialLossColumns.push({
+        column: '排位变动', lost: rankChangeMagnitudeLost, of: rankChangeRealCount,
+        samples: [...new Set(rankChangeMagnitudeLostSamples)],
+      });
+    }
+  }
+  const directionUnknownColumns = [];
+  if (clicksChangeIdx >= 0 && clicksChangeDirectionUnknown > 0) {
+    directionUnknownColumns.push({ column: '点击量变动', count: clicksChangeDirectionUnknown, of: clicksChangeRealCount });
+  }
+  if (rankChangeIdx >= 0 && rankChangeDirectionUnknown > 0) {
+    directionUnknownColumns.push({ column: '排位变动', count: rankChangeDirectionUnknown, of: rankChangeRealCount });
+  }
 
   // Antd simple 分页器的 title 是「1/389777」（当前页/总页数），不是
   // `.ant-pagination-total-text`——那个 class 只有用了 Antd 的 showTotal 才会
@@ -704,21 +2049,81 @@ export function deriveSiteKeywordRows(cells) {
   // 38977695 / 100 ≈ 389777，跟实测的分页器总页数完全对上。这两个数字来自
   // 页面上两个完全不同的地方，同时对得上就是互相印证；哪天对不上了，
   // 说明其中一个解析器（表头总数解析或分页器解析）出问题了。
+  const morePagesAvailable = cells?.pagination ? Boolean(cells.pagination.hasNext) : null;
   return {
     rows,
     missingColumns,
     suspectColumns,
+    // 之前这里漏掉了 partialLossColumns——auditSpecial 和上面的专项统计都会往
+    // 这个数组里 push，但旧版返回对象没有把它带出去，调用方（similarweb-query.mjs
+    // 的 [partial-loss] 提示）拿到的永远是 `undefined ?? []`，一次都没响过。
+    partialLossColumns,
+    directionUnknownColumns,
     top5SharePercent: deriveTop5SharePercent(rows),
     // 全站收录关键词总数，不是这张表的行数——见函数顶部注释，不要拿它和 rowsRead 比。
     pageReportedKeywordTotal,
     rowsRead: rows.length,
     // 这张表是否还有没读到的下一页；提取器没找到分页控件时是 null，
     // 代表「不知道」，不能当成「肯定没有下一页」。
-    morePagesAvailable: cells?.pagination ? Boolean(cells.pagination.hasNext) : null,
+    morePagesAvailable,
     // 当前页 / 总页数，来自分页器的 title 属性；分页器不存在或 title 格式不对
     // （比如页面根本不是 simple 分页模式）时两个都是 null，不瞎猜一个数字出来。
     currentPage: pager.currentPage,
     totalPages: pager.totalPages,
+    // 分页表没有一个「这一读应该有多少行」的总数概念（每页最多 ~100 行，是
+    // 页面设计决定的，不是这次抓取该不该更多）——所以 rowsExpected 恒为 null，
+    // 「读没读全」交给 morePagesAvailable/currentPage/totalPages 判断，
+    // 这里的 truncated 只是把 morePagesAvailable 用审计报告要求的字段名重复一遍。
+    rowsExpected: null,
+    rowsCaptured: rows.length,
+    truncated: morePagesAvailable,
+  };
+}
+
+/** 5 个统计卡的标签——中文原文来自 2026-09-13 实测，部分带全角句号（"长尾机会。"），
+ * 匹配前统一去掉。 */
+const STAT_CARD_LABELS = {
+  cannibalization: 'Cannibalization',
+  longTailOpportunity: '长尾机会',
+  serpOpportunity: 'SERP 充满机会',
+  highTrafficOpportunity: '高流量机会',
+  lowPotentialKeywords: '低潜力关键词',
+};
+
+/**
+ * 「网站关键词」页顶部 5 个统计卡——见 SW_SITE_KEYWORD_STAT_CARDS 的注释。
+ * `loading` 字段是这张页面自己的 `data-automation-button-loading` 属性，
+ * 是本次审计里少数几个**逐区块可信**的完成信号之一：卡片存在、loading==="false"
+ * 才算这张卡片真的确认到位；找不到卡片、或者属性读不到值，都不能当成"已就绪"。
+ */
+export function deriveSiteKeywordStatCards(data) {
+  if (!data?.cards?.length) {
+    return {
+      cards: {}, missingCards: Object.values(STAT_CARD_LABELS),
+      loadingUnverified: true, anyCardLoading: null,
+    };
+  }
+  const normalizeLabel = (s) => String(s ?? '').replace(/[。.]\s*$/, '').trim();
+  const byLabel = new Map(data.cards.map((c) => [normalizeLabel(c.label), c]));
+  const cards = {};
+  const missingCards = [];
+  let anyLoading = false;
+  let allLoadingKnown = true;
+  for (const [key, label] of Object.entries(STAT_CARD_LABELS)) {
+    const raw = byLabel.get(label);
+    if (!raw) { missingCards.push(label); continue; }
+    const loading = raw.loading === 'true' ? true : raw.loading === 'false' ? false : null;
+    if (loading === null) allLoadingKnown = false;
+    if (loading === true) anyLoading = true;
+    cards[key] = { label, count: swCell(raw.value), unit: swText(raw.unit), loading };
+  }
+  return {
+    cards,
+    missingCards,
+    // 卡片本身没找到、或者找到了但 loading 属性读不到值，"5 张卡是否都已就绪"
+    // 这件事就没法确认——不能默认当"都好了"。
+    loadingUnverified: missingCards.length > 0 || !allLoadingKnown,
+    anyCardLoading: anyLoading,
   };
 }
 

@@ -8,11 +8,22 @@
  * 慢就等于拿不到。本脚本把启动做一次，之后只换 hash 路由，单域名摊到 6-10 秒。
  *
  * **输出是证据，不是判决。** 每域一行 JSONL：
- *   { domain, totalVisits, monthlyVisits, windowLabel, globalRank, countryRank,
+ *   { domain, status, totalVisits, monthlyVisits, windowLabel, windowRequested,
+ *     windowActual, windowMatchesRequest, globalRank, countryRank,
  *     parse: parsed|no-data-marker|none, stopReason, rawExcerpt,
  *     evidence: { screenshot, raw, screenshotError }, error, checkedAt }
  * `pass/fail/below-floor` 不再产出——「查不到数据」只是数据源明说了空态
  * （stopReason: empty-state），是不是低流量由 AI 拿证据（截图 + 原文）下判；
+ *
+ * **`status` 字段（2026-09-13 二次复核新增）**：`ok` / `ok-unverified`（窗口读不到，
+ * 数字仍在正式字段，但没有独立确认过是不是 28d 口径）/ `ok-window-fallback-accepted`
+ * （确认窗口不一致，调用方传了 `--accept-window-fallback` 显式接受）/
+ * `scope-mismatch`（确认窗口不一致、且没有接受放宽——`totalVisits`/`globalRank`
+ * 等正式字段是 `null`，真实数字降级进 `unconfirmedTotalVisits` 等字段，
+ * `stopReason: 'window-scope-mismatch'` 不在 `COMPLETE_STOP_REASONS` 里，
+ * 下次 `--domains-file` 续跑会自动重测这个域名）。**"照常收下 + 打个字段"曾经
+ * 是这里的做法，二次复核认定这仍然是"以为抓到了、其实没抓到"——大多数只看
+ * `totalVisits` 的消费代码根本不会去翻 `windowMatchesRequest`。**
  *
  * **`totalVisits` 的窗口不固定，2026-09-12 实测发现。** 面板会把请求的 28
  * 天窗口悄悄改写成别的窗口（实测落地成 6 个月累计），而「总访问量」标签在
@@ -41,7 +52,12 @@
  *
  * 用法：
  *   node scripts/similarweb-batch.mjs --domains-file d.txt --out traffic.jsonl [--session x] [--node 3]
+ *        [--window foreground|active|background|isolated]
  *   # 证据落在 traffic.jsonl.evidence/<domain>.png / .txt
+ *   # --window 默认 active（选中标签页、不节流，但不夺 OS 焦点，2026-09-14 前是
+ *   #   background）；显式传其它值原样透传给 opencli。
+ *   # --accept-window-fallback：把页面实际显示的窗口当这次批量采集的权威口径，
+ *   #   照常收下（而不是把这一行判成 scope-mismatch）
  *
  * 截图链路（opencli browser screenshot）2026-08-30 重构后已实盘验证（见 backlink/evidence/screenshot-chain-VERDICTS.md）；
  * 拍不到时行内记 screenshotError，不影响采集本身。
@@ -49,8 +65,10 @@
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { resolveSession, parseFlags, showHelpIfRequested, required, validateSession, opencli } from './opencli-core.mjs';
 import { captureStable, expiryWarning, gotoInTool, launchTool, redactSecrets } from './lib-tools-share.mjs';
+import { resolveWindowStrategy, VIRTUAL_DISPLAY_WINDOW } from './lib-automation-window.mjs';
+import { writeFileSync } from 'node:fs';
 // 解析只有一份，住在 lib-similarweb.mjs。**不要在这里再抄一份 deriveMetrics。**
-import { deriveMetrics } from './lib-similarweb.mjs';
+import { compareWindowToRequest, deriveMetrics, resolveSimilarwebWindowMode } from './lib-similarweb.mjs';
 import { isRowComplete, rawExcerptOf, screenshotPaths, writeRawEvidence } from './lib-batch-evidence.mjs';
 
 const flags = parseFlags(process.argv.slice(2));
@@ -63,6 +81,12 @@ const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN || 'https://sim.3ue.co').r
 // （同一天 semrush-batch 就是这么把 3 个正常站的读数读成空的）。
 const perDomainTimeout = Math.max(10_000, Number(flags['domain-timeout'] || 75) * 1000);
 const settle = Number(flags.settle || 6);
+// 2026-09-13 二次复核：一行数字照常落盘、只在字段里悄悄标一个 windowMatchesRequest
+// 仍然是"以为抓到了、其实没抓到"——大多数消费这份 JSONL 的代码只看
+// totalVisits/globalRank，不会去翻这个字段。默认这一行判非成功（stopReason
+// 不进 COMPLETE_STOP_REASONS，续跑会自动重测），传这个 flag 才把页面实际
+// 显示的窗口当这次批量采集的权威口径，照常收下。
+const acceptWindowFallback = Boolean(flags['accept-window-fallback']);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -99,11 +123,20 @@ const todo = wanted.filter((d) => !done.has(d));
 console.error(`[batch] ${wanted.length} requested, ${done.size} already done, ${todo.length} to go`);
 if (!todo.length) process.exit(0);
 
+// 2026-09-14：resolveSimilarwebWindowMode 默认从 background 改成 active（选中
+// 标签页、不节流，但不夺 OS 焦点）——跟 similarweb-query.mjs 同一次修复统一
+// 默认；显式 --window 原样透传（foreground/active/background/isolated），不再
+// 是"非 foreground 就一律 background"的二值化。
+// 2026-09-14 虚拟屏幕：不传 --window 默认 virtual-display（检测不到虚拟屏幕时回退 active）；显式四档原样透传。
+const fallbackWindowMode = resolveSimilarwebWindowMode(flags.window === VIRTUAL_DISPLAY_WINDOW ? undefined : flags.window);
+const windowStrategy = resolveWindowStrategy({ windowFlag: flags.window, fallbackWindowMode });
 const launched = await launchTool({
   session,
   tool: 'similarweb',
   node: flags.node,
-  window: flags.window === 'foreground' ? 'foreground' : 'background',
+  window: windowStrategy.launchWindow,
+  fallbackWindow: fallbackWindowMode,
+  automationDisplay: flags['automation-display'],
   wait: Number(flags.wait || 7),
   timeout: Number(flags.launchTimeout || 60),
   allowParallelSession: Boolean(flags['allow-parallel-session']),
@@ -118,6 +151,8 @@ const subscription = {
 if (subscription.warning) console.error(`[batch] ${subscription.warning}`);
 
 const ROUTE = '/#/digitalsuite/websiteanalysis/overview/website-performance/*/999/28d?webSource=Total&key=';
+// 这个脚本永远请求同一个窗口段——所有域名共用一次比对基准，不用每域名重算。
+const REQUESTED_WINDOW_SEG = '28d';
 
 /**
  * 该域采集时刻的现场：正文全文进 raw 文件，截图一张进 evidence 目录。
@@ -148,7 +183,14 @@ for (const domain of todo) {
   let row;
   let lastRead = null;
   try {
-    await gotoInTool(evaluate, `${appOrigin}${ROUTE}${encodeURIComponent(domain)}`, settle);
+    // 捕获返回值而不是丢掉——见 lib-tools-share.mjs 里 routeWindow 注释点名的
+    // 残留缺口：7 个 gotoInTool 调用点里之前只有 1 个把 routeWindow 写进输出。
+    // 这个脚本本身对同一批域名请求的是同一个固定窗口（28d），所以每域名的
+    // navRouteWindow 都是独立证据，跟下面 m.windowLabel（页面正文渲染出的
+    // 窗口文案）走两条不同的通道，都留进行内输出，不在这里互相替代。
+    await launched.automationWindow?.ensureVisible('before-navigation');
+    const landedNav = await gotoInTool(evaluate, `${appOrigin}${ROUTE}${encodeURIComponent(domain)}`, settle);
+    const navRouteWindow = landedNav?.routeWindow || null;
     // 轮询认「总访问量」——那是只有数据渲染完才出现的内容词。左侧导航里的「网站表现」
     // 是骨架挂载就有的菜单项，认它会秒过并读到空指标。
     //
@@ -160,11 +202,16 @@ for (const domain of todo) {
       read: async () => {
         const s = await evaluate(`(() => ({
         url: location.href,
+        visibilityState: document.visibilityState,
         ready: /总访问量/.test(document.body?.innerText || ''),
         noData: /抱歉，未找到与该搜索匹配的内容|没有足够的数据|Not enough data|我们没有此网站的数据/.test(document.body?.innerText || ''),
         bodyText: (document.body?.innerText || '').slice(0, 20000)
       }))()`);
         lastRead = s;
+        if (launched.automationWindow) {
+          launched.automationWindow.recordRead({ vis: s?.visibilityState ?? null, label: `read:${domain}` });
+          if (s?.visibilityState === 'hidden') await launched.automationWindow.ensureVisible('hidden-read');
+        }
         return s;
       },
       fingerprint: (s) => {
@@ -189,6 +236,7 @@ for (const domain of todo) {
       domain,
       rawExcerpt: rawExcerptOf(redactSecrets(bodyText)),
       evidence,
+      visibilityState: settled.capture?.visibilityState ?? lastRead?.visibilityState ?? null,
       checkedAt: new Date().toISOString(),
     };
     if (!settled.stable) {
@@ -213,23 +261,64 @@ for (const domain of todo) {
     } else {
       const lines = settled.capture.bodyText.split(/\n+/).map((l) => l.trim()).filter(Boolean);
       const m = deriveMetrics(lines);
-      row = {
-        ...base,
-        totalVisits: m.totalVisits,
-        // 面板会把请求的时间窗口悄悄改写（28d 请求可能落地成 6 个月累计），
-        // 而「总访问量」标签在两种窗口下长一个样。windowLabel 原样记录页面
-        // 自己的窗口文案，monthlyVisits 是页面另给的月度数字（窗口被改写时
-        // 尤其该用它，而不是拿 totalVisits 当月度硬用）。是否需要换算、
-        // 换算完拿哪个数字过闸门，是 AI/apply-traffic-screen 读证据时的判断，
-        // 这里只把两个数字和窗口原文都放出去，不替下游做选择。
-        monthlyVisits: m.monthlyVisits,
-        windowLabel: m.windowLabel,
-        globalRank: m.globalRank,
-        countryRank: m.countryRank,
-        parse: 'parsed',
-        stopReason: 'stable',
-        error: null,
-      };
+      // 面板会把请求的时间窗口悄悄改写（28d 请求可能落地成 6 个月累计），而
+      // 「总访问量」标签在两种窗口下长一个样，字段名分不出来。跟
+      // similarweb-query.mjs 的 scopeEvidence 是同一件事的批量版。
+      const windowMatchesRequest = compareWindowToRequest(m.windowLabel, REQUESTED_WINDOW_SEG).matches;
+      if (windowMatchesRequest === false && !acceptWindowFallback) {
+        // **确认不一致，且没有显式接受放宽——这一行判非成功，不影响其他域名。**
+        // 2026-09-13 二次复核：之前这里"照常收下 + 打个字段"仍然是"以为抓到了、
+        // 其实没抓到"——大多数读这份 JSONL 的代码只看 totalVisits，不会去翻
+        // windowMatchesRequest。stopReason 不在 COMPLETE_STOP_REASONS 里，
+        // 下次 --domains-file 续跑会自动重测这个域名（可能换到一个干净的标签页
+        // 就没事了）；真实数字仍然落盘在 unconfirmed* 字段，供人工排查。
+        row = {
+          ...base,
+          status: 'scope-mismatch',
+          totalVisits: null,
+          monthlyVisits: null,
+          globalRank: null,
+          countryRank: null,
+          windowLabel: m.windowLabel,
+          windowRequested: REQUESTED_WINDOW_SEG,
+          windowActual: m.windowLabel,
+          windowMatchesRequest,
+          navRouteWindow,
+          unconfirmedTotalVisits: m.totalVisits,
+          unconfirmedMonthlyVisits: m.monthlyVisits,
+          unconfirmedGlobalRank: m.globalRank,
+          unconfirmedCountryRank: m.countryRank,
+          parse: 'parsed',
+          stopReason: 'window-scope-mismatch',
+          error: `window_scope_mismatch: rendered window (${m.windowLabel}) does not match requested ${REQUESTED_WINDOW_SEG}. ` +
+            'Rerun with --accept-window-fallback to accept the rendered window as authoritative, or resume with a fresh session.',
+        };
+      } else {
+        row = {
+          ...base,
+          status: windowMatchesRequest === false ? 'ok-window-fallback-accepted' : windowMatchesRequest === null ? 'ok-unverified' : 'ok',
+          totalVisits: m.totalVisits,
+          // monthlyVisits 是页面另给的月度数字（窗口被改写时尤其该用它，而不是
+          // 拿 totalVisits 当月度硬用）。是否需要换算、换算完拿哪个数字过闸门，
+          // 是 AI/apply-traffic-screen 读证据时的判断，这里只把两个数字和窗口
+          // 原文都放出去，不替下游做选择。
+          monthlyVisits: m.monthlyVisits,
+          windowLabel: m.windowLabel,
+          windowRequested: REQUESTED_WINDOW_SEG,
+          windowActual: m.windowLabel,
+          windowMatchesRequest,
+          // 窗口本来不一致、但调用方显式接受放宽——留痕，不能让它看起来和
+          // "窗口本来就一致"是同一种确定性。
+          ...(windowMatchesRequest === false && acceptWindowFallback ? { windowFallbackAccepted: true } : {}),
+          // URL 通道的窗口漂移证据（跟上面文本通道并列，见 gotoInTool 调用处的注释）。
+          navRouteWindow,
+          globalRank: m.globalRank,
+          countryRank: m.countryRank,
+          parse: 'parsed',
+          stopReason: 'stable',
+          error: null,
+        };
+      }
     }
   } catch (error) {
     const evidence = await captureEvidence(domain, lastRead?.bodyText).catch(() => ({ screenshot: null, raw: null, screenshotError: 'evidence capture itself failed' }));
@@ -260,5 +349,9 @@ for (const domain of todo) {
 }
 console.error('[batch] done');
 } finally {
+  // 每次运行写 automationWindow：旁挂在 --out 旁边（JSONL 本体只放行），stderr 同步一行。
+  const automationWindow = launched.automationWindow?.summary() ?? { mode: 'fallback', fallbackReason: 'explicit-window-mode', windowMode: windowStrategy.launchWindow };
+  try { writeFileSync(`${outPath}.automation-window.json`, `${JSON.stringify(automationWindow, null, 2)}\n`, 'utf8'); } catch { /* 旁证写不出不影响采集 */ }
+  console.error(`[batch] automationWindow mode=${automationWindow.mode} moves=${automationWindow.moves ?? 0} tabSelects=${automationWindow.tabSelects ?? 0} visibleRatio=${automationWindow.visibility?.visibleRatio ?? '-'} chromeFrontmost=${automationWindow.frontmost?.chromeFrontmost ?? '-'}`);
   await launched.releaseBrowserLocks?.();
 }

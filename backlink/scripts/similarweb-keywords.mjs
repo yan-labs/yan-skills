@@ -21,7 +21,10 @@
  *   --seed-file <file>     一行一个种子词，批量跑；复用同一个会话
  *   --tab <t>              phraseMatch（默认，词组匹配）| relatedKeywords（相关词，量最大）
  *                          | trending（热门）| questions（问题查询）
- *   --country <code>       国家代码，留空 = 全球
+ *   --country <code>       国家代码，不传时代码里落到 999（Similarweb 的全球代码，
+ *                          实测确认过），不是真的"不传这一段"——跟 Semrush 那边
+ *                          "不传 --db 只是落到某个不可预测的默认库"是两回事，
+ *                          Similarweb 的 999 就是产品自带的 Worldwide 选项
  *   --out <file>           落盘；配 --jsonl 时一行一个词
  *   --jsonl                以 JSON Lines 输出词行，便于几万行的批量
  *   --session <name>       忽略：similarweb 是配额站，会话名固定为 similarweb-nav
@@ -29,6 +32,18 @@
  *   --settle <s>           首屏等待秒数（默认 18）
  *   --timeout <s>          单个种子词的整体超时（默认 120）
  *   --keep-open            跑完保留标签页
+ *   --window <mode>         virtual-display（默认，见 lib-automation-window.mjs；检测不到虚拟屏幕回退 active）
+ *                           / foreground / active / background / isolated——
+ *                           显式传 opencli 四档之一就原样透传给 opencli，不走虚拟屏幕；回退默认 active
+ *   --automation-display <name|/re/|off>  虚拟屏幕名匹配（也可用环境变量 BACKLINK_AUTOMATION_DISPLAY）
+ *                           （选中标签页、不节流，但不夺 OS 焦点）。2026-09-14
+ *                           之前这个 flag 虽然写在 launchTool 调用里，但传的是
+ *                           整个 flags 对象而不是 window 字段，从未真正生效过，
+ *                           一直是隐式的 background——这次一并修正。
+ *   --accept-window-fallback 页面实际显示的窗口跟请求的 28d 不一致时，默认拒绝
+ *                          收下（该词 status: "scope-mismatch"，词落进
+ *                          unconfirmedRows）——传这个 flag 才把页面实际窗口
+ *                          当权威口径正常收下
  *   --self-test            离线自检
  *   --help
  *
@@ -49,8 +64,11 @@ import {
   showHelpIfRequested, validateSession,
 } from './opencli-core.mjs';
 import { captureStable, expiryWarning, gotoInTool, launchTool, redactSecrets } from './lib-tools-share.mjs';
+import { plainAutomationSummary, resolveWindowStrategy, VIRTUAL_DISPLAY_WINDOW } from './lib-automation-window.mjs';
 import { captureScene, defaultSceneDir } from './lib-evidence-scene.mjs';
-import { SW_KEYWORD_TABLE_CELLS, deriveKeywordRows, parseNumber } from './lib-similarweb.mjs';
+import {
+  deriveKeywordRows, findWindowLabel, compareWindowToRequest, parseNumber, resolveSimilarwebWindowMode, SW_KEYWORD_TABLE_CELLS,
+} from './lib-similarweb.mjs';
 
 const flags = parseFlags(process.argv.slice(2));
 showHelpIfRequested(flags, import.meta.url);
@@ -67,6 +85,35 @@ const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN || 'https://sim.3ue.co').r
 const country = String(flags.country || '999');
 const settle = Number(flags.settle || 18);
 const timeoutMs = Number(flags.timeout || 120) * 1000;
+// 见下面 windowCompare 分支：确认窗口不一致时默认拒绝收下，传这个才接受。
+const acceptWindowFallback = Boolean(flags['accept-window-fallback']);
+// 这条路由的窗口段硬编码在 routeFor 里，永远是 28d——跟页面正文渲染出的窗口
+// 文案比对时复用这一个常量，不要在两处各写一遍 '28d'。
+const REQUESTED_WINDOW_SEG = '28d';
+
+/**
+ * 三档状态判定，跟 similarweb-query.mjs 的 decideScopeStatus 是同一套原则
+ * （2026-09-13 二次复核）：主循环和 --self-test 调同一份逻辑，不重新拼一遍。
+ *   - `blocked`：确认窗口不一致且没有接受放宽——立即（不等超时）判 scope-mismatch，
+ *     词落进 unconfirmedRows，不进 rows。
+ *   - `ok-window-fallback-accepted`：确认不一致，但显式接受了放宽。
+ *   - `ok-unverified`：没有确认的不一致，但窗口读不到，或者加载指示器 DOM
+ *     本次没有实测确认过（`loadingIndicatorUnverified` 恒为 true，直到有一次
+ *     实测确认了这张页面具体用的加载指示器 class/属性为止）。
+ *   - `ok`：理论上限——目前 loadingIndicatorUnverified 恒为 true，所以这一档
+ *     暂时打不到，如实反映"这个维度还没被验证过"，不是 bug。
+ */
+function decideKeywordsScopeStatus({ windowMatchesRequest, acceptWindowFallback: accept }) {
+  const loadingIndicatorUnverified = true;
+  if (windowMatchesRequest === false && !accept) {
+    return { blocked: true, status: 'scope-mismatch' };
+  }
+  if (windowMatchesRequest === false && accept) {
+    return { blocked: false, status: 'ok-window-fallback-accepted' };
+  }
+  const windowUnverified = windowMatchesRequest === null;
+  return { blocked: false, status: (windowUnverified || loadingIndicatorUnverified) ? 'ok-unverified' : 'ok' };
+}
 
 function routeFor(seed) {
   return `${appOrigin}/#/digitalsuite/acquisition/findkeywords/keyword-generator-tool/${encodeURIComponent(country)}/28d`
@@ -105,6 +152,38 @@ if (flags['self-test']) {
     && shownTotal('8,888\n显示的关键词总数') === 8888
     && TABS.has('relatedKeywords') && routeFor('a b').includes('keyword=a%20b');
   if (!ok) throw new Error(`similarweb-keywords self-test failed: ${JSON.stringify({ parsed, shuffled, renamed })}`);
+
+  // 时间窗口证据：这条路由永远请求 28d，跟页面正文渲染出的窗口文案比对。
+  const matchLabel = findWindowLabel(['关键词', '最后 28 天数 (As of Sep 09)', '所有流量']);
+  const matchCmp = compareWindowToRequest(matchLabel, REQUESTED_WINDOW_SEG);
+  const pollutedLabel = findWindowLabel(['关键词', 'Mar 2026 - Aug 2026 (6 月)', '所有流量']);
+  const pollutedCmp = compareWindowToRequest(pollutedLabel, REQUESTED_WINDOW_SEG);
+  const noLabelCmp = compareWindowToRequest(null, REQUESTED_WINDOW_SEG);
+  const windowOk = matchCmp.matches === true
+    && pollutedCmp.matches === false // 窗口污染必须被认成不一致，不能默认放过
+    && noLabelCmp.matches === null; // 页面读不到窗口文案时是「不知道」，不是猜一个真假出来
+  if (!windowOk) {
+    throw new Error(`similarweb-keywords self-test failed [window scope]: ${JSON.stringify({ matchCmp, pollutedCmp, noLabelCmp })}`);
+  }
+
+  // 2026-09-13 二次复核：decideKeywordsScopeStatus 三档判定的直接回归——
+  // "确认不一致就必须 blocked"是核心，其余三档不能互相串。
+  const decisions = {
+    matched: decideKeywordsScopeStatus({ windowMatchesRequest: true, acceptWindowFallback: false }),
+    mismatchBlocked: decideKeywordsScopeStatus({ windowMatchesRequest: false, acceptWindowFallback: false }),
+    mismatchAccepted: decideKeywordsScopeStatus({ windowMatchesRequest: false, acceptWindowFallback: true }),
+    unverified: decideKeywordsScopeStatus({ windowMatchesRequest: null, acceptWindowFallback: false }),
+  };
+  const decisionsOk =
+    // 窗口匹配，但 loadingIndicatorUnverified 恒为 true——目前不可能是纯 "ok"，
+    // 如实反映"这个维度还没被验证过"。
+    decisions.matched.blocked === false && decisions.matched.status === 'ok-unverified'
+    && decisions.mismatchBlocked.blocked === true && decisions.mismatchBlocked.status === 'scope-mismatch'
+    && decisions.mismatchAccepted.blocked === false && decisions.mismatchAccepted.status === 'ok-window-fallback-accepted'
+    && decisions.unverified.blocked === false && decisions.unverified.status === 'ok-unverified';
+  if (!decisionsOk) {
+    throw new Error(`similarweb-keywords self-test failed [decideKeywordsScopeStatus]: ${JSON.stringify(decisions)}`);
+  }
   console.log('similarweb-keywords self-test: PASS');
   process.exit(0);
 }
@@ -124,24 +203,62 @@ const evidenceDir = typeof flags['evidence-dir'] === 'string'
   : defaultSceneDir({ out: typeof flags.out === 'string' ? flags.out : null, script: 'similarweb-keywords' });
 const results = [];
 let launched;
+const fallbackWindowMode = resolveSimilarwebWindowMode(flags.window === VIRTUAL_DISPLAY_WINDOW ? undefined : flags.window);
+const windowStrategy = resolveWindowStrategy({ windowFlag: flags.window, fallbackWindowMode });
+let launchError = null;
 try {
-  launched = await launchTool({ tool: 'similarweb', session, flags, allowParallelSession: Boolean(flags['allow-parallel-session']) });
+  // 2026-09-14：这里此前把整个 `flags` 对象当成一个属性传给 launchTool——
+  // launchToolInner 只解构认识的字段名，`flags` 不在其中，于是被静默丢弃，
+  // `window` 参数从未真正生效过，一直落在 launchToolInner 的默认值
+  // `'background'` 上，`--window` 这个 CLI flag（如果有人传）从来没起过作用。
+  // 顺手一起修：显式传 `window`，默认 `active`（选中标签页、不节流，不夺
+  // OS 焦点），跟 similarweb-query.mjs/similarweb-batch.mjs 同一次修复统一默认。
+  launched = await launchTool({
+    tool: 'similarweb', session, window: windowStrategy.launchWindow, fallbackWindow: fallbackWindowMode,
+    automationDisplay: flags['automation-display'],
+    allowParallelSession: Boolean(flags['allow-parallel-session']),
+  });
   const evaluate = launched.evalPage;
 
   for (const seed of seeds) {
     // hash 路由的 SPA：换 hash 不重载页面，深链之后必须等它自己渲染完。
+    await launched.automationWindow?.ensureVisible('before-navigation');
     await gotoInTool(evaluate, routeFor(seed), settle);
     const settled = await captureStable({
-      read: () => evaluate(`(() => JSON.stringify({
+      read: async () => {
+        const cap = await evaluate(`(() => JSON.stringify({
+        visibilityState: document.visibilityState,
         text: (document.body?.innerText || '').slice(0, 40000),
         cells: ${SW_KEYWORD_TABLE_CELLS},
-      }))()`),
+      }))()`);
+        if (launched.automationWindow) {
+          launched.automationWindow.recordRead({ vis: cap?.visibilityState ?? null, label: 'keywords-read' });
+          if (cap?.visibilityState === 'hidden') await launched.automationWindow.ensureVisible('hidden-read');
+        }
+        return cap;
+      },
       // 就绪判据认**表体**：标签页和筛选器在骨架阶段就在了，认它们会抓到空表。
+      // fingerprint 是整份 { headers, rows, missingColumns } 的 JSON——行数或任意
+      // 一格内容还在变时，两次读数的字符串就不相等，指纹不会稳，不需要另外
+      // 单独去比行数。
       fingerprint: (cap) => {
         if (!cap?.cells?.rows?.length) return null;
         const parsed = deriveKeywordRows(cap.cells);
         return parsed.rows.length ? JSON.stringify(parsed) : null;
       },
+      // 显式写出来，不依赖 captureStable 的默认值——2026-09-13 审计点名过这里
+      // "无固定次数确认"，实测默认值其实已经是 2，但**依赖一个没写在这个文件里
+      // 的默认值**本身就是隐患（库的默认值以后变了，这里不会跟着报错，行为却
+      // 悄悄变了）。至少连续两次行数与内容一致，才收下。
+      //
+      // 「+ 无加载占位」（审计原话）本轮**没有**实现成硬性阻断条件：这张页面
+      // 用的加载指示器/骨架屏具体是什么 class、什么 aria 属性，本次审计没有
+      // 实测记录，本仓库现在也不能开浏览器去确认（另一个 checker 正在独占）。
+      // 硬编码一个没验证过的选择器风险是不对称的——猜错方向信号最多是「多一次
+      // 不知道」，但猜错"是否在加载"这个判据一旦选择器命中了不该命中的东西，
+      // 会让这张表永远等不到 stable，把所有正常查询都拖到超时，比现在的问题更糟。
+      // 留在待实测清单里，等有条件实测到具体 class/属性后再接进来。
+      needed: 2,
       timeoutMs,
       intervalMs: Number(flags['stable-interval'] || 2.5) * 1000,
     });
@@ -158,15 +275,74 @@ try {
     }
     const parsed = JSON.parse(settled.fingerprint);
     const total = shownTotal(settled.capture.text);
+    // 这条路由永远请求 28d（见 routeFor），跟页面正文渲染出的窗口文案比对——
+    // 跟 similarweb-query.mjs 的 scopeEvidence 是同一件事的轻量版。这里**没有**
+    // 核对国家口径：country 是这个脚本唯一一个真的可以传非 999 值的地方，
+    // 而我们只有"页面显示不显示『全球』这个词"这一条弱文本信号，只对 999
+    // 有意义——传了具体国家代码时没有可靠的办法核对页面上显示的是不是那个
+    // 国家（没有代码→显示名的映射），留作待实测，不在这里编一个假信号出来。
+    const lines = String(settled.capture.text || '').split(/\n+/).map((l) => l.trim()).filter(Boolean);
+    const windowLabel = findWindowLabel(lines);
+    const windowCompare = compareWindowToRequest(windowLabel, REQUESTED_WINDOW_SEG);
+    const windowUnverified = windowLabel === null || windowCompare.matches === null;
+    const decision = decideKeywordsScopeStatus({ windowMatchesRequest: windowCompare.matches, acceptWindowFallback });
+
+    // **2026-09-13 二次复核：确认窗口不一致时不能只打一行 stderr、词照样收下**——
+    // 那仍然是"以为抓到了、其实没抓到"，大多数只看 `rows` 的消费代码不会去翻
+    // windowMatchesRequest。默认这一条判非成功，词降级进 unconfirmedRows；
+    // 传 --accept-window-fallback 才把页面实际窗口当权威口径正常收下。
+    if (decision.blocked) {
+      results.push({
+        seed, tab, country, status: decision.status,
+        shownTotal: total,
+        unconfirmedRows: parsed.rows,
+        rowsRead: parsed.rows.length,
+        missingColumns: parsed.missingColumns,
+        reads: settled.reads,
+        windowLabel, windowRequested: REQUESTED_WINDOW_SEG, windowActual: windowLabel, windowMatchesRequest: windowCompare.matches,
+        error: {
+          code: 'window_scope_mismatch',
+          message: `The Similarweb keyword-generator table for seed "${seed}" rendered window ${windowLabel}, ` +
+            `not the requested ${REQUESTED_WINDOW_SEG}. Data is under unconfirmedRows, not rows. Rerun with ` +
+            '--accept-window-fallback to accept the rendered window as authoritative.',
+        },
+      });
+      console.error(
+        `[scope-mismatch] ${seed} (tab=${tab}): 页面显示的窗口(${windowLabel})跟请求的窗口` +
+        `(${REQUESTED_WINDOW_SEG})不一致，且未传 --accept-window-fallback——判定 scope-mismatch，词落进 unconfirmedRows。`,
+      );
+      continue;
+    }
+    if (decision.status === 'ok-window-fallback-accepted') {
+      console.error(
+        `[scope-mismatch-accepted] ${seed} (tab=${tab}): 请求 ${REQUESTED_WINDOW_SEG}，` +
+        `接受页面实际窗口 ${windowLabel} 作为权威口径（--accept-window-fallback）。`,
+      );
+    }
+    if (windowUnverified) {
+      console.error(`[window-unverified] ${seed} (tab=${tab}): 页面上没能读到可识别的窗口文案，windowUnverified=true。`);
+    }
     results.push({
-      seed, tab, country,
+      seed, tab, country, status: decision.status,
       shownTotal: total,
       rows: parsed.rows,
       rowsRead: parsed.rows.length,
       // 少读了必须说出来，别让调用方以为这就是全部。
       complete: total === null ? null : parsed.rows.length >= total,
+      // 跟 complete 是同一件事的反面，只是换成审计报告要求的字段名，两个字段并存。
+      truncated: total === null ? null : parsed.rows.length < total,
       missingColumns: parsed.missingColumns,
       reads: settled.reads,
+      windowLabel,
+      windowRequested: REQUESTED_WINDOW_SEG,
+      windowActual: windowLabel,
+      windowMatchesRequest: windowCompare.matches,
+      windowUnverified,
+      // 同 similarweb-query.mjs 的理由：这张页面的加载指示器/骨架屏 DOM 本次
+      // 没有实测确认过（另一个 checker 正在独占浏览器），恒为 true，直到有
+      // 一次实测确认了具体 class/属性为止——不能因为"没测到加载中"就说成
+      // "确认没有"，见 decideKeywordsScopeStatus 顶部注释。
+      loadingIndicatorUnverified: true,
     });
     if (total !== null && parsed.rows.length < total) {
       console.error(`[partial] ${seed}: 页面自报 ${total} 个词，本次只读到 ${parsed.rows.length} 个（当前页）。`);
@@ -185,6 +361,7 @@ try {
       note: `similarweb-keywords: ${redactSecrets(String(error?.message || error)).slice(0, 200)}`,
     })
     : null;
+  launchError = error;
   results.push({ status: 'unavailable', evidence: scene, error: { code: 'query_failed', message: redactSecrets(error.message) } });
 } finally {
   await launched?.releaseBrowserLocks?.();
@@ -201,6 +378,8 @@ const output = {
     quotas: launched.state.quotas, warning: expiryWarning(launched.state),
   } : null,
   seeds: results,
+  automationWindow: launched?.automationWindow?.summary() ?? launchError?.automationWindow
+    ?? plainAutomationSummary({ windowMode: fallbackWindowMode, reason: windowStrategy.strategy === VIRTUAL_DISPLAY_WINDOW ? 'launch-failed-before-prepare' : 'explicit-window-mode' }),
 };
 
 if (flags.jsonl) {
@@ -211,4 +390,7 @@ if (flags.jsonl) {
   if (typeof flags.out === 'string') await writeFile(String(flags.out), `${JSON.stringify(output, null, 2)}\n`, 'utf8');
   printJson(output);
 }
-if (results.some((r) => r.status === 'unavailable')) process.exitCode = 1;
+// 'unavailable'（表没稳定）/ 'scope-mismatch'（确认窗口不一致、未接受放宽）/
+// 'ok-unverified' / 'ok-window-fallback-accepted'（至少一项没能独立确认，或
+// 确认不一致但被显式接受）——只有全部种子都是纯 'ok' 才退出码 0。
+if (results.some((r) => r.status !== 'ok')) process.exitCode = 1;
