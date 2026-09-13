@@ -740,7 +740,7 @@ keywordtool.io 那一档仍无脚本——AI 手动做或用 `/anysearch` 补 Am
    scripts/demand/serp-query.mjs <词>               # 域名命中 + 首页/内页构成
    ↓ ④ 这个站到底多大、流量从哪来
    backlink/scripts/similarweb-query.mjs            # 总访问量、渠道构成、相似站
-   backlink/scripts/semrush-overview.mjs            # 自然流量、引荐域、关键词库
+   backlink/scripts/semrush-overview.mjs            # 域名概览整页：自然流量、引荐域、关键词库、AI 可见度等
    scripts/sitedata.mjs --domain <域名>             # 第三方流量校验（免费、不扣配额）+ Reverse AdSense 站群关联
    # 这两家还有哪些面板能力、哪些是死路 → provider-capabilities.md（实测测绘，先查表再开浏览器）
    ↓ ⑤ 这个方向在涨还是在跌
@@ -781,6 +781,9 @@ node scripts/demand/revenue-site-audit.mjs \
   --claimed-visits <声称月访> --claimed-organic-share <声称自然占比> \
   --keyword <主词> --db us --out audit.json
 ```
+
+> `--db us` 只是占位，不代表默认或标准做法——按目标市场换国家库，见
+> [`discipline.md`](discipline.md)「脚本的国家/地区/语言参数默认值不代表全球」。
 
 它顺序调用现有域名画像、Similarweb 两张报表、Semrush 国家库、sitemap 和 KD 脚本。
 输出必须保留 `unavailable`，不能把失败写成 0；Semrush 的国家库自然流量只并列展示，
@@ -953,8 +956,10 @@ node backlink/scripts/semrush-overview.mjs --domain <竞品域名>   # 关键词
 - 判断绝对量级，两个面板各报各的，**并排列出、各自标注**，不做算术运算。
 
 **上表那三个"Semrush 自然"读数还欠一层标注：是哪个国家库的。**
-`semrush-overview.mjs` / `semrush-batch.mjs` 的域名自然流量永远是 `--db` 那一个国家的估算，
-不传 `--db` 也不是全球合计。跟 Similarweb（默认全球）并排放之前，先看这个站的目标国
+`semrush-batch.mjs` 的域名自然流量永远是 `--db` 那一个国家的估算，不传 `--db` 也不是
+全球合计。`semrush-overview.mjs`（2026-09-13 起）不传 `--db` 默认就是全球库，传了
+`--db xx` 才是该国估算——两个脚本口径不再一致，引用前先确认用的是哪一个。跟
+Similarweb（默认全球）并排放之前，先看这个站的目标国
 流量占比是多少——占比越低，两边差出来的倍数里地理错配贡献得越多，
 容易和"渠道口径不同"的那部分混在一起，误判成同一个问题。两层要分开查：
 先核实地理范围有没有对齐，再套上面两条硬规则核实渠道/绝对量。

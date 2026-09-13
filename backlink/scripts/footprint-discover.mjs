@@ -105,8 +105,15 @@
  *                          no key configured errors instead of silently
  *                          falling back. See "Engine choice" below.
  *   --num <n>              results per page requested from Google (default 30)
- *   --hl <lang>            Google UI language (default en)
- *   --gl <country>         Google geolocation bias (default us)
+ *   --hl <lang>            Google UI language (default en). Google SERP has
+ *                          no "global" mode — it always renders for one
+ *                          hl+gl pair. Non-English/non-US targets MUST pass
+ *                          this explicitly, not rely on the default; every
+ *                          output row (`result` and `query-summary`) carries
+ *                          the hl/gl this run used, so a .jsonl can always be
+ *                          traced back to which market it was fetched under.
+ *   --gl <country>         Google geolocation bias (default us). Same
+ *                          per-market caveat as --hl above — see there.
  *   --out <jsonl>          required; append-only JSONL output
  *   --delay-ms <n|n-m>     delay between queries, ms; a single number fixes
  *                          it, "n-m" randomizes in that range (default
@@ -255,6 +262,13 @@ export function scoreShape(urlStr) {
  * parse). No verdict fields — inLibrary/fingerprintHit/inLedger/shapeScore
  * are all measured membership/count, left for the AI or a later script to
  * act on.
+ *
+ * Carries `hl`/`gl` from ctx (the run's Google language/country pair) on
+ * every record — Google SERP has no global mode, so this is the only place
+ * a downstream reader (e.g. probe-submission-targets.mjs) can recover which
+ * market a given .jsonl row was fetched under. `ctx.hl`/`ctx.gl` are
+ * optional (default null) so existing pure-function callers that build a
+ * bare `{libSet,fpSet,ledgerSet}` ctx keep working unchanged.
  */
 export function buildResultRecord(query, item, ctx) {
   const url = unwrapGoogleRedirect(item.url);
@@ -275,7 +289,25 @@ export function buildResultRecord(query, item, ctx) {
     inLibrary: ctx.libSet.has(domain),
     fingerprintHit: ctx.fpSet.has(domain),
     inLedger: ctx.ledgerSet.has(domain),
+    hl: ctx.hl ?? null,
+    gl: ctx.gl ?? null,
   };
+}
+
+/**
+ * Pure, exercised directly by --self-test: builds a `query-summary` output
+ * row, always carrying `hl`/`gl` — same rationale as buildResultRecord above.
+ * `numUsed`/`numClamped` (serper-only) are included only when `numUsed` is
+ * passed, matching the two engines' historically different summary shapes.
+ */
+export function buildQuerySummary({ engine, query, resultCount, operatorHits, newDomains, hl, gl, numUsed, numClamped }) {
+  const summary = { type: 'query-summary', engine, query, resultCount, operatorHits, newDomains, hl, gl };
+  if (numUsed !== undefined) {
+    summary.numUsed = numUsed;
+    summary.numClamped = Boolean(numClamped);
+  }
+  summary.capturedAt = nowIso();
+  return summary;
 }
 
 export function isCaptchaSignal(extraction) {
@@ -483,6 +515,21 @@ function selfTest() {
   const r6 = buildResultRecord('q', { rank: 6, url: 'https://spamnet.example/directory/x', title: 't', snippet: '' }, ctx);
   eq('r6.fingerprintHit', r6?.fingerprintHit, true);
   check('r6.shapeScore counts the directory hit', (r6?.shapeScore ?? 0) >= 1);
+
+  // hl/gl: default to null when ctx doesn't carry them, pass through when it does —
+  // see the "隐性缩小范围默认值审计" finding that footprint output had no way to
+  // recover which language/country a batch of Google results was fetched under.
+  eq('buildResultRecord: hl/gl default to null when ctx omits them', { hl: r1?.hl, gl: r1?.gl }, { hl: null, gl: null });
+  const ctxWithLocale = { ...ctx, hl: 'ja', gl: 'jp' };
+  const rLocale = buildResultRecord('q', { rank: 7, url: 'https://example.jp/submit', title: 't', snippet: '' }, ctxWithLocale);
+  eq('buildResultRecord: hl/gl pass through from ctx', { hl: rLocale?.hl, gl: rLocale?.gl }, { hl: 'ja', gl: 'jp' });
+
+  const qsSerper = buildQuerySummary({ engine: 'serper', query: 'q', resultCount: 3, operatorHits: 2, newDomains: 1, hl: 'ja', gl: 'jp', numUsed: 10, numClamped: 1 });
+  eq('buildQuerySummary: carries hl/gl', { hl: qsSerper.hl, gl: qsSerper.gl }, { hl: 'ja', gl: 'jp' });
+  eq('buildQuerySummary: numClamped coerced to boolean', qsSerper.numClamped, true);
+  const qsGoogle = buildQuerySummary({ engine: 'google', query: 'q', resultCount: 0, operatorHits: 0, newDomains: 0, hl: 'en', gl: 'us' });
+  check('buildQuerySummary: no numUsed key when not passed (google shape)', !('numUsed' in qsGoogle));
+  eq('buildQuerySummary: google shape still carries hl/gl', { hl: qsGoogle.hl, gl: qsGoogle.gl }, { hl: 'en', gl: 'us' });
 
   eq('captcha true on /sorry/ href', isCaptchaSignal({ captcha: false, href: 'https://www.google.com/sorry/index?continue=x', bodyTextSample: '' }), true);
   eq('captcha true on body-text marker', isCaptchaSignal({ captcha: false, href: 'https://www.google.com/search?q=x', bodyTextSample: 'Our systems have detected unusual traffic from your computer network.' }), true);
@@ -714,10 +761,10 @@ async function runSerperEngine({ pending, ctx, seenDomains, out, num, hl, gl, de
       if (!seenDomains.has(record.domain)) { seenDomains.add(record.domain); newDomains += 1; }
     }
 
-    const summary = {
-      type: 'query-summary', engine: 'serper', query, resultCount: results.length, operatorHits, newDomains,
-      numUsed: extraction.numUsed, numClamped: Boolean(extraction.numClamped), capturedAt: nowIso(),
-    };
+    const summary = buildQuerySummary({
+      engine: 'serper', query, resultCount: results.length, operatorHits, newDomains, hl, gl,
+      numUsed: extraction.numUsed, numClamped: extraction.numClamped,
+    });
     appendLine(out, summary);
     summaries.push(summary);
   }
@@ -806,7 +853,7 @@ async function runGoogleEngine({ pending, ctx, seenDomains, out, num, hl, gl, de
         if (!seenDomains.has(record.domain)) { seenDomains.add(record.domain); newDomains += 1; }
       }
 
-      const summary = { type: 'query-summary', engine: 'google', query, resultCount: results.length, operatorHits, newDomains, capturedAt: nowIso() };
+      const summary = buildQuerySummary({ engine: 'google', query, resultCount: results.length, operatorHits, newDomains, hl, gl });
       appendLine(out, summary);
       summaries.push(summary);
     }
@@ -851,6 +898,8 @@ async function main() {
     libSet: buildLibraryDomainSet(),
     fpSet: buildFingerprintDomainSet(),
     ledgerSet: buildLedgerDomainSet(ledgerPath),
+    hl,
+    gl,
   };
 
   const doneQueries = resume ? loadDoneQueries(out) : new Set();

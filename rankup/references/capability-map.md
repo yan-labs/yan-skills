@@ -124,7 +124,7 @@ SKILL.md 段 6 与取数纪律只一行指回本文件，改脚本入口时只�
 | 脚本覆盖缺口 | 能力 × 脚本覆盖矩阵、Top 10 优先级、10 个已知短板的兜/不兜判决 | [`references/provider-script-gaps.md`](provider-script-gaps.md) | 「要不要给这个报表写脚本」 |
 | 站点流量画像 | 总访问量、渠道构成、相似站、地理分布 | `backlink/scripts/similarweb-query.mjs` | 「这站多大、流量哪来的」 |
 | 批量流量筛选 | 几百个域名逐个追加写盘，可续跑 | `backlink/scripts/similarweb-batch.mjs` | 「这批域名筛一遍」 |
-| 域名自然流量与外链 | AS、自然流量、引荐域数、关键词数（**只有分国家，没有全球合计**） | `backlink/scripts/semrush-overview.mjs` | 「他自然流量多少」 |
+| 域名自然流量与外链 | 域名概览整页：AS、自然/付费流量、引荐域数、自然/付费关键词数、AI 可见度、按国家分布、反向链接明细等 23 个区块；**不传 `--db` 默认全球库，传 `--db xx` 才是该国**（口径核对结果写进 `scopeEvidence`，读不出/不符会拦成 `incomplete`；自然搜索研究/广告研究两组有独立国家徽标，全球请求下需 `--organic-db xx` 钉住，区块口径汇总在 `sectionScopes`）；每个区块判到 data/empty/locked/absent 才算 `status: complete` | `backlink/scripts/semrush-overview.mjs` | 「他自然流量多少」「他的 AI 可见度怎么样」 |
 | **Semrush 总访问量口径（.Trends）** | 总访问 / 唯一访客 / 页数per访问 / 时长 / 跳出率。**跨面板并排时真正对得上 Similarweb 的是这个数，不是 organic**——2026-08-28 实测 canva.com 两家差 2.4%（`--window` 默认 foreground，全仓唯一例外：这张报表在后台标签页里不水合） | `backlink/scripts/semrush-traffic.mjs` | 「两家流量差三倍，到底信谁」 |
 | 面板节点枚举与探测 | 共享账号每个节点是**不同账号**；`list` 只读下拉不消耗配额，`probe` 真启动逐个试 | `backlink/scripts/tools-share-node.mjs list\|probe --tool semrush\|similarweb` | 「配额满了怎么办」「换个节点」 |
 | 四张无导出报表 | 自然排名、主要页面、反链概览、关键词报表 | `backlink/scripts/semrush-report.mjs` | 「他排了哪些词」 |

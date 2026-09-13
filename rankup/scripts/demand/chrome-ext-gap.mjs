@@ -34,7 +34,8 @@
  *   - 请求节流：默认每次请求间隔 700ms。加大 --reviews 覆盖面时不要把 --sleep 调到 0。
  */
 
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { getText, initEvidence, recordSource, writeManifest, sourceStatusSummary } from './_lib.mjs';
 
 const HELP = `chrome-ext-gap.mjs — Chrome Web Store 用户多/评分低 缺口挖掘 + 差评抓取
@@ -75,7 +76,10 @@ const HELP = `chrome-ext-gap.mjs — Chrome Web Store 用户多/评分低 缺口
   --gl <cc>            国家/地区参数          (默认 US)
   -h, --help           显示本帮助
 
-输出字段: {source, name, url, domain, users, rating, ratingCount, date, extra}
+输出字段: {source, name, url, domain, users, rating, ratingCount, date, gl, reviewLang, extra}
+  gl/reviewLang 是这次请求实际用的地区/语言（--gl 默认 US、--review-lang 默认
+  en）；Chrome Web Store 分类页/搜索页排名是否真的按 gl 变化，还是只影响评论
+  展示语言，尚未实测——批量抓多国前自己留意。
   extra: {id, category, summary, ratingLabel, reviews:[{stars, text, author, date}]}
 `;
 
@@ -194,7 +198,7 @@ function slugify(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'x';
 }
 
-function toRecord(a, opts) {
+export function toRecord(a, opts) {
   const id = a[0];
   const name = a[2];
   const rating = typeof a[3] === 'number' ? Math.round(a[3] * 100) / 100 : null;
@@ -218,6 +222,12 @@ function toRecord(a, opts) {
     rating,
     ratingCount,
     date,
+    // Chrome Web Store 的分类/搜索/详情请求都带 hl(reviewLang)+gl，之前只出现在
+    // 请求 URL 里，产出记录本身看不出这批数据是用哪个地区/语言抓的。是否真的
+    // 影响"发现了哪些扩展"（而不只是评论展示语言）尚未实测，见文件头「已知坑」；
+    // 但无论答案如何，产出里先把口径记下来总没错。
+    gl: opts.gl,
+    reviewLang: opts.reviewLang,
     extra: { id, category, summary, website, reviews: [] },
   };
   if (opts.raw) rec.extra.raw = a;
@@ -405,4 +415,12 @@ async function main() {
   if (mf) console.error(`manifest：${mf}`);
 }
 
-main().catch((e) => { console.error(`错误: ${e.message}`); process.exit(1); });
+// isMain 守卫（同 footprint-discover.mjs 等脚本的模式）：只有被当命令行直接跑
+// 时才解析 argv、发请求；纯 import（供 node --test 拿 toRecord 做离线断言）
+// 不会碰参数解析、不会发网络请求、不会 process.exit。
+let isMain = false;
+try {
+  isMain = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+} catch { /* argv[1] missing/unresolvable → treat as imported */ }
+
+if (isMain) main().catch((e) => { console.error(`错误: ${e.message}`); process.exit(1); });

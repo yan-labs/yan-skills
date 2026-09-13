@@ -160,6 +160,9 @@ node scripts/seo-webcafe.mjs kgr    --batch words.txt        # 本地命令同�
 node scripts/seo-webcafe.mjs tools
 ```
 
+> 以上示例里出现的 `--gl us` 只是占位，不代表默认或标准做法——按目标市场换国家码，
+> 见 [`discipline.md`](discipline.md)「脚本的国家/地区/语言参数默认值不代表全球」。
+
 **`kgr` 和 `kd` 串起来用最省事**：`kd` 给难度分，`kgr` 拿这个分算 KGR/EKGR/KDROI 和
 所需外链投入——后者纯本地、零配额，可以对着一整批词跑。
 
@@ -618,6 +621,13 @@ GET https://seo.web.cafe/kd/api/v1/kd
 | `hl` | 否 | `en` | 语言码 |
 | `force` | 否 | — | `1` = 跳过 7 天缓存强制重算 |
 | `format` | 否 | `json` | `markdown` = 自包含报告，适合存档或转发 |
+
+**`gl` 默认是 `us`**，查任何非美国市场都必须显式传国家码，否则拿到的是另一个
+国家的库、另一个国家的量，而它同样不会报错——和上文 `--db` 默认 `jp` 是同一类
+坑（错国家不报错、静默换口径）。`node scripts/seo-webcafe.mjs kd` 的文本摘要
+和 `--out` JSON 结果都会标出这次请求实际用的 `gl`/`hl`，事后能核对当时查的是
+哪个市场；但这只是"记录了口径"，不代表默认值本身安全——批量选词前先想清楚
+目标市场，不要让 `gl=us hl=en` 悄悄跑遍所有关键词。
 
 **额度是三端合并计的**：网页 + MCP + API 共用同一个池子。游客 10 次/天（按 IP），
 登录用户 100 次/天（按账号，跨设备共享），VIP 500 次/天。另有**每分钟 10 次**的

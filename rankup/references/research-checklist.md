@@ -112,7 +112,7 @@
 | 4.3 Similarweb 受众地理 | `backlink/scripts/similarweb-query.mjs` | `--domain <d> --report audience-geo` | 流量国家分布 |
 | 4.4 Similarweb 站点关键词 | `backlink/scripts/similarweb-query.mjs` | `--domain <d> --report site-keywords` | 该站排了哪些词 |
 | 4.5 Similarweb 批量域名流量 | `backlink/scripts/similarweb-batch.mjs` | `--domains-file d.txt --out out.jsonl` | 批量快筛。**单域名 6-10 秒不是节流间隔，是「读数稳定」要花的时间**：脚本没有固定 sleep，它按 `--stable-interval`（默认 3 秒）反复读页面，要连续 2 次读数一致才收（判成空态要连续 3 次），所以下限约 6 秒、空态约 9 秒；渲染慢的站按 `--domain-timeout`（默认 75 秒）封顶后记成未完成 |
-| 4.6 Semrush 域名概览（自然流量） | `backlink/scripts/semrush-overview.mjs` | `--domain <d> --db <目标国>` | 自然流量估算（该国家库）、引荐域数、关键词数 |
+| 4.6 Semrush 域名概览（整页 23 区块） | `backlink/scripts/semrush-overview.mjs` | `--domain <d>`（全球库）或 `--domain <d> --db <目标国>`（该国） | 自然/付费流量估算、引荐域数、自然/付费关键词数、AI 可见度、按国家分布、反向链接明细；口径核对写进 `scopeEvidence`，`status: complete` 才算数，超时或口径读不出/不符是 `incomplete`；全球库下关键词表/竞争对手/广告区块属于独立国家分组，要用就加 `--organic-db <国家>`，看 `sectionScopes` |
 | 4.7 Semrush 排名词报表 | `backlink/scripts/semrush-report.mjs` | `--report organic-positions --domain <d> --db <目标国>` | 该站排了哪些词、每个词的位次 |
 | 4.8 Semrush 主要页面 | `backlink/scripts/semrush-report.mjs` | `--report organic-pages --domain <d> --db <目标国>` | 哪些页面吃了最多流量 |
 | 4.9 Semrush 反链概览 | `backlink/scripts/semrush-report.mjs` | `--report backlinks-overview --domain <d> --db <目标国>` | 外链数、引荐域分布 |
@@ -158,6 +158,9 @@
 | 6.2 域名画像 | `aitdk-lookup.mjs` | `<域名>` 或 `--file <文件>` | 注册日期 / 站龄 / 月访问 / DR / 环比 |
 | 6.3 竞品 sitemap 结构 | `sitemap-diff.mjs` | `--domain <d>` | 页数、slug 词频（一页吃多少词） |
 | 6.4 收入站案例复核 | `revenue-site-audit.mjs` | `--domain <d> --keyword <词> --db us` | 跨源交叉验证声称的流量/收入 |
+
+> 表格命令里的 `--db us` 只是占位，不代表默认或标准做法——按目标市场换国家库，见
+> [`discipline.md`](discipline.md)「脚本的国家/地区/语言参数默认值不代表全球」。
 
 **判据一句话：你要的是「能不能排上去」还是「排上去能赚多少钱」？前者不蕴含后者。**
 

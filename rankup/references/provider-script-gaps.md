@@ -59,7 +59,8 @@
 
 | 脚本 | 覆盖的报表 | 必须知道的限制 |
 |---|---|---|
-| `semrush-overview.mjs` / `semrush-batch.mjs` | 域名概览 | **没有全球选项**，`organicTraffic` 恒为某一个国家库；`db: null` 只表示"不知道是哪个库" |
+| `semrush-overview.mjs` | 域名概览整页 23 区块，含 AI 可见度、按国家分布、反向链接明细，不止流量卡片 | **不传 `--db` 默认全球库，传 `--db xx` 才是该国**；实际口径由页面地区选择器核对，写进 `scopeEvidence`，读不出/不符会拦成 `incomplete`；**「自然搜索研究」「广告研究」两组跟随账号级国家、不跟页头走**，全球请求下要 `--organic-db xx` 钉住，否则如实标国家并拦成 `incomplete`（`sectionScopes`） |
+| `semrush-batch.mjs` | 域名概览（批量流量卡片） | **没有全球选项**，`organicTraffic` 恒为某一个国家库；`db: null` 只表示"不知道是哪个库" |
 | `semrush-report.mjs` | organic-overview / organic-positions / organic-pages / backlinks-list / backlinks-overview / keyword-overview | positions/pages 支持翻页；词维度刻意只留一张，指向 `semrush-keyword.mjs` |
 | `semrush-keyword.mjs` | 关键词概览 | **唯一有 `globalVolume` 的口径**；`--db` 默认 `jp`（历史包袱）；**bulk 模式下 `globalVolume`/`byCountry` 恒为 `null`**；`byCountry` 只是页面 Top-N，加总 ≠ `globalVolume` |
 | `similarweb-query.mjs` / `similarweb-batch.mjs` | performance / channels / similar-sites | **只有 performance 有结构化 metrics**；`similar-sites` 只给 bodyText；`noDataTextObserved` **是观测事实（页面正面写了那句话），既不是失败也不是判决**，它意味着什么由 AI 读证据判（旧字段名 `belowFloor` 已移除） |

@@ -51,7 +51,16 @@
  *   - appstore / gplay：无，纯 HTTP，可进 CI
  *   - trustpilot / g2 / capterra：需要本机 opencli + 真实 Chrome（不需要登录任何账号）
  *
- * 统一输出字段：{source, target, rating, title, text, date, lang, author, url}
+ * 统一输出字段：{source, target, rating, title, text, date, country, lang, author, url}
+ *   country 与 lang 不是同一件事，2026-09-13 前 appstore 分支把这两个字段混用过：
+ *     - country：App Store / Google Play 是分国家店面的（Apple 各国是独立店面，
+ *       Google Play 的 gl 决定的也是店面），这里放请求时用的店面/国家码
+ *       （--country），appstore/gplay 两个源都会带。
+ *     - lang：评论正文实际的语言。App Store RSS 不返回这个信息，appstore 分支
+ *       里固定是 null，不要用 country 猜语言；gplay 分支放 --lang（请求参数，
+ *       服务端按此渲染但不保证评论本身就是这个语言）。
+ *     trustpilot/g2/capterra 三个浏览器源没有 country 概念（不是分国家店面的
+ *       产品），只有 lang（页面/评论自带的真实语言），维持原样不变。
  *
  * 已验证日期：2026-08-24
  *
@@ -67,20 +76,36 @@
  *     脚本两边都取，DOM 优先。
  */
 import { execFileSync } from "node:child_process"
-import { writeFileSync } from "node:fs"
+import { writeFileSync, realpathSync } from "node:fs"
+import { pathToFileURL } from "node:url"
 import { requireBrowserBridge, initEvidence, recordSource, writeManifest, saveEvidence, sourceStatusSummary, captureBrowserScene } from "./_lib.mjs"
 
 const SOURCES = ["appstore", "gplay", "trustpilot", "g2", "capterra"]
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
-// ── 参数 ──────────────────────────────────────────────────
+// isMain 守卫（同 footprint-discover.mjs 的模式）：只有被当命令行直接跑时才解析
+// argv、发请求；纯 import（供 node --test 拿 mapAppstoreEntry / mapGplayRow 这
+// 两个纯函数做离线断言，见 rankup/tests/reviews-mine-locale.test.mjs）不会碰
+// 参数解析、不会碰网络、不会 process.exit。本文件不提供那个常见的独立调试开关，
+// 离线断言走上面说的 node --test，不是走命令行参数。
+let isMain = false
+try {
+  isMain = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+} catch { /* argv[1] missing/unresolvable → treat as imported */ }
+
+// opt 在 isMain 分支里才会被真正赋值；appstore()/gplay()/browserSource() 等函数
+// 只有在 isMain（也就是 run() 被调用）时才会执行，所以它们读到的 opt 一定已初始化。
+let opt = null
+
+// ── 参数（只在 isMain 时跑；见上方 isMain 守卫注释） ────────
+if (isMain) {
 const argv = process.argv.slice(2)
 if (argv.includes("-h") || argv.includes("--help") || argv.length === 0) {
   usage()
   process.exit(argv.length === 0 ? 1 : 0)
 }
-const opt = {
+opt = {
   source: null,
   target: null,
   country: "us",
@@ -146,11 +171,55 @@ if (!kept.length) {
   }
 }
 if (manifestPath) process.stderr.write(`manifest：${manifestPath}\n`)
+} // end if (isMain)
 
 async function run() {
   if (opt.source === "appstore") return await appstore()
   if (opt.source === "gplay") return await gplay()
   return browserSource()
+}
+
+/**
+ * 纯函数，供 node --test 离线断言（不依赖模块级 opt，不发请求）。
+ * App Store RSS 的一条 entry → 统一输出行。country 是请求用的店面代码；
+ * lang 固定 null——RSS 不返回评论语言，2026-09-13 前这里错把 country 塞进
+ * lang，字段名和语义对不上，容易被下游误读成"评论语言"。见文件头注释。
+ */
+export function mapAppstoreEntry(e, { appId, country }) {
+  return {
+    source: "appstore",
+    target: appId,
+    rating: Number(e["im:rating"].label),
+    title: e.title?.label ?? null,
+    text: e.content?.label ?? null,
+    date: e.updated?.label ?? null,
+    country,
+    lang: null,
+    author: e.author?.name?.label ?? null,
+    url: e.link?.attributes?.href ?? null,
+  }
+}
+
+/**
+ * 纯函数，供 node --test 离线断言。Google Play batchexecute 的一条评论行
+ * （数字下标数组）→ 统一输出行。country 是请求用的店面代码（拼进 gl 参数）；
+ * lang 是请求参数 --lang（服务端按此渲染，不保证等于评论真实语言，但这是
+ * 本源唯一的语言信号）。与 mapAppstoreEntry 共用同一组字段名/语义。
+ */
+export function mapGplayRow(r, { target, lang, country }) {
+  return {
+    source: "gplay",
+    target,
+    rating: typeof r[2] === "number" ? r[2] : null,
+    title: null, // Google Play 评论没有标题
+    text: r[4] ?? null,
+    date: r[5]?.[0] ? new Date(r[5][0] * 1000).toISOString() : null,
+    country,
+    lang,
+    author: r[1]?.[0] ?? null,
+    url: null,
+    thumbsUp: typeof r[6] === "number" ? r[6] : null,
+  }
 }
 
 // ── App Store（公开 RSS） ─────────────────────────────────
@@ -183,17 +252,7 @@ async function appstore() {
     recordSource({ source: `appstore:page${p}`, status: "ok", rawCount: entries.length })
     for (const e of entries) {
       if (!e["im:rating"]) continue // 第一条有时是 app 元信息
-      out.push({
-        source: "appstore",
-        target: appId,
-        rating: Number(e["im:rating"].label),
-        title: e.title?.label ?? null,
-        text: e.content?.label ?? null,
-        date: e.updated?.label ?? null,
-        lang: opt.country,
-        author: e.author?.name?.label ?? null,
-        url: e.link?.attributes?.href ?? null,
-      })
+      out.push(mapAppstoreEntry(e, { appId, country: opt.country }))
     }
   }
   return out
@@ -258,18 +317,7 @@ async function gplay() {
     }
     recordSource({ source: `gplay:page${p}`, status: "ok", rawCount: list.length })
     for (const r of list) {
-      out.push({
-        source: "gplay",
-        target: opt.target,
-        rating: typeof r[2] === "number" ? r[2] : null,
-        title: null, // Google Play 评论没有标题
-        text: r[4] ?? null,
-        date: r[5]?.[0] ? new Date(r[5][0] * 1000).toISOString() : null,
-        lang: opt.lang,
-        author: r[1]?.[0] ?? null,
-        url: null,
-        thumbsUp: typeof r[6] === "number" ? r[6] : null,
-      })
+      out.push(mapGplayRow(r, { target: opt.target, lang: opt.lang, country: opt.country }))
     }
     token = payload?.[1]?.[1] ?? null
     if (!token) break

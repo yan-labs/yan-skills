@@ -749,10 +749,14 @@ async function discover() {
   return out;
 }
 
-function summarize(name, data) {
+function summarize(name, data, meta = {}) {
   if (!data) return "（非 JSON 响应）";
   if (name === "kd") {
-    if (data.markdown) return `Markdown 报告 ${data.markdown.length} 字（--out xxx.md 可原样落盘）`;
+    // kd 按 gl/hl 分国家库/语言取量，和 Semrush 的 --db 是同一类风险——查错市场
+    // 不报错，只是静默换成另一国的量。文本摘要必须自带口径，不能只靠调用方记得
+    // 自己传了什么。meta.gl/meta.hl 由调用方按 TOOLS.kd.query 同一套默认值解出。
+    const locale = `gl=${meta.gl ?? "?"} hl=${meta.hl ?? "?"}`;
+    if (data.markdown) return `${locale} · Markdown 报告 ${data.markdown.length} 字（--out xxx.md 可原样落盘）`;
     // keywordType=brand 时 score 是「衍生内容进入难度」,与通用词不同口径,不标出来会被误读。
     // keywordTrend.ratio >= 1 表示有站正靠这个词快速上升,是时机信号,官方文档专门点名。
     const brand = data.keywordType === "brand" ? " · 品牌词(衍生口径)" : "";
@@ -776,7 +780,7 @@ function summarize(name, data) {
       : data.keywordVolume == null && data.cached === false
       ? "（本次未命中锚点校验，非「确定无量」，建议 --force 重跑一次再下结论）"
       : "";
-    return `KD ${data.score} ${data.level}${brand} · 月搜 ${data.keywordVolume ?? "—"}${volMiss} · 引用域中值 ${data.linkBudget?.quality?.mid ?? "—"}${shape}${rising}${newcomer}`;
+    return `${locale} · KD ${data.score} ${data.level}${brand} · 月搜 ${data.keywordVolume ?? "—"}${volMiss} · 引用域中值 ${data.linkBudget?.quality?.mid ?? "—"}${shape}${rising}${newcomer}`;
   }
   // visits 单位是千次（K）。不换算就会把 2692.6 读成两千次而不是二百六十九万次。
   if (name === "referringMonth") {
@@ -1265,6 +1269,10 @@ async function main() {
   let failDir = null;
   for (let i = 0; i < rows.length; i++) {
     const args = { ...a, ...rows[i] };
+    // kd 按国家/语言库取量（同 TOOLS.kd.query 的默认值），批量跑时每一行都可能
+    // 单独覆盖 --gl/--hl——解出这次请求实际用的值，供文本摘要和 JSON 落盘标注口径。
+    const kdGl = cmd === "kd" ? (args.gl || "us") : undefined;
+    const kdHl = cmd === "kd" ? (args.hl || "en") : undefined;
     const res = spec.official
       ? (cmd === "kd" ? await callOfficialKdWithRetry(spec, args, spacing) : await callOfficial(spec, args))
       : await callSessionAuto(spec, args);
@@ -1291,9 +1299,16 @@ async function main() {
       }
       process.exitCode = 1;
     } else {
-      console.log(`✓ ${label} → ${summarize(cmd, res.data)}`);
+      console.log(`✓ ${label} → ${summarize(cmd, res.data, { gl: kdGl, hl: kdHl })}`);
     }
-    results.push({ args: rows[i], status: res.status, data: res.data, ...(res.status !== 200 || parseFailed ? { raw: String(res.raw ?? "").slice(0, 20000) } : {}) });
+    // kd 的 JSON 落盘补齐 gl/hl（若这一行本身没显式传，就补上实际生效的默认值）——
+    // 不然批量结果文件里没有任何字段能看出这批 KD/月搜量是哪个国家/语种库查出来的。
+    results.push({
+      args: cmd === "kd" ? { ...rows[i], gl: kdGl, hl: kdHl } : rows[i],
+      status: res.status,
+      data: res.data,
+      ...(res.status !== 200 || parseFailed ? { raw: String(res.raw ?? "").slice(0, 20000) } : {}),
+    });
     if (spacing && i < rows.length - 1) await new Promise((r) => setTimeout(r, spacing));
   }
 
@@ -1322,7 +1337,7 @@ async function main() {
  * 而不是把同一段正则和 User-Agent 再抄一份——抄一份就意味着站点改版时要改两处，
  * 而漏改的那一处会静默失败。**导入本模块不会发任何请求。**
  */
-export { BASE, UA, toolAuth, authHeaders, TOOLS };
+export { BASE, UA, toolAuth, authHeaders, TOOLS, summarize };
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
   main().catch((e) => die(`执行失败：${e?.message || e}`));

@@ -37,7 +37,12 @@
  *
  * 输出字段（creatives）：
  *   {advertiserId, advertiserName, creativeId, domain, format,
- *    firstShown, lastShown, daysRunning, previewUrl, url}
+ *    firstShown, lastShown, daysRunning, previewUrl, region, regionCode, url}
+ *   region/regionCode 是这次请求实际用的地区（--region 默认 US，未必是目标
+ *   市场）；以前只有 url 字符串里的查询参数能看出口径，机读要解析 URL 才拿
+ *   得到，现在 meta 与每条记录都直接带这两个字段。这个中心是否存在"不选
+ *   地区=全球"的查询形态尚未实测，仍按文件头「已知坑」的说法：没内置的国家
+ *   用 --region-code 手填，能不能不填还不确定。
  * 输出字段（advertisers）：
  *   {name, advertiserId, country, minAds, maxAds, verified, url}
  *
@@ -62,8 +67,23 @@
  *     脚本内置常用国家，其余用 --region-code 手填。
  */
 import { execFileSync } from "node:child_process"
-import { writeFileSync } from "node:fs"
+import { writeFileSync, realpathSync } from "node:fs"
+import { pathToFileURL } from "node:url"
 import { initEvidence, saveEvidence, recordSource, writeManifest, evidenceDir } from "./_lib.mjs"
+
+// isMain 守卫（同 footprint-discover.mjs / reviews-mine.mjs 的模式）：只有被
+// 当命令行直接跑时才解析 argv、发请求；纯 import（供 node --test 拿
+// mapCreativeRow 等纯函数做离线断言）不会碰参数解析、不会发网络请求、不会
+// process.exit。
+let isMain = false
+try {
+  isMain = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+} catch { /* argv[1] missing/unresolvable → treat as imported */ }
+
+// opt/regionCode 只在 isMain 分支里才会被真正赋值；advertisers()/creatives()/
+// rpc() 只有在 isMain 时才会被调用，所以它们读到时这两个已初始化。
+let opt = null
+let regionCode = null
 
 const RPC = "https://adstransparency.google.com/anji/_/rpc/SearchService"
 const UA =
@@ -82,6 +102,8 @@ const ISO_NUM = {
 }
 const FORMAT = { 1: "image", 2: "video", 3: "text" }
 
+// ── 主流程（只在 isMain 时跑；见上方 isMain 守卫注释） ──────
+if (isMain) {
 const argv = process.argv.slice(2)
 if (argv.length === 0 || argv[0] === "-h" || argv[0] === "--help") {
   usage()
@@ -90,7 +112,7 @@ if (argv.length === 0 || argv[0] === "-h" || argv[0] === "--help") {
 const cmd = argv[0]
 if (!["advertisers", "creatives"].includes(cmd)) fail(`未知子命令：${cmd}`)
 
-const opt = {
+opt = {
   query: null, region: "US", regionCode: null,
   domain: null, advertiserId: null, limit: 40, json: false, out: null,
 }
@@ -108,7 +130,7 @@ for (let i = 1; i < argv.length; i++) {
   fail(`未知参数：${a}`)
 }
 
-const regionCode = opt.regionCode ?? (ISO_NUM[opt.region] ? 2000 + ISO_NUM[opt.region] : null)
+regionCode = opt.regionCode ?? (ISO_NUM[opt.region] ? 2000 + ISO_NUM[opt.region] : null)
 if (!regionCode) fail(`不认识地区 ${opt.region}，请用 --region-code <数字>（= 2000 + ISO-3166 数字码）`)
 
 initEvidence("ads-transparency", { dir: opt.evidenceDir ?? null })
@@ -133,6 +155,7 @@ if (!rows.length) {
   process.stderr.write("可能是：换个关键词/域名、换 --region，或 RPC 协议变了（见文件头「已知坑」）\n")
 }
 if (manifestPath) process.stderr.write(`manifest：${manifestPath}\n`)
+} // end if (isMain)
 
 // ── advertisers ──────────────────────────────────────────
 async function advertisers() {
@@ -168,6 +191,46 @@ async function advertisers() {
   return { rows, meta: null }
 }
 
+/**
+ * 纯函数，供 node --test 离线断言（不依赖模块级 opt/regionCode，不发请求）。
+ * SearchCreatives 响应里一条素材（数字下标对象）→ 统一输出行。
+ * 广告透明度中心没有"全球"查询——每次请求都绑一个地区码，之前只有 url
+ * 字符串里的查询参数能看出口径，机读要解析 URL 才拿得到；这里显式落成
+ * region/regionCode 两个字段。见文件头「地区码是 2000+ISO3166数字码」。
+ */
+export function mapCreativeRow(c, { now, region, regionCode }) {
+  const first = c["6"]?.["1"] ? Number(c["6"]["1"]) : null
+  const last = c["7"]?.["1"] ? Number(c["7"]["1"]) : null
+  return {
+    advertiserId: c["1"] ?? null,
+    advertiserName: c["12"] ?? null,
+    creativeId: c["2"] ?? null,
+    domain: c["14"] ?? null,
+    format: FORMAT[c["4"]] ?? c["4"] ?? null,
+    firstShown: first ? new Date(first * 1000).toISOString().slice(0, 10) : null,
+    lastShown: last ? new Date(last * 1000).toISOString().slice(0, 10) : null,
+    daysRunning: first ? Math.round(((last ?? now) - first) / 86400) : null,
+    previewUrl: c["3"]?.["1"]?.["4"] ?? null,
+    html: c["3"]?.["3"]?.["2"] ?? null,
+    region,
+    regionCode,
+    url: c["1"] && c["2"]
+      ? `https://adstransparency.google.com/advertiser/${c["1"]}/creative/${c["2"]}?region=${region}`
+      : null,
+  }
+}
+
+/** 纯函数，供 node --test 离线断言。SearchCreatives 响应 → meta 对象。 */
+export function buildCreativesMeta(j, { region, regionCode }) {
+  return {
+    region,
+    regionCode,
+    totalAdsMin: j?.["4"] != null ? Number(j["4"]) : null,
+    totalAdsMax: j?.["5"] != null ? Number(j["5"]) : null,
+    note: "totalAds 是 Google 给的区间估计；单次最多取 100 条，翻页 token 不可复用",
+  }
+}
+
 // ── creatives ────────────────────────────────────────────
 async function creatives() {
   if (!opt.domain && !opt.advertiserId) fail("creatives 需要 --domain 或 --advertiser-id")
@@ -178,34 +241,9 @@ async function creatives() {
     2: opt.limit, 3: filter, 7: { 1: 1, 2: opt.limit },
   })
   const now = Date.now() / 1000
-  const rows = (j?.["1"] ?? []).map((c) => {
-    const first = c["6"]?.["1"] ? Number(c["6"]["1"]) : null
-    const last = c["7"]?.["1"] ? Number(c["7"]["1"]) : null
-    return {
-      advertiserId: c["1"] ?? null,
-      advertiserName: c["12"] ?? null,
-      creativeId: c["2"] ?? null,
-      domain: c["14"] ?? null,
-      format: FORMAT[c["4"]] ?? c["4"] ?? null,
-      firstShown: first ? new Date(first * 1000).toISOString().slice(0, 10) : null,
-      lastShown: last ? new Date(last * 1000).toISOString().slice(0, 10) : null,
-      daysRunning: first ? Math.round(((last ?? now) - first) / 86400) : null,
-      previewUrl: c["3"]?.["1"]?.["4"] ?? null,
-      html: c["3"]?.["3"]?.["2"] ?? null,
-      url: c["1"] && c["2"]
-        ? `https://adstransparency.google.com/advertiser/${c["1"]}/creative/${c["2"]}?region=${opt.region}`
-        : null,
-    }
-  })
+  const rows = (j?.["1"] ?? []).map((c) => mapCreativeRow(c, { now, region: opt.region, regionCode }))
   rows.sort((a, b) => (b.daysRunning ?? 0) - (a.daysRunning ?? 0))
-  return {
-    rows,
-    meta: {
-      totalAdsMin: j?.["4"] != null ? Number(j["4"]) : null,
-      totalAdsMax: j?.["5"] != null ? Number(j["5"]) : null,
-      note: "totalAds 是 Google 给的区间估计；单次最多取 100 条，翻页 token 不可复用",
-    },
-  }
+  return { rows, meta: buildCreativesMeta(j, { region: opt.region, regionCode }) }
 }
 
 // ── RPC ──────────────────────────────────────────────────
