@@ -16,18 +16,24 @@
  *   2. 「无数据」是结果不是故障——Semrush 会渲染出页面但量为空，
  *      本脚本记为 volume:null + noData:true；只有明确显示 0 才记为零；
  *   3. 词里有空格/CJK 必须 encodeURIComponent，否则路由会被截断；
- *   4. `volume` 只是 `--db` 那一个国家的月搜量，不是全球量——不传 `--db` 会默默
- *      落到 `jp`，一个英文词查出来的是「日本市场当英文词搜」的量，看着合理，实际错了；
- *      要全球数字用同一行的 `globalVolume`，不要拿 `byCountry` 里的国家加总替代，
- *      那只是页面列出的 Top-N，加总往往到不了 `globalVolume` 的一半。
+ *   4. **`--db` 省略时（2026-09-13 起不再默认 `jp`）** 主输出 `volume` 直接改用
+ *      `globalVolume`（页面常驻的全球合计指标块，不随选中国家变化），并标
+ *      `volumeScope: "global"`；KD/CPC/竞争度/结果数这几个只有国家口径的字段会被
+ *      置空（`countryMetricsAvailable:false` 附理由）——这个页面没有全球选择器，
+ *      不传 `--db` 时落地哪个国家不可预测（账号共享状态，实测同一 session 内
+ *      在 jp/us/kr 之间跳过，不是退回某个固定默认库），继续把这些数字当某个随机
+ *      国家的真值吐出去，比返回 null 更危险。页面实际落地的国家仅作诊断写进
+ *      `renderedDb`。要国家专属 KD/CPC/竞争度/结果数就必须显式传 `--db`。
  *
  * 用法：
- *   node semrush-keyword.mjs --kw 診断 --db jp      # --db 是按国家的，别省
+ *   node semrush-keyword.mjs --kw 診断 --db jp      # 要国家专属 KD/CPC，--db 别省
+ *   node semrush-keyword.mjs --kw "global keyword"  # 不传 --db：只拿 globalVolume，
+ *                                                    # KD/CPC/竞争度/结果数置空（见 volumeScope）
  *   node semrush-keyword.mjs --kw-file words.txt --db kr --out kr.jsonl
  *   node semrush-keyword.mjs --kw-file words.txt --db us --bulk --out us.jsonl
  *   node semrush-keyword.mjs --bulk-plan countries.json --out countries.jsonl
  *   node semrush-keyword.mjs --ui-plan countries.json --out countries.jsonl
- *   # 想要全球规模：读输出里的 globalVolume 字段，不要重算 --db 或加总 byCountry
+ *   # 想要全球规模：读输出里的 globalVolume（volumeScope=global 时 volume 就是它）
  *   # 单词模式默认自动复查第一大国家（只要它 ≠ --db）；明确不要时传 --no-follow-top-country
  *
  * 已验证 2026-08-26：冻结/登录失效页立即停止；同机 Semrush 查询跨进程串行；
@@ -42,6 +48,7 @@
 import { resolveSession, parseFlags, printJson, validateSession, showHelpIfRequested} from './opencli-core.mjs';
 import { assertToolsShareAvailable, expiryWarning, gotoInTool, launchTool, redactSecrets } from './lib-tools-share.mjs';
 import { captureScene, defaultSceneDir } from './lib-evidence-scene.mjs';
+import { plainAutomationSummary, resolveWindowStrategy, VIRTUAL_DISPLAY_WINDOW } from './lib-automation-window.mjs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { randomInt } from 'node:crypto';
 import assert from 'node:assert/strict';
@@ -53,14 +60,16 @@ const uiPlanFile = typeof flags['ui-plan'] === 'string' ? flags['ui-plan'] : nul
 if (bulkPlanFile && uiPlanFile) throw new Error('--bulk-plan and --ui-plan cannot be used together.');
 if (flags.bulk && uiPlanFile) throw new Error('--bulk and --ui-plan cannot be used together.');
 const dbGiven = flags.db !== undefined && String(flags.db).trim() !== '';
-const db = String(flags.db || 'jp').trim().toLowerCase();
+// 2026-09-13：去掉了 jp 硬编码默认值。它当初只是「第一批调用方全是日本市场」的历史
+// 遗留，留着只会让人以为「不传 --db 等于全球」或「不传就有个安全的默认国家」——两个
+// 都不成立：这个页面没有全球选择器，不传 --db 时落地哪个国家不可预测（账号共享状态，
+// 实测同一 session 内在 jp/us/kr 之间跳过，不是退回某个固定默认库）。所以现在不传
+// --db 时，主输出 volume 改用 globalVolume，国家专属字段（kd/cpc/competition/results）
+// 一律置空，见下面 scopeKeywordMetrics。
+const db = String(flags.db || '').trim().toLowerCase();
 if (flags.bulk && !bulkPlanFile && !dbGiven) throw new Error('Bulk keyword lookup requires an explicit country database, for example --db us or --db jp.');
-// The default exists because this Skill's first callers were all JP-market, and
-// changing it now would silently re-point their saved runs. But an English
-// keyword queried against the JP database returns real, plausible, wrong
-// numbers with nothing to signal it, so a defaulted --db announces itself.
 if (!dbGiven && !bulkPlanFile && !uiPlanFile && !flags['self-test']) {
-  console.error(`⚠ --db not given, defaulting to "jp". volume/KD/CPC will be Japan's numbers even for an English or global keyword — pass --db us (or uk/de/…) for any non-Japan market. Need a worldwide figure instead? Read globalVolume in the output, it doesn't depend on --db.`);
+  console.error(`⚠ --db not given. volume in the output is globalVolume (worldwide), and country-scoped fields (kd/cpc/competition/results) are nulled out — Semrush's keyword overview has no worldwide selector and the country it lands on without --db is unpredictable (account-shared, observed drifting between jp/us/kr with nothing changed on our end). Pass --db explicitly (e.g. --db us) for country-specific KD/CPC/competition.`);
 }
 const session = resolveSession(flags, 'semrush-keyword', 'semrush');
 const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN_SEMRUSH || 'https://sem.3ue.co').replace(/\/+$/, '');
@@ -68,6 +77,34 @@ const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN_SEMRUSH || 'https://sem.3u
 const evidenceDir = typeof flags['evidence-dir'] === 'string'
   ? flags['evidence-dir']
   : defaultSceneDir({ out: typeof flags.out === 'string' ? flags.out : null, script: 'semrush-keyword' });
+
+// 窗口策略（见 lib-automation-window.mjs 与 semrush-overview.mjs 的同名用法）：不传
+// --window 时默认走虚拟屏幕，检测不到虚拟屏幕就回退到 --window active；显式传 opencli
+// 四档之一则原样透传、不走虚拟屏幕。本脚本不接 semrush-overview.mjs 那套 OS 级
+// `open -a` 抢焦点兜底（createChromeActivator/--max-activations）——那是历史更早、
+// 独立的另一层兜底，不在本轮「补齐虚拟屏幕窗口」的范围内。
+const windowStrategy = resolveWindowStrategy({
+  windowFlag: typeof flags.window === 'string' ? flags.window : null,
+  fallbackWindowMode: 'active',
+});
+const launchWindow = windowStrategy.launchWindow;
+// 走虚拟屏幕成功时下面 launchTool() 会把它填成真正的控制器；显式传了非虚拟屏幕窗口
+// 模式、或虚拟屏幕在 launchTool() 里就失败时保持 null。
+let automation = null;
+// 上一次读数的 document.visibilityState：hidden 才值得再花一次 ensureVisible 去恢复，
+// visible 就不重复检查——和 semrush-overview.mjs 的 io.readPage 同一个节流理由。
+let lastVis = null;
+/** 输出里的 automationWindow 字段：有控制器就用它的 summary()，否则退化成形状一致的
+ *  plainAutomationSummary()——与 semrush-overview.mjs 的用法一致，收成一个函数给
+ *  最终输出和每行的错误输出共用。`errorAutomation` 是 launchTool() 失败时挂在
+ *  error.automationWindow 上的现成 summary（见 lib-tools-share.mjs）。 */
+function automationWindowOutput(errorAutomation) {
+  if (automation) return automation.summary();
+  if (errorAutomation) return errorAutomation;
+  const reason = windowStrategy.strategy === VIRTUAL_DISPLAY_WINDOW ? 'launch-failed-before-prepare' : 'explicit-window-mode';
+  const windowMode = windowStrategy.strategy === VIRTUAL_DISPLAY_WINDOW ? windowStrategy.fallbackWindowMode : launchWindow;
+  return plainAutomationSummary({ windowMode, reason });
+}
 
 let keywords = [];
 if (typeof flags.kw === 'string') keywords = String(flags.kw).split(',').map((s) => s.trim()).filter(Boolean);
@@ -232,6 +269,44 @@ function parseOverviewMetrics(bodyText, absent = false) {
   };
 }
 
+/** 落地 URL 里的 `db` 参数——诊断用，读不出就是 null，不猜。 */
+function extractDbFromUrl(url) {
+  try { return new URL(String(url)).searchParams.get('db'); } catch { return null; }
+}
+
+/**
+ * 未显式传 `--db` 时的口径改写（见文件头第 4 条）。这个页面没有全球选择器，不传
+ * `--db` 落地哪个国家不可预测（账号共享状态，实测同一 session 内在 jp/us/kr 之间
+ * 跳过，不是退回某个固定默认库）。继续把 `kd`/`cpc`/`competition`/`results`
+ * 这几个只有国家口径的字段当某个随机国家的真值吐出去，比返回 `null` 更危险——
+ * 二选一里选了「置空 + 写清理由」而不是「保留数字但附 `renderedDb`」：后者要求每个
+ * 下游调用方自己记得先检查 `renderedDb` 才能用这几个字段，漏检一次就是一条静默的
+ * 错数；置空则调用方什么都不用做就不会被坑，理由字段负责解释为什么拿不到。
+ *
+ * 显式传了 `--db` 时原样返回，只加 `volumeScope`/`renderedDb`/`countryMetricsAvailable`
+ * 三个字段，方便下游不用反查有没有传 `--db` 就知道这一行能不能信 `kd`/`cpc`。
+ */
+function scopeKeywordMetrics(metrics, { dbGiven, database, renderedDb }) {
+  if (dbGiven) {
+    return { ...metrics, volumeScope: database, renderedDb, countryMetricsAvailable: true };
+  }
+  const volume = metrics.globalVolume;
+  return {
+    ...metrics,
+    volume,
+    volumeScope: 'global',
+    renderedDb,
+    kd: null,
+    cpc: null,
+    competition: null,
+    results: null,
+    countryMetricsAvailable: false,
+    countryMetricsUnavailableReason: 'no --db given: Semrush keyword overview has no worldwide selector, and the country it renders without --db is unpredictable (account-shared state observed drifting between jp/us/kr across sessions with nothing changed on our end) — returning kd/cpc/competition/results here would silently mix in another market\'s numbers. Pass --db explicitly for country-specific difficulty/cost/competition.',
+    noData: volume === null,
+    status: volume === null ? 'metrics_unavailable' : 'ok',
+  };
+}
+
 /**
  * geo-hop 只报**事实**：第一大国家是谁、占全球多少份额、两边的量各是多少。
  * 旧版的「份额 >=35% 或当前库量 <500 才追查」是 AI 级判断写死在脚本里
@@ -266,6 +341,49 @@ if (flags['self-test']) {
   });
   assert.equal(sample[1].status, 'absent');
   assert.equal(sample[1].volume, null);
+
+  // scopeKeywordMetrics: no --db → volume comes from globalVolume, country-only fields nulled.
+  const rawMetrics = {
+    volume: 260, kd: 32, cpc: '$1.20', competition: '0.4', results: 900,
+    globalVolume: 41300, byCountry: { US: 14800 }, intent: null, intentRaw: null,
+    noData: false, status: 'ok', updateOffered: false,
+  };
+  const globalRow = scopeKeywordMetrics(rawMetrics, { dbGiven: false, database: '', renderedDb: 'jp' });
+  assert.equal(globalRow.volume, 41300, 'no --db: volume must be globalVolume, not the country the page happened to land on');
+  assert.equal(globalRow.volumeScope, 'global');
+  assert.equal(globalRow.renderedDb, 'jp');
+  assert.equal(globalRow.kd, null);
+  assert.equal(globalRow.cpc, null);
+  assert.equal(globalRow.competition, null);
+  assert.equal(globalRow.results, null);
+  assert.equal(globalRow.countryMetricsAvailable, false);
+  assert.equal(typeof globalRow.countryMetricsUnavailableReason, 'string');
+  assert.ok(globalRow.countryMetricsUnavailableReason.length > 0);
+  assert.equal(globalRow.status, 'ok');
+  assert.equal(globalRow.byCountry.US, 14800, 'byCountry/globalVolume survive scoping — only the country-only fields are nulled');
+
+  // scopeKeywordMetrics: explicit --db → country-specific numbers pass through untouched.
+  const scopedRow = scopeKeywordMetrics(rawMetrics, { dbGiven: true, database: 'jp', renderedDb: 'jp' });
+  assert.equal(scopedRow.volume, 260, '--db given: volume stays the country-specific figure');
+  assert.equal(scopedRow.volumeScope, 'jp');
+  assert.equal(scopedRow.kd, 32);
+  assert.equal(scopedRow.cpc, '$1.20');
+  assert.equal(scopedRow.countryMetricsAvailable, true);
+  assert.equal(scopedRow.countryMetricsUnavailableReason, undefined);
+
+  // scopeKeywordMetrics: no --db and no global figure either → still no data, not a fabricated zero.
+  const noGlobalRow = scopeKeywordMetrics(
+    { volume: null, kd: null, cpc: null, competition: null, results: null, globalVolume: null, byCountry: null, intent: null, intentRaw: null, noData: true, status: 'metrics_unavailable', updateOffered: false },
+    { dbGiven: false, database: '', renderedDb: null },
+  );
+  assert.equal(noGlobalRow.volume, null);
+  assert.equal(noGlobalRow.noData, true);
+  assert.equal(noGlobalRow.status, 'metrics_unavailable');
+
+  assert.equal(extractDbFromUrl('https://sem.3ue.co/analytics/keywordoverview/?q=x&db=kr'), 'kr');
+  assert.equal(extractDbFromUrl('https://sem.3ue.co/analytics/keywordoverview/?q=x'), null);
+  assert.equal(extractDbFromUrl('not a url'), null);
+
   assert.deepEqual(geoHopFacts({ volume: 100, globalVolume: 1000, byCountry: { IN: 600, US: 100 } }, 'us'), {
     followed: true, reason: 'top country differs from current db', country: 'in', share: 60, topCountryVolume: 600, currentDbVolume: 100,
   });
@@ -283,11 +401,13 @@ const launched = await launchTool({
   session,
   tool: 'semrush',
   node: flags.node,
-  window: flags.window,
+  window: launchWindow,
+  fallbackWindow: windowStrategy.fallbackWindowMode,
   wait: Number(flags.wait || 7),
   timeout: Number(flags.launchTimeout || 60),
   allowParallelSession: Boolean(flags['allow-parallel-session']),
 });
+automation = launched.automationWindow || null;
 try {
 const warn = expiryWarning(launched.state);
 if (warn) console.error(`[subscription] ${warn}`);
@@ -328,6 +448,9 @@ async function fetchBulk(database, phrases) {
 if (flags.bulk || bulkPlan) {
   const jobs = bulkPlan ? Object.entries(bulkPlan).map(([database, phrases]) => [database.toLowerCase(), phrases]) : [[db, keywords]];
   const [firstDb, firstPhrases] = jobs[0];
+  // 导航进关键词概览前先确认自动化窗口可见（虚拟屏幕模式；非虚拟屏幕模式下
+  // automation 为 null，这一行是 no-op，和接入前完全一样）。
+  await automation?.ensureVisible('bulk-navigation');
   await gotoInTool(
     launched.evalPage,
     `${appOrigin}/analytics/keywordoverview/?q=${encodeURIComponent(firstPhrases[0])}&db=${encodeURIComponent(firstDb)}`,
@@ -342,17 +465,27 @@ if (flags.bulk || bulkPlan) {
     await writeFile(flags.out, results.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
   }
 } else {
-const uiJobs = uiPlan ? uiPlanJobs(uiPlan) : keywords.map((keyword) => ({ database: db, keyword }));
-for (const { database, keyword: kw } of uiJobs) {
+// ui-plan 里每个国家都是计划本身显式写的（2 位国码校验过），永远算 dbGiven=true；
+// 单词/--kw-file 模式的 dbGiven 就是顶层有没有传 --db。
+const uiJobs = uiPlan
+  ? uiPlanJobs(uiPlan).map((job) => ({ ...job, dbGiven: true }))
+  : keywords.map((keyword) => ({ database: db, keyword, dbGiven }));
+for (const { database, keyword: kw, dbGiven: jobDbGiven } of uiJobs) {
   if (results.length) await pace();
   let row;
   try {
-    const url = `${appOrigin}/analytics/keywordoverview/?q=${encodeURIComponent(kw)}&db=${encodeURIComponent(database)}`;
+    // database 为空 = 没传 --db，不带 db 参数请求——落地哪个国家由 Semrush 自己的
+    // （不可预测的）账号状态决定，之后从 cap.url 读回 renderedDb 只作诊断。
+    const url = `${appOrigin}/analytics/keywordoverview/?q=${encodeURIComponent(kw)}${database ? `&db=${encodeURIComponent(database)}` : ''}`;
+    await automation?.ensureVisible('keyword-navigation');
     await gotoInTool(launched.evalPage, url, Number(flags.settle || 8));
 
     let cap = null;
     const deadline = Date.now() + Number(flags.timeout || 90) * 1000;
     while (Date.now() < deadline) {
+      // 只在上一次读到 hidden 时才恢复；visible 就不重复检查——每 2.5s 轮询一次，
+      // 每次都检查会把往返次数翻倍（与 semrush-overview.mjs 的 io.readPage 同一节流理由）。
+      if (lastVis === 'hidden') await automation?.ensureVisible('keyword-read-hidden');
       cap = await launched.evalPage(`(() => { const t = document.body?.innerText || ''; return JSON.stringify({
         url: location.href,
         title: document.title,
@@ -362,17 +495,22 @@ for (const { database, keyword: kw } of uiJobs) {
         // 与「还没渲染完」形态不同，必须分开——否则冷门词全被记成脚本故障。
         absent: /提供最新的关键词数据|更新指标/.test(t) && !/关键词难度|搜索量/.test(t),
         bodyText: t.slice(0, 20000),
+        vis: document.visibilityState,
       }); })()`);
       assertToolsShareAvailable(cap);
+      lastVis = cap?.vis ?? lastVis;
+      automation?.recordRead({ vis: cap?.vis ?? null, label: 'keyword-read' });
       if (cap.ready || cap.absent) break;
       await new Promise((r) => setTimeout(r, 2500));
     }
-    if (!cap?.ready && !cap?.absent) throw new Error(`keyword overview never rendered for "${kw}" (db=${db}) — 页面既没出指标也没出空态标记，这是超时不是结果`);
+    if (!cap?.ready && !cap?.absent) throw new Error(`keyword overview never rendered for "${kw}" (db=${database || 'unspecified — global scope'}) — 页面既没出指标也没出空态标记，这是超时不是结果`);
 
     row = {
       keyword: kw,
-      db: database,
-      ...parseOverviewMetrics(cap.bodyText, cap.absent),
+      db: database || null,
+      ...scopeKeywordMetrics(parseOverviewMetrics(cap.bodyText, cap.absent), {
+        dbGiven: jobDbGiven, database, renderedDb: extractDbFromUrl(cap.url),
+      }),
     };
     if (flags.debug) row.bodyText = cap.bodyText.slice(0, 3000);
   } catch (error) {
@@ -387,28 +525,34 @@ for (const { database, keyword: kw } of uiJobs) {
     // captureScene 永不 throw；行内带证据路径，AI 复核「超时」还是「真没数据」。
     const scene = await captureScene({
       session, outDir: evidenceDir, evalPage: launched.evalPage, tag: `kw-${results.length + 1}-error`,
-      note: `semrush-keyword "${kw}" (db=${db}): ${redactSecrets(String(error?.message || error)).slice(0, 200)}`,
+      note: `semrush-keyword "${kw}" (db=${database || 'unspecified — global scope'}): ${redactSecrets(String(error?.message || error)).slice(0, 200)}`,
     });
-    row = { keyword: kw, db, status: 'error', error: redactSecrets(error.message), evidence: scene };
+    row = { keyword: kw, db: database || null, status: 'error', error: redactSecrets(error.message), evidence: scene, automationWindow: automationWindowOutput(error?.automationWindow) };
   }
   if (row.status === 'ok') {
-    // 只报事实 + 采数据，不做显著性判断（阈值已移出，见 geoHopFacts 注释）。
-    const facts = geoHopFacts(row, database);
-    row.geoHop = facts;
-    if (facts.followed && !flags['no-follow-top-country'] && !uiPlan) {
-      try {
-        const [followed] = await fetchBulk(facts.country, [kw]);
-        row.geoHop = { ...facts, result: followed };
-      } catch (error) {
-        if (error?.code === 'TOOLS_SHARE_BLOCKED') throw error;
-        row.geoHop = { ...facts, status: 'error', error: redactSecrets(error.message) };
+    if (jobDbGiven) {
+      // 只报事实 + 采数据，不做显著性判断（阈值已移出，见 geoHopFacts 注释）。
+      const facts = geoHopFacts(row, database);
+      row.geoHop = facts;
+      if (facts.followed && !flags['no-follow-top-country'] && !uiPlan) {
+        try {
+          const [followed] = await fetchBulk(facts.country, [kw]);
+          row.geoHop = { ...facts, result: followed };
+        } catch (error) {
+          if (error?.code === 'TOOLS_SHARE_BLOCKED') throw error;
+          row.geoHop = { ...facts, status: 'error', error: redactSecrets(error.message) };
+        }
+      } else if (facts.followed) {
+        row.geoHop = { ...facts, followed: false, reason: uiPlan ? 'disabled for --ui-plan DOM-only mode' : 'disabled by --no-follow-top-country' };
       }
-    } else if (facts.followed) {
-      row.geoHop = { ...facts, followed: false, reason: uiPlan ? 'disabled for --ui-plan DOM-only mode' : 'disabled by --no-follow-top-country' };
+    } else {
+      // 没有显式 --db，就没有"当前国家库"可比——geoHop 整个前提（离开哪个国家）不成立，
+      // 不追查。volumeScope 已经是 global，追查也追不出"离开谁"的意义。
+      row.geoHop = { followed: false, reason: 'no explicit --db given; volumeScope is global, no current-country baseline to hop from' };
     }
   }
   results.push(row);
-  console.error(`[${results.length}/${uiJobs.length}] ${kw} (${database}) → ${row.status !== 'error' ? `vol=${row.volume} kd=${row.kd}` : row.error}`);
+  console.error(`[${results.length}/${uiJobs.length}] ${kw} (${database || 'global'}) → ${row.status !== 'error' ? `vol=${row.volume} kd=${row.kd}` : row.error}`);
   // 每查完一个就落盘，中途被打断也留得下已有结果。
   if (typeof flags.out === 'string') {
     await writeFile(flags.out, results.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
@@ -423,11 +567,14 @@ printJson({
     ? `bulk volume/KD/CPC 是每行 db 对应国家库的数据；对筛出的候选先用单词模式读取 globalVolume 与 byCountry。`
     : uiPlan
       ? 'ui-plan 逐条读取关键词概览网页 DOM，不调用 bulk RPC，也不会为 geo hop 追加接口请求。每行的 volume 是其 db 对应国家库的月搜量。'
-      : `volume 是 db=${db} 这一个国家库的月搜量，globalVolume 是全球合计，byCountry 是页面列出的 Top-N（不穷举，加总不等于 globalVolume）——三者不可互相替代。geoHop 只报事实：第一大国家 ≠ 当前库时用同一 session 复查一次并附 result；显著与否（旧阈值 35%/<500 已移出脚本）由 AI 拿 share/volume 判。`,
+      : dbGiven
+        ? `volume 是 db=${db} 这一个国家库的月搜量，globalVolume 是全球合计，byCountry 是页面列出的 Top-N（不穷举，加总不等于 globalVolume）——三者不可互相替代。geoHop 只报事实：第一大国家 ≠ 当前库时用同一 session 复查一次并附 result；显著与否（旧阈值 35%/<500 已移出脚本）由 AI 拿 share/volume 判。`
+        : 'no --db：volume 已改用 globalVolume（volumeScope: "global"），kd/cpc/competition/results 这几个只有国家口径的字段置空（countryMetricsAvailable:false，理由见每行的 countryMetricsUnavailableReason）；renderedDb 是页面这次落地的国家，仅诊断，不代表可信的口径；geoHop 因为没有"当前国家"可比而不追查。要国家专属指标请显式传 --db。',
   retrievedAt: new Date().toISOString(),
   db,
   session,
   subscription: { expiry: launched.state.expiry, daysLeft: launched.state.daysLeft, warning: warn || null },
+  automationWindow: automationWindowOutput(),
   results,
 });
 } finally {

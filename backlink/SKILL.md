@@ -83,14 +83,134 @@ backlink/
 │   │                               Column-major DOM table; parsing lives in lib-similarweb.mjs
 │   ├── similarweb-batch.mjs        bulk traffic screen — one login, N domains, resumable;
 │   │                               emits evidence rows (value+stopReason+screenshot), no verdicts
-│   ├── semrush-batch.mjs           same, on the other card's quota (organic traffic)
+│   ├── semrush-batch.mjs           same, on the other card's quota (organic traffic).
+│   │                               Same domain-overview page as semrush-overview.mjs,
+│   │                               so the same scope rule applies: no --db ⇒ global
+│   │                               (scope:"global"), --db xx ⇒ that country. `confirmed`
+│   │                               needs BOTH witnesses judgeScope() requires: the DOM
+│   │                               region selector (SCOPE_PROBE_JS) AND an RPC witness
+│   │                               (country-traffic rows + trend series, rpcScopeWitness())
+│   │                               built per-domain from a CDP capture armed before each
+│   │                               navigation + the in-page hook, merged via flattenRpc()
+│   │                               — all reused as-is from lib-semrush-overview.mjs, never
+│   │                               modified here. Rows that don't reach confirmed get
+│   │                               stopReason:"scope-unconfirmed" (not in
+│   │                               lib-batch-evidence.mjs's COMPLETE_STOP_REASONS, so it
+│   │                               retries) and their numbers move to
+│   │                               unconfirmedOrganicTraffic/unconfirmedAuthorityScore
+│   │                               instead of the main fields. Only reads the top card, not
+│   │                               the organic/ads research groups' own country badges, so
+│   │                               every scopeEvidence carries sectionScopeNotApplicable:true.
+│   │                               Each row also carries a trimmed rpcEvidence:[{id, kind,
+│   │                               timestamp, msFromNavStart}] (2026-09-14, no response bodies)
+│   │                               for multi-domain audits — "was this witness data actually
+│   │                               this domain's, or a stale cross-domain straggler"
 │   ├── lib-batch-evidence.mjs      the batch scripts' shared evidence contract — row shape,
 │   │                               completeness (resume) semantics, evidence-dir paths
-│   ├── semrush-overview.mjs        AS / organic traffic / ref-domains / keywords
-│   ├── semrush-keyword.mjs         global keyword detail plus one-session multi-country bulk plans
-│   ├── semrush-report.mjs          the OTHER five no-export reports (incl. referring-domains,
+│   ├── semrush-overview.mjs        full-page domain overview, 23 sections (AI
+│   │                               visibility, SEO 8-tile card, by-country,
+│   │                               trend charts, organic/ads research,
+│   │                               backlinks). No --db ⇒ global database;
+│   │                               --db xx ⇒ that country — the page's own
+│   │                               region selector is read back and cross-
+│   │                               checked into scopeEvidence, and a mismatch
+│   │                               or unreadable selector blocks completion.
+│   │                               The organic/ads research groups carry their
+│   │                               own country badge (account-level sticky
+│   │                               country, not the page selector): every
+│   │                               section reports its own scope, sectionScopes
+│   │                               sums it up, --organic-db xx pins them (an
+│   │                               account-state write, logged), unpinned or
+│   │                               unconfirmed groups block completion, and so
+│   │                               do rpc responses captured without a body.
+│   │                               Two witnesses: /dpa/rpc
+│   │                               JSON-RPC responses (structured data) +
+│   │                               shadow-DOM token stream (proves what
+│   │                               actually rendered). status: complete only
+│   │                               when every section hits a terminal state
+│   │                               AND the network gate passes in the same
+│   │                               round; timeout ⇒ incomplete, never a
+│   │                               look-alike success. See the
+│   │                               「semrush-overview.mjs：整页抓取与完成
+│   │                               判定」 subsection below. Window/visibility
+│   │                               (2026-09-14): --window defaults to
+│   │                               virtual-display (lib-automation-window.mjs:
+│   │                               visible, activations 0); with no virtual
+│   │                               screen it falls back to `active`
+│   │                               (was `foreground`) — same tab-selected,
+│   │                               non-OS-raising default as similarweb-query.mjs.
+│   │                               --activate-chrome (default true, unchanged)
+│   │                               now only gates OS-level `open -a` calls
+│   │                               (before nav + on a hidden read), capped at
+│   │                               --max-activations (default 3) for the whole
+│   │                               run; past the cap it stops raising and just
+│   │                               lets the existing hidden-tab gate report
+│   │                               incomplete as before. false also downgrades
+│   │                               an explicit --window foreground to active
+│   │                               (foreground itself is an OS-level raise,
+│   │                               so it can't be used to route around the
+│   │                               false promise). Output carries
+│   │                               readiness.visibilityActions: {windowMode,
+│   │                               windowModeDowngraded, activations,
+│   │                               activationLog:[{at,reason}],
+│   │                               activationCapReached, hint, errors}
+│   ├── lib-semrush-overview.mjs   ★ pure logic behind it — section specs,
+│   │                               RPC response-shape classifier, DOM
+│   │                               segmentation, completion gate, the
+│   │                               runReadiness loop. No browser calls;
+│   │                               offline-tested by
+│   │                               tests/semrush-overview-readiness.test.mjs
+│   ├── semrush-keyword.mjs         keyword detail plus one-session multi-country bulk plans.
+│   │                               No worldwide selector on this page, so --db is no longer
+│   │                               defaulted (was "jp"): single-keyword mode without --db
+│   │                               reports volume as globalVolume (volumeScope:"global") and
+│   │                               nulls kd/cpc/competition/results (countryMetricsAvailable:
+│   │                               false) instead of silently mixing in whatever country the
+│   │                               page happens to land on; bulk/--bulk-plan still require an
+│   │                               explicit country
+│   ├── semrush-report.mjs          the OTHER eight no-export reports (incl. referring-domains,
 │   │                               --rollup aggregates the rows THIS run fetched); reuses one
-│   │                               session; table reports paginate — pass --all-pages or it warns
+│   │                               session; table reports paginate — pass --all-pages or it warns.
+│   │                               organic-overview/organic-positions/organic-pages/keyword-magic/
+│   │                               keyword-overview have no worldwide selector and land on an
+│   │                               unpredictable country without --db (account-shared state,
+│   │                               observed drifting us/jp/kr with nothing changed on our end) —
+│   │                               these five now hard-fail with exit 2 if --db is omitted, and
+│   │                               emit scope/scopeEvidence read back from the page's region
+│   │                               selector. 2026-09-14 live-tested (8 page loads, CDP capture +
+│   │                               a redacted custom hook): keyword-overview/keyword-magic fire
+│   │                               NO /dpa/rpc or /kwogw traffic at all in DOM-polling mode;
+│   │                               organic-overview/organic-positions/organic-pages DO call
+│   │                               /dpa/rpc but never return a 'trend' kind, and their
+│   │                               googleCountries table is identical regardless of --db — neither
+│   │                               gives rpcScopeWitness()/trendContextFromText() anything usable.
+│   │                               So judgeScope() still never gets an rpcWitness here and
+│   │                               structurally can't say "confirmed"; a DOM-only-confirmed
+│   │                               unverified result is relabeled verdict:"dom-only" (distinct
+│   │                               from a real unverified/mismatch) instead of shipping a guessed
+│   │                               RPC witness — see authorized-data-sources.md's "report.mjs 口径
+│   │                               证据现状与实测结论" for the full per-report findings and the
+│   │                               one open lead (an unexplored /mini-kwogw/v2/webapi request on
+│   │                               organic-positions). backlinks-list/referring-domains/
+│   │                               backlinks-overview are not country-scoped and unaffected.
+│   │                               Also: paginated/virtualized tables now get an honest
+│   │                               top-level status — assessCompleteness() turns a stopped-short
+│   │                               pagination, a parser/raw-row mismatch, or a detected
+│   │                               virtual-scroll truncation into status:"unverified" (exit 3)
+│   │                               instead of only a console.error a JSON-only caller would miss.
+│   │                               2026-09-14 round 4 (offline, no live retest): closed two
+│   │                               "evidence missing ⇒ silently pass" gaps a live checker found
+│   │                               — readPageInfo() used to default an unparseable pager to
+│   │                               {current:1, total:1} (now unverifiable:true), and
+│   │                               reportCoverage() used to default an unparseable headline
+│   │                               total to "not truncated" (now totalUnverifiable:true for
+│   │                               non-crossPageTotal reports). Both now block status:"complete"
+│   │                               unless full pagination + consistent row counts independently
+│   │                               prove capture is complete. Also distinguishes the everyday
+│   │                               "ran without --all-pages on a big table (e.g. keyword-magic's
+│   │                               283 pages)" case — status:"partial-by-design" (exit 0, not a
+│   │                               defect) — from a genuine capture failure (status:"unverified",
+│   │                               exit 3); every status carries pagesCaptured/pagesTotal
 │   ├── semrush-traffic.mjs         Traffic & Market (.Trends) TOTAL visits — the only
 │   │                               Semrush number comparable with Similarweb. Runs
 │   │                               **visible by default** — virtual-display first
@@ -3639,6 +3759,125 @@ try/catch —— opencli 的 `pressure.mjs` 配额探针就依赖这条读取，
 就此降级为已解决；但节制节奏保留 —— 单会话串行、请求间 30s 级间隔，这不再是风控
 避险，而是省配额的纪律。
 
+**semrush-overview.mjs：整页抓取与完成判定（2026-09-13 重写）**
+
+- **覆盖**：域名概览整页 23 个区块——AI 可见度卡片、SEO 8 宫格（含「流量比例」
+  「付费关键词」）、按国家/地区、主要引用来源、SERP 排名分布、流量/关键词趋势图、
+  自然搜索研究 6 块、广告研究 4 块、反向链接 6 块。区块靠**标题文字+位置**识别，
+  不靠 class 名（每次发版都变的哈希）。
+- **两个证人**：接口证人（`/dpa/rpc` 的 JSON-RPC 响应，会话级网络捕获+页内钩子；
+  趋势图逐点日/月序列只在这里有）+ DOM 证人（穿透 shadow DOM 的文本 token 流，只
+  证明区块渲染成了什么终态）。缺一不可：只看接口会把「rpc 全 200 但报表模块没
+  挂载」误判成功；只看 DOM 拿不到趋势序列。
+- **每区块终态**：`data` / `empty`（合法空态）/ `locked`（付费墙，同样要网络静默）/
+  `absent`（滚到底、网络静默、≥2 次复读仍未出现、SEO 卡片已渲染、**排在它后面的区块确实
+  渲染了**、全程没有 hidden 读数、接口无数据，证据写明）；非终态
+  `loading` / `not-found` / `not-rendered`（接口有数但 DOM 没渲染，即空白页事故
+  形态）/ `conflict`（DOM 空但接口有数，两证人打架不下结论）。
+- **完成判定**（同一轮都过才行）：DOM 一路——每个区块到终态、报表区无占位元素
+  （Skeleton/Spin/Loader/Placeholder、`aria-busy`、`role=progressbar`）、已滚到
+  底；网络一路——CDP 捕获的 `/dpa/rpc` 累计发出数=资源计时完成数、drain 无在途、
+  页内钩子在途为 0、最后一个 rpc 返回距今 ≥ quiet 窗口（默认 4s）。**超时后一律
+  `incomplete`，不存在「看起来齐了」的超时输出**。
+- **页面级口径（2026-09-13 起）**：不传 `--db` 默认**全球库**（`scope: "global"`），
+  传 `--db xx` 才是该国。`judgeScope()` 要 **DOM + 接口两个证人**才给 confirmed：
+  全球 = 落地 URL 无 db、国家 pill 暴露 `aria-checked` 且全部为 false、「全世界」按钮存在
+  （它本身**没有**选中态属性，只能反证），**并且**接口趋势最新点的关键词数严格大于每一个
+  单国家行；国家 xx = pill 选中或 URL db=xx，**并且**趋势关键词数等于 xx 行。明确反例判
+  mismatch，证据不齐判 unverified；非 confirmed 记 `scope-&lt;verdict&gt;` 阻断。
+- **区块级口径**：「自然搜索研究」「广告研究」两个分组标题旁有**独立的国家徽标**，跟随账号级
+  「最近一次显式选择的国家」，与页头选择器脱钩（实测全球页面上它们显示过别的国家）。
+  每个区块输出自己的 `scope`，顶层汇总 `sectionScopes`（分组 top / organic / ads / backlinks
+  各自 expected / actual / verdict）。研究分组的期望口径 = `--organic-db xx`；没传且 `--db xx`
+  ⇒ xx；**没传且请求全球 ⇒ unpinned**：不切换国家、不猜代表国家，如实标出页面显示的国家
+  并记 `section-scope-unpinned` 阻断——切换会改写同账号共享状态，猜错比不给更坏。
+  传 `--organic-db xx` 时先显式访问一次 `/analytics/organic/overview/?db=xx` 钉住账号状态，
+  这次改写记进输出 `accountStateWrites`。徽标缺失 ⇒ unverified（**广告研究**可用接口补位：
+  「主要付费搜索竞争对手」查询里本域名自身那一行的 organicPositions 唯一匹配某国行，见
+  `rpcScopeWitness().adsMatches`；2026-09-14 实测更正——这条查询属于广告分组，旧版错给了自然分组，
+  自然分组现在只认徽标）；运行中徽标变过 ⇒ mismatch；
+  反链分节的过滤条应为「全世界」。任一分组非 confirmed ⇒ 记 `section-scope-*` 阻断。
+- **接口响应体两个来源**：扩展每条命令先用 2 秒探针检查调试器，页面加载忙时探针超时就 detach +
+  attach，重连前已收到响应头的请求再也取不到 body（实测 21 条里 16 条 status 200、body 为空）。
+  所以报表导航后、新 document 一可执行就注入页内钩子（fetch/XHR 完成时 clone 响应文本），与 CDP
+  捕获按 JSON-RPC id 合并对账：合起来的不同响应数少于资源计时完成数 ⇒ `rpc-bodies-missing(n/m)`
+  阻断；同一响应两边内容不同 ⇒ `rpc-body-conflict`；钩子注入前就发出的请求计 `preHookRequests`，
+  只能靠 CDP 补。网络闸门看「请求完成」，结构化数据看「拿到响应体」，两件事分开判。
+- **趋势序列按口径挑**：同一次加载里有两套趋势——页面级一套（最新点与 SEO 卡片显示的关键词数、
+  自然流量对得上）和研究分组一套（最新点等于分组国家的国家行）。流量/关键词趋势图、SEO 附加值、
+  页面级口径证人用页面级那套；「按意图」用研究分组那套。序列身份是**复合键**（最新点关键词数 +
+  自然流量），关键词数撞车时先用流量区分；仍分不开（例如卡片流量那一刻读不到）就**不猜**——相关区块
+  不用接口数据，并记 `trend-series-ambiguous` 阻断，不会 complete。
+- **交叉校验纳入阻断**：SEO 卡片 DOM 显示值与接口数据不一致记 `seo-crosscheck-mismatch`；「按意图」
+  逐行对账（关键词数、流量都按页面缩写精度比较——数据量大的站点关键词数也显示成 K/M），不一致记 `intent-crosscheck-mismatch`，接口给了数据
+  但 DOM 一行都读不出记 `intent-crosscheck-unverified`——证明不了接口数据就是页面上那个挂件画的那套，
+  就不在 complete 输出里交出去。
+- **给其它脚本复用的导出**：`trendContextFromText`（只吃 innerText 的页面级趋势匹配）、
+  `armNetworkCapture` / `drainRpcWitness`（依赖注入：调用方传入 opencli 与 evalPage，lib 不直接开浏览器），
+  另有 `crossCheckIntent`、`accountRpcBodies`、`rpcScopeWitness`、`judgeScope`。
+- **定点等待**：固定步长滚动走完后，对仍未到终态的区块滚到它自己的标题 / 所属分组大标题 /
+  前面最近的标题，停下等待，不行再 0.3 屏小步挪最多 6 次；仍见证不到就保持非终态。
+  终态缓存只收直接观测到的终态，区块再次被观测为非终态时作废。
+- **区块定位**：标题正则只许开头锚定或全等（旧的只锚结尾写法曾让「按意图」抢到关键词表的「意图」列头，
+  关键词表自己的段落被截短）；同一分组内按页面顺序单调定位；标题在自己段落之外还命中别的 token 记
+  `section-locate-conflict` 阻断；表格类区块「已渲染」至少要 3 个含数字的 token。清单外的挂件标题
+  （如「文字广告样本」）只当段落边界。测试逐条检查 23 个标题正则不命中常见列头。
+- **到底与滚动轨迹**：只有「到底判据成立且页高连续两次不变」退出滚动循环才记到过底，步数或时限耗尽
+  记 `scroll-exhausted` 阻断；做判定的那次读数必须停在最终底部（定点等待把页面留在中段时先滚回底部）
+  且可见，否则记 `last-read-not-at-bottom` / `last-read-hidden`。每次读数的 scrollY、视口高、页高、
+  可见性、视口内区块标题写进 `readiness.scrollTrace`（保留首尾与变化点）；懒加载探针
+  （IntersectionObserver 创建/回调/相交次数、scroll 与 wheel 监听和事件数）写进 `readiness.lazyLoadProbe`。
+  每次滚动后补派发 scroll 事件（opencli 没有可信滚轮输入，`browser scroll` 也是页面 JS）。
+- **输出**：`status` = complete/incomplete/unavailable（旧 `inconclusive` 已
+  移除）。新增 `db`（null=全球）、`scope`、`scopeEvidence`、`paidKeywords`、
+  `trafficShare`；旧 8 键含义不变，complete 时装进 `metrics`，否则装进
+  `unconfirmedMetrics`（显式 `undefined`）。另有 `sections`、`completeness`
+  （`blockers` 含 `scope-*`、标签页转 hidden 时的 `tab-hidden-during-run`——懒
+  加载区块可能再没挂载）、`readiness`、`notCovered`、`quotaDisplay`。AS 恰好为
+  0 且无等级徽标视为占位值（2026-08-23 事故的直接修复）。
+- **虚拟屏幕模式（2026-09-14 实跑确认）**：不传 `--window` 时默认 `virtual-display`——持锁后先把
+  本 session 的 opencli 独立窗口（`--window isolated`）移到名字匹配「虚拟 / Virtual」的非主屏上、
+  `tab select` 选中并读回 `visibilityState` 再导航；实跑整页全部区块到终态、读数全程 visible、
+  前台应用抽样全程不是 Chrome、`activations: 0`。输出顶层与 `readiness` 下都有 `automationWindow`。
+  检测不到虚拟屏幕（或 `--automation-display off`）才回退为下面这套 `active` + 限次 `open -a`，
+  stderr 提示「未检测到虚拟屏幕，回退为抢焦点（最多 N 次）」。运行期间不要把自己的标签页拖进
+  自动化窗口。配置与回退细节见 references/authorized-data-sources.md 的「虚拟屏幕模式」。
+- **驱动层事实（2026-09-14 更新窗口/激活策略；以下为无虚拟屏幕时的回退路径）**：默认 `--window active`（此前是
+  `foreground`；`active` 同样能避免 hidden，但不像 `foreground` 那样把 Chrome 应用整个
+  raise 到 OS 前台——显式传其它值原样透传，`--activate-chrome false` 时禁止解出
+  `foreground`，会被降级成 `active`）；导航走 `location.href` 而非
+  `opencli browser open`（后者让报表模块不挂载，接口却照常 200），并在导航后轮询新 document
+  尽早注入钩子；CDP 只在页面静默时 drain。窗口**被别的应用遮挡**时标签页仍会读成 hidden
+  （macOS 的窗口遮挡检测），`active` 救不回这种情况，opencli 的 CDP 透传白名单里也没有
+  bringToFront / 焦点模拟，所以脚本侧仍用 `open -a "Google Chrome"` 抬前台兜底：报表导航前
+  一次、每次 hidden 读数之后补一次，但**整次运行不超过 `--max-activations`（默认 3）次**
+  （`--activate-chrome false` 整体关闭这条 OS 级抬前台；次数、时间戳、原因都记进
+  `readiness.visibilityActions.{activations, activationLog, activationCapReached, hint}`）；
+  用满上限后不再抬，仍然 hidden 就保留 tab-hidden 阻断，`hint` 字段会提示"运行期间请保持
+  Chrome 窗口可见（未被遮挡/可放在副屏或虚拟屏幕）"。反向链接明细的行里没有数字，已渲染
+  判据是至少 2 个 URL token。
+  flags：`--domain --db --organic-db --subdomain --node --window --automation-display --activate-chrome --chrome-app
+  --max-activations(3) --timeout(150s) --interval(2.5s) --quiet-ms(4000) --step-timeout(15s)
+  --settle(6) --pin-settle(10) --out --evidence-dir`。
+- **自然 / 付费分辨与结构化区块（2026-09-14 数据丰富站点实跑后）**：
+  - 主判据是请求体里的 JSON-RPC 方法名（页内钩子按白名单只记 `method` 与少数口径参数）：自然 `organic.*`、
+    付费 `adwords.*`；DOM 行只做交叉校验——方法名选中的那条首行不在页面、另一条的首行在，就判
+    `ambiguous-organic-vs-paid` 保持非终态。付费关键词行多出广告字段（广告位、标题、描述、显示网址），
+    按字段形状单独归类，即使没有方法名也不会混进自然关键词表。
+  - 钩子也解析非字符串请求体（`fetch(Request)`、Blob、字节数组、URLSearchParams），只额外记类型名
+    `reqBodyType`；证据快照 `rpcSummary` 列出每条响应的 kind / 方法名 / 白名单参数 / 行数 / 字段名，不含数值。
+  - 广告研究 4 块、两个排名分布、关键主题改为接口结构化输出：主要付费关键词（含广告文案）、主要付费
+    搜索竞争对手（排除本域名自身行，带总数）、竞争排名图谱（付费，含自身点，x=付费关键词数、y=付费流量）；
+    排名分布取研究分组那套趋势最新点的 11 档直方图，**合计必须等于同一行的关键词总数**，否则
+    `distribution-total-mismatch` 非终态；关键主题解锁后给主题名、关键词数、流量、搜索量、页面数。
+  - SEO 卡片「自然流量」对应接口 `traffic`（自然 + SERP 精选），不是 `organicTraffic`——小站两者几乎相等，
+    大站差近一成。输出 `organicTraffic` 取卡片口径，另给 `organicTrafficExclSerpFeatures`；页面级趋势序列也按这个字段匹配卡片。
+- **明确不覆盖**（写进 `notCovered`）：顶部「增长审核/按国家地区比较」Tab、按国家
+  表的谷歌 Tab 视图、各表「查看详情」完整分页（走 `semrush-report.mjs`）、图表粒度切换、
+  排名分布 11 档与图上档位标签的对应（原样给出并标 `bucketLabelsVerified:false`）、SERP 排名分布圆环逐项数值（只有 DOM 百分比）。
+
+判据细节见 `scripts/lib-semrush-overview.mjs` 与 `tests/semrush-overview-readiness.test.mjs`。
+
 Everything else about cards, quota, and the traps is in
 <ref file="references/authorized-data-sources.md"/>.
 </panel-launch>
@@ -3721,8 +3960,13 @@ node scripts/footprint-discover.mjs --keyword "browser games" --preset submit \
 ]]></cmd>
 </footprint>
 <recon>
-Domain overview is one page out of five that matter; the other four have no
-export button and are where competitor recon actually happens. **Pass the same
+Domain overview is one page; `semrush-report.mjs` covers the other eight, which
+have no export button and are where competitor recon actually happens. Five of
+those eight (organic-overview/organic-positions/organic-pages/keyword-magic/
+keyword-overview) have no worldwide option and land on an unpredictable country
+without `--db` — pass it explicitly or the script exits with an error; the
+other three (backlinks-list/referring-domains/backlinks-overview) aren't
+country-scoped. **Pass the same
 `--session` across the whole recon** — the panel launch costs 20–40s and a
 login, the report itself ~15s, and `semrush-report.mjs` skips the launch when
 the session is already parked on the tool origin (`sessionReused: true` says
@@ -3731,7 +3975,7 @@ which happened).
 # Semrush is a quota site: the script resolves the session to the fixed
 # `semrush-nav` itself, so do NOT pass --session. Passing one is ignored with a
 # warning; the fixed name is what serialises concurrent callers into one tab.
-node scripts/semrush-report.mjs --report keyword --keyword 'grid maker' --db us
+node scripts/semrush-report.mjs --report keyword-overview --keyword 'grid maker' --db us
 node scripts/semrush-report.mjs --report backlinks-overview --domain rival.com
 node scripts/semrush-report.mjs --report organic-positions --domain rival.com --db us
 opencli browser semrush-nav close

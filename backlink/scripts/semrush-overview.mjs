@@ -1,48 +1,150 @@
 #!/usr/bin/env node
 /**
- * semrush-overview.mjs — 拉一个域名的 Semrush「域名概览」：权重分、自然流量、
- * 引荐域名数、自然关键词数、反链数，以及国家数据库维度。
- *
- * 为什么单独一个脚本：这是竞品勘测里被问得最多的一组数字，而已有的
- * semrush 相关脚本都是**表格报表的批量导出**（引荐域名、主要页面、排名词），
- * 概览页没有表格也没有导出按钮，导不出来，只能读页面。之前一直是手动开浏览器看的。
- *
- * 与 similarweb-query.mjs 的分工（两者查的是不同口径，别混用）：
- *   - 本脚本给的是**自然搜索流量**估算，只算 Google 自然结果带来的那部分；
- *   - similarweb-query --report performance 给的是**总访问量**，包含直接、社交、买量。
- *   同一个站两个数字差几倍是正常的，把它们放进同一张表对比是错的。
- *
- * **本脚本没有「全球」选项，`organicTraffic` 永远是某一个国家库的估算。**
- * 不传 `--db` 不等于拿到全球合计——Semrush 只是回落到它自己的默认库，输出里的
- * `db: null` 意味着「不知道是哪个国家」，不是「已加总所有国家」。域名维度（本脚本、
- * semrush-batch.mjs、semrush-report.mjs）目前没有 semrush-keyword.mjs 那样的
- * `globalVolume` 字段；要估算全球规模只能用别的口径按国家占比换算（见
- * `backlink/references/authorized-data-sources.md`）。Semrush 网页版是否提供
- * 「Worldwide」库选择尚未验证，不要替它下结论。
+ * semrush-overview.mjs — Semrush「域名概览」**整页**抓取：从上到下每个区块都要到终态才算完。
  *
  * 用法：
- *   node semrush-overview.mjs --domain example.com [--db jp] [--subdomain] [--node 5]
- *   # 不传 --db 会走 Semrush 自己的默认库（未必是你想要的那个国家），脚本会警告一次
+ *   node semrush-overview.mjs --domain example.com --db us [--subdomain] [--node 5]
+ *        [--out result.json] [--evidence-dir dir] [--timeout 150]
+ *        [--window virtual-display|foreground|active|background|isolated] [--activate-chrome false]
+ *        [--max-activations 3] [--automation-display <name|/re/|off>]
+ *   # --window 不传 = virtual-display（2026-09-14）：自动化窗口放到虚拟屏幕、选中标签页、全程
+ *   #   --window isolated，可见但不抢焦点，activations 恒为 0；检测不到虚拟屏幕才回退为下面这套
+ *   #   active + 限次 open -a。显式传 opencli 四档之一则原样透传、不走虚拟屏幕。
+ *   # 不传 --db = 全球库（scope: "global"）；--db us = 美国库（scope: "us"）。
+ *   # 结束时核对页面地区选择器的选中项，写进 scopeEvidence；不符或读不出 ⇒ incomplete。
+ *   # --window 默认 active（选中标签页、不节流，但不夺 OS 焦点），显式传其它值原样透传；
+ *   #   --activate-chrome false 时禁止解出 foreground（会被降级成 active，见
+ *   #   resolveOverviewWindowMode）。--activate-chrome 控制的是另一件事：OS 级
+ *   #   `open -a` 抬前台，默认开、整次运行最多 --max-activations 次（默认 3），
+ *   #   见文件头第 5 条与 visibilityActions 输出字段。
  *
- * 2026-08-30 双证人化：never-rendered / churning / 任何异常在退出前 captureScene
- * （穿透 census + 截图）落进 --evidence-dir；inconclusive（渲染信号缺失）也补拍
- * 一对——稳定的占位值和稳定的真值只有截图能对质。截图链路已实盘验证。
+ * ──────────────────────────────────────────────────────────────────────
+ * 抓什么
+ * ──────────────────────────────────────────────────────────────────────
+ * 期望区块清单在 lib-semrush-overview.mjs 的 SECTION_SPECS（23 块）：AI 可见度卡片、SEO 卡片
+ * 8 宫格（含「流量比例」「付费关键词」）、按国家/地区划分、主要的引用来源、谷歌 SERP 排名分布、
+ * 流量趋势图、关键词排名分布趋势图、自然搜索研究 6 块、广告研究 4 块、反向链接 6 块。
+ * 数据来自两个证人：
+ *   - 接口证人：`/dpa/rpc` 的 JSON-RPC 响应体（OpenCLI 会话级 CDP 网络捕获 + 页内钩子）
+ *     —— 结构化数据，趋势图逐点序列只在这里有；
+ *   - DOM 证人：穿透 shadow DOM 的文本 token 流 —— 证明区块真的渲染出来、渲染成了什么终态。
+ *
+ * ──────────────────────────────────────────────────────────────────────
+ * 什么时候算「加载完成」（两路都满足，同一轮判定）
+ * ──────────────────────────────────────────────────────────────────────
+ * DOM 一路：每个区块都到终态 data / empty / locked / absent，且页面报表区没有任何占位元素
+ *   （data-ui-name 含 Skeleton/Spin/Loader/Placeholder、aria-busy、role=progressbar）。
+ * 网络一路：CDP 捕获的 `/dpa/rpc` 发出数 = 资源计时完成数、drain 时无在途、页内钩子在途为 0、
+ *   最后一个 rpc 返回距今 ≥ quiet 窗口。
+ * 超时仍不满足 ⇒ status: incomplete，列出卡住的区块和当时的 pending 数；**不存在「看起来成功」
+ * 的超时输出**。判据细节与反例测试见 lib-semrush-overview.mjs 与
+ * tests/semrush-overview-readiness.test.mjs。
+ *
+ * ──────────────────────────────────────────────────────────────────────
+ * 2026-09-13 实测钉死的三个驱动层事实（别凭直觉改）
+ * ──────────────────────────────────────────────────────────────────────
+ * 1. **后台（hidden）标签页里这张报表不水合**：页头出来、报表区空白。默认 --window active
+ *    （2026-09-14 前是 foreground；active 同样能避免 hidden，但不夺 OS 焦点），
+ *    每次读都记录 document.visibilityState（见 SKILL.md hidden-tabs-do-not-hydrate）。
+ * 2. **不能用 `opencli browser open <url>` 导航到报表**：CDP 捕获布防 + chrome.tabs.update 导航时，
+ *    接口 20 条全部 200 带数据，而报表模块从不挂载（非报表页 /home/ 上对照复现：open 导航空白，
+ *    location.href 导航正常渲染）。所以导航走 gotoInTool（location.href），布防用
+ *    `wait xhr <永不匹配> --timeout 1`——它只调 startNetworkCapture，不带 URL、不导航，
+ *    也就不会把带 __gmitm 的 URL 写进访问日志。
+ * 3. **中途 drain CDP 捕获会丢在途请求的响应体**（扩展端按 requestId 回填，缓冲清空后不再记录）。
+ *    所以只在页内已静默时 drain；发出数/完成数用「CDP 累计条数 vs 资源计时完成数」对账。
+ * 4. **CDP 捕获本身也会丢响应体**：扩展每条命令先用 2 秒探针检查调试器，页面加载忙时探针超时就
+ *    detach + attach，重连前已收到响应头的请求再也取不到 body（实测 21 条里 16 条 status 200、body 空）。
+ *    所以报表导航后立刻注入页内钩子（fetch/XHR 完成时 clone 响应文本），两个来源合并对账
+ *    （accountRpcBodies）；合起来仍缺 ⇒ `rpc-bodies-missing` 阻断，两边内容不一致 ⇒ `rpc-body-conflict`。
+ * 5. **窗口被遮挡时标签页会读成 hidden**，下方懒加载区块可能不挂载。opencli 的 CDP 透传白名单里
+ *    没有 Page.bringToFront / 焦点模拟，opencli 自己的 `active` 窗口模式（选中标签页、不节流）
+ *    能解决大多数场景，但窗口整个被别的应用**遮挡**时（macOS 的窗口遮挡检测会让 Chrome 把
+ *    被完全挡住的标签页也标成 hidden，即使它是选中的活动标签）`active` 救不回来，仍需要脚本侧
+ *    `open -a "Google Chrome"` 把应用抬到最前：导航前一次、每次 hidden 读数之后补一次
+ *    （`--activate-chrome false` 整体关闭这条 OS 级抬前台；开着时 2026-09-14 起有次数上限
+ *    `--max-activations`，默认 3——超过上限不再抬，仍 hidden 就保留 tab-hidden 阻断，并在
+ *    visibilityActions.hint 里提示保持窗口可见）。
+ *
+ * 与 similarweb-query.mjs 的分工照旧：本脚本的 organicTraffic 是**自然搜索流量估算**
+ * （全球库或 --db 指定的国家库），不是总访问量，不要和 Similarweb 的总访问量并列比较。
  */
-import { resolveSession, parseFlags, showHelpIfRequested, printJson, required, validateSession } from './opencli-core.mjs';
-import { captureStable, expiryWarning, gotoInTool, launchTool, redactSecrets } from './lib-tools-share.mjs';
+import { writeFile, mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import { resolveSession, parseFlags, showHelpIfRequested, printJson, required, opencli, firstJson } from './opencli-core.mjs';
+import { assertToolsShareAvailable, expiryWarning, gotoInTool, launchTool, redactSecrets, routeMismatch } from './lib-tools-share.mjs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { captureScene, defaultSceneDir } from './lib-evidence-scene.mjs';
-import { writeFile } from 'node:fs/promises';
+import {
+  runReadiness, PAGE_READ_JS, HOOK_JS, HOOK_TAKE_JS, NOT_COVERED, SECTION_SPECS, TERMINAL_STATES,
+  seoCardCheck, crossCheckSeo, locateSections, SCOPE_PROBE_JS, judgeScope,
+  rpcScopeWitness, judgeSectionScopes, finalStatus, scrollToTextJs, flattenRpc, crossCheckIntent, LAZY_PROBE_JS,
+  DEFAULT_WINDOW, resolveOverviewWindowMode, createChromeActivator,
+} from './lib-semrush-overview.mjs';
+import { plainAutomationSummary, resolveWindowStrategy, VIRTUAL_DISPLAY_WINDOW } from './lib-automation-window.mjs';
 
 const flags = parseFlags(process.argv.slice(2));
 showHelpIfRequested(flags, import.meta.url);
 const domain = normalizeDomain(required(flags, 'domain'));
-const dbGiven = flags.db !== undefined && String(flags.db).trim() !== '';
+// 口径：不传 --db = 全球（概览页 URL 不带 db 参数就是全球库）；--db xx = 该国家库。
+// 页面是否真的处在这个口径，结束时从地区选择器读出来核对（见 judgeScope），读不出或不符都不算 complete。
 const db = String(flags.db || '').trim().toLowerCase();
-if (!dbGiven) {
-  console.error(`⚠ --db not given. organicTraffic will be whatever country Semrush defaults to — not a global total (this script has no global option). Pass --db us (or uk/de/…) to know which country you're reading.`);
-}
+const scope = db || 'global';
+// 「自然搜索研究」「广告研究」两个分组的国家库（它们不跟页头走，跟账号级「最近一次显式选择的国家」走）。
+// 传了：先显式访问一次 /analytics/organic/overview/?db=<xx> 把账号状态钉住（会改写同账号共享状态，写进输出）。
+// 不传且请求全球：不动账号状态，如实标出页面显示的国家并阻断 complete（理由见 judgeSectionScopes）。
+const organicDb = String(flags['organic-db'] || '').trim().toLowerCase();
+// 可见性（见文件头第 5 条）：opencli 的 `active` 窗口模式（"选中标签页、不节流，
+// 但不夺 OS 焦点"）能在不抢用户焦点的前提下解决"后台标签页不水合"，2026-09-14
+// 起是本脚本的默认 opencli 窗口模式，不再靠 opencli 级别的 `foreground`（raise +
+// select）抢焦点。真正会抢 OS 焦点的只剩 OS 级 `open -a`（bringChromeForward）：
+// 默认开、但整次运行有次数上限（`--max-activations`，默认 3）——导航前 1 次 +
+// 之后每次读到 hidden 补抬 1 次，用满上限就不再抬，仍 hidden 就照现有判据如实
+// incomplete，并在 visibilityActions.hint 里提示用户保持窗口可见。
+// `--activate-chrome false` 关掉 OS 级抬前台；这时如果显式传了 `--window
+// foreground`，也会被降级成 `active`——false 的意图就是"不要任何 OS 级抢焦点"，
+// 而 opencli 的 foreground 本身就是"raise + select"，同属抢焦点，不能被这个开关
+// 绕过去。
+const execFileP = promisify(execFile);
+const activateChrome = process.platform === 'darwin' && String(flags['activate-chrome'] ?? 'true') !== 'false';
+const chromeApp = typeof flags['chrome-app'] === 'string' ? flags['chrome-app'] : 'Google Chrome';
+const maxActivations = Math.max(0, Number(flags['max-activations'] ?? 3) || 0);
+
+// resolveOverviewWindowMode / createChromeActivator / DEFAULT_WINDOW 都住在
+// lib-semrush-overview.mjs（本脚本纯逻辑层）：它们不碰浏览器，import 这里就
+// 能离线测，见 tests/semrush-overview-visibility.test.mjs。
+const { windowMode, downgraded: windowModeDowngraded } = resolveOverviewWindowMode({
+  windowFlag: typeof flags.window === 'string' && flags.window !== VIRTUAL_DISPLAY_WINDOW ? flags.window : null,
+  activateChrome,
+});
+// 虚拟屏幕策略（见 lib-automation-window.mjs）：不传 --window 时默认走它；windowMode 退为回退模式。
+const windowStrategy = resolveWindowStrategy({ windowFlag: typeof flags.window === 'string' ? flags.window : null, fallbackWindowMode: windowMode });
+const launchWindow = windowStrategy.strategy === VIRTUAL_DISPLAY_WINDOW ? VIRTUAL_DISPLAY_WINDOW : windowMode;
+const activator = createChromeActivator({
+  enabled: activateChrome,
+  maxActivations,
+  activate: () => execFileP('open', ['-a', chromeApp], { timeout: 15_000 }),
+});
+const visibilityActions = activator.state;
+visibilityActions.app = chromeApp;
+visibilityActions.windowMode = windowMode;
+visibilityActions.windowModeDowngraded = windowModeDowngraded;
+// 让标签页可见：虚拟屏幕模式下只做「确认 visible / hidden 时移窗 + tab select」，从不 open -a；
+// 没有虚拟屏幕（或运行中断开）才交给 activator（限次 open -a，--activate-chrome false 时 0 次）。
+let automation = null;
+const bringChromeForward = async (reason) => {
+  if (automation?.mode === VIRTUAL_DISPLAY_WINDOW) {
+    const r = await automation.ensureVisible(reason);
+    if (r.mode === VIRTUAL_DISPLAY_WINDOW) return visibilityActions;
+  }
+  return activator.bringChromeForward(reason);
+};
+if (organicDb && !/^[a-z]{2}(-[a-z]+)?$/.test(organicDb)) throw new Error(`Invalid --organic-db: ${flags['organic-db']}`);
 const session = resolveSession(flags, 'semrush-overview', 'semrush');
 const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN_SEMRUSH || 'https://sem.3ue.co').replace(/\/+$/, '');
+const LEGACY_FIELDS = ['authorityScore', 'organicTraffic', 'organicTrafficChange', 'paidTraffic', 'referringDomains', 'organicKeywords', 'organicKeywordsChange', 'backlinks', 'paidKeywords', 'trafficShare'];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function normalizeDomain(value) {
   const candidate = value.includes('://') ? new URL(value).hostname : value.split('/')[0];
@@ -53,417 +155,328 @@ function normalizeDomain(value) {
   return normalized;
 }
 
-/** 「23.8K」「1.6K」「4.9K」这种缩写在概览页到处都是，必须还原成数字。 */
-function parseCompact(value) {
-  const m = String(value || '').replace(/,/g, '').trim().match(/^([\d.]+)\s*([KMB])?$/i);
-  if (!m) return null;
-  const mult = { k: 1e3, m: 1e6, b: 1e9 }[(m[2] || '').toLowerCase()] || 1;
-  return Math.round(Number(m[1]) * mult);
-}
-
-/**
- * 概览页是「标签一行、数值下一行」的结构，中间还会插入变化率（+356%）和评级词（尚可/高）。
- * 所以不能取标签的下一行，要往后找到第一行**长得像数值**的。
- */
-function pick(lines, label, pattern) {
-  const i = lines.findIndex((l) => l === label);
-  if (i < 0) return null;
-  return lines.slice(i + 1, i + 6).find((l) => pattern.test(l)) || null;
-}
-
-/**
- * 从整页文本里读出这一组指标。**同时被解析和「数值是否稳定」的指纹用**——
- * 指纹必须覆盖真正要写进输出的每一个字段，否则某个字段还在水合就被放过去了。
- */
-function readMetrics(bodyText) {
-  const lines = String(bodyText || '').split(/\n+/).map((l) => l.trim()).filter(Boolean);
-  return {
-    // `Number(x) || null` 会把 AS=0 吞成 null —— 而 0 是真实值（新站常见），
-    // 与「没数据」含义相反。2026-08-21 在 semrush-report.mjs 上发现，同步修这里。
-    // ⚠️ 这里的 0 **不能**靠「连续两次读到同一个 0」来采信——见下面
-    // `makeAuthorityScoreRenderSignal`：水合前的占位 0 本来就是完美稳定的。
-    // 采信 0 的唯一依据是 AS 组件自己给出的「已渲染完成」信号。
-    authorityScore: (() => { const v = pick(lines, 'Authority Score', /^\d+$/); return v === null ? null : Number(v); })(),
-    organicTraffic: parseCompact(pick(lines, '自然流量', /^[\d.,]+\s*[KMB]?$/i)),
-    paidTraffic: parseCompact(pick(lines, '付费流量', /^[\d.,]+\s*[KMB]?$/i)),
-    referringDomains: parseCompact(pick(lines, '引荐域名', /^[\d.,]+\s*[KMB]?$/i)),
-    organicKeywords: parseCompact(pick(lines, '自然搜索关键词', /^[\d.,]+\s*[KMB]?$/i)),
-    backlinks: parseCompact(pick(lines, '反向链接', /^[\d.,]+\s*[KMB]?$/i)),
-    // 变化率紧跟在数值后面，单独取一次用于判断是在涨还是在掉。
-    organicTrafficChange: pick(lines, '自然流量', /^[+\-−][\d.]+%$/),
-    organicKeywordsChange: pick(lines, '自然搜索关键词', /^[+\-−][\d.]+%$/),
-  };
-}
-
-/**
- * Authority Score 组件的**完成信号探针**（页面产出的事实，不是我们这边的计数）。
- *
- * 判据必须绑在 AS 这一个组件上，不是整页——见
- * <law-ref id="readiness-must-bind-to-this-query"/>：「页面上出现了 X」永远要先问
- * 「X 有没有可能由别处提供？」。整页扫 svg / 链接 / 骨架都会被别的卡片满足，
- * 于是又变成一个和 AS 无关的赌。所以从「Authority Score」这个纯文本标签往上爬，
- * **一碰到别的指标标签就停**，只在这个盒子里取证。
- *
- * 【2026-08-29 实盘复核：上一版的三种信号**全部猜错**，这一版按取回的真实 DOM 重写】
- * 取回的祖先链（canva.com，中文 UI）：
- *   层 0–4 `Authority Score`；层 5 `Authority Score 100 行业领导者`；
- *   层 6 `… 自然流量 287.9M +0.4% 付费流量 442.1K -28% …`
- * 由此三条更正：
- *   1. 爬升写死了 `i < 4`，停在**一个值都不含**的第 4 层，挂件在第 5 层。
- *      现在**按条件停**：挂件文本里出现数字就停，层数（MAX_CLIMB）只是上界，不是判据。
- *   2. 整条链上**没有** `aria-busy`、没有 `role="progressbar"`；类名是哈希化的
- *      CSS-modules（`___SBox_w9nx7_gg_`），**不含** skeleton/loading/shimmer 子串，
- *      也**没有** data-testid。所以猜类名的那一坨全部作废：`aria-busy` 留下但**只作否决**
- *      （与 lib-report-readiness.mjs 的 `readBusyState()` 同一口径——为真=还在忙，
- *      **为假不构成任何完成证据**），猜类名的降级为**只记录、永不参与判定**。
- *   3. AS **根本没有趋势小标**。邻近指标有 `+0.4%` / `-28%`，AS 渲染的是一个
- *      **定性等级标签**（实测中文 UI 下是 `行业领导者`）。旧的 `/[+-−]\s?\d/` 永远不成立。
- *
- * 现在的完成信号：**数值与等级标签同时出现**。
- * ⚠️ 判据**不是**「匹配某个等级词」——我们只实测到 `行业领导者` 一个词，别的档位没人见过，
- * 编一张等级表就是把一个猜测换成另一个猜测（今天已经栽过一次：`创建新列表` 写死中文）。
- * 判据是**位置性、与词表无关**的：把标签词摘掉之后，
- *   - 数值位上有数字（`hasValue`），且
- *   - 数值与其修饰符号（`. , % ( ) / + - −`）之外还剩下一段**连续两个以上的字母/汉字**
- *     （`hasGrade`）——那就是等级标签所在的位置。
- * 这样中文的 `行业领导者`、英文的 `Industry leader`、任何我们没见过的档位词都能过，
- * 而水合前的 `Authority Score 0`（只有一个占位数字、没有等级标签）过不了。
- *
- * ⚠️ **不采集「值是不是 0」**。「非 0」不是完成信号，而是把结论绑回了要判定的那个
- * 数本身：真值就是 0 的新站会因此永远等到超时，而这正是本脚本 2026-08-21 那条注释
- * 要保住的合法取值。等级标签判据对 0 与 100 一视同仁。
- *
- * 【2026-08-29 第三轮：`OTHER` 的**形状**错了，不是词表错了】
- * 实盘 `--domain mmradar.gg`：`inconclusive`，widget 证据 `climbed=4, stoppedBy=other-metric,
- * hasValue=false` —— 而同一刻页面上 AS 早就渲染完了。取回的祖先链：
- *   k4 `Authority Score`  ← 探针停在这
- *   k5 `Authority Score 22 流量/反向链接的比例较高`   ← 值和等级词都在这一层
- *   k6 `… 自然流量 23.9K +67% 付费流量 0 引荐域名 37 …`
- * 中低分档的等级文案 `流量/反向链接的比例较高` 里含 `反向链接`，而旧的 `OTHER` 是对整段
- * innerText 做**子串匹配**，于是在**含值的那一层门口**把爬升掐断 → `hasValue` 永远 false
- * → 完成信号永远为假 → 中低分站被系统性拒收。canva.com 逃过一劫纯属措辞侥幸
- * （`行业领导者` 不含任何指标名）。
- *
- * 修的是**判据的形状，不是词表的内容**——从词表里删掉 `反向链接` 只是把一个撞串换成
- * 下一个撞串（下一档等级词里出现 `自然流量` 就又中招）。现在 `OTHER` 认的是
- * **「指标条」的形状**，见探针里的 `hasOtherMetricStrip()`：指标名必须
- *   (a) 两侧都是边界（前后都不是字母/数字，也就是它**自成一个词**），且
- *   (b) 紧跟着它自己的数值，或紧跟着下一个指标名——这正是 k6 那条并排指标条的样子。
- * 等级文案里的指标名是**黏在句子中间**的（`流量/反向链接的比例较高`：左边 `/`、右边 `的`），
- * 两条都不成立。这样 k6 照旧被拦住（`自然流量 23.9K` 前后有边界、后面跟着自己的数值），
- * 而 k5 放行。判据与具体档位词无关，不需要我们去猜中低分区间还有哪些措辞。
- */
-const AS_WIDGET_PROBE_JS = `(() => {
-  const clean = (s) => String(s == null ? '' : s).replace(/\\s+/g, ' ').trim();
-  const LABEL = /^(Authority Score|权威分数|权重分)$/;
-  const LABEL_WORDS = /Authority Score|权威分数|权重分/g;
-  // ⚠️ 这是**指标名**，不是给等级词用的黑名单。等级文案里会正常出现这些词
-  // （实测低分档「流量/反向链接的比例较高」），所以下面认的是**位置**，不是出现与否。
-  const OTHER_NAMES = ['自然流量', '付费流量', '引荐域名', '自然搜索关键词', '反向链接', 'Organic Traffic', 'Referring Domains', 'Backlinks'];
-  // 边界 = 字母/数字以外的任何东西（含字符串两端）。中文没有空格分词，所以
-  // 「自成一个词」只能靠两侧不是字母/汉字来判。
-  const isEdge = (ch) => ch === undefined || !/[\\p{L}\\p{N}]/u.test(ch);
-  const startsWithMetricName = (s) => OTHER_NAMES.some((n) => s.startsWith(n) && isEdge(s[n.length]));
-  /**
-   * 「这一层是不是把并排的指标条圈进来了」。指标条的形状：**指标名自成一个词，
-   * 后面紧跟着它自己的数值（或直接是下一个指标名）**——「自然流量 23.9K +67% 付费流量 0」。
-   * 等级文案里的指标名黏在句子里（「流量/反向链接的比例较高」），两条都不成立。
-   * 这条判据只依赖形状，不依赖我们能不能穷举等级词。
-   */
-  const hasOtherMetricStrip = (s) => OTHER_NAMES.some((name) => {
-    for (let at = s.indexOf(name); at !== -1; at = s.indexOf(name, at + 1)) {
-      if (!isEdge(s[at - 1]) || !isEdge(s[at + name.length])) continue;
-      const after = s.slice(at + name.length).replace(/^[\\s:：]+/, '');
-      if (/^\\d/.test(after) || startsWithMetricName(after)) return true;
-    }
-    return false;
-  });
-  const NO_DATA = /不可用|暂无数据|暂无|n\\/a/i;
-  // 层数只是**上界**（防死循环 / 防爬到 body），不是判据。真正的停止条件在下面。
-  const MAX_CLIMB = 8;
-  const localeFromPath = () => {
-    const path = String((document.location && document.location.pathname) || '');
-    for (const segment of path.split('/')) {
-      if (/^[a-z]{2}(-[A-Za-z0-9]+)*$/.test(segment)) return segment;
-    }
-    return '';
-  };
-  const label = Array.from(document.querySelectorAll('div,span,p,h1,h2,h3,h4,h5,h6,td,th,a,li'))
-    .find((el) => el.children.length === 0 && LABEL.test(clean(el.textContent)));
-  // 标签都还没挂上 —— 连「AS 组件在哪」都不知道，就不要假装知道它渲染完了。
-  if (!label) return null;
-  // 标签词本身不含数字，摘掉它再看「这个盒子里有没有值」。
-  const restOf = (el) => clean(clean(el.innerText).replace(LABEL_WORDS, ' '));
-  let widget = label;
-  let climbed = 0;
-  let stoppedBy = 'value';
-  // 一直爬到**挂件里出现数字**为止；在「别的指标条」被圈进来之前停下。
-  // 实测两条链：值都在第 5 层出现，指标条在第 6 层才出现，所以这一步是安全且必要的。
-  while (!/\\d/.test(restOf(widget))) {
-    if (!widget.parentElement) { stoppedBy = 'root'; break; }
-    if (climbed >= MAX_CLIMB) { stoppedBy = 'max-climb'; break; }
-    const parent = widget.parentElement;
-    // 爬到把别的指标**连同它们的数值**一起圈进来了就停：再往上取到的证据是别人的。
-    // 注意判的是指标条的形状，不是「文本里出现过指标名」——后者会被 AS 自己的等级文案撞串。
-    if (hasOtherMetricStrip(clean(parent.innerText))) { stoppedBy = 'other-metric'; break; }
-    widget = parent;
-    climbed += 1;
+/** 接口数据量的人读描述，写进每个区块的判据。 */
+function describeData(data) {
+  if (data == null) return '无';
+  if (Array.isArray(data)) return `${data.length} 行`;
+  if (typeof data === 'object') {
+    if ('daily' in data || 'monthly' in data) return `日粒度 ${data.daily?.length ?? 0} 点 / 月粒度 ${data.monthly?.length ?? 0} 点`;
+    if ('rows' in data && Array.isArray(data.rows)) return `${data.rows.length} 行（总数 ${data.total ?? '未知'}）`;
+    if ('ai' in data || 'google' in data) return `AI 口径 ${data.ai?.length ?? 0} 行 / 谷歌口径 ${(data.google || []).map((g) => g.length).join('+') || 0} 行`;
+    return `${Object.keys(data).length} 个字段`;
   }
-  const text = clean(widget.innerText);
-  const rest = restOf(widget);
-  // 把数值和它的修饰符号剔掉，剩下的就是「等级标签所在的位置」上的文本。
-  const badge = clean(rest.replace(/[\\d.,%()\\/+\\-−]+/g, ' '));
+  return String(data);
+}
+
+function sectionOutput(spec, s, terminalAtMs) {
+  const dom = s._dom || {};
+  const rpc = s._rpc || { data: null, hasData: false, rpcKinds: [] };
+  let data = null;
+  let criteria;
+  if (spec.key === 'seo') {
+    const check = seoCardCheck(dom.content || []);
+    const card = check.card.values;
+    const display = {
+      authorityScore: card.authorityScore,
+      referringDomainsDisplay: check.card.raw.referringDomains?.value ?? null,
+      backlinksDisplay: check.card.raw.backlinks?.value ?? null,
+      organicTrafficDisplay: check.card.raw.organicTraffic?.value ?? null,
+      organicKeywordsDisplay: check.card.raw.organicKeywords?.value ?? null,
+      paidTrafficDisplay: check.card.raw.paidTraffic?.value ?? null,
+      paidKeywordsDisplay: check.card.raw.paidKeywords?.value ?? null,
+    };
+    data = {
+      card,
+      authorityScoreGrade: check.card.grade,
+      rpc: rpc.data,
+      crossCheck: crossCheckSeo(display, rpc.data),
+      warnings: check.warnings,
+    };
+  } else if (s.state === 'locked') {
+    data = { preview: (dom.content || []).slice(0, 30), rpc: rpc.data };
+  } else if (rpc.hasData) {
+    data = rpc.data;
+  } else if (s.state === 'data') {
+    data = { domValues: (dom.content || []).slice(0, 80) };
+  }
+  switch (s.state) {
+    case 'data': criteria = `DOM：标题「${dom.title}」下有 ${dom.numericCount} 个数值 token、无占位元素、连续两次读数一致；接口：${rpc.hasData ? describeData(rpc.data) : '未识别到对应响应（dataSource: dom）'}`; break;
+    case 'empty': criteria = `DOM：出现「${dom.emptyMarker}」且连续两次一致；接口：无非空数据`; break;
+    case 'locked': criteria = `DOM：出现付费墙文案「${dom.lockedMarker}」且连续两次一致`; break;
+    case 'absent': criteria = s.evidence?.absentProof; break;
+    default: criteria = `未到终态：${s.reason || s.state}`;
+  }
   return {
-    found: true,
-    climbed,
-    stoppedBy,
-    // 否决项：页面**自己声明**还在忙。为假不构成任何完成证据。
-    ariaBusy: widget.getAttribute('aria-busy') === 'true' || Boolean(widget.querySelector('[aria-busy="true"]')),
-    // 只记录，永不参与判定：实测这一片的类名是哈希化的 CSS-modules，猜不到。
-    loadingClassPresent: Boolean(widget.querySelector('[class*="skeleton" i],[class*="loading" i],[class*="shimmer" i]')),
-    hasValue: /\\d/.test(rest),
-    // 「等级标签位上有一段词」，而不是「等于某个我们编出来的等级词」。
-    hasGrade: /\\p{L}{2,}/u.test(badge),
-    grade: badge.slice(0, 60),
-    noData: NO_DATA.test(text),
-    uiLocale: clean((document.documentElement && document.documentElement.lang) || '') || localeFromPath(),
-    text: text.slice(0, 200),
+    name: spec.name,
+    group: spec.group,
+    state: s.state,
+    ...(s.reason && !TERMINAL_STATES.has(s.state) ? { reason: s.reason } : {}),
+    ...(s.dataSource ? { dataSource: s.dataSource } : {}),
+    criteria,
+    terminalAtMs: terminalAtMs ?? null,
+    data,
+    evidence: { ...s.evidence, domContentSample: (dom.content || []).slice(0, 12) },
   };
-})()`;
-
-/**
- * 「这个 locale 我们认得吗」。
- *
- * 和 lib-report-readiness.mjs 的 `EMPTY_STATE_MARKERS` 同一条规矩：这张表既说「怎么认」，
- * 也说「我认得哪些 locale」，而**没匹配上 ≠ 不成立**。未覆盖的 locale 判 `unknown`，
- * 完成信号为假 → 走 inconclusive，**不是默认通过**。
- *
- * ⚠️ 表里只许放**实测见过**的 locale。今天只有一次实盘观测：中文 UI（`行业领导者`）。
- * 英文档位词长什么样、英文 UI 下这个挂件的祖先链是不是同一个形状，**没人见过**，
- * 所以 `en` 不在表里——想加，先取一次英文 UI 的真实 DOM，别照惯例推。
- * 顺带一提，`readMetrics()` 的标签表本来就只有中文（`自然流量`/`引荐域名`…），
- * 非中文 UI 下那几个字段本来也全是 null，所以这里收紧不损失任何已有能力。
- */
-function asSignalLocaleCovered(uiLocale) {
-  const COVERED = new Set(['zh']);
-  const primary = String(uiLocale || '').trim().toLowerCase().split(/[-_]/)[0];
-  return { primary: primary || null, covered: COVERED.has(primary) };
-}
-
-/**
- * 纯判据，离线可测。**无状态**：上一版把「见过 busy、现在不 busy 了」当成完成信号，
- * 那是拿一个否定式当正证据——今天定的口径是 `aria-busy` **只作否决**，为假什么都不证明。
- * 实测那条链上压根没有 aria-busy，所以那条路径既不会触发、也不该被信。
- *
- * 完成 = （数值 + 等级标签）或（明确的「无数据」）；且 `aria-busy` 不为真；且 locale 认得。
- * 一条都不成立就是**没有信号**，captureStable 会一直等到 deadline 然后交 `inconclusive`
- * —— 不是 0，也不是「稳定值」。
- */
-function makeAuthorityScoreRenderSignal() {
-  return (capture) => {
-    const w = capture && capture.asWidget;
-    if (!w || !w.found) return false;
-    if (w.ariaBusy) return false;                                  // 否决项：页面自称还在忙
-    if (!asSignalLocaleCovered(w.uiLocale).covered) return false;  // 未覆盖 locale → unknown
-    return Boolean(w.noData || (w.hasValue && w.hasGrade));
-  };
-}
-
-/**
- * 概览页的轮询，单独拆出来是为了**判据和它的绑定一起被测**：
- * 把下面的 `renderSignal:` 一行删掉，事故复现测试就会变红（离线测试直接调它）。
- */
-function pollOverview({ read, timeoutMs, intervalMs, needed }) {
-  return captureStable({
-    read,
-    fingerprint: (cap) => (cap?.ready ? JSON.stringify(readMetrics(cap.bodyText)) : null),
-    // 数值稳定只是必要条件；能不能当结论，看 AS 组件自己的完成信号。
-    renderSignal: makeAuthorityScoreRenderSignal(),
-    timeoutMs,
-    intervalMs,
-    needed,
-  });
-}
-
-/**
- * 四种结局，下游含义完全不同，绝不许合并：
- *   never-rendered  连标签都没出现 —— 节点/无数据，照旧报错
- *   confirmed       数值稳定 **且** 拿到了完成信号 —— 唯一可以把数字（包括 0）当事实的一种
- *   inconclusive    数值稳定但完成信号始终没出现 —— 屏幕上的 0 可能是占位符，不下结论
- *   churning        数值一直在变 —— 和上面一种是两种失败，别混
- */
-function settleVerdict(settled) {
-  if (!settled?.capture?.ready) return 'never-rendered';
-  if (settled.stable) return 'confirmed';
-  return settled.inconclusive ? 'inconclusive' : 'churning';
 }
 
 let output;
 let launched;
-// 失败/存疑现场的落点。默认贴着 --out，没有 --out 进 .backlink/。
 const evidenceDir = typeof flags['evidence-dir'] === 'string'
   ? flags['evidence-dir']
   : defaultSceneDir({ out: typeof flags.out === 'string' ? flags.out : null, script: 'semrush-overview', runTag: domain });
+const started = Date.now();
 try {
   launched = await launchTool({
     session,
     tool: 'semrush',
     node: flags.node,
-    window: flags.window,
+    window: launchWindow,
+    fallbackWindow: windowMode,
+    fallbackMaxActivations: activateChrome ? maxActivations : 0,
+    automationDisplay: flags['automation-display'],
     wait: Number(flags.wait || 7),
     timeout: Number(flags.launchTimeout || 60),
     allowParallelSession: Boolean(flags['allow-parallel-session']),
   });
-
+  const { evalPage, env } = launched;
+  automation = launched.automationWindow || null;
+  visibilityActions.windowMode = automation ? automation.windowMode : windowMode;
   const searchType = flags.subdomain ? 'subdomain' : 'domain';
   const url = `${appOrigin}/analytics/overview/?q=${encodeURIComponent(domain)}` +
     `&searchType=${searchType}${db ? `&db=${encodeURIComponent(db)}` : ''}`;
-  await gotoInTool(launched.evalPage, url, Number(flags.settle || 12));
 
-  // 概览页首屏要十几秒。**认「Authority Score」而不是页面标题**——
-  // 标题在骨架阶段就有了，认它会抓到一个空壳。
-  //
-  // **但认到标签也还不算数。** 标签挂上来的时候数值区往往还停在占位的 `0` 上，
-  // 真实数字要再晚几秒才水合进去。2026-08-23 实测：一次跑 8 个域名，6 个被读成
-  // authorityScore: 0，真值是 15~29（mmradar.gg 22、na.whatismymmr.com 29、
-  // saveeditonline.com 38…）。而且**它不报错**——输出结构完整，只是数字是错的，
-  // 一路进报告都没人看得出来。
-  //
-  // 【2026-08-29 修正】旧版的补法是「连读到数值两次完全一致才收下」——**那条判据对
-  // 这个失败形态无效**，所以这个 bug 到今天仍然站着：水合前的占位 `0` 本身就是完美
-  // 稳定的，两次读立刻就一致，重复多少次都一样。见
-  // <law-ref id="readiness-must-bind-to-this-query"/>：重复次数和时长都不是页面产出的
-  // 东西。改成把结论绑到 AS 组件自己的完成信号上（见 AS_WIDGET_PROBE_JS），
-  // 拿不到信号就交 inconclusive，绝不把一个可能是占位符的 0 当事实写出去。
-  const readOverview = () => launched.evalPage(`(() => JSON.stringify({
-    url: location.href,
-    title: document.title,
-    ready: /Authority Score|权威分数/.test(document.body?.innerText || ''),
-    bodyText: (document.body?.innerText || '').slice(0, 30000),
-    asWidget: ${AS_WIDGET_PROBE_JS},
-  }))()`);
-  const settled = await pollOverview({
-    read: readOverview,
-    timeoutMs: Number(flags.timeout || 120) * 1000,
-    intervalMs: Number(flags['stable-interval'] || 3) * 1000,
-    needed: Number(flags['stable-reads'] || 2),
+  const accountStateWrites = [];
+  if (organicDb) {
+    // 显式带 db 访问一次域名维度报表：Semrush 会把它记成账号级「最近一次显式选择的国家」，
+    // 随后不带 db 的概览页里两个研究分组就跟着它走（semrush-global-scope 调研第 7 节实测的 sticky 行为）。
+    const pinUrl = `${appOrigin}/analytics/organic/overview/?q=${encodeURIComponent(domain)}&searchType=${searchType}&db=${encodeURIComponent(organicDb)}`;
+    const pinned = await gotoInTool(evalPage, pinUrl, Number(flags['pin-settle'] || 10));
+    accountStateWrites.push({
+      action: 'explicit-db-visit', route: '/analytics/organic/overview/', db: organicDb, at: new Date().toISOString(),
+      landedDb: (() => { try { return new URL(pinned.url).searchParams.get('db'); } catch { return null; } })(),
+      note: '改写了 Semrush 账号级「最近一次显式选择的国家」，同账号其它不带 db 的域名报表会跟着变。',
+    });
+  }
+
+  // 布防 CDP 网络捕获：必须在导航**之前**（首屏那批 rpc 在页面脚本一启动就发出）。见文件头第 2 条。
+  const arm = await opencli(['browser', launched.session, 'wait', 'xhr', '__semrush_overview_arm_never_matches__', '--timeout', '1000'],
+    { env, timeoutMs: 60_000, allowFailure: true });
+  const armOutput = redactSecrets(`${arm.stdout}`).replace(/\s+/g, ' ').slice(0, 200);
+
+  // 报表导航：和 gotoInTool 一样走 location.href（open 导航会让报表不挂载），但自己做，
+  // 以便新 document 一可执行就注入页内钩子——钩子是响应体的第二来源，必须赶在应用首批 rpc 之前。
+  // 注入时刻记在 window.__ovHookAt；资源计时里早于它发出的 rpc 计为 preHookRequests，只能靠 CDP 补 body。
+  await bringChromeForward('before-report-navigation');
+  const beforeNav = await evalPage('(() => JSON.stringify({ to: performance.timeOrigin }))()');
+  await evalPage(`(() => { location.href = ${JSON.stringify(url)}; return JSON.stringify({ navigating: true }); })()`);
+  const navStartedAt = Date.now();
+  let hook = null;
+  while (Date.now() - navStartedAt < 45_000) {
+    let r = null;
+    try {
+      // 懒加载探针和响应体钩子同一次注入（探针回答「下方区块靠 IntersectionObserver 还是 scroll 事件加载」）。
+      r = await evalPage(`(() => { if (performance.timeOrigin === ${Number(beforeNav?.to)}) return JSON.stringify({ old: true }); try { ${LAZY_PROBE_JS}; } catch (e) {} return (${HOOK_JS}); })()`, 15_000);
+    } catch { r = null; }
+    if (r && !r.old && (r.installed || r.already)) { hook = { ...r, msAfterNavigationCall: Date.now() - navStartedAt }; break; }
+    await sleep(150);
+  }
+  if (!hook) hook = { installed: false, reason: 'new document never became evaluable within 45s' };
+  await sleep(Number(flags.settle || 6) * 1000);
+  // gotoInTool 的两道落地校验照做：面板错误页 / 被重定向到别的报表都当失败。
+  const landed = assertToolsShareAvailable(await evalPage('(() => JSON.stringify({ url: location.href, title: document.title, bodyText: (document.body?.innerText||"").slice(0, 1000) }))()'));
+  const drift = routeMismatch(url, landed.url);
+  if (drift) {
+    throw new Error(redactSecrets(`Navigation landed on a different page than requested: requested route ${drift.requested}, landed route ${drift.landed}`));
+  }
+
+  let lastVis = null;
+  const io = {
+    now: () => Date.now(),
+    sleep,
+    readPage: async () => {
+      if (lastVis === 'hidden') await bringChromeForward('hidden-read');
+      const p = await evalPage(PAGE_READ_JS, 120_000);
+      lastVis = p?.vis ?? lastVis;
+      automation?.recordRead({ vis: p?.vis ?? null, label: 'readiness-read' });
+      return p;
+    },
+    takeHook: async () => {
+      const taken = await evalPage(HOOK_TAKE_JS, 120_000);
+      return Array.isArray(taken) ? taken : [];
+    },
+    drain: async () => {
+      const res = await opencli(['browser', launched.session, 'network', '--raw'], { env, timeoutMs: 180_000 });
+      return firstJson(res.stdout).entries || [];
+    },
+    // opencli 没有可信滚轮输入（`browser scroll` 也是页面 JS），滚动后补派发 scroll 事件，照顾只听事件的懒加载。
+    scrollTo: (y) => evalPage(`(() => { window.scrollTo(0, ${Math.max(0, Math.round(Number(y) || 0))}); try { window.dispatchEvent(new Event('scroll')); document.dispatchEvent(new Event('scroll')); } catch (e) {} return JSON.stringify({ y: window.scrollY }); })()`),
+    scrollToText: (text, occurrence) => evalPage(scrollToTextJs(text, occurrence), 60_000),
+  };
+  const result = await runReadiness(io, {
+    timeoutMs: Number(flags.timeout || 150) * 1000,
+    intervalMs: Number(flags.interval || 2.5) * 1000,
+    quietMs: Number(flags['quiet-ms'] || 4000),
+    stepTimeoutMs: Number(flags['step-timeout'] || 15) * 1000,
+    log: (m) => console.error(`[semrush-overview] ${redactSecrets(m)}`),
   });
-  const captured = settled.capture;
-  const verdict = settleVerdict(settled);
-  if (verdict === 'never-rendered') {
-    throw new Error(
-      `Semrush overview for ${domain} never rendered its metrics. Most likely the node is down — ` +
-        `rerun with a different --node. Second possibility: the domain has no data in db=${db || "(Semrush's default — not a global total)"}.`,
-    );
-  }
-  if (verdict === 'churning') {
-    throw new Error(
-      `Semrush overview for ${domain} showed its labels but the numbers never settled ` +
-        `(${settled.reads} reads over ${flags.timeout || 120}s). The values on screen are still ` +
-        `placeholders — reporting them would silently under-count (typically Authority Score 0). ` +
-        `Rerun, or raise --timeout / --stable-interval.`,
-    );
-  }
 
-  const metrics = readMetrics(captured.bodyText);
+  const page = result.lastPage || { toks: [] };
+  const { found, groupIndex } = locateSections(page.toks || []);
+  const firstTitle = Math.min(...[...Object.values(found), ...Object.values(groupIndex)].filter((i) => i !== null), (page.toks || []).length);
+  const headerTokens = (page.toks || []).slice(0, firstTitle);
+  // 页头里必须出现请求的域名——防「标签页停在别的域名的概览上」（2026-08-29 mmradar.gg 事故）。
+  const targetConfirmed = headerTokens.some((t) => String(t).trim().toLowerCase() === domain);
+  const quotaDisplay = headerTokens.find((t) => /^[\d,]+\s*\/\s*[\d,]+$/.test(String(t).trim())) || null;
+  // 口径核对：页面地区选择器上被标成选中的是哪一个（全世界 / 国家码），外加落地 URL 的 db 参数。
+  // 页面级口径：DOM（URL db / 国家 pill aria-checked / 全世界按钮）+ 接口（趋势关键词数 vs 各国家行）双证人。
+  // 页面级趋势由 SEO 卡片显示值认出（同一次加载里还有一套研究分组级趋势，见 trendContext）。
+  const rpcWitness = rpcScopeWitness(flattenRpc(result.rpcEntries || []), result.trendContext || {});
+  let scopeEvidence;
+  try {
+    scopeEvidence = judgeScope({ requestedDb: db, probe: await evalPage(SCOPE_PROBE_JS, 60_000), rpcWitness });
+  } catch (error) {
+    scopeEvidence = { requested: scope, verdict: 'unverified', reason: `scope probe failed: ${redactSecrets(error.message).slice(0, 160)}`, rpc: rpcWitness };
+  }
+  // 区块级口径：研究分组徽标（整轮收集）+ 反链过滤条 + 接口本域名行。
+  const sectionScopes = judgeSectionScopes({ requestedScope: scope, organicDb: organicDb || null, topScope: scopeEvidence, groupBadges: result.groupBadges, rpcWitness });
 
-  // inconclusive（数值稳定但渲染信号缺失）也要留一对证人：稳定的占位值和稳定的
-  // 真值在读数上一模一样，唯一能对质的是截图。confirmed 不拍，别给成功路径加秒。
-  const inconclusiveScene = verdict === 'confirmed'
+  const sections = {};
+  for (const spec of SECTION_SPECS) {
+    sections[spec.key] = { ...sectionOutput(spec, result.sections[spec.key], result.readiness.sectionTerminalAtMs[spec.key]), scope: sectionScopes.bySection[spec.key] };
+  }
+  // 「按意图」已经在 lib 里改取研究分组那套趋势（trendContext.organicPositions）；认不出那套时
+  // 它的接口数据为空、退回 DOM 读数——不再用页面级趋势冒充分组口径。
+  const verdict = result.verdict;
+  // 「按意图」交叉校验：DOM 行 vs 所选研究分组趋势；SEO 卡片交叉校验已在 sectionOutput 里算好。两者不一致都阻断。
+  const intentCheck = sections.intent.state === 'data'
+    ? crossCheckIntent(result.sections.intent._dom?.content || [], result.sections.intent._rpc?.hasData ? result.sections.intent._rpc.data : null)
+    : { status: 'not-applicable', checked: 0, mismatches: [] };
+  sections.intent.crossCheck = intentCheck;
+  const final = finalStatus({
+    readinessVerdict: verdict, scopeEvidence, sectionScopes, targetConfirmed, visibility: result.readiness.visibility,
+    crossChecks: { seo: sections.seo.data?.crossCheck, intent: intentCheck },
+    trendContext: result.trendContext || null,
+  });
+  const extraBlockers = final.blockers;
+  const status = final.status;
+
+  const seoCard = sections.seo.data?.card || {};
+  const legacy = Object.fromEntries(LEGACY_FIELDS.map((f) => [f, seoCard[f]]).filter(([, v]) => v !== null && v !== undefined));
+
+  const scene = status === 'complete'
     ? null
     : await captureScene({
-      session, outDir: evidenceDir, evalPage: launched.evalPage, env: launched.env,
-      tag: 'inconclusive', note: `semrush-overview ${domain}: render signal missing after ${settled.reads} reads`,
+      session: launched.session, outDir: evidenceDir, evalPage, env,
+      tag: 'incomplete', note: `semrush-overview ${domain}: ${verdict.incomplete.length} section(s) not terminal; network gate ${verdict.networkOk ? 'passed' : 'failed'}`,
     });
+  if (status !== 'complete' || typeof flags['evidence-dir'] === 'string') {
+    // 报表区 token 快照（丢掉页头：页头里有共享账号的档案信息），离线复核判据用。
+    try {
+      await mkdir(evidenceDir, { recursive: true });
+      await writeFile(path.join(evidenceDir, 'semrush-overview-snapshot.json'), `${redactSecrets(JSON.stringify({
+        domain, db: db || null, capturedAt: new Date().toISOString(),
+        // 占位元素的 at 是整条 token 流里的位置，页头被裁掉之后要同步平移，快照才能离线复判。
+        toks: (page.toks || []).slice(firstTitle),
+        placeholders: (page.placeholders || []).map((p) => ({ ...p, at: p.at - firstTitle })),
+        net: page.net || null, verdict, readiness: result.readiness,
+        // 接口响应清单（只有 id / kind / 方法名 / 白名单请求参数 / 行数 / 字段名，不含数值），用于离线对账分类。
+        rpcSummary: flattenRpc(result.rpcEntries || []).map((r) => ({
+          id: r.id, kind: r.kind, method: r.method ?? null, requestParams: r.requestParams ?? null,
+          rows: Array.isArray(r.result) ? r.result.length : null,
+          keys: Array.isArray(r.result) ? Object.keys(r.result[0] || {}).slice(0, 40) : (r.result && typeof r.result === 'object' ? Object.keys(r.result).slice(0, 40) : typeof r.result),
+        })),
+      }, null, 1))}\n`, 'utf8');
+    } catch { /* 快照是附加证据，写不出来不影响主输出 */ }
+  }
 
   output = {
-    version: 1,
-    source: 'Semrush domain overview via authenticated Tools Share browser session',
-    note: `organicTraffic 是 db=${db || '(Semrush 默认库，非全球)'} 这一个国家库的自然搜索流量估算，` +
-      '与 Similarweb 的总访问量不是同一口径，不要并列比较；换一个 --db 会得到完全不同的数字，本脚本没有全球选项。'
-      + ' 要和 Similarweb 同口径的总访问量，用 Traffic & Market（/analytics/traffic/traffic-overview/）——'
-      + '2026-08-28 实测两家在 canva.com 上相差 2.4%。',
+    version: 2,
+    source: 'Semrush domain overview (full page) via authenticated Tools Share browser session',
+    note: `organicTraffic 是 ${scope === 'global' ? '全球库' : `db=${scope} 这一个国家库`}的自然搜索流量估算，` +
+      '与 Similarweb 的总访问量不是同一口径，不要并列比较。'
+      + ' 要和 Similarweb 同口径的总访问量，用 semrush-traffic.mjs（Traffic & Market）。',
     retrievedAt: new Date().toISOString(),
     domain,
     db: db || null,
+    scope,
+    scopeEvidence,
+    organicDb: organicDb || null,
+    // 每个口径分组的期望/实际/判定；区块自己的 scope 也在 sections[key].scope。
+    sectionScopes: { groups: sectionScopes.groups, blockers: sectionScopes.blockers },
+    accountStateWrites,
     searchType,
-    session,
-    title: captured.title,
-    // 读了几次才稳下来：偶发的 4+ 次说明这个节点水合很慢，值得换。
-    reads: settled.reads,
+    session: launched.session,
+    title: page.title ?? landed.title ?? null,
+    status,
+    // 旧键名与含义不变（外加「流量比例」「付费关键词」）。只有 complete 才叫 metrics；
+    // 否则换名 unconfirmedMetrics —— 读 metrics 的下游会显式拿到 undefined，而不是一份可能是占位值的数。
+    ...(status === 'complete' ? { metrics: legacy } : { unconfirmedMetrics: legacy }),
+    sections,
+    completeness: {
+      expected: verdict.expected,
+      terminal: verdict.terminal,
+      incomplete: verdict.incomplete,
+      blockers: [...(verdict.blockers || []), ...extraBlockers],
+      domOk: verdict.domOk,
+      networkOk: verdict.networkOk,
+      network: verdict.network,
+      pagePlaceholders: verdict.pagePlaceholders,
+      timedOut: verdict.timedOut,
+      elapsedMs: Date.now() - started,
+    },
+    readiness: {
+      ...result.readiness,
+      decidedAt: new Date(result.readiness.startedAt + result.readiness.decidedAtMs).toISOString(),
+      startedAt: new Date(result.readiness.startedAt).toISOString(),
+      captureArm: armOutput,
+      hook,
+      visibilityActions,
+      automationWindow: automation ? automation.summary() : plainAutomationSummary({ windowMode }),
+      trendContext: result.trendContext || null,
+      targetConfirmed,
+      rule: 'complete ⇔ 每个期望区块 ∈ {data, empty, locked, absent} 且报表区无占位元素，并且同一轮 CDP /dpa/rpc 发出数 = 资源计时完成数、drain 无在途、页内钩子在途为 0、最后一个 rpc 返回距今 ≥ quiet 窗口；超时即 incomplete。',
+    },
+    notCovered: NOT_COVERED,
+    automationWindow: automation ? automation.summary() : plainAutomationSummary({ windowMode }),
+    quotaDisplay,
     subscription: {
       expiry: launched.state.expiry,
       daysLeft: launched.state.daysLeft,
       quotas: launched.state.quotas,
+      via: launched.state.via ?? null,
       warning: expiryWarning(launched.state),
     },
-    // 拿到完成信号才配叫 metrics。没拿到就换个字段名放出去 —— 下游读 `metrics`
-    // 的代码会读到 undefined 然后炸掉，这正是想要的：显式失败，而不是收下一份
-    // 可能整块都是占位值的数（典型症状就是 authorityScore: 0）。
-    ...(verdict === 'confirmed'
-      ? { metrics: Object.fromEntries(Object.entries(metrics).filter(([, v]) => v !== null && v !== undefined)) }
-      : {
-        status: 'inconclusive',
-        // 存疑时刻的现场（census + 截图路径），AI 对质用。
-        evidence: inconclusiveScene,
-        unconfirmedMetrics: Object.fromEntries(Object.entries(metrics).filter(([, v]) => v !== null && v !== undefined)),
-        inconclusive: {
-          code: 'render_signal_missing',
-          message: `Semrush overview for ${domain}: 数值在 ${settled.reads} 次读数里一直稳定，但 Authority Score 组件` +
-            `始终没有给出「已渲染完成」的信号（等级标签 + 数值同时出现 / 明确无数据，一个都没等到）。` +
-            `稳定的占位值和稳定的真值在这一刻长得一模一样，所以这里不下结论 —— ` +
-            `**不要**把上面的 unconfirmedMetrics 当事实，尤其是 authorityScore。` +
-            `重跑，或加大 --timeout；反复如此就看下面的 widget 证据：` +
-            `hasValue=false 说明爬升没到含值的那一层（看 stoppedBy）；hasValue=true 而 hasGrade=false 说明` +
-            `数值旁边还没渲染出等级标签（多半仍是水合前的占位值）；localeCovered=false 说明这个 locale ` +
-            `不在覆盖表里（见 asSignalLocaleCovered），需要先实测该语言下的真实 DOM 再加进去。`,
-          // 探针自报家门：判据到底卡在哪一环，下游/人得看得见，不能只看到一句「没信号」。
-          widget: (() => {
-            const w = captured.asWidget;
-            if (!w) return { found: false };
-            const locale = asSignalLocaleCovered(w.uiLocale);
-            return {
-              found: Boolean(w.found),
-              climbed: w.climbed,
-              stoppedBy: w.stoppedBy,
-              hasValue: w.hasValue,
-              hasGrade: w.hasGrade,
-              grade: w.grade,
-              noData: w.noData,
-              ariaBusy: w.ariaBusy,
-              loadingClassPresent: w.loadingClassPresent,
-              uiLocale: w.uiLocale || null,
-              localeCovered: locale.covered,
-              text: w.text,
-            };
-          })(),
-        },
-      }),
+    ...(scene ? { evidence: scene } : {}),
   };
+  console.error(`[semrush-overview] ${domain} status=${status} terminal=${verdict.terminal}/${verdict.expected} network=${verdict.networkOk ? 'ok' : (verdict.network?.reasons || []).join(';')}`);
+  for (const [key, s] of Object.entries(sections)) console.error(`  ${s.state.padEnd(12)} ${key}${s.reason ? `  (${s.reason})` : ''}`);
 } catch (error) {
-  // **先取证后死**：never-rendered / churning 的 throw 都落到这里；释放锁之前
-  // 把此刻的穿透 census + 截图成对落盘。captureScene 永不 throw。
+  // 先取证后死：释放锁之前把此刻的穿透 census + 截图成对落盘。captureScene 永不 throw。
   const scene = launched
     ? await captureScene({
-      session, outDir: evidenceDir, evalPage: launched.evalPage, env: launched.env,
+      session: launched.session, outDir: evidenceDir, evalPage: launched.evalPage, env: launched.env,
       tag: 'unavailable',
       note: `semrush-overview ${domain}: ${redactSecrets(String(error?.message || error)).slice(0, 200)}`,
     })
     : null;
   output = {
-    version: 1,
-    source: 'Semrush domain overview via authenticated Tools Share browser session',
+    version: 2,
+    source: 'Semrush domain overview (full page) via authenticated Tools Share browser session',
     retrievedAt: new Date().toISOString(),
     domain,
     db: db || null,
+    scope,
     session,
     status: 'unavailable',
-    // 失败输出带现场：census + 截图的落盘路径（拍不到时是错误说明）。
     evidence: scene,
+    notCovered: NOT_COVERED,
     // opencli 的报错里可能带着 __gmitm 令牌（它会打印活动会话的完整 URL）。
     error: { code: 'overview_failed', message: redactSecrets(error.message) },
+    automationWindow: launched?.automationWindow?.summary() ?? error?.automationWindow
+      ?? plainAutomationSummary({ windowMode, reason: launchWindow === VIRTUAL_DISPLAY_WINDOW ? 'launch-failed-before-prepare' : 'explicit-window-mode' }),
   };
 } finally {
+  // 判定结束（complete / incomplete / unavailable 都已定）之后才释放；本脚本从不关闭标签页。
   await launched?.releaseBrowserLocks();
 }
 
@@ -471,6 +484,5 @@ if (typeof flags.out === 'string') {
   await writeFile(flags.out, `${JSON.stringify(output, null, 2)}\n`, 'utf8');
 }
 printJson(output);
-// inconclusive 也是失败：批量脚本靠退出码决定要不要重跑，
-// 一份「数字可能是占位符」的输出不许以 0 退出，否则它会被当成一次成功的读数归档。
-if (output.status === 'unavailable' || output.status === 'inconclusive') process.exitCode = 1;
+// 只有 complete 以 0 退出：批量脚本靠退出码决定要不要重跑。
+if (output.status !== 'complete') process.exitCode = 1;

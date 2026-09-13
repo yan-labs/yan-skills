@@ -11,9 +11,15 @@
  * 与 semrush-overview.mjs 的关系：那个是本脚本 `--report domain-overview` 的
  * 特化版，输出字段更规整。域名那六个数字用它，其余四张用这个。
  *
- * **`--db` 决定的是一个国家库，四张域名报表都没有全球选项。** 省略 `--db` 不会
- * 给你全球合计，只会落到 Semrush 自己的默认库；同一个域名换个 `--db` 会读出
- * 完全不同的自然流量、排名词和主要页面。
+ * **`--db` 决定的是一个国家库；organic-overview / organic-positions / organic-pages /
+ * keyword-magic / keyword-overview 这五张报表都没有全球选项，且省略 `--db` 时落地的
+ * 国家不可预测**（2026-09-13 实测：同一账号连续访问，先落 us，再落 jp，再落 kr——
+ * 账号状态是共享的，会被并发的其它操作悄悄改写，不是"退回某个固定默认库"）。
+ * **所以这五张报表现在强制要求显式 `--db`，不传直接报错退出**，不再只是打印警告。
+ * backlinks-list / referring-domains / backlinks-overview 三张不分国家，不受此限制。
+ * 输出里带 `scope`（等于请求的 `db`）与 `scopeEvidence`（读回页面地区选择器的实际选中项，
+ * 复用 lib-semrush-overview.mjs 的 `judgeScope`/`SCOPE_PROBE_JS`）——读不出或和请求不一致
+ * 时 `scopeEvidence.verdict` 是 `unverified`/`mismatch`，该次结果不能当作请求口径的数字用。
  *
  * 用法：
  *   node semrush-report.mjs --report organic-overview  --domain example.com --db us
@@ -48,6 +54,8 @@ import { resolveSession, opencli, firstJson, parseFlags, showHelpIfRequested, pr
 import { captureStable, expiryWarning, launchTool, redactSecrets } from './lib-tools-share.mjs';
 import { DEEP_DOM_JS, scrollThroughSegments } from './lib-deep-dom.mjs';
 import { captureScene, defaultSceneDir, sceneSummaryLine } from './lib-evidence-scene.mjs';
+import { SCOPE_PROBE_JS, judgeScope } from './lib-semrush-overview.mjs';
+import { plainAutomationSummary, resolveWindowStrategy, VIRTUAL_DISPLAY_WINDOW } from './lib-automation-window.mjs';
 import { writeFile } from 'node:fs/promises';
 
 const flags = parseFlags(process.argv.slice(2));
@@ -256,12 +264,53 @@ if (!flags['self-test'] && !target) {
 }
 const dbGiven = flags.db !== undefined && String(flags.db).trim() !== '';
 const db = String(flags.db || '').trim().toLowerCase();
+// 「这张报表要不要国家库」不额外维护一份报表名单，直接认 REPORTS 里 path() 的签名——
+// organic-overview/positions/pages 与 keyword-magic/keyword-overview 都是 path(t, db)，
+// backlinks-list/referring-domains/backlinks-overview 都是 path(t)，单一来源，不会跟
+// REPORTS 表本身脱节。
+const needsCountryDb = Boolean(spec && spec.path.length >= 2);
+const scope = needsCountryDb ? db : null;
 // 失败现场的落点（census + 截图成对）。默认贴着 --out，没有 --out 进 .backlink/。
 const evidenceDir = typeof flags['evidence-dir'] === 'string'
   ? flags['evidence-dir']
   : defaultSceneDir({ out: typeof flags.out === 'string' ? flags.out : null, script: 'semrush-report', runTag: `${target || 'na'}-${name || 'na'}`.replace(/[^a-zA-Z0-9.-]+/g, '_') });
-if (!flags['self-test'] && !dbGiven && spec.needs !== 'keyword') {
-  console.error(`⚠ --db not given. organic-overview/organic-positions/organic-pages fall back to Semrush's own default country — not a global total; pass --db explicitly when the market matters.`);
+if (!flags['self-test'] && needsCountryDb && !dbGiven) {
+  console.error(
+    `✗ --report ${name} 没有全球选项，省略 --db 时落地的国家不可预测——2026-09-13 实测同一账号` +
+    `连续访问先落 us、再落 jp、再落 kr，账号状态是共享的，会被并发的其它操作悄悄改写，不是退回` +
+    `某个固定默认库。必须显式传 --db，例如 --db us。`,
+  );
+  process.exit(2);
+}
+
+// 窗口策略（见 lib-automation-window.mjs 与 semrush-overview.mjs 的同名用法）：不传
+// --window 时默认走虚拟屏幕，检测不到虚拟屏幕就回退到 --window active；显式传 opencli
+// 四档之一则原样透传、不走虚拟屏幕。本脚本不接 semrush-overview.mjs 那套 OS 级
+// `open -a` 抢焦点兜底（createChromeActivator/--max-activations）——那是历史更早、
+// 独立的另一层兜底，不在本轮「补齐虚拟屏幕窗口」的范围内。
+const windowStrategy = resolveWindowStrategy({
+  windowFlag: typeof flags.window === 'string' ? flags.window : null,
+  fallbackWindowMode: 'active',
+});
+const launchWindow = windowStrategy.launchWindow;
+// 走虚拟屏幕成功时由 ensureTool() 里的 launchTool() 填成真正的控制器；
+// 显式传了非虚拟屏幕窗口模式、或虚拟屏幕在 launchTool() 里就失败时保持 null。
+let automation = null;
+// 上一次读数的 document.visibilityState：hidden 才值得再花一次 ensureVisible 去恢复，
+// visible 就不重复检查——和 semrush-overview.mjs 的 io.readPage 同一个节流理由。
+let lastVis = null;
+/** 输出里的 automationWindow 字段：有控制器就用它的 summary()，否则退化成形状一致的
+ *  plainAutomationSummary()——与 semrush-overview.mjs 的 `automation ? automation.summary()
+ *  : plainAutomationSummary(...)` 是同一套逻辑，这里收成一个函数给成功/失败两处输出共用。
+ *  `errorAutomation` 是 launchTool() 失败时挂在 error.automationWindow 上的现成 summary
+ *  （见 lib-tools-share.mjs launchTool 的 catch 分支），优先级次于本地 automation（大多数
+ *  失败发生在 automation 已创建之后，两者其实是同一份数据）、高于兜底占位。 */
+function automationWindowOutput(errorAutomation) {
+  if (automation) return automation.summary();
+  if (errorAutomation) return errorAutomation;
+  const reason = windowStrategy.strategy === VIRTUAL_DISPLAY_WINDOW ? 'launch-failed-before-prepare' : 'explicit-window-mode';
+  const windowMode = windowStrategy.strategy === VIRTUAL_DISPLAY_WINDOW ? windowStrategy.fallbackWindowMode : launchWindow;
+  return plainAutomationSummary({ windowMode, reason });
 }
 
 function normalizeDomain(value) {
@@ -403,6 +452,70 @@ async function evalPage(js) {
 }
 
 /**
+ * 口径核对（只用于 `needsCountryDb` 的五张报表）：这几张页面的地区选择器没有全球选项，
+ * 但没有 --db 时落地哪个国家不可预测（见文件头 2026-09-13 实测）——反过来，就算显式传了
+ * --db，也不能假设页面真的落在那个国家：判据同 semrush-overview.mjs / semrush-batch.mjs，
+ * 复用 lib-semrush-overview.mjs 的 judgeScope/SCOPE_PROBE_JS，绝不把请求参数原样回填当
+ * 结果。读不出来就是 unverified，不是 confirmed。
+ *
+ * **2026-09-14 独立 checker 第三轮指出的结构性缺口**：本函数从不传 `judgeScope()` 的
+ * `rpcWitness` 参数——本脚本完全没有 semrush-overview.mjs/semrush-batch.mjs 那套 CDP 网络
+ * 捕获+页内钩子的基础设施（这五张报表整体是纯 DOM 轮询架构，见文件头）。`judgeScope()`
+ * 国家分支要求 `domOk && rpcOk` 同时成立才给 `confirmed`（lib:1067-1073），`rpcOk` 在没有
+ * `rpcWitness` 时恒为 `false`——**这五张报表的 `scopeEvidence.verdict` 结构上永远到不了
+ * `confirmed`，无论页面真实口径对不对**，checker 实测 C2（`--db us`、DOM 选择器确实选中
+ * US、URL 也带 db=us）验证了这一点：拿到的仍是 `unverified`，跟"完全没做任何核对"的读数
+ * 长得一模一样，读者没法从 `verdict` 本身分辨"读得出且一致"和"没验证"。
+ *
+ * **本轮的处理（离线能做的部分）**：没有给这五张报表接上接口见证——本脚本压根没有网络捕获
+ * 基础设施，且这五张页面各自会不会走 `/dpa/rpc`、走的话响应/请求体长什么样，完全没有实测
+ * 过（`/analytics/keywordmagic/`、`/analytics/keywordoverview/` 甚至可能像
+ * `semrush-keyword.mjs` 的 bulk 模式一样走的是完全不同的 `/kwogw/v2/webapi` 网关，不是
+ * `/dpa/rpc`）——没有实测就实现一套接口证人，等于在猜响应形状，猜错了比没有更危险（会把
+ * 误判当成"两个证人互相印证"）。所以本轮只做**诚实改名**：`judgeScope()` 在没有 rpcWitness
+ * 时返回 `unverified` 且 reason 以 `"DOM ok,"` 开头，说明 DOM 证据本身完整且与请求口径一致，
+ * 只是没有第二证人——这种情况改标成新的 `verdict: 'dom-only'`，跟"DOM 也读不出来/明确矛盾"
+ * 的真正 `unverified`/`mismatch` 区分开。这个改名只依赖 `judgeScope()` 已经返回的
+ * `dom`/`reason` 字段，不需要、也没有去猜任何接口形状。哪天真的接上了接口见证，`confirmed`
+ * 会自然重新可达，这条改名逻辑也会自然不再触发（`reason` 不再是 `"DOM ok,"` 开头）。
+ * 每张报表可用的接口证据怎么设计、要实测哪几步，见
+ * `backlink/references/authorized-data-sources.md`「report.mjs 口径证据现状与实测计划」。
+ */
+async function readScopeEvidence() {
+  try {
+    return demoteUnverifiedDomOnly(judgeScope({ requestedDb: db, probe: await evalPage(SCOPE_PROBE_JS) }));
+  } catch (error) {
+    return { requested: db, verdict: 'unverified', reason: `scope probe failed: ${redactSecrets(String(error?.message || error)).slice(0, 160)}` };
+  }
+}
+
+/**
+ * `judgeScope()` 结果的诚实改名，纯函数、不碰网络：见 `readScopeEvidence()` 上方的长注释。
+ * 只在「没有 rpcWitness 时 DOM 自己已经完全确认了请求口径」这一种情况下把 `unverified`
+ * 改成 `dom-only`；`mismatch`（DOM 明确矛盾）与「DOM 也读不出来」的真正 `unverified`
+ * 原样透传，绝不软化成看起来更可信的状态。
+ *
+ * 判据耦合了 `judgeScope()` reason 文案里 `"DOM ok,"` 这个固定前缀（lib:1073 附近，
+ * 国家分支 `rpcOk` 为 false 时的兜底返回）——这是唯一能不靠猜接口就分辨"DOM 完整"和
+ * "DOM 本身也没读出来"的信号来源。这个耦合是刻意的、有代价的权衡：一旦 lib 未来改了这句
+ * 措辞，这里会安全地不再触发、退回原样的 `unverified`（不会误标成 `dom-only`，也不会崩），
+ * 不是"抢着判更好看的结果"。
+ */
+function demoteUnverifiedDomOnly(result) {
+  if (result?.verdict === 'unverified' && /^DOM ok,/.test(String(result.reason || ''))) {
+    return {
+      ...result,
+      verdict: 'dom-only',
+      domOnlyNote: '本脚本这五张国家报表没有接口（RPC）见证基础设施，judgeScope() 结构上到不了 '
+        + 'confirmed；DOM（地区选择器 + 落地 URL）本身与请求口径一致，标记为 dom-only 以区别于'
+        + '"连 DOM 也没读出来/DOM 明确矛盾"的 unverified/mismatch。见 authorized-data-sources.md'
+        + '「report.mjs 口径证据现状与实测计划」。',
+    };
+  }
+  return result;
+}
+
+/**
  * 会话复用：会话已经停在工具 origin 上就不再走面板启动。
  *
  * 这是这个脚本最值钱的一行。面板启动一次约 20–40 秒并消耗一次登录，
@@ -419,12 +532,14 @@ async function ensureTool() {
     session,
     tool: 'semrush',
     node: flags.node,
-    window: flags.window,
+    window: launchWindow,
+    fallbackWindow: windowStrategy.fallbackWindowMode,
     wait: Number(flags.wait || 7),
     timeout: Number(flags.launchTimeout || 60),
     allowParallelSession: Boolean(flags['allow-parallel-session']),
   });
   evalPage = launched.evalPage;
+  automation = launched.automationWindow || null;
   return { ...launched, reused: Boolean(launched.reused) };
 }
 
@@ -640,6 +755,9 @@ async function loadReport(url, spec, {
   };
   let last = { capture: null, reads: 0 };
   for (let attempt = 1; attempt <= retries; attempt++) {
+    // 导航进报表前先确认自动化窗口可见（虚拟屏幕模式，见文件头新增的窗口策略注释）；
+    // 非虚拟屏幕模式下 automation 为 null，这一行是 no-op，和接入前完全一样。
+    await automation?.ensureVisible('report-navigation');
     await evalPage(`(() => { location.href = ${JSON.stringify(url)}; return JSON.stringify({ nav: 1 }); })()`);
     await sleep(settle * 1000);
     // 见调用点关于默认值的长注释。滚完回顶，后面还要读页头。
@@ -661,7 +779,12 @@ async function loadReport(url, spec, {
       // shadow DOM；同一页实测浅层 59 字符 / 深层 1,605,054，`tableCount` 因此
       // 恒为 0，`makeReportFingerprint` 的结构判据就一直落在「整页无表 ⇒ 能下结论」
       // 那一格上。浅层读数保留在 `lightDom` 里，差值是诊断信号。
-      read: () => evalPage(`(() => {
+      read: async () => {
+        // 只有上一次读到 hidden 才值得再花一次 ensureVisible 去恢复；visible 就不重复
+        // 检查，避免在这个每 `intervalMs` 轮询一次的循环里把往返次数翻倍——与
+        // semrush-overview.mjs 的 io.readPage 同一个节流理由。
+        if (lastVis === 'hidden') await automation?.ensureVisible('report-read-hidden');
+        const cap = await evalPage(`(() => {
         ${DEEP_DOM_JS}
         const root = document.body || document.documentElement;
         const light = document.body?.innerText || '';
@@ -676,7 +799,12 @@ async function loadReport(url, spec, {
         shadowRoots: collectRoots(root).roots.length - 1,
         lightDom: { textLength: light.length, tableCount: document.querySelectorAll('table,[role="grid"]').length },
         cells: ${spec.cells || 'null'},
-      }); })()`),
+        vis: document.visibilityState,
+      }); })()`);
+        lastVis = cap?.vis ?? lastVis;
+        automation?.recordRead({ vis: cap?.vis ?? null, label: 'report-read' });
+        return cap;
+      },
       // 瞬时错误页要的是重载，不是更长的超时——立刻出让，别把 timeout 白烧完。
       abortIf: (cap) => Boolean(cap?.transient),
       fingerprint: makeReportFingerprint({ isReady, parseText, target }),
@@ -687,6 +815,7 @@ async function loadReport(url, spec, {
     });
     if (settled.aborted) {
       // 重载，不是换节点。见 authorized-data-sources.md「瞬时错误页」。
+      await automation?.ensureVisible('report-reload');
       await evalPage(`(() => { location.reload(); return JSON.stringify({ reload: 1 }); })()`);
       await sleep(6000);
       continue;
@@ -943,11 +1072,26 @@ function readPageInfo(bodyText) {
   const zh = bodyText.match(/页码：\s*\n?\s*([\d,]+)?[\s\S]{0,6}?\/\s*\n?\s*([\d,]+)/);
   const zhCur = bodyText.match(/页码：\s*(\d+)\s*$/m);
   const plain = (v) => Number(String(v).replace(/,/g, ''));
-  if (zh) return { current: zhCur ? plain(zhCur[1]) : (zh[1] ? plain(zh[1]) : 1), total: plain(zh[2]) };
+  if (zh) return { current: zhCur ? plain(zhCur[1]) : (zh[1] ? plain(zh[1]) : 1), total: plain(zh[2]), unverifiable: false };
   const en = bodyText.match(/Page:\s*\n?\s*of\s*\n?\s*([\d,]+)/i);
   const enCur = bodyText.match(/Page:\s*(\d+)\s*$/mi);
-  if (en) return { current: enCur ? plain(enCur[1]) : 1, total: plain(en[1]) };
-  return { current: 1, total: 1 };
+  if (en) return { current: enCur ? plain(enCur[1]) : 1, total: plain(en[1]), unverifiable: false };
+  // **2026-09-14 独立 checker 第四轮点名的"证据缺失 → 默认放行"同类缺口，比
+  // virtualScrollTruncated 那条更危险**：以前这里直接 `return { current: 1, total: 1 }`——
+  // 页面没渲染出「页码：X / Y」时，假装只有一页。这个假总数会直接喂进
+  // `pagination.complete`/`assessCompleteness` 的 `paginationIncomplete` 判据：一旦总页数
+  // 被错当成 1，翻页循环根本不会进入，"只读了第 1 页"的结果就会被判成"分页已读完"——
+  // 不像 headline 总数那样只是一个辅助交叉校验，这里是分页机制本身的判据被污染。
+  // 改成显式的 `unverifiable:true`（`total`/`current` 仍填 1 只是占位，调用方必须先看
+  // `unverifiable` 再决定要不要信 `total`），由 `assessCompleteness` 兜底成 unverified，
+  // 不再默认放行。
+  //
+  // 权衡（如实写出代价，不装作没有）：Semrush 对真正只有一页数据的报表会不会干脆不渲染
+  // 分页器，本仓库没有实测确认过——如果确实会省略，这个改动会让这类"真的只有一页"的
+  // 报表也从 complete 退化成 unverified，是本次刻意选择"宁可过度谨慎，不猜"的结果；
+  // 哪天实测证实了 Semrush 单页报表长什么样，可以在这里补一条"识别到明确的单页结束
+  // 标记"的判据把这个假阴性收窄，现在不能凭空猜一个。
+  return { current: 1, total: 1, unverifiable: true };
 }
 
 /**
@@ -1210,7 +1354,111 @@ function reportCoverage(report, bodyTexts, parsedRows, spec = {}) {
     // pagination 字段负责报「翻了几页」，不能让它在单页 rawRecordCount 面前冒充
     // 「这一页被虚拟滚动截断了」——那是两回事，前者是全量，后者是本页渲染不全。
     virtualScrollTruncated: !spec.crossPageTotal && headlineTotal !== null && headlineTotal > rawRecordCount,
+    // **2026-09-14 独立 checker 第四轮点名**：上面这条判据在 `headlineTotal === null`
+    // （页面没渲染出可解析的总数，跟 `--report keyword-magic` 实跑 Run E 撞见的一模一样，
+    // 只是那次因为 keyword-magic 本身是 crossPageTotal 恰好不受这条判据管）时恒为
+    // `false`——「读不到总数」被静默当成「没有截断」，是典型的「证据缺失 → 默认放行」。
+    // 加一个显式信号：`totalUnverifiable`——crossPageTotal 报告不适用这个判据（总数
+    // 由 pagination 负责，见上），非 crossPageTotal 报告读不到总数时置真，由
+    // `assessCompleteness()` 决定这是不是真的没别的证据能顶上。
+    totalUnverifiable: !spec.crossPageTotal && headlineTotal === null,
   };
+}
+
+/**
+ * 完成判定（纯函数，2026-09-14 独立 checker 第三/四轮补上）：解析结果连读两次一致
+ * 不能单独当"读完了"——虚拟滚动/懒加载表格「当前挂载的那几行」会稳稳复现，跟数据没
+ * 加载完读起来一模一样。`reportCoverage()`/`readPageInfo()` 早就算出了
+ * `virtualScrollTruncated`/`parserAligned`/分页信息，但过去只 `console.error` 打日志，
+ * `output` 里没有任何顶层字段说"这份结果不能当完整的收下"——只看 JSON、不翻 stderr 的
+ * 下游会把截断当完整用。
+ *
+ * **第四轮追加**：逐条审查每个判据"证据缺失时会不会默认放行"，补了两处同类缺口
+ * （见各自的调用点注释——`readPageInfo()` 读不到分页器文字时不再假装只有 1 页；
+ * `reportCoverage()` 读不到页面自报总数时不再假装没截断），并且明确"总数读不到"这一条
+ * 不是无条件阻断：分页已经翻完且各页累加行数没被解析丢掉、且没有虚拟滚动截断，本身就是
+ * "确证已抓全"的替代证据（`fullyPagedAndConsistent`），这种情况下允许放行，不強行要求
+ * 两种证据都齐。
+ *
+ * **第四轮同日再追加（独立 checker 离线复审又抓到一条）**：`virtualScrollTruncated` 曾经
+ * 在 `paginationIncomplete` 时被整条抑制（理由是"还没翻完页，天然小于总数，跟分页没翻完
+ * 是同一件事"）——但这个理由只在"已抓的页本身完整、纯粹页数不够"时成立；**如果连已经
+ * 抓到的这一页自己都被虚拟滚动截断，那不是设计内没翻页，是抓取本身有问题**，旧写法会把
+ * 这种"多页 + 首页本身也截断"错判成 `partial-by-design`（exit 0）。没有可靠的"每页应有
+ * 行数"基准能精确拆开"只是没翻页"和"首页也不完整"这两种情况，不去猜——**现在
+ * `virtualScrollTruncated` 为真就无条件计入 blocker，不再因为分页没翻完而抑制**。代价：
+ * `organic-positions`/`organic-pages` 这类 headline 能解析出总数的报表，不传
+ * `--all-pages` 时几乎总会撞上这一条，不再判 `partial-by-design`（只会是 `complete` 或
+ * `unverified`）——`partial-by-design` 因此主要留给 `crossPageTotal` 报表（这条判据对
+ * 它们本来就不适用，不受影响）。
+ *
+ * 任一命中就不是 `status:'complete'`（`completenessBlockers` 列出具体是哪一条）：
+ *   1. 分页器本身读不出来（`pageCountUnverifiable`）——**比下面第 2 条更根本**：分页
+ *      机制自己都不知道有几页，其余判据无从谈起；
+ *   2. 分页没翻完（`paginated` 且 `pagesRead < totalPages`）；
+ *   3. 解析行数对不上原始行数（`parserAligned` 为 false）；
+ *   4. 探测到虚拟滚动截断（`virtualScrollTruncated`）——无条件计入，不因分页未翻完抑制
+ *      （见上一段）；
+ *   5. 页面自报总数读不到、且分页也没能替代性地证明抓全了（`totalUnverifiable` 且
+ *      `!fullyPagedAndConsistent`——分页翻完+行数对齐+没有虚拟滚动截断，三者都成立
+ *      才算"有其他确证已抓全的证据"）。
+ * **不区分"用户主动只要第一页"与"本该抓全却没抓全"就一律 `unverified` 会误导人**——
+ * 若唯一命中的是"分页没翻完，且原因就是没传 `--all-pages`"（`stoppedBecause ===
+ * 'no --all-pages'`，且没有其它 blocker 同时命中），这是按设计工作、不是缺陷，标
+ * `status:'partial-by-design'`（退出码仍是 0，不当失败）；其余情况一律 `'unverified'`
+ * （退出码 3）。所有分支都带 `pagesCaptured`/`pagesTotal`，调用方不用去翻 `pagination`
+ * 字段猜比例。八张报表通用，不止国家库那五张——反链/引荐域名同样分页、同样可能被
+ * 虚拟滚动坑。
+ */
+function assessCompleteness({ paginated, pagesRead, totalPages, paginationVerdict, stoppedBecause, coverage, pageCountUnverifiable = false }) {
+  const completenessBlockers = [];
+  if (pageCountUnverifiable) {
+    completenessBlockers.push('page-count-unverifiable(could not read a "page X of Y" pager control on the first page; cannot rule out additional pages)');
+  }
+  const paginationIncomplete = Boolean(paginated) && pagesRead < totalPages;
+  if (paginationIncomplete) {
+    completenessBlockers.push(`pagination-incomplete(${pagesRead}/${totalPages} pages read; verdict=${paginationVerdict || 'inconclusive'}; stoppedBecause=${stoppedBecause || 'no --all-pages'})`);
+  }
+  if (coverage && !coverage.parserAligned) {
+    completenessBlockers.push(`parser-gap(raw-record-lines=${coverage.rawRecordCount}, parsed-rows=${coverage.parsedRows})`);
+  }
+  // **2026-09-14 独立 checker 离线审查再发现一条**：`virtualScrollTruncated` 比较的是
+  // 「页面自报总数」跟「目前为止全部已读页面累计的行数」，之前这里在 `paginationIncomplete`
+  // 时整条抑制掉——理由是"还没翻完页，累计行数天然小于总数，这跟 pagination-incomplete
+  // 说的是同一件事"。**这个理由只在"已抓的每一页本身都完整、纯粹是页数不够"时成立**；
+  // 如果连**已经抓到的这一页自己**都被虚拟滚动截断（比如页面正常应该每页 100 行，
+  // 首页却只渲染出 20 行），那就不是"设计内没翻页"，是抓取本身出了问题——旧写法会把这
+  // 两种情况混为一谈，让"多页 + 首页本身被截断"也被判成 `partial-by-design`（exit 0）。
+  // 没有可靠的"每页应有行数"基准去精确拆开这两种情况（不同报表、甚至同一报表的末页，
+  // 单页行数本来就会不一样，硬猜一个基准数字比不猜更危险）——所以不再尝试猜，
+  // **只要 `virtualScrollTruncated` 为真就一律计入 blocker，不因为分页还没翻完就抑制**。
+  // 代价：`organic-positions`/`organic-pages` 这类headline 能解析出总数的报表，只要没
+  // 传 `--all-pages`（几乎总是 `headlineTotal > 当前页行数`），就不会再判 `partial-by-design`，
+  // 只会是 `complete`（全部翻完且行数对齐）或 `unverified`——这是刻意的收紧：没有能力
+  // 分辨"只是没翻页"和"首页本身也不完整"时，`unverified` 是唯一诚实的默认值。
+  // `partial-by-design` 因此主要留给 `crossPageTotal` 报表（keyword-magic/
+  // referring-domains，`reportCoverage()` 里这条判据本来就对它们不适用，不受此收紧影响）。
+  if (coverage?.virtualScrollTruncated) {
+    completenessBlockers.push(`virtual-scroll-truncated(page-self-reported-total=${coverage.pageSelfReportedTotal}, raw-captured=${coverage.rawRecordCount})`);
+  }
+  // "读不到总数"唯一能接受的替代证据：分页翻完了（不然连"翻完"本身都不确定）、各页
+  // 累加下来的原始行数没有被解析丢掉、且没有另外查出虚拟滚动截断——三条都成立才算
+  // "有其他确证已抓全的证据"，否则跟"读不到总数"一样按缺证据处理。
+  const fullyPagedAndConsistent = !paginationIncomplete && !pageCountUnverifiable
+    && Boolean(coverage?.parserAligned) && !coverage?.virtualScrollTruncated;
+  if (coverage?.totalUnverifiable && !fullyPagedAndConsistent) {
+    completenessBlockers.push(`total-unverified(raw-captured=${coverage.rawRecordCount}; no page-reported total to compare against, and pagination does not independently confirm full capture either)`);
+  }
+  const pagesCaptured = pagesRead;
+  const pagesTotal = paginated ? totalPages : null;
+  if (!completenessBlockers.length) return { status: 'complete', completenessBlockers, pagesCaptured, pagesTotal };
+  // 唯一原因就是"没传 --all-pages"（分页没翻完，且没有另外命中任何独立问题——尤其是
+  // 已抓到的这一页没有被判虚拟滚动截断）⇒ 这是设计内的部分抓取，不是本该完整却没抓全；
+  // 仍然绝不能标 complete，但用更准确的状态名，别让"我就只想看第一页"的正常用法读起来
+  // 像出了错。任一已抓页不完整（截断/解析缺口/分页器本身读不出）都会让 blockers 数
+  // 大于 1 或直接不是 pagination-incomplete，从而落不到这个分支，正确地变成 unverified。
+  const onlyByDesign = paginationIncomplete && stoppedBecause === 'no --all-pages' && completenessBlockers.length === 1;
+  return { status: onlyByDesign ? 'partial-by-design' : 'unverified', completenessBlockers, pagesCaptured, pagesTotal };
 }
 
 /**
@@ -1596,7 +1844,7 @@ try {
       note: `semrush-report ${name} ${target}: loaded.capture is null`,
     });
     const diagnosed = await diagnoseUnrendered(name, target, db, flags.retries || 3,
-      () => evalPage(REGION_PROBE_JS));
+      async () => { await automation?.ensureVisible('diagnose-unrendered'); return evalPage(REGION_PROBE_JS); });
     diagnosed.message += ` ${sceneSummaryLine(scene)}`;
     throw diagnosed;
   }
@@ -1634,6 +1882,8 @@ try {
           paginationVerdict = 'inconclusive';
           break;
         }
+        // 翻页也是一次「导航」——点下一页前同样确认自动化窗口可见。
+        await automation?.ensureVisible('paginate-next');
         const advance = await clickNextPage(evalPage, pagesRead);
         if (!advance.advanced) {
           stoppedBecause = advance.reason;
@@ -1652,7 +1902,10 @@ try {
           // tableCount 是结构判据的原料：**表在但无行** 和 **整页无表** 是两件不同的事，
           // 只有后者能支持「这一页就是空的」。见 makeNextPageFingerprint 顶部的表。
           // 同一处穿透修复的翻页版本。见上面那段注释。
-          read: () => evalPage(`(() => {
+          read: async () => {
+            // 同一节流理由见 loadReport 的 read：只在上一次读到 hidden 时才恢复。
+            if (lastVis === 'hidden') await automation?.ensureVisible('paginate-read-hidden');
+            const cap = await evalPage(`(() => {
             ${DEEP_DOM_JS}
             const root = document.body || document.documentElement;
             return JSON.stringify({
@@ -1661,8 +1914,13 @@ try {
               deepProbe: true,
               lightDom: { textLength: (document.body?.innerText || '').length, tableCount: document.querySelectorAll('table,[role="grid"]').length },
               cells: ${spec.cells || 'null'},
+              vis: document.visibilityState,
             });
-          })()`),
+          })()`);
+            lastVis = cap?.vis ?? lastVis;
+            automation?.recordRead({ vis: cap?.vis ?? null, label: 'paginate-read' });
+            return cap;
+          },
           fingerprint: (c) => {
             let print = null;
             try { print = JSON.stringify(spec.parse(String(c?.bodyText || '').split(/\n+/).map((l) => l.trim()).filter(Boolean), c?.cells)); } catch { return null; }
@@ -1679,7 +1937,7 @@ try {
           // 第 N 页和「这一页迟迟没渲染」在 nextPage.capture 上长得一模一样，
           // 现场再读一次 body 来分辨——这个读取很便宜，值得做。
           let freshProbe = null;
-          try { freshProbe = await evalPage(REGION_PROBE_JS); } catch { /* 读不到就按普通超时处理 */ }
+          try { await automation?.ensureVisible('paginate-quota-probe'); freshProbe = await evalPage(REGION_PROBE_JS); } catch { /* 读不到就按普通超时处理 */ }
           pagesRead -= 1;
           // 整页搜「限额」在这里同样不合法（见 classifyQuotaBlock）——绑表体区。
           const quota = classifyQuotaBlock(freshProbe);
@@ -1731,6 +1989,11 @@ try {
     console.error(`[truncated] ${name}: page reports ${coverage.pageSelfReportedTotal} records, raw captures contain ${coverage.rawRecordCount}.`);
   }
 
+  const { status, completenessBlockers, pagesCaptured, pagesTotal } = assessCompleteness({
+    paginated: spec.paginated, pagesRead, totalPages: pageInfo.total, paginationVerdict, stoppedBecause, coverage,
+    pageCountUnverifiable: Boolean(spec.paginated) && Boolean(pageInfo.unverifiable),
+  });
+
   // 解析质量必须**说出来**，不能只放进 JSON 等人去翻。missingColumns 是「列没了」，
   // partialLossColumns 是「列在、值被静默丢了」——后者才是真实事故的形态，
   // 而它以前在这个文件里连一条 console 都没有。
@@ -1747,6 +2010,7 @@ try {
     );
   }
 
+  const scopeEvidence = needsCountryDb ? await readScopeEvidence() : null;
   output = {
     version: 1,
     source: 'Semrush via authenticated Tools Share browser session',
@@ -1760,6 +2024,14 @@ try {
     report: name,
     target,
     db: db || null,
+    scope,
+    scopeEvidence,
+    status,
+    completenessBlockers: completenessBlockers.length ? completenessBlockers : null,
+    // status:'complete' 时 pagesCaptured===pagesTotal（不分页的报表 pagesTotal 是 null）；
+    // 'partial-by-design' 时明确是用户没传 --all-pages，不是抓漏；'unverified' 时随便哪个
+    // 都可能没对上——调用方不用去翻 completenessBlockers 的文本就能看出抓了几页、共几页。
+    pagesCaptured, pagesTotal,
     session,
     sessionReused: tool.reused,
     title: cap.title,
@@ -1787,6 +2059,7 @@ try {
     parsed,
     rawText: cap.bodyText.slice(0, 20000),
     rawPages: spec.paginated ? rawPages : null,
+    automationWindow: automationWindowOutput(),
   };
 } catch (error) {
   // **先取证后关**：`status:'unavailable'` 的输出必须带证据路径。上面两个专属
@@ -1798,14 +2071,17 @@ try {
       note: `semrush-report ${name} ${target}: ${redactSecrets(String(error?.message || error)).slice(0, 200)}`,
     })
     : null;
+  // 失败时页面可能压根没到能读地区选择器的状态，尽力读一次，读不到就是 unverified。
+  const scopeEvidence = launched && needsCountryDb ? await readScopeEvidence().catch(() => null) : null;
   output = {
     version: 1, source: 'Semrush via authenticated Tools Share browser session',
-    retrievedAt: new Date().toISOString(), report: name, target, db: db || null, session,
+    retrievedAt: new Date().toISOString(), report: name, target, db: db || null, scope, scopeEvidence, session,
     // 失败输出带现场：census + 截图的落盘路径（拍不到时是错误说明）。
     evidence: scene,
     // **错误消息必须过 redactSecrets。** opencli 失败时会把带 __gmitm 令牌的会话 URL
     // 打进 stderr，那段文本会一路进 output、进 --out 文件、进日志。
     status: 'unavailable', error: { code: 'report_failed', message: redactSecrets(error.message) },
+    automationWindow: automationWindowOutput(error?.automationWindow),
   };
 } finally {
   await launched?.releaseBrowserLocks?.();
@@ -1813,4 +2089,13 @@ try {
 
 if (typeof flags.out === 'string') await writeFile(flags.out, `${JSON.stringify(output, null, 2)}\n`, 'utf8');
 printJson(output);
+// unavailable = never got the data at all → exit 1.
+// unverified = got data but a completeness signal (page-count-unverifiable/pagination/
+// parser-gap/virtual-scroll/total-unverified) says it may not be the full picture,
+// for reasons OTHER than the caller's own choice not to page through → exit 3, so a
+// script can tell "nothing" from "something, but don't trust it as complete" apart.
+// partial-by-design (no --all-pages, and nothing else looks wrong within what WAS
+// captured) is exactly what a caller who didn't ask for --all-pages gets by asking for
+// it — that is success, not a defect, so it exits 0 like 'complete' does.
 if (output.status === 'unavailable') process.exitCode = 1;
+else if (output.status === 'unverified') process.exitCode = 3;

@@ -1,0 +1,1321 @@
+[
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": [
+        {
+          "currencyCode": "IQD",
+          "rate": 1308.181142
+        },
+        {
+          "currencyCode": "LKR",
+          "rate": 328.294074
+        }
+      ]
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "daily": [
+          "20260912"
+        ],
+        "monthly": [
+          "20120115",
+          "20120215"
+        ]
+      }
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "result": [
+        {
+          "code": "lt",
+          "currencies": [
+            "usd",
+            "eur"
+          ],
+          "isPermitted": true,
+          "name": "Google Lithuania",
+          "positionsCountOnSERP": 100,
+          "region": "europe",
+          "searchEngine": "google",
+          "type": "standard"
+        },
+        {
+          "code": "no",
+          "currencies": [
+            "usd",
+            "nok"
+          ],
+          "isPermitted": true,
+          "name": "Google Norway",
+          "positionsCountOnSERP": 100,
+          "region": "europe",
+          "searchEngine": "google",
+          "type": "standard"
+        }
+      ]
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "result": {
+        "isTrialAllowed": false,
+        "isPLAAllowed": true,
+        "isHistoryAllowed": true,
+        "exportLimit": 50000,
+        "isTrialUser": false
+      }
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "result": {
+        "daily": [
+          "20260911"
+        ],
+        "monthly": [
+          "20170215",
+          "20210915"
+        ]
+      }
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "result": {
+        "isRootDomain": false
+      }
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "result": {
+        "anchors": [
+          {
+            "anchor": "anchor text 1",
+            "backlinks": 102,
+            "domains": 103
+          },
+          {
+            "anchor": "anchor text 2",
+            "backlinks": 104,
+            "domains": 105
+          }
+        ],
+        "authorityScore": 106,
+        "backlinks": [
+          {
+            "anchor": "anchor 1",
+            "nofollow": false,
+            "sourceTitle": "Source 1",
+            "sourceURL": "https://source1.example/",
+            "targetURL": "https://example.com/"
+          },
+          {
+            "anchor": "anchor 2",
+            "nofollow": false,
+            "sourceTitle": "Source 2",
+            "sourceURL": "https://source2.example/",
+            "targetURL": "https://example.com/"
+          }
+        ],
+        "domains": 107,
+        "follow": 108,
+        "forms": 0,
+        "frames": 109,
+        "images": 110,
+        "ips": 111,
+        "links": 112,
+        "nofollow": 113,
+        "pages": [
+          {
+            "backlinks": 114,
+            "domains": 115,
+            "sourceTitle": "Page 1",
+            "sourceURL": "https://example.com/p1"
+          },
+          {
+            "backlinks": 116,
+            "domains": 117,
+            "sourceTitle": "Page 2",
+            "sourceURL": "https://example.com/p2"
+          }
+        ],
+        "referralDomains": [
+          {
+            "backlinks": 118,
+            "country": "us",
+            "domain": "ref1.example",
+            "ip": "192.0.2.1"
+          },
+          {
+            "backlinks": 119,
+            "country": "",
+            "domain": "ref2.example",
+            "ip": "192.0.2.1"
+          }
+        ],
+        "texts": 120,
+        "total": 121
+      }
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": [
+      {
+        "jsonrpc": "2.0",
+        "id": 8,
+        "result": [
+          {
+            "adwordsPositions": 0,
+            "commonKeywords": 122,
+            "competitionLvl": 0.67,
+            "domain": "competitor1.example",
+            "organicPositions": 123,
+            "organicTraffic": 124,
+            "organicTrafficCost": 125,
+            "positions": 126,
+            "serpFeaturesPositions": 127,
+            "serpFeaturesTraffic": 128,
+            "serpFeaturesTrafficCost": 129,
+            "traffic": 130,
+            "trafficCost": 131
+          },
+          {
+            "adwordsPositions": 0,
+            "commonKeywords": 132,
+            "competitionLvl": 0.64,
+            "domain": "competitor2.example",
+            "organicPositions": 133,
+            "organicTraffic": 134,
+            "organicTrafficCost": 135,
+            "positions": 136,
+            "serpFeaturesPositions": 137,
+            "serpFeaturesTraffic": 138,
+            "serpFeaturesTrafficCost": 0,
+            "traffic": 139,
+            "trafficCost": 140
+          },
+          {
+            "adwordsPositions": 0,
+            "commonKeywords": 141,
+            "competitionLvl": 0.59,
+            "domain": "competitor3.example",
+            "organicPositions": 142,
+            "organicTraffic": 143,
+            "organicTrafficCost": 144,
+            "positions": 145,
+            "serpFeaturesPositions": 146,
+            "serpFeaturesTraffic": 147,
+            "serpFeaturesTrafficCost": 148,
+            "traffic": 149,
+            "trafficCost": 150
+          }
+        ]
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "result": 42
+      }
+    ]
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": [
+      {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "result": [
+          {
+            "adwordsPositions": 0,
+            "commonKeywords": 0,
+            "competitionLvl": 100,
+            "domain": "competitor4.example",
+            "organicPositions": 151,
+            "traffic": 0,
+            "trafficCost": 0
+          }
+        ]
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 11,
+        "result": 0
+      }
+    ]
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 12,
+      "result": [
+        {
+          "changeOfTraffic": 152,
+          "changeOfTrafficSigned": 153,
+          "clickPotential": 154,
+          "clickPotentialPercent": 155,
+          "comp": 156,
+          "cpc": 157,
+          "crawledTime": 158,
+          "intents": [
+            159
+          ],
+          "keywordDifficulty": 160,
+          "keywordSERPFeatures": [
+            161,
+            162,
+            163,
+            164,
+            165
+          ],
+          "phrase": "sample keyword 1",
+          "position": 166,
+          "positionDifference": 0,
+          "positionIsSERPFeature": false,
+          "positionOnSERP": 167,
+          "positionSERPFeatures": [],
+          "previousPosition": 168,
+          "results": 169,
+          "serpFeatureIndex": 0,
+          "serpFeatures": [],
+          "traffic": 170,
+          "trafficCost": 171,
+          "trafficCostPercent": 172,
+          "trafficPercent": 173,
+          "trends": [
+            174,
+            175,
+            176,
+            177,
+            178,
+            179,
+            180,
+            181,
+            182,
+            183,
+            184,
+            185
+          ],
+          "urlHash": "12922079266783620569",
+          "volume": 186
+        },
+        {
+          "changeOfTraffic": 0,
+          "changeOfTrafficSigned": 0,
+          "clickPotential": 187,
+          "clickPotentialPercent": 188,
+          "comp": 189,
+          "cpc": 101,
+          "crawledTime": 102,
+          "intents": [
+            103
+          ],
+          "keywordDifficulty": 104,
+          "keywordSERPFeatures": [
+            105,
+            106,
+            107,
+            108
+          ],
+          "phrase": "sample keyword 2",
+          "position": 109,
+          "positionDifference": 0,
+          "positionIsSERPFeature": false,
+          "positionOnSERP": 110,
+          "positionSERPFeatures": [],
+          "previousPosition": 111,
+          "results": 112,
+          "serpFeatureIndex": 0,
+          "serpFeatures": [],
+          "traffic": 113,
+          "trafficCost": 114,
+          "trafficCostPercent": 115,
+          "trafficPercent": 116,
+          "trends": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            117,
+            118,
+            119,
+            120,
+            0
+          ],
+          "urlHash": "12922079266783620569",
+          "volume": 121
+        },
+        {
+          "changeOfTraffic": 0,
+          "changeOfTrafficSigned": 0,
+          "clickPotential": 122,
+          "clickPotentialPercent": 123,
+          "comp": 124,
+          "cpc": 0,
+          "crawledTime": 125,
+          "intents": [
+            126
+          ],
+          "keywordDifficulty": 127,
+          "keywordSERPFeatures": [
+            128,
+            129,
+            130,
+            131,
+            132,
+            133
+          ],
+          "phrase": "sample keyword 3",
+          "position": 134,
+          "positionDifference": 0,
+          "positionIsSERPFeature": false,
+          "positionOnSERP": 135,
+          "positionSERPFeatures": [],
+          "previousPosition": 136,
+          "results": 137,
+          "serpFeatureIndex": 0,
+          "serpFeatures": [],
+          "traffic": 138,
+          "trafficCost": 0,
+          "trafficCostPercent": 0,
+          "trafficPercent": 139,
+          "trends": [
+            0,
+            0,
+            0,
+            140,
+            141,
+            142,
+            143,
+            144,
+            145,
+            146,
+            147,
+            148
+          ],
+          "urlHash": "12922079266783620569",
+          "volume": 149
+        }
+      ]
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 13,
+      "result": []
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 14,
+      "result": [
+        {
+          "adwordsPositions": 0,
+          "adwordsPositionsTrend": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "adwordsTraffic": 0,
+          "adwordsTrafficCost": 0,
+          "aiOverviewPositions": 0,
+          "date": "20260910",
+          "intentCommercialPositions": 150,
+          "intentCommercialTraffic": 151,
+          "intentCommercialTrafficCost": 152,
+          "intentInformationalPositions": 153,
+          "intentInformationalTraffic": 154,
+          "intentInformationalTrafficCost": 155,
+          "intentNavigationalPositions": 156,
+          "intentNavigationalTraffic": 157,
+          "intentNavigationalTrafficCost": 0,
+          "intentTransactionalPositions": 0,
+          "intentTransactionalTraffic": 158,
+          "intentTransactionalTrafficCost": 0,
+          "intentUnknownPositions": 0,
+          "intentUnknownTraffic": 0,
+          "intentUnknownTrafficCost": 0,
+          "organicPositions": 159,
+          "organicPositionsBranded": 0,
+          "organicPositionsTrend": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            14,
+            14,
+            14,
+            14,
+            14,
+            14
+          ],
+          "organicTraffic": 171,
+          "organicTrafficBranded": 172,
+          "organicTrafficCost": 173,
+          "organicTrafficNonBranded": 174,
+          "positions": 175,
+          "positionsBranded": 0,
+          "rank": 176,
+          "serpFeaturesPositions": 0,
+          "serpFeaturesPositionsBranded": 0,
+          "serpFeaturesPositionsWithoutAiOverview": 0,
+          "serpFeaturesTraffic": 0,
+          "serpFeaturesTrafficBranded": 0,
+          "serpFeaturesTrafficCost": 0,
+          "serpFeaturesTrafficNonBranded": 0,
+          "traffic": 177,
+          "trafficBranded": 178,
+          "trafficCost": 179,
+          "trafficNonBranded": 180
+        },
+        {
+          "adwordsPositions": 0,
+          "adwordsPositionsTrend": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "adwordsTraffic": 0,
+          "adwordsTrafficCost": 0,
+          "aiOverviewPositions": 0,
+          "date": "20260911",
+          "intentCommercialPositions": 181,
+          "intentCommercialTraffic": 182,
+          "intentCommercialTrafficCost": 183,
+          "intentInformationalPositions": 184,
+          "intentInformationalTraffic": 185,
+          "intentInformationalTrafficCost": 186,
+          "intentNavigationalPositions": 187,
+          "intentNavigationalTraffic": 188,
+          "intentNavigationalTrafficCost": 0,
+          "intentTransactionalPositions": 0,
+          "intentTransactionalTraffic": 189,
+          "intentTransactionalTrafficCost": 0,
+          "intentUnknownPositions": 0,
+          "intentUnknownTraffic": 0,
+          "intentUnknownTrafficCost": 0,
+          "organicPositions": 101,
+          "organicPositionsBranded": 0,
+          "organicPositionsTrend": [
+            9,
+            9,
+            9,
+            10,
+            10,
+            9,
+            9,
+            9,
+            9,
+            9,
+            9
+          ],
+          "organicTraffic": 113,
+          "organicTrafficBranded": 114,
+          "organicTrafficCost": 115,
+          "organicTrafficNonBranded": 116,
+          "positions": 117,
+          "positionsBranded": 0,
+          "rank": 118,
+          "serpFeaturesPositions": 0,
+          "serpFeaturesPositionsBranded": 0,
+          "serpFeaturesPositionsWithoutAiOverview": 0,
+          "serpFeaturesTraffic": 0,
+          "serpFeaturesTrafficBranded": 0,
+          "serpFeaturesTrafficCost": 0,
+          "serpFeaturesTrafficNonBranded": 0,
+          "traffic": 119,
+          "trafficBranded": 120,
+          "trafficCost": 121,
+          "trafficNonBranded": 122
+        },
+        {
+          "adwordsPositions": 0,
+          "adwordsPositionsTrend": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "adwordsTraffic": 0,
+          "adwordsTrafficCost": 0,
+          "aiOverviewPositions": 0,
+          "date": "20260912",
+          "intentCommercialPositions": 123,
+          "intentCommercialTraffic": 124,
+          "intentCommercialTrafficCost": 125,
+          "intentInformationalPositions": 126,
+          "intentInformationalTraffic": 127,
+          "intentInformationalTrafficCost": 128,
+          "intentNavigationalPositions": 129,
+          "intentNavigationalTraffic": 130,
+          "intentNavigationalTrafficCost": 0,
+          "intentTransactionalPositions": 0,
+          "intentTransactionalTraffic": 131,
+          "intentTransactionalTrafficCost": 0,
+          "intentUnknownPositions": 0,
+          "intentUnknownTraffic": 0,
+          "intentUnknownTrafficCost": 0,
+          "organicPositions": 132,
+          "organicPositionsBranded": 0,
+          "organicPositionsTrend": [
+            12,
+            12,
+            12,
+            12,
+            12,
+            12,
+            12,
+            12,
+            12,
+            12,
+            12
+          ],
+          "organicTraffic": 160,
+          "organicTrafficBranded": 145,
+          "organicTrafficCost": 146,
+          "organicTrafficNonBranded": 147,
+          "positions": 150,
+          "positionsBranded": 0,
+          "rank": 149,
+          "serpFeaturesPositions": 0,
+          "serpFeaturesPositionsBranded": 0,
+          "serpFeaturesPositionsWithoutAiOverview": 0,
+          "serpFeaturesTraffic": 0,
+          "serpFeaturesTrafficBranded": 0,
+          "serpFeaturesTrafficCost": 0,
+          "serpFeaturesTrafficNonBranded": 0,
+          "traffic": 150,
+          "trafficBranded": 151,
+          "trafficCost": 152,
+          "trafficNonBranded": 153
+        }
+      ]
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 15,
+      "result": [
+        {
+          "adwordsPositions": 0,
+          "adwordsPositionsTrend": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "adwordsTraffic": 0,
+          "adwordsTrafficCost": 0,
+          "aiOverviewPositions": 0,
+          "date": "20260715",
+          "intentCommercialPositions": 154,
+          "intentCommercialTraffic": 155,
+          "intentCommercialTrafficCost": 156,
+          "intentInformationalPositions": 157,
+          "intentInformationalTraffic": 158,
+          "intentInformationalTrafficCost": 159,
+          "intentNavigationalPositions": 0,
+          "intentNavigationalTraffic": 160,
+          "intentNavigationalTrafficCost": 0,
+          "intentTransactionalPositions": 0,
+          "intentTransactionalTraffic": 0,
+          "intentTransactionalTrafficCost": 0,
+          "intentUnknownPositions": 0,
+          "intentUnknownTraffic": 0,
+          "intentUnknownTrafficCost": 0,
+          "organicPositions": 161,
+          "organicPositionsBranded": 0,
+          "organicPositionsTrend": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15,
+            14,
+            14,
+            14,
+            14,
+            15
+          ],
+          "organicTraffic": 173,
+          "organicTrafficBranded": 174,
+          "organicTrafficCost": 175,
+          "organicTrafficNonBranded": 176,
+          "positions": 177,
+          "positionsBranded": 0,
+          "rank": 178,
+          "serpFeaturesPositions": 0,
+          "serpFeaturesPositionsBranded": 0,
+          "serpFeaturesPositionsWithoutAiOverview": 0,
+          "serpFeaturesTraffic": 0,
+          "serpFeaturesTrafficBranded": 0,
+          "serpFeaturesTrafficCost": 0,
+          "serpFeaturesTrafficNonBranded": 0,
+          "traffic": 179,
+          "trafficBranded": 180,
+          "trafficCost": 181,
+          "trafficNonBranded": 182
+        },
+        {
+          "adwordsPositions": 0,
+          "adwordsPositionsTrend": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "adwordsTraffic": 0,
+          "adwordsTrafficCost": 0,
+          "aiOverviewPositions": 0,
+          "date": "20260815",
+          "intentCommercialPositions": 183,
+          "intentCommercialTraffic": 184,
+          "intentCommercialTrafficCost": 185,
+          "intentInformationalPositions": 186,
+          "intentInformationalTraffic": 187,
+          "intentInformationalTrafficCost": 188,
+          "intentNavigationalPositions": 0,
+          "intentNavigationalTraffic": 189,
+          "intentNavigationalTrafficCost": 0,
+          "intentTransactionalPositions": 0,
+          "intentTransactionalTraffic": 101,
+          "intentTransactionalTrafficCost": 0,
+          "intentUnknownPositions": 0,
+          "intentUnknownTraffic": 0,
+          "intentUnknownTrafficCost": 0,
+          "organicPositions": 102,
+          "organicPositionsBranded": 0,
+          "organicPositionsTrend": [
+            9,
+            9,
+            10,
+            10,
+            10,
+            9,
+            9,
+            9,
+            9,
+            9,
+            9
+          ],
+          "organicTraffic": 114,
+          "organicTrafficBranded": 115,
+          "organicTrafficCost": 116,
+          "organicTrafficNonBranded": 117,
+          "positions": 118,
+          "positionsBranded": 0,
+          "rank": 119,
+          "serpFeaturesPositions": 0,
+          "serpFeaturesPositionsBranded": 0,
+          "serpFeaturesPositionsWithoutAiOverview": 0,
+          "serpFeaturesTraffic": 0,
+          "serpFeaturesTrafficBranded": 0,
+          "serpFeaturesTrafficCost": 0,
+          "serpFeaturesTrafficNonBranded": 0,
+          "traffic": 120,
+          "trafficBranded": 121,
+          "trafficCost": 122,
+          "trafficNonBranded": 123
+        },
+        {
+          "adwordsPositions": 0,
+          "adwordsPositionsTrend": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "adwordsTraffic": 0,
+          "adwordsTrafficCost": 0,
+          "aiOverviewPositions": 0,
+          "date": "20260915",
+          "intentCommercialPositions": 124,
+          "intentCommercialTraffic": 125,
+          "intentCommercialTrafficCost": 126,
+          "intentInformationalPositions": 127,
+          "intentInformationalTraffic": 128,
+          "intentInformationalTrafficCost": 129,
+          "intentNavigationalPositions": 130,
+          "intentNavigationalTraffic": 131,
+          "intentNavigationalTrafficCost": 0,
+          "intentTransactionalPositions": 0,
+          "intentTransactionalTraffic": 132,
+          "intentTransactionalTrafficCost": 0,
+          "intentUnknownPositions": 0,
+          "intentUnknownTraffic": 0,
+          "intentUnknownTrafficCost": 0,
+          "organicPositions": 133,
+          "organicPositionsBranded": 0,
+          "organicPositionsTrend": [
+            12,
+            12,
+            12,
+            12,
+            13,
+            12,
+            12,
+            12,
+            12,
+            12,
+            12
+          ],
+          "organicTraffic": 160,
+          "organicTrafficBranded": 146,
+          "organicTrafficCost": 147,
+          "organicTrafficNonBranded": 148,
+          "positions": 150,
+          "positionsBranded": 0,
+          "rank": 150,
+          "serpFeaturesPositions": 0,
+          "serpFeaturesPositionsBranded": 0,
+          "serpFeaturesPositionsWithoutAiOverview": 0,
+          "serpFeaturesTraffic": 0,
+          "serpFeaturesTrafficBranded": 0,
+          "serpFeaturesTrafficCost": 0,
+          "serpFeaturesTrafficNonBranded": 0,
+          "traffic": 151,
+          "trafficBranded": 152,
+          "trafficCost": 153,
+          "trafficNonBranded": 154
+        }
+      ]
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 16,
+      "result": {
+        "keyword": {
+          "0": 0,
+          "1": 155,
+          "2": 0,
+          "3": 0,
+          "4": 0,
+          "5": 156,
+          "6": 157,
+          "7": 158,
+          "8": 0,
+          "9": 159,
+          "10": 0,
+          "11": 160,
+          "12": 0,
+          "13": 161,
+          "14": 162,
+          "15": 163,
+          "16": 0,
+          "17": 0,
+          "18": 0,
+          "19": 0,
+          "20": 164,
+          "21": 165,
+          "22": 0,
+          "23": 0,
+          "24": 0,
+          "25": 0,
+          "26": 0,
+          "27": 0,
+          "28": 0,
+          "29": 0,
+          "30": 0,
+          "31": 0,
+          "32": 0,
+          "34": 0,
+          "35": 0,
+          "36": 166,
+          "37": 167,
+          "38": 168,
+          "39": 0,
+          "40": 0,
+          "41": 0,
+          "42": 0,
+          "43": 0,
+          "44": 0,
+          "45": 169,
+          "46": 0,
+          "47": 0,
+          "48": 0,
+          "49": 0,
+          "50": 0,
+          "51": 0,
+          "52": 170
+        },
+        "position": {
+          "1": 0,
+          "3": 0,
+          "4": 0,
+          "5": 0,
+          "6": 171,
+          "7": 0,
+          "8": 0,
+          "9": 0,
+          "10": 0,
+          "11": 0,
+          "12": 0,
+          "13": 0,
+          "18": 0,
+          "19": 0,
+          "20": 0,
+          "21": 0,
+          "22": 0,
+          "24": 0,
+          "25": 0,
+          "26": 0,
+          "27": 0,
+          "28": 0,
+          "29": 0,
+          "31": 0,
+          "38": 0,
+          "39": 0,
+          "40": 0,
+          "41": 0,
+          "42": 0,
+          "43": 0,
+          "44": 0,
+          "45": 0,
+          "46": 0,
+          "47": 0,
+          "48": 0,
+          "52": 172
+        },
+        "totalPositions": 173
+      }
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 17,
+      "result": {
+        "status": "not_clusterized"
+      }
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": [
+      {
+        "jsonrpc": "2.0",
+        "id": 18,
+        "result": [
+          {
+            "adwordsPositions": 0,
+            "adwordsTraffic": 0,
+            "adwordsTrafficCost": 0,
+            "database": "us",
+            "organicPositions": 174,
+            "organicTraffic": 175,
+            "organicTrafficBranded": 176,
+            "organicTrafficCost": 177,
+            "organicTrafficNonBranded": 178,
+            "positions": 179,
+            "rank": 180,
+            "serpFeaturesPositions": 181,
+            "serpFeaturesTraffic": 182,
+            "serpFeaturesTrafficBranded": 0,
+            "serpFeaturesTrafficCost": 0,
+            "serpFeaturesTrafficNonBranded": 183,
+            "traffic": 184,
+            "trafficBranded": 185,
+            "trafficCost": 186,
+            "trafficNonBranded": 187
+          },
+          {
+            "adwordsPositions": 0,
+            "adwordsTraffic": 0,
+            "adwordsTrafficCost": 0,
+            "database": "mobile-us",
+            "organicPositions": 188,
+            "organicTraffic": 189,
+            "organicTrafficBranded": 0,
+            "organicTrafficCost": 101,
+            "organicTrafficNonBranded": 102,
+            "positions": 103,
+            "rank": 104,
+            "serpFeaturesPositions": 105,
+            "serpFeaturesTraffic": 0,
+            "serpFeaturesTrafficBranded": 0,
+            "serpFeaturesTrafficCost": 0,
+            "serpFeaturesTrafficNonBranded": 0,
+            "traffic": 106,
+            "trafficBranded": 0,
+            "trafficCost": 107,
+            "trafficNonBranded": 108
+          },
+          {
+            "adwordsPositions": 0,
+            "adwordsTraffic": 0,
+            "adwordsTrafficCost": 0,
+            "database": "mobile-uk",
+            "organicPositions": 109,
+            "organicTraffic": 110,
+            "organicTrafficBranded": 0,
+            "organicTrafficCost": 111,
+            "organicTrafficNonBranded": 112,
+            "positions": 113,
+            "rank": 114,
+            "serpFeaturesPositions": 0,
+            "serpFeaturesTraffic": 0,
+            "serpFeaturesTrafficBranded": 0,
+            "serpFeaturesTrafficCost": 0,
+            "serpFeaturesTrafficNonBranded": 0,
+            "traffic": 115,
+            "trafficBranded": 0,
+            "trafficCost": 116,
+            "trafficNonBranded": 117
+          },
+          {
+            "adwordsPositions": 0,
+            "adwordsTraffic": 0,
+            "adwordsTrafficCost": 0,
+            "database": "uk",
+            "organicPositions": 118,
+            "organicTraffic": 119,
+            "organicTrafficBranded": 0,
+            "organicTrafficCost": 120,
+            "organicTrafficNonBranded": 121,
+            "positions": 122,
+            "rank": 123,
+            "serpFeaturesPositions": 0,
+            "serpFeaturesTraffic": 0,
+            "serpFeaturesTrafficBranded": 0,
+            "serpFeaturesTrafficCost": 0,
+            "serpFeaturesTrafficNonBranded": 0,
+            "traffic": 124,
+            "trafficBranded": 0,
+            "trafficCost": 125,
+            "trafficNonBranded": 126
+          }
+        ]
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 19,
+        "result": [
+          {
+            "adwordsPositions": 0,
+            "adwordsTraffic": 0,
+            "adwordsTrafficCost": 0,
+            "database": "us",
+            "organicPositions": 127,
+            "organicTraffic": 128,
+            "organicTrafficBranded": 129,
+            "organicTrafficCost": 130,
+            "organicTrafficNonBranded": 131,
+            "positions": 132,
+            "rank": 133,
+            "serpFeaturesPositions": 134,
+            "serpFeaturesTraffic": 135,
+            "serpFeaturesTrafficBranded": 0,
+            "serpFeaturesTrafficCost": 0,
+            "serpFeaturesTrafficNonBranded": 136,
+            "traffic": 137,
+            "trafficBranded": 138,
+            "trafficCost": 139,
+            "trafficNonBranded": 140
+          },
+          {
+            "adwordsPositions": 0,
+            "adwordsTraffic": 0,
+            "adwordsTrafficCost": 0,
+            "database": "mobile-us",
+            "organicPositions": 141,
+            "organicTraffic": 142,
+            "organicTrafficBranded": 0,
+            "organicTrafficCost": 143,
+            "organicTrafficNonBranded": 144,
+            "positions": 145,
+            "rank": 146,
+            "serpFeaturesPositions": 147,
+            "serpFeaturesTraffic": 0,
+            "serpFeaturesTrafficBranded": 0,
+            "serpFeaturesTrafficCost": 0,
+            "serpFeaturesTrafficNonBranded": 0,
+            "traffic": 148,
+            "trafficBranded": 0,
+            "trafficCost": 149,
+            "trafficNonBranded": 150
+          },
+          {
+            "adwordsPositions": 0,
+            "adwordsTraffic": 0,
+            "adwordsTrafficCost": 0,
+            "database": "uk",
+            "organicPositions": 151,
+            "organicTraffic": 152,
+            "organicTrafficBranded": 0,
+            "organicTrafficCost": 153,
+            "organicTrafficNonBranded": 154,
+            "positions": 155,
+            "rank": 156,
+            "serpFeaturesPositions": 0,
+            "serpFeaturesTraffic": 0,
+            "serpFeaturesTrafficBranded": 0,
+            "serpFeaturesTrafficCost": 0,
+            "serpFeaturesTrafficNonBranded": 0,
+            "traffic": 157,
+            "trafficBranded": 0,
+            "trafficCost": 158,
+            "trafficNonBranded": 159
+          },
+          {
+            "adwordsPositions": 0,
+            "adwordsTraffic": 0,
+            "adwordsTrafficCost": 0,
+            "database": "mobile-uk",
+            "organicPositions": 160,
+            "organicTraffic": 161,
+            "organicTrafficBranded": 0,
+            "organicTrafficCost": 162,
+            "organicTrafficNonBranded": 163,
+            "positions": 164,
+            "rank": 165,
+            "serpFeaturesPositions": 0,
+            "serpFeaturesTraffic": 0,
+            "serpFeaturesTrafficBranded": 0,
+            "serpFeaturesTrafficCost": 0,
+            "serpFeaturesTrafficNonBranded": 0,
+            "traffic": 166,
+            "trafficBranded": 0,
+            "trafficCost": 167,
+            "trafficNonBranded": 168
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 20,
+      "result": {
+        "authorityScore": 169,
+        "backlinks": 170,
+        "health": 171,
+        "linkPower": 172,
+        "naturalness": 173,
+        "referringDomains": 174,
+        "referringIPs": 0,
+        "searchTraffic": 175
+      }
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 21,
+      "result": {
+        "ai_visibility": 176,
+        "ai_visibility_benchmark": 177,
+        "cited_pages": 178,
+        "mention_stats": [
+          {
+            "cited_pages": 0,
+            "llm": "gemini",
+            "llm_code": 179,
+            "mentions_count": 0,
+            "self_mentions_count": 0
+          },
+          {
+            "cited_pages": 180,
+            "llm": "google-ai-overview",
+            "llm_code": 181,
+            "mentions_count": 182,
+            "self_mentions_count": 0
+          },
+          {
+            "cited_pages": 0,
+            "llm": "google-ai-mode",
+            "llm_code": 183,
+            "mentions_count": 0,
+            "self_mentions_count": 0
+          },
+          {
+            "cited_pages": 0,
+            "llm": "search-gpt",
+            "llm_code": 184,
+            "mentions_count": 185,
+            "self_mentions_count": 0
+          }
+        ]
+      }
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 22,
+      "result": {
+        "sources": [
+          {
+            "domain": "cite1.example",
+            "mentions_count": 186
+          },
+          {
+            "domain": "cite2.example",
+            "mentions_count": 187
+          },
+          {
+            "domain": "cite3.example",
+            "mentions_count": 188
+          }
+        ]
+      }
+    }
+  },
+  {
+    "url": "/dpa/rpc",
+    "status": 200,
+    "timestamp": null,
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 23,
+      "result": [
+        {
+          "database": "us",
+          "mentions": 189,
+          "visibility": 101
+        },
+        {
+          "database": "au",
+          "mentions": 102,
+          "visibility": 103
+        },
+        {
+          "database": "es",
+          "mentions": 104,
+          "visibility": 105
+        },
+        {
+          "database": "id",
+          "mentions": 106,
+          "visibility": 107
+        }
+      ]
+    }
+  }
+]
