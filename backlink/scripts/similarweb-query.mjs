@@ -56,6 +56,19 @@
  *                           unconfirmed* 字段）——传这个 flag 才把页面实际显示的
  *                           窗口当作这次查询的权威口径正常收下（正式字段 +
  *                           windowActual 说明实际口径）
+ *   --gender <g>            仅 audience-demographics 报表生效：male | female——
+ *                           "各受众群体的流量和参与度"分段表默认只渲染"女性"，
+ *                           传这个 flag 才会去点击切换（2026-09-14 实测确认可行，
+ *                           见 resolveDemographicsFilter 旁边的大段注释）；不认识
+ *                           的值（包括"all"——没实测过选中"所有性别"之后分段表
+ *                           会变成什么形状）一律当没传，退回页面默认，不新增隐藏
+ *                           失败模式。输出里的 demographicsFilterSwitch.ok 说明
+ *                           这次切换有没有真的生效
+ *   --age <a>               仅 audience-demographics 报表生效：18-24 | 25-34 |
+ *                           35-44 | 45-54 | 55-64 | 65+——默认只渲染"18-24岁"，
+ *                           传这个 flag 才会点击切换（多选 checkbox + 应用按钮，
+ *                           跟 --gender 是不同的交互模式，见同一段注释）；不认识
+ *                           的值（包括"all"，原因同上）一律当没传
  *   --help                  本说明
  *
  * 【必须知道的一条】指标区是分两拍渲染的：标签和占位值先挂上，真值几秒后才水合。
@@ -79,7 +92,9 @@
 import { writeFile } from 'node:fs/promises';
 import {
   closeSession,
+  firstJson,
   normalizeWindowMode,
+  opencli,
   resolveSession,
   parseFlags,
   showHelpIfRequested,
@@ -97,6 +112,7 @@ import {
   deriveAudienceDemographicsSignal,
   deriveAudienceInterestsRows,
   deriveAudienceInterestsSupplemental,
+  deriveAudienceOverlapDetailRows,
   deriveAudienceOverlapMetrics,
   deriveChannelDetailRows,
   deriveChannels,
@@ -106,9 +122,12 @@ import {
   deriveScopeEvidence,
   deriveSiteKeywordRows,
   deriveSiteKeywordStatCards,
+  deriveTrendGraph,
+  findTrendGraphNetworkEntry,
   findWindowLabel,
   parseNumber,
   SW_GEO_TABLE_CELLS,
+  SW_OVERLAP_DETAIL_TABLE_CELLS,
   SW_ROW_MAJOR_TABLE_CELLS,
   SW_SITE_KEYWORD_STAT_CARDS,
 } from './lib-similarweb.mjs';
@@ -170,6 +189,7 @@ function decideScopeStatus({
   statCardsUnverified,
   audienceInterestsRowsCompletenessUnverified,
   audienceOverlapUnverified,
+  audienceOverlapDetailUnresolved,
   audienceDemographicsUnverified,
   scrollUnverified,
   pageWasHiddenDuringCapture,
@@ -252,6 +272,12 @@ function decideScopeStatus({
       message: '页面上既没有读到"平均独立访客数"等确认有数据的锚点，也没有读到确认空态的文案——不知道这个 tab 是还没渲染完还是结构变了。',
     });
   }
+  if (audienceOverlapDetailUnresolved) {
+    warnings.push({
+      code: 'audience_overlap_detail_unresolved',
+      message: '独占/重合明细表——表头锚点找到了，但列结构不认识或者一行都没解析出来，没有猜结构，原样标 unresolved，见 audienceOverlap.detail 字段。',
+    });
+  }
   if (audienceDemographicsUnverified) {
     warnings.push({
       code: 'audience_demographics_unverified',
@@ -312,6 +338,152 @@ function resolveTrafficTab(rawValue) {
   const pageTabParam = trafficTab === 'organic' ? 'Organic' : trafficTab === 'paid' ? 'Paid' : 'Total';
   const windowSeg = trafficTab === 'paid' ? '6m' : '1m';
   return { trafficTab, pageTabParam, windowSeg };
+}
+
+// audience-demographics「各受众群体的流量和参与度」分段表——页面默认只渲染
+// "女性/18-24岁"这一个性别×年龄组合，2026-09-14 实测确认可以点击切换到任何
+// 其它组合（见 NOT_COVERED.{'audience-demographics'} 里的排查记录）。
+//
+// 两个下拉控件是不同的交互模式，都是实测点开确认的，不是猜的：
+//   - 性别（`data-automation-dropdown-item` id: all/male/female）：简单单选，
+//     点选项直接生效，不需要"应用"。**这里只收 male/female**——"所有性别"选中后
+//     分段表会不会退化成别的形状（比如按性别拆行）没有实测过，不知道就不猜，
+//     传了会被当成没传（回退页面默认，不新增隐藏失败模式，跟 resolveTrafficTab
+//     对不认识的值的处理原则一致）。
+//   - 年龄（`data-automation-dropdown-item` id: 18to24/25to34/35to44/45to54/
+//     55to64/65plus）：多选 checkbox + 底部"应用"按钮，选中目标 checkbox 之后
+//     必须点应用才会真正切换。**这里只收 6 个具体年龄段，不收"所有年龄组"**——
+//     同样是没实测过选中之后分段表会变成什么形状。
+//
+// **应用后年龄 chip 的显示文案会从默认的"18-24岁"（带"岁"字）变成不带"岁"字的
+// 纯区间文本（比如"25-34"）**——2026-09-14 实测确认（点开→选 25-34→应用之后，
+// 原本的下拉按钮变成一个可移除的 chip-item，文本就是"25-34"）。这是一个真实的
+// 显示层不一致，不是 bug：默认状态和"点击应用之后"走的是两套不同的渲染路径。
+// 所以这里不去断言"应用之后 ageFilter 应该等于某个字符串"，而是让调用方直接
+// 拿页面实际渲染出来的文案（`deriveAudienceDemographicsSignal` 已经在读这个），
+// 判定"切没切换成功"改用更可靠的信号：分段表的数值（份额/时长/页面数/跳出率）
+// 跟切换前的基线相比，是不是变了且连续两次读数一致——不去猜一个期望的展示文案。
+const DEMOGRAPHICS_GENDER_CLICK_IDS = { male: 'male', female: 'female' };
+const DEMOGRAPHICS_AGE_CLICK_IDS = {
+  '18-24': '18to24', '25-34': '25to34', '35-44': '35to44',
+  '45-54': '45to54', '55-64': '55to64', '65+': '65plus',
+};
+// 页面没有传 --gender/--age 时自己的默认组合——只有请求的值跟默认不同才需要
+// 点击；请求的值刚好等于默认值时,什么都不点,直接用首次捕获到的分段行即可。
+const DEMOGRAPHICS_DEFAULT_GENDER = 'female';
+const DEMOGRAPHICS_DEFAULT_AGE = '18-24';
+
+/**
+ * 纯函数决策，跟 resolveTrafficTab 一个风格——能在 --self-test 里覆盖。
+ * 不认识的值一律当成没传（回退页面默认），不新增隐藏失败模式。
+ */
+function resolveDemographicsFilter({ genderFlag, ageFlag }) {
+  const gender = DEMOGRAPHICS_GENDER_CLICK_IDS[genderFlag] ? genderFlag : null;
+  const age = DEMOGRAPHICS_AGE_CLICK_IDS[ageFlag] ? ageFlag : null;
+  return {
+    gender,
+    age,
+    genderClickId: gender ? DEMOGRAPHICS_GENDER_CLICK_IDS[gender] : null,
+    ageClickId: age ? DEMOGRAPHICS_AGE_CLICK_IDS[age] : null,
+    needsGenderClick: Boolean(gender) && gender !== DEMOGRAPHICS_DEFAULT_GENDER,
+    needsAgeClick: Boolean(age) && age !== DEMOGRAPHICS_DEFAULT_AGE,
+  };
+}
+
+// "各受众群体的流量和参与度"这一整块的锚点——点击的两个下拉都在这个区块内，
+// 用它把查找范围限定住，避免误触页面顶部长得很像的日期/国家/webSource 筛选器
+// （结构类似,都是 DropdownButton,但那三个不是这个区块的东西）。
+const DEMOGRAPHICS_SEGMENT_ANCHOR = '各受众群体的流量和参与度';
+const DEMOGRAPHICS_SEGMENT_SCOPE_EXPR = `(() => {
+  const xp = document.evaluate(${JSON.stringify(`//*[text()='${DEMOGRAPHICS_SEGMENT_ANCHOR}']`)}, document, null, XPathResult.ANY_TYPE, null);
+  const anchor = xp.iterateNext();
+  if (!anchor) return null;
+  let node = anchor;
+  for (let i = 0; i < 6 && node.parentElement; i++) node = node.parentElement;
+  return node;
+})()`;
+
+/**
+ * 实际执行点击切换,只负责"点对地方",不负责"点完之后数据有没有稳定下来"
+ * （那件事交给调用方,见下面主流程里怎么用它)。失败(找不到触发器/选项/应用
+ * 按钮,或轮询超时)时返回 `{ ok:false, step, reason }`；全部成功返回 `null`。
+ *
+ * `evaluate` 是 launchTool 绑定过的 evalPage,每次调用都是一次独立的 IIFE 求值,
+ * 不能跨调用留 DOM 引用,所以每一步都要重新从锚点定位一次范围。
+ */
+async function switchDemographicsFilter(evaluate, { genderClickId, ageClickId }) {
+  // 2026-09-14 实测踩过一次：性别切完之后紧接着找年龄触发器，第一次读到
+  // `scope-not-found`——不是选择器写错了（同一个 scope 表达式刚给性别用过），
+  // 是切换性别之后这一小块 SPA 短暂重渲染，锚点文本有一瞬间不在 DOM 里。
+  // 所以这里带几次短重试，不是「选择器错了就该立刻报错」，是「给重渲染一点时间」。
+  const clickWithin = async (findExpr, step) => {
+    let lastReason = 'unknown';
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      if (attempt > 0) await new Promise((resolve) => { setTimeout(resolve, 300); });
+      const result = await evaluate(`(() => {
+        const scope = ${DEMOGRAPHICS_SEGMENT_SCOPE_EXPR};
+        if (!scope) return { ok: false, reason: 'scope-not-found' };
+        const el = ${findExpr};
+        if (!el) return { ok: false, reason: '${step}-not-found' };
+        el.click();
+        return { ok: true };
+      })()`);
+      if (result?.ok) return null;
+      lastReason = result?.reason || 'unknown';
+    }
+    return { ok: false, step, reason: lastReason };
+  };
+  // **evaluate() 的返回值必须是一个对象**——它内部靠 `firstJson()` 解析 opencli
+  // eval 的输出，`firstJson` 只认第一个 `{`/`[` 起手的 JSON，裸布尔值/数字/字符串
+  // 会导致它报「OpenCLI returned no JSON payload」（2026-09-14 实测踩过这个坑：
+  // 最初这里直接 `Boolean(...)`，opencli eval 输出裸的 "false"，整条查询直接
+  // 失败）。所以永远包一层 `{found: ...}` 再读字段，不要让 IIFE 直接返回原始值。
+  const waitForGlobal = async (checkExpr, step) => {
+    for (let i = 0; i < 8; i += 1) {
+      const result = await evaluate(`(() => ({ found: Boolean(${checkExpr}) }))()`);
+      if (result?.found) return null;
+      await new Promise((resolve) => { setTimeout(resolve, 400); });
+    }
+    return { ok: false, step, reason: 'timed-out-waiting' };
+  };
+  const clickGlobal = async (id, step) => {
+    const result = await evaluate(`(() => {
+      const el = document.querySelector('[data-automation-dropdown-item="true"][id="${id}"]');
+      if (!el) return { ok: false, reason: '${step}-not-found' };
+      el.click();
+      return { ok: true };
+    })()`);
+    return result?.ok ? null : { ok: false, step, reason: result?.reason || 'unknown' };
+  };
+
+  if (genderClickId) {
+    let err = await clickWithin(`scope.querySelector('[data-automation="chipdown-no-border-button"]')`, 'gender-trigger');
+    if (err) return err;
+    err = await waitForGlobal(`document.querySelector('[data-automation-dropdown-item="true"][id="${genderClickId}"]')`, 'gender-options-mount');
+    if (err) return err;
+    err = await clickGlobal(genderClickId, 'gender-option');
+    if (err) return err;
+  }
+  if (ageClickId) {
+    let err = await clickWithin(`scope.querySelector('.age-filter-multi-select [data-automation="chipdown-no-border-button"]')`, 'age-trigger');
+    if (err) return err;
+    err = await waitForGlobal(`document.querySelector('[data-automation-dropdown-item="true"][id="${ageClickId}"]')`, 'age-options-mount');
+    if (err) return err;
+    err = await clickGlobal(ageClickId, 'age-option');
+    if (err) return err;
+    err = await waitForGlobal(`document.querySelector('[data-automation-i18n-key="common.apply"]')`, 'age-apply-mount');
+    if (err) return err;
+    // "应用"按钮不是 `[data-automation-dropdown-item]`（它是年龄面板自己的
+    // footer 按钮，不是选项列表里的一项），用专门的选择器单独点一次。
+    const applyResult = await evaluate(`(() => {
+      const el = document.querySelector('[data-automation-i18n-key="common.apply"]');
+      if (!el) return { ok: false, reason: 'age-apply-not-found' };
+      el.click();
+      return { ok: true };
+    })()`);
+    if (!applyResult?.ok) return { ok: false, step: 'age-apply', reason: applyResult?.reason || 'unknown' };
+  }
+  return null;
 }
 
 // 2026-09-13 第三轮：这四个长表报表默认自动强制前台窗口（懒加载依赖标签页
@@ -461,6 +633,11 @@ const report = REPORTS.has(flags.report) ? flags.report : 'performance';
 // 判断逻辑见上面 resolveTrafficTab 旁边的大段注释。
 const { trafficTab, pageTabParam: siteKeywordsPageTabParam, windowSeg: siteKeywordsWindowSeg } =
   report === 'site-keywords' ? resolveTrafficTab(flags['traffic-tab']) : resolveTrafficTab('total');
+// --gender/--age 只对 audience-demographics 有意义；具体判断逻辑和已知局限见
+// resolveDemographicsFilter 旁边的大段注释。
+const demographicsFilter = report === 'audience-demographics'
+  ? resolveDemographicsFilter({ genderFlag: flags.gender, ageFlag: flags.age })
+  : resolveDemographicsFilter({});
 // 每个报表硬编码在请求 URL 里的窗口段——用来跟页面自己渲染出来的窗口文案比对
 // （见 lib-similarweb.mjs 的 deriveScopeEvidence/compareWindowToRequest）。
 // similar-sites 没有解析器、也不产出 windowLabel，这里不需要它。受众页三个
@@ -486,10 +663,12 @@ const COUNTRY_APPLICABLE = {
 // 见对应文档/交接说明里的补抓方案。
 const NOT_COVERED = {
   performance: [
-    {
-      name: '随时间的访问趋势图(28 天折线 + 同行对比站点)',
-      reason: '图表类数据——实测原文里只有 X 轴日期标签、Y 轴坐标刻度和图例站点的期间总访问量，每个数据点本身的具体数值是 SVG path，没有对应的文本节点，离线阶段读不到，协调者已明确这种"文本里只有坐标轴"的情况按 notCovered 处理',
-    },
+    // 2026-09-14 第七轮：「随时间的访问趋势图」原来判 notCovered 是因为
+    // DOM/SVG 文本里确实只有坐标轴刻度、没有逐点数值——但这次排查发现逐点
+    // 数值其实来自一条独立的 XHR（`.../widgetApi/WebsiteOverview/
+    // EngagementVisits/Graph`），opencli `network` 能直接拦到，已实现为
+    // `trendGraph` 字段（见 lib-similarweb.mjs deriveTrendGraph 顶部注释，
+    // 含跟页面图例期间总访问量的逐站核对），不再是缺口。
     // 2026-09-13 第五轮离线补抓（deriveOverviewSupplementalBlocks，见
     // lib-similarweb.mjs）：设备分发/品牌非品牌占比/热门自然+付费搜索词/
     // 外链摘要(热门外链网站)/领先广告主/地理 Top5 摘要/渠道摘要，已实现为
@@ -528,15 +707,33 @@ const NOT_COVERED = {
   ],
   'audience-overlap': [
     { name: '韦恩图可视化(SVG)', reason: '只解析旁边的文本区块（平均独立访客数/独立受众总数），不读 SVG 圆圈本身的几何/面积信息' },
-    {
-      name: '独占/重合明细百分比（"共同独立访客数"/"主要网站的专属独立访客"/"未获取的潜在访客"等细分行）',
-      reason: '2026-09-13 第五轮 + 第六轮两次独立实测（howolddoyoulook.com、canva.com，均为默认自动配的 3 站对比）都是同一个形状：3 个指标标签后面跟着 7 个站点名 token、3 个百分比、9 个数字，三组数量互相对不上（7 不是 3 的整数倍，9 也对不上 7）。第六轮额外确认了一条规律——"primary"站点名总是出现在 7 个 token 里的第 1/4/6 位，两个样本完全一致——但仍然不足以推出"每个 token/数字具体归属哪个指标 × 哪个对比站点"这组映射，尝试过"按 2 个对比站点两两配对"等几种假设都跟实际 token 顺序对不上。两个真实样本、同一个悬而未决的映射问题，不是证据不够而是证据本身不自洽——没有 DOM 行/列边界的情况下继续解析就是在猜，按规则保持 notCovered',
-    },
+    // 2026-09-14 第七轮：「独占/重合明细百分比」之前两轮只解析扁平化
+    // bodyText（"7 个站点 token / 3 个百分比 / 9 个数字，互相除不尽"），
+    // 根因是没有对齐 DOM 列边界——这次改读 DOM，发现是跟 audience-geo 同一套
+    // `.swReactTable-column`（+ 最后一列用 `.swReactTable-unResizeColumn`）
+    // 结构，列边界由 DOM 本身保证对齐，已实现为 audienceOverlap.detail 字段
+    // （见 lib-similarweb.mjs deriveAudienceOverlapDetailRows 顶部注释，
+    // 含用 perSiteAvgVisitors 做的算术交叉核对），不再是缺口。
   ],
   'audience-demographics': [
+    // 2026-09-14 第七轮：「除当前下拉选中组合之外的其它性别×年龄组合」——上一轮
+    // 判定"需要模拟点击切换下拉，本轮离线阶段做不到"，这次实际点开验证过两个
+    // 下拉都能点通（性别单选/年龄多选+应用，见 resolveDemographicsFilter 旁边的
+    // 大段注释），已实现为 --gender/--age 两个可选 flag，见文件头部帮助文本。
+    // **仍然是部分实现，不是完全覆盖**：
+    //   1. 一次调用仍然只能拿一个组合，不支持"一次拿全部 12 种组合"——那需要
+    //      在同一个会话里连续点击、每轮都等待+校验，复杂度和这份报表现有代码量
+    //      不成比例，本轮没有做；
+    //   2. "所有性别"/"所有年龄组"这两个选项没有实测过选中之后分段表会变成
+    //      什么形状（有可能从单行变成多行分拆），--gender/--age 只收具体的
+    //      male/female 和 6 个具体年龄段，不收"all"，避免猜结构；
+    //   3. 直接在页面里 `fetch()` 手搓 `DemographicSegments/Buckets/Table` 这个
+    //      真实存在的底层 XHR、绕开点击拿全部组合——实测被代理网关 403 拦截
+    //      （真实请求的 URL 带着 gmitm 代理自己签名的 `__gmitm` token，手搓的
+    //      URL 没有它），这条捷径确认走不通，只能靠点击。
     {
-      name: '分段表(域/竞争对手份额/受众群体份额/访问持续时间/页面数每访问/跳出率)——除当前下拉选中组合之外的其它性别×年龄组合',
-      reason: '2026-09-13 第三轮已经用 deriveAudienceDemographicsSignal 的 segment 字段拿到了性别(Male/Female)+6 档年龄分布+分段表当前行的完整数据（不再是粗粒度三态信号）；仍然缺的是：这张分段表页面本身只渲染"当前下拉选中的一个性别×年龄组合"（默认是"女性/18-24岁"），要拿到全部组合的数据需要模拟点击切换下拉，本轮离线阶段做不到，也不在这次任务范围内',
+      name: '"所有性别"/"所有年龄组"选中后的分段表形状 + 一次调用拿全部 12 种性别×年龄组合',
+      reason: '"all" 两个选项没有实测过选中后分段表会不会变成多行（比如按性别/年龄拆开），不知道结构就不猜；一次拿全部 12 种组合需要连续点击 12 轮+每轮等待校验，复杂度暂不做，可以用 --gender/--age 单次指定任意一个具体组合替代',
     },
   ],
   'site-keywords': [
@@ -750,6 +947,9 @@ try {
     channels: SW_GEO_TABLE_CELLS,
     'audience-interests': SW_GEO_TABLE_CELLS,
     'site-keywords': SW_ROW_MAJOR_TABLE_CELLS,
+    // 独占/重合明细表——2026-09-14 第三轮实测确认跟 audience-geo 同一套
+    // `.swReactTable-column` 结构（见 SW_OVERLAP_DETAIL_TABLE_CELLS 顶部注释）。
+    'audience-overlap': SW_OVERLAP_DETAIL_TABLE_CELLS,
   };
   // 每张报表用**自己那份即将写进输出的数据**当指纹。similar-sites 没有解析器，
   // 就用整页文本（去掉空白差异）——它是静态的，两次一致即可信。
@@ -769,7 +969,12 @@ try {
     if (report === 'audience-interests') return deriveAudienceInterestsRows(cap?.cells);
     if (report === 'audience-overlap') {
       const lines = bodyText.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-      return deriveAudienceOverlapMetrics(lines);
+      const metrics = deriveAudienceOverlapMetrics(lines);
+      const detail = deriveAudienceOverlapDetailRows(cap?.cells, {
+        knownDomains: metrics.perSiteAvgVisitors.map((s) => s.domain),
+        emptyStateObserved: metrics.emptyStateObserved,
+      });
+      return { ...metrics, detail };
     }
     if (report === 'audience-demographics') {
       const lines = bodyText.split(/\n+/).map((line) => line.trim()).filter(Boolean);
@@ -1007,6 +1212,55 @@ try {
   const captured = settled.capture;
   const noDataTextObserved = settled.fingerprint === 'no-data';
   const lines = captured.bodyText.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  // audience-demographics：--gender/--age 请求了组合时，在这里点击切换——必须在
+  // 下面 audienceDemographicsResult 计算之前做完，否则它会读到默认组合
+  // （女性/18-24岁）的残留数据。见 resolveDemographicsFilter/
+  // switchDemographicsFilter 旁边的大段注释（含两个下拉的交互模式差异、
+  // 应用后展示文案跟默认状态不一致的已知情况）。
+  let demographicsFilterSwitch = null;
+  if (report === 'audience-demographics' && !noDataTextObserved && (demographicsFilter.gender || demographicsFilter.age)) {
+    const requested = { gender: demographicsFilter.gender, age: demographicsFilter.age };
+    if (!demographicsFilter.needsGenderClick && !demographicsFilter.needsAgeClick) {
+      // 请求的组合刚好就是页面默认组合——什么都不用点，首次捕获已经是它了。
+      demographicsFilterSwitch = { ok: true, requested, clicked: false };
+    } else {
+      const baselineFingerprint = JSON.stringify(deriveAudienceDemographicsSignal(lines).segment);
+      const clickError = await switchDemographicsFilter(evaluate, demographicsFilter);
+      if (clickError) {
+        demographicsFilterSwitch = { ok: false, requested, clicked: true, ...clickError };
+        console.error(`[audience_demographics_filter_switch_failed] ${domain}: 请求切到 gender=${requested.gender ?? '(默认)'} age=${requested.age ?? '(默认)'}，点击第 ${clickError.step} 步失败（${clickError.reason}）。分段行仍是切换前的默认组合。`);
+      } else {
+        // 连读到「分段行跟切换前的基线比，要么展示文案变了、要么数值变了」且
+        // 连续两次读数一致才收下——**不断言应用之后的文案应该长什么样**（旁边
+        // 注释已经说明这是已知的展示层不一致，猜一个期望字符串本身就不可靠），
+        // 只看「确实变了、而且变了之后稳住了」，这跟整份脚本"连读两次一致才
+        // 收下"的既有原则是同一套精神,不是另发明一条新规则。
+        let confirmedLines = null;
+        let previousFingerprint = null;
+        let stableReads = 0;
+        for (let i = 0; i < 10 && stableReads < 2; i += 1) {
+          if (i > 0) await new Promise((resolve) => { setTimeout(resolve, 800); });
+          const cap2 = await readWithVisibility(`(() => ({ bodyText: (document.body?.innerText || '').slice(0, 50000) }))()`);
+          const lines2 = String(cap2?.bodyText || '').split(/\n+/).map((l) => l.trim()).filter(Boolean);
+          const segment2 = deriveAudienceDemographicsSignal(lines2).segment;
+          const fingerprint2 = JSON.stringify(segment2);
+          const changedFromBaseline = segment2 != null && fingerprint2 !== baselineFingerprint;
+          stableReads = changedFromBaseline && fingerprint2 === previousFingerprint ? stableReads + 1 : (changedFromBaseline ? 1 : 0);
+          previousFingerprint = fingerprint2;
+          if (changedFromBaseline) confirmedLines = lines2;
+        }
+        if (confirmedLines) {
+          lines.length = 0;
+          lines.push(...confirmedLines);
+          captured.bodyText = confirmedLines.join('\n');
+          demographicsFilterSwitch = { ok: true, requested, clicked: true };
+        } else {
+          demographicsFilterSwitch = { ok: false, requested, clicked: true, step: 'settle', reason: 'segment-did-not-change-from-baseline' };
+          console.error(`[audience_demographics_filter_switch_failed] ${domain}: 点击都成功了，但分段行数值/展示文案在多次读数里始终没有跟切换前的基线不一样——不确定是切换真的没生效还是这个组合恰好和默认组合数值相同，分段行仍是切换前的默认组合。`);
+        }
+      }
+    }
+  }
   // audience-geo 的「总数」（totalRowsOnPage）就是这张表的行总数，和 rowsRead
   // 说的是同一件事。site-keywords 的表头总数（pageReportedKeywordTotal）是这个
   // 站点全站收录的关键词数，跟这次读到多少行是两回事——两张报表的「总数」字段
@@ -1021,7 +1275,18 @@ try {
   const statCardsResult = report === 'site-keywords' && !noDataTextObserved ? deriveSiteKeywordStatCards(captured.statCards) : null;
   // 受众页三个新 tab（2026-09-13 第三轮离线新增）。
   const audienceInterestsResult = report === 'audience-interests' && !noDataTextObserved ? deriveAudienceInterestsRows(captured.cells) : null;
-  const audienceOverlapResult = report === 'audience-overlap' && !noDataTextObserved ? deriveAudienceOverlapMetrics(lines) : null;
+  const audienceOverlapMetricsResult = report === 'audience-overlap' && !noDataTextObserved ? deriveAudienceOverlapMetrics(lines) : null;
+  // 独占/重合明细表——2026-09-14 第三轮新增，跟 metrics 同一次捕获里的 cells 一起解析，
+  // 见 lib-similarweb.mjs deriveAudienceOverlapDetailRows 顶部注释（含核对过程）。
+  const audienceOverlapDetailResult = audienceOverlapMetricsResult
+    ? deriveAudienceOverlapDetailRows(captured.cells, {
+      knownDomains: audienceOverlapMetricsResult.perSiteAvgVisitors.map((s) => s.domain),
+      emptyStateObserved: audienceOverlapMetricsResult.emptyStateObserved,
+    })
+    : null;
+  const audienceOverlapResult = audienceOverlapMetricsResult
+    ? { ...audienceOverlapMetricsResult, detail: audienceOverlapDetailResult }
+    : null;
   const audienceDemographicsResult = report === 'audience-demographics' ? deriveAudienceDemographicsSignal(lines) : null;
   // "网站表现"页 notCovered 区块的离线补抓 + 受众兴趣 tab 的行业分布/话题词云
   // （2026-09-13 第五轮，完全离线补的）。跟上面几个 result 一样，noDataTextObserved
@@ -1031,6 +1296,27 @@ try {
     ? deriveOverviewSupplementalBlocks(lines) : null;
   const audienceInterestsSupplementalResult = report === 'audience-interests' && !noDataTextObserved
     ? deriveAudienceInterestsSupplemental(lines, { domain }) : null;
+  // 「随着时间的访问」趋势折线图——2026-09-14 排查确认数据不在 DOM 里，来自
+  // 一条独立的 XHR（见 lib-similarweb.mjs deriveTrendGraph 顶部注释，含跟
+  // 页面图例的核对过程）。只在 performance 报表、且已确认这次查询有数据时才
+  // 去抓一次 `network --raw`；网络捕获本身失败、或响应体结构不认识，都不能
+  // 拖累这次查询里其它已经拿到手的字段——如实标 unresolved，跟别的补抓区块
+  // 一样的四态精神,不是让整条查询失败。
+  let trendGraphResult = null;
+  if (report === 'performance' && !noDataTextObserved) {
+    try {
+      const netRes = await opencli(['browser', session, 'network', '--raw'], { env: launched?.env, timeoutMs: 60_000 });
+      const netEntries = firstJson(netRes?.stdout)?.entries ?? [];
+      trendGraphResult = deriveTrendGraph(findTrendGraphNetworkEntry(netEntries), { primaryDomain: domain });
+    } catch (error) {
+      trendGraphResult = {
+        status: 'unresolved',
+        reason: `network-capture-failed: ${redactSecrets(String(error?.message || error)).slice(0, 200)}`,
+        domains: null,
+        series: null,
+      };
+    }
+  }
   // site-keywords 是否被截断，问的是「这张表本身还有没有下一页」，不是关键词总数
   // 减去 rowsRead——那个数字根本不是同一种东西（见上面的注释）。只有在提取器
   // 真的在页面上看到了未禁用的「下一页」按钮时才报；`morePagesAvailable === null`
@@ -1196,6 +1482,10 @@ try {
   const audienceInterestsSupplementalUnresolved = audienceInterestsSupplementalResult
     ? ['industryDistribution', 'topicCloud'].some((key) => audienceInterestsSupplementalResult[key]?.status === 'unresolved')
     : false;
+  // 独占/重合明细表——2026-09-14 新增，跟 overviewSupplemental 同一种四态语义：
+  // 只有 'unresolved'（锚点/表头找到了但解析不出来）才拦，'legit-empty'/
+  // 'data' 都算正常收下。
+  const audienceOverlapDetailUnresolved = audienceOverlapDetailResult?.status === 'unresolved';
   // scrollUnverified 现在跟着 SCROLL_AB_CONCLUSIONS 走（见该表旁边的大段
   // 注释）：还没做成对照实验（`concluded:false`，本轮所有报表的默认值）时
   // 恒为 true，不能假装"滚动这件事已经被验证过"；一旦某个报表的条目被改成
@@ -1235,6 +1525,7 @@ try {
     statCardsUnverified,
     audienceInterestsRowsCompletenessUnverified,
     audienceOverlapUnverified,
+    audienceOverlapDetailUnresolved,
     audienceDemographicsUnverified,
     scrollUnverified,
     pageWasHiddenDuringCapture: pageHiddenCaptureBlocksStatus,
@@ -1284,8 +1575,10 @@ try {
       ...(audienceInterestsResult ? { unconfirmedAudienceInterests: audienceInterestsResult } : {}),
       ...(audienceOverlapResult ? { unconfirmedAudienceOverlap: audienceOverlapResult } : {}),
       ...(audienceDemographicsResult ? { unconfirmedAudienceDemographics: audienceDemographicsResult } : {}),
+      ...(demographicsFilterSwitch ? { demographicsFilterSwitch } : {}),
       ...(overviewSupplementalResult ? { unconfirmedOverviewSupplemental: overviewSupplementalResult } : {}),
       ...(audienceInterestsSupplementalResult ? { unconfirmedAudienceInterestsSupplemental: audienceInterestsSupplementalResult } : {}),
+      ...(trendGraphResult ? { unconfirmedTrendGraph: trendGraphResult } : {}),
       sparse: /没有足够的数据|Not enough data|N\/A/i.test(captured.bodyText),
       rawText: captured.bodyText,
       error: {
@@ -1360,6 +1653,11 @@ try {
       ...(audienceInterestsResult ? { audienceInterests: audienceInterestsResult } : {}),
       ...(audienceOverlapResult ? { audienceOverlap: audienceOverlapResult } : {}),
       ...(audienceDemographicsResult ? { audienceDemographics: audienceDemographicsResult } : {}),
+      // --gender/--age 请求了非默认组合时,点击切换的结果——ok:true 才代表
+      // audienceDemographics.segment 是请求的组合,ok:false 时 segment 仍是
+      // 页面默认组合(女性/18-24岁),不是请求的那个,见 switchDemographicsFilter
+      // 旁边的大段注释。
+      ...(demographicsFilterSwitch ? { demographicsFilterSwitch } : {}),
       // "网站表现"页 notCovered 区块的离线补抓 + 受众兴趣 tab 的行业分布/
       // 话题词云（2026-09-13 第五轮）——每个子区块自己带 status（data/
       // legit-empty/locked/confirmed-absent/unresolved），见
@@ -1367,6 +1665,9 @@ try {
       // deriveAudienceInterestsSupplemental 旁边的四态说明。
       ...(overviewSupplementalResult ? { overviewSupplemental: overviewSupplementalResult } : {}),
       ...(audienceInterestsSupplementalResult ? { audienceInterestsSupplemental: audienceInterestsSupplementalResult } : {}),
+      // 趋势折线图——2026-09-14 新增，数据来自独立 XHR 而非 DOM，见
+      // lib-similarweb.mjs deriveTrendGraph 顶部注释。
+      ...(trendGraphResult ? { trendGraph: trendGraphResult } : {}),
       sparse: /没有足够的数据|Not enough data|N\/A/i.test(captured.bodyText),
       rawText: captured.bodyText,
     };
@@ -1454,6 +1755,28 @@ function runSelfTest() {
   assertEqual('resolveTrafficTab: 拼写错误的值退回 total+1m，不新增隐藏失败模式', resolveTrafficTab('Organic'), { trafficTab: 'total', pageTabParam: 'Total', windowSeg: '1m' });
   assertEqual('resolveTrafficTab: organic 用 1m，selectedPageTab=Organic', resolveTrafficTab('organic'), { trafficTab: 'organic', pageTabParam: 'Organic', windowSeg: '1m' });
   assertEqual('resolveTrafficTab: paid 的 REQUESTED 窗口直接设成 6m（页面自己会强制升级）', resolveTrafficTab('paid'), { trafficTab: 'paid', pageTabParam: 'Paid', windowSeg: '6m' });
+
+  // ---------- audience-demographics --gender/--age（resolveDemographicsFilter） ----------
+  // 2026-09-14 第七轮实测确认可以点击切换：性别单选/年龄多选+应用两套不同交互，
+  // 页面默认组合是 女性/18-24岁——跟默认相同的请求不需要点击，"all" 两个选项
+  // 没实测过分段表会变成什么形状，一律当没传（回退默认），跟 resolveTrafficTab
+  // 对不认识值的处理原则一致。
+  assertEqual('resolveDemographicsFilter: 都不传——不需要点任何一个下拉', resolveDemographicsFilter({}), {
+    gender: null, age: null, genderClickId: null, ageClickId: null, needsGenderClick: false, needsAgeClick: false,
+  });
+  assertEqual('resolveDemographicsFilter: 请求的正好是页面默认组合——不需要点击', resolveDemographicsFilter({ genderFlag: 'female', ageFlag: '18-24' }), {
+    gender: 'female', age: '18-24', genderClickId: 'female', ageClickId: '18to24', needsGenderClick: false, needsAgeClick: false,
+  });
+  assertEqual('resolveDemographicsFilter: 请求 male + 25-34——两个都要点', resolveDemographicsFilter({ genderFlag: 'male', ageFlag: '25-34' }), {
+    gender: 'male', age: '25-34', genderClickId: 'male', ageClickId: '25to34', needsGenderClick: true, needsAgeClick: true,
+  });
+  assertEqual('resolveDemographicsFilter: 65+ 映射到 65plus（数字开头的 id 不能直接当 CSS #id，调用方用属性选择器）', resolveDemographicsFilter({ ageFlag: '65+' }).ageClickId, '65plus');
+  assertEqual('resolveDemographicsFilter: "all"没实测过分段表形状，当没传处理，不新增隐藏失败模式', resolveDemographicsFilter({ genderFlag: 'all', ageFlag: 'all' }), {
+    gender: null, age: null, genderClickId: null, ageClickId: null, needsGenderClick: false, needsAgeClick: false,
+  });
+  assertEqual('resolveDemographicsFilter: 拼写错误的值一律当没传', resolveDemographicsFilter({ genderFlag: 'Female', ageFlag: '18-25' }), {
+    gender: null, age: null, genderClickId: null, ageClickId: null, needsGenderClick: false, needsAgeClick: false,
+  });
 
   // ---------- --activate-chrome / --window（resolveWindowMode） ----------
   // 2026-09-14 第六轮：--activate-chrome 默认改成 false，resolveWindowMode 的
@@ -2173,6 +2496,15 @@ function runSelfTest() {
   });
   assertEqual('decideScopeStatus: 受众兴趣行业分布/话题词云 unresolved → ok-unverified', interestsSupplementalDecision.status, 'ok-unverified');
   assert('decideScopeStatus: audience_interests_supplemental_unresolved 留痕', interestsSupplementalDecision.warnings.some((w) => w.code === 'audience_interests_supplemental_unresolved'));
+
+  const overlapDetailDecision = decideScopeStatus({
+    windowMatchesRequest: true, windowRequested: '6m', windowActual: 'Mar 2026 - Aug 2026 (6 月)',
+    acceptWindowFallback: false, countryUnverified: false, deviceUnverified: false,
+    rowsCompletenessUnverified: false, loadingIndicatorUnverified: false,
+    audienceOverlapDetailUnresolved: true,
+  });
+  assertEqual('decideScopeStatus: 独占/重合明细表 unresolved → ok-unverified', overlapDetailDecision.status, 'ok-unverified');
+  assert('decideScopeStatus: audience_overlap_detail_unresolved 留痕', overlapDetailDecision.warnings.some((w) => w.code === 'audience_overlap_detail_unresolved'));
 
   console.log('similarweb-query self-test: PASS');
 }

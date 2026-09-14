@@ -717,6 +717,86 @@ export function deriveOverviewSupplementalBlocks(lines) {
 }
 
 /**
+ * 「随着时间的访问」趋势折线图（网站表现/概览页）——NOT_COVERED 里"坐标轴有
+ * 刻度、逐点数值读不到"那条的后续排查。2026-09-14 用 canva.com 实测确认：
+ * 逐点数值确实不在 DOM/SVG 文本里，**但在一个独立的 XHR 里**，opencli
+ * `network` 能直接拦到：
+ *
+ *   GET .../widgetApi/WebsiteOverview/EngagementVisits/Graph
+ *       ?country=999&from=...&to=...&timeGranularity=Daily&keys=<domain1,domain2,...>
+ *       &webSource=Total&latest=28d
+ *
+ * 响应体 `Data[<domain>].Total[0]` 是当前窗口内每日 `{Key: ISO日期, Value: 数值}`
+ * 的数组，`keys` 里除了查询域名本身，还有页面自动配的同行对比站点（默认没有
+ * 手动加对比站时，页面自己选了几个"相似站点"摆上去，不是查询方指定的）。
+ *
+ * **实测核对（逐站按 28 天求和，跟页面图例上的"期间总访问量"比对，全部一致）**：
+ *   canva.com 求和 827.97M vs 页面图例 827.9M；adobe.com 376.52M vs 376.5M；
+ *   figma.com 70.84M vs 70.83M；remove.bg 52.44M vs 52.44M；pixlr.com 9.06M vs 9.061M。
+ *   （四舍五入误差内，且跟同一份输出里 metrics.totalVisits 也一致。）
+ */
+const TREND_GRAPH_URL_PATTERN = /\/widgetApi\/WebsiteOverview\/EngagementVisits\/Graph(?:[?#]|$)/;
+
+/** 在 `opencli browser <session> network --raw` 的 entries 数组里找这条趋势图请求。 */
+export function findTrendGraphNetworkEntry(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  return list.find((e) => TREND_GRAPH_URL_PATTERN.test(String(e?.url ?? e?.key ?? ''))) ?? null;
+}
+
+/**
+ * 解析趋势图请求的响应体。`entry` 是 `findTrendGraphNetworkEntry` 找到的那一条
+ * （`{url, body, ...}`，`body` 可能已经是对象，也可能还是原始 JSON 字符串，
+ * 两种都收）。`primaryDomain` 可选——传了就把它从 `domains` 里标出来，
+ * 不传也不影响解析，只是 `primaryDomain`/`comparedDomains` 拆不出来。
+ *
+ * Value 是浮点数（`19689933.217545487` 这种），四舍五入成整数——这里的数字
+ * 概念上是访问次数，小数部分是模型/插值误差，不是真实计数的一部分，跟
+ * `parseNumber` 对 K/M/B 后缀值四舍五入是同一个理由。
+ */
+export function deriveTrendGraph(entry, { primaryDomain } = {}) {
+  if (!entry) return { status: 'unresolved', reason: 'network-entry-not-found', domains: null, series: null };
+  let body = entry.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch (error) {
+      return { status: 'unresolved', reason: 'body-not-json', domains: null, series: null };
+    }
+  }
+  const data = body && typeof body === 'object' && !Array.isArray(body) ? body.Data : null;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { status: 'unresolved', reason: 'no-data-field', domains: null, series: null };
+  }
+  const series = {};
+  for (const [domainKey, value] of Object.entries(data)) {
+    const points = value?.Total?.[0];
+    if (!Array.isArray(points) || !points.length) continue;
+    const parsedPoints = points
+      .map((p) => ({
+        date: swText(p?.Key),
+        visits: typeof p?.Value === 'number' && Number.isFinite(p.Value) ? Math.round(p.Value) : null,
+      }))
+      .filter((p) => p.date);
+    if (parsedPoints.length) series[domainKey] = parsedPoints;
+  }
+  const domains = Object.keys(series);
+  if (!domains.length) return { status: 'unresolved', reason: 'empty-series', domains: null, series: null };
+  const totalsByDomain = {};
+  for (const d of domains) {
+    totalsByDomain[d] = series[d].reduce((sum, p) => sum + (typeof p.visits === 'number' ? p.visits : 0), 0);
+  }
+  const resolvedPrimary = primaryDomain && domains.includes(primaryDomain) ? primaryDomain : null;
+  return {
+    status: 'data',
+    domains,
+    primaryDomain: resolvedPrimary,
+    // 「同行对比站点」是页面自动配的，查询本身没有指定——如实标出来，别让调用方
+    // 以为这是一份稳定的、可重复的竞品清单。
+    comparedDomains: domains.filter((d) => d !== resolvedPrimary),
+    series,
+    totalsByDomain,
+  };
+}
+
+/**
  * 「受众兴趣」tab 的"行业分布"饼图。实测原文：
  *   行业分布 / 计算机电子技术 > 社交网络和在线社区 / 计算机电子技术 > 搜索引擎 /
  *   艺术与娱乐 > 电视、电影和流媒体 / 计算机电子技术 > 电子邮件 /
@@ -1046,6 +1126,34 @@ export const SW_GEO_TABLE_CELLS = `(() => {
     dirHints.push(dirHintColumns.map((c) => c[i]));
   }
   return { headers, rows, dirHints, columnDepthMismatch };
+})()`;
+
+/**
+ * 「受众重叠」tab 下方的独占/重合明细表——2026-09-14 实测确认跟 audience-geo
+ * 同一套 `.swReactTable-column` 按列渲染结构，**但最后一列"未获取的潜在访客"
+ * 用的是 `.swReactTable-unResizeColumn`**（不是 `.swReactTable-column`）——
+ * 只选前者会漏掉最后一列，而且不报错：`headerCols.length === dataCols.length`
+ * 在只有 4 列时依然成立，看起来像"读全了"，其实少了一列。两个 class 都要选上。
+ *
+ * 5 列表头（`data-automation="header-cell.text"`）：
+ *   所选网站 | Shared audience | 共同独立访客数 | 主要网站的专属独立访客 | 未获取的潜在访客
+ * "所选网站"这一列每个格子可能是 1~N 个站点短名叠在一起（"canva"/"canva\nadobe"/
+ * "canva\nadobe\nfigma"），短名到底转到哪个域名、行的语义怎么读，交给
+ * `deriveAudienceOverlapDetailRows` 处理，这里只负责把 DOM 列对齐成行。
+ */
+export const SW_OVERLAP_DETAIL_TABLE_CELLS = `(() => {
+  const all = [...document.querySelectorAll('.swReactTable-column, .swReactTable-unResizeColumn')];
+  const headerCols = all.filter((c) => c.children.length <= 2);
+  const dataCols = all.filter((c) => c.children.length > 2);
+  if (!dataCols.length || headerCols.length !== dataCols.length) return null;
+  const headers = headerCols.map((c) => (c.children[0]?.innerText || '').trim());
+  const columns = dataCols.map((c) => [...c.children].map((x) => (x.innerText || '').trim()));
+  const lengths = columns.map((c) => c.length);
+  const depth = Math.min(...lengths);
+  const columnDepthMismatch = lengths.length > 0 && Math.max(...lengths) !== Math.min(...lengths);
+  const rows = [];
+  for (let i = 0; i < depth; i++) rows.push(columns.map((c) => c[i]));
+  return { headers, rows, columnDepthMismatch };
 })()`;
 
 /**
@@ -1667,6 +1775,99 @@ export function deriveAudienceOverlapMetrics(lines) {
     // 两个锚点都读到了、且至少解析出一个站点+总数，才算"确认有数据"。
     dataConfirmed: perSiteAvgVisitors.length > 0 && totalUniqueAudience !== null,
     emptyStateObserved: false,
+  };
+}
+
+/** 5 列固定表头，顺序不敏感（按 `indexOf` 找列，不按位置）。 */
+const OVERLAP_DETAIL_HEADERS = {
+  site: '所选网站',
+  sharedPercent: 'Shared audience',
+  sharedCount: '共同独立访客数',
+  primaryExclusive: '主要网站的专属独立访客',
+  unrealized: '未获取的潜在访客',
+};
+
+/**
+ * 「受众重叠」tab 下方的独占/重合明细表——2026-09-13/14 前两轮实测只解析
+ * 扁平化 `bodyText`，得到"7 个站点 token / 3 个百分比 / 9 个数字，互相除不尽"，
+ * 判定 notCovered。2026-09-14 第三轮改读 DOM 列（见 `SW_OVERLAP_DETAIL_TABLE_CELLS`
+ * 顶部注释），列边界由 DOM 结构本身保证对齐，不再是猜的。
+ *
+ * canva.com 实测（2 个自动配对比站：adobe.com / figma.com）拿到 3 行：
+ *   全部对比站合并（"所选网站"=[canva,adobe,figma]）：0.9% / 1.875M / 176.3M / 166.9M
+ *   canva vs adobe（两两对比）：16.8% / 36.23M / 179.0M / 158.3M
+ *   canva vs figma（两两对比）：2.1% / 4.507M / 210.7M / 10.83M
+ * 用同一页面已经解析出的 `perSiteAvgVisitors`（完整域名+平均独立访客数）做
+ * 算术交叉核对，两条对比行都吻合：
+ *   canva-adobe 行：专属179.0M + 共同36.23M = 215.23M ≈ canva 独立访客 215.2M；
+ *                   共同36.23M + 未获取158.3M = 194.53M ≈ adobe 独立访客 194.6M。
+ *   canva-figma 行：专属210.7M + 共同4.507M = 215.207M ≈ canva 215.2M；
+ *                   共同4.507M + 未获取10.83M = 15.337M ≈ figma 独立访客 15.33M。
+ *
+ * "所选网站"格子里的站点名是缩写（"canva"没有".com"），按 SLD（第一个点之前的
+ * 部分）反查 `knownDomains`（调用方传同一页面 `deriveAudienceOverlapMetrics` 已经
+ * 解析出的完整域名列表）——同一次查询里已经确认过的域名，不是另外猜的。
+ * 反查不到的短名原样保留在 `sites` 里，并且计入 `unresolvedSiteTokens`，不悄悄丢弃。
+ *
+ * `comparisonType`：一行的"所选网站"里站点数 > 2 就是"combined"（合并对比全部
+ * 站点），恰好 2 个就是"pairwise"（两两对比）——按站点数动态判断，不硬编码
+ * "固定 3 行"，适配对比站数量变化（比如只有 1 个对比站时可能没有 combined 行）。
+ *
+ * `emptyStateObserved` 由调用方传入（同一个 tab 上 `deriveAudienceOverlapMetrics`
+ * 已经判过的空态文案），表格没找到 + 空态已确认 → `legit-empty`；表格没找到 +
+ * 空态没确认 → `unresolved`，不猜是哪一种。
+ */
+export function deriveAudienceOverlapDetailRows(cells, { knownDomains = [], emptyStateObserved = false } = {}) {
+  const notFoundStatus = emptyStateObserved ? 'legit-empty' : 'unresolved';
+  if (!cells || !Array.isArray(cells.headers) || !Array.isArray(cells.rows)) {
+    return { status: notFoundStatus, rows: null, reason: emptyStateObserved ? null : 'table-not-found' };
+  }
+  const colIndex = (label) => cells.headers.findIndex((h) => swText(h) === label);
+  const siteIdx = colIndex(OVERLAP_DETAIL_HEADERS.site);
+  const sharedPctIdx = colIndex(OVERLAP_DETAIL_HEADERS.sharedPercent);
+  const sharedCountIdx = colIndex(OVERLAP_DETAIL_HEADERS.sharedCount);
+  const exclusiveIdx = colIndex(OVERLAP_DETAIL_HEADERS.primaryExclusive);
+  const unrealizedIdx = colIndex(OVERLAP_DETAIL_HEADERS.unrealized);
+  if ([siteIdx, sharedPctIdx, sharedCountIdx, exclusiveIdx, unrealizedIdx].some((i) => i < 0)) {
+    return { status: 'unresolved', rows: null, reason: 'headers-not-recognized', headers: cells.headers };
+  }
+  const resolveDomain = (shortName) => {
+    const short = String(shortName || '').trim().toLowerCase();
+    if (!short) return null;
+    return knownDomains.find((d) => String(d).toLowerCase().split('.')[0] === short) ?? null;
+  };
+  const rows = [];
+  const unresolvedSiteTokens = [];
+  for (const row of cells.rows) {
+    const siteCellText = swText(row[siteIdx]);
+    const shareValue = swCell(row[sharedPctIdx], { percent: true });
+    const sharedCount = swCell(row[sharedCountIdx]);
+    const exclusive = swCell(row[exclusiveIdx]);
+    const unrealized = swCell(row[unrealizedIdx]);
+    // 尾行占位行（DOM 里某一列比其它列多渲染一格）：站点名和四个数值全空，跳过。
+    if (!siteCellText && shareValue === null && sharedCount === null && exclusive === null && unrealized === null) continue;
+    if (!siteCellText) continue; // 有数值但站点名读不到——不知道这行是谁的，宁可丢这一行也不要瞎配
+    const tokens = siteCellText.split('\n').map((t) => t.trim()).filter(Boolean);
+    const sites = tokens.map((token) => {
+      const resolved = resolveDomain(token);
+      if (!resolved) unresolvedSiteTokens.push(token);
+      return resolved ?? token;
+    });
+    rows.push({
+      sites,
+      comparisonType: tokens.length > 2 ? 'combined' : 'pairwise',
+      sharedAudiencePercent: shareValue,
+      sharedUniqueVisitors: sharedCount,
+      primaryExclusiveVisitors: exclusive,
+      unrealizedPotentialVisitors: unrealized,
+    });
+  }
+  if (!rows.length) return { status: notFoundStatus, rows: null, reason: emptyStateObserved ? null : 'no-data-rows' };
+  return {
+    status: 'data',
+    rows,
+    columnDepthMismatch: Boolean(cells.columnDepthMismatch),
+    unresolvedSiteTokens: unresolvedSiteTokens.length ? [...new Set(unresolvedSiteTokens)] : null,
   };
 }
 

@@ -43,6 +43,7 @@ import {
   deriveAudienceDemographicsSignal,
   deriveAudienceInterestsRows,
   deriveAudienceInterestsSupplemental,
+  deriveAudienceOverlapDetailRows,
   deriveAudienceOverlapMetrics,
   deriveChannelDetailRows,
   deriveGeoRows,
@@ -50,6 +51,8 @@ import {
   deriveScopeEvidence,
   deriveSiteKeywordRows,
   deriveSiteKeywordStatCards,
+  deriveTrendGraph,
+  findTrendGraphNetworkEntry,
   findWindowLabel,
   parseNumber,
   parseSignedPercentCell,
@@ -598,6 +601,141 @@ test('deriveAudienceOverlapMetrics: 页面正面写了空态文案——emptySta
   const result = deriveAudienceOverlapMetrics(['受众', '抱歉，未找到与该搜索匹配的内容。']);
   assert.equal(result.emptyStateObserved, true);
   assert.equal(result.dataConfirmed, false);
+});
+
+/* ------------------------------------------------------------------ *
+ * 7b. deriveAudienceOverlapDetailRows —— 受众重叠 tab 下方的独占/重合明细表
+ *     （`.swReactTable-column` + `.swReactTable-unResizeColumn` 按列渲染）。
+ *     2026-09-14 用 canva.com（2 个自动配对比站：adobe.com/figma.com）实测，
+ *     下面的表头/数值逐字照抄真实 DOM 提取结果（真实域名，公开可查的基准站，
+ *     不是脱敏占位）。
+ * ------------------------------------------------------------------ */
+
+test('deriveAudienceOverlapDetailRows: 实测原文形态——3 行（1 个合并对比 + 2 个两两对比），跟 knownDomains 反查全称域名', () => {
+  const cells = {
+    headers: ['所选网站', 'Shared audience', '共同独立访客数', '主要网站的专属独立访客', '未获取的潜在访客'],
+    rows: [
+      ['canva\nadobe\nfigma', '0.9%', '1.875M', '176.3M', '166.9M'],
+      ['canva\nadobe', '16.8%', '36.23M', '179.0M', '158.3M'],
+      ['canva\nfigma', '2.1%', '4.507M', '210.7M', '10.83M'],
+      ['', '', '', '', ''], // 尾行占位（某一列比其它列多渲染一格）
+    ],
+    columnDepthMismatch: true,
+  };
+  const result = deriveAudienceOverlapDetailRows(cells, { knownDomains: ['canva.com', 'adobe.com', 'figma.com'] });
+  assert.equal(result.status, 'data');
+  assert.equal(result.rows.length, 3, '尾行占位应该被跳过，不当成第 4 行');
+  assert.deepEqual(result.rows[0], {
+    sites: ['canva.com', 'adobe.com', 'figma.com'],
+    comparisonType: 'combined',
+    sharedAudiencePercent: 0.9,
+    sharedUniqueVisitors: 1875000,
+    primaryExclusiveVisitors: 176300000,
+    unrealizedPotentialVisitors: 166900000,
+  });
+  assert.deepEqual(result.rows[1], {
+    sites: ['canva.com', 'adobe.com'],
+    comparisonType: 'pairwise',
+    sharedAudiencePercent: 16.8,
+    sharedUniqueVisitors: 36230000,
+    primaryExclusiveVisitors: 179000000,
+    unrealizedPotentialVisitors: 158300000,
+  });
+  assert.deepEqual(result.rows[2], {
+    sites: ['canva.com', 'figma.com'],
+    comparisonType: 'pairwise',
+    sharedAudiencePercent: 2.1,
+    sharedUniqueVisitors: 4507000,
+    primaryExclusiveVisitors: 210700000,
+    unrealizedPotentialVisitors: 10830000,
+  });
+  assert.equal(result.unresolvedSiteTokens, null);
+  // 算术交叉核对（跟真实实测时用 perSiteAvgVisitors 做的核对是同一个逻辑）：
+  // canva-adobe 行专属+共同 ≈ canva 独立访客(215.2M)，canva-figma 行同理 ≈ 215.2M；
+  // 两行的共同+未获取分别 ≈ adobe(194.6M)/figma(15.33M) 独立访客。
+  assert.ok(Math.abs((result.rows[1].primaryExclusiveVisitors + result.rows[1].sharedUniqueVisitors) - 215_200_000) < 50_000);
+  assert.ok(Math.abs((result.rows[2].primaryExclusiveVisitors + result.rows[2].sharedUniqueVisitors) - 215_200_000) < 50_000);
+});
+
+test('deriveAudienceOverlapDetailRows: 表格没找到——emptyStateObserved 决定是 legit-empty 还是 unresolved', () => {
+  assert.equal(deriveAudienceOverlapDetailRows(null, { emptyStateObserved: true }).status, 'legit-empty');
+  assert.equal(deriveAudienceOverlapDetailRows(null, { emptyStateObserved: false }).status, 'unresolved');
+  assert.equal(deriveAudienceOverlapDetailRows(undefined).status, 'unresolved');
+});
+
+test('deriveAudienceOverlapDetailRows: 表头找到了但列名不认识——unresolved，不猜列', () => {
+  const cells = { headers: ['域', '份额'], rows: [['canva', '1%']] };
+  const result = deriveAudienceOverlapDetailRows(cells, { knownDomains: ['canva.com'] });
+  assert.equal(result.status, 'unresolved');
+  assert.equal(result.reason, 'headers-not-recognized');
+});
+
+test('deriveAudienceOverlapDetailRows: 短名反查不到 knownDomains——原样保留 + 计入 unresolvedSiteTokens，不悄悄丢弃', () => {
+  const cells = {
+    headers: ['所选网站', 'Shared audience', '共同独立访客数', '主要网站的专属独立访客', '未获取的潜在访客'],
+    rows: [['canva\nunknownsite', '5%', '1M', '2M', '3M']],
+  };
+  const result = deriveAudienceOverlapDetailRows(cells, { knownDomains: ['canva.com'] });
+  assert.equal(result.status, 'data');
+  assert.deepEqual(result.rows[0].sites, ['canva.com', 'unknownsite']);
+  assert.deepEqual(result.unresolvedSiteTokens, ['unknownsite']);
+});
+
+/* ------------------------------------------------------------------ *
+ * 7c. deriveTrendGraph / findTrendGraphNetworkEntry —— 「随着时间的访问」
+ *     趋势折线图，数据不在 DOM 里，来自独立 XHR：
+ *     GET .../widgetApi/WebsiteOverview/EngagementVisits/Graph
+ *     2026-09-14 用 canva.com 实测（数值已按真实响应体抄录，公开基准站数据）。
+ * ------------------------------------------------------------------ */
+
+test('findTrendGraphNetworkEntry: 从一批网络捕获里挑出趋势图那一条，不认无关的条目', () => {
+  const entries = [
+    { key: 'GET sim.3ue.co/api/WebsiteOverview/retailIntelligenceUpsell', url: 'https://sim.3ue.co/api/WebsiteOverview/retailIntelligenceUpsell?domain=canva.com' },
+    { key: 'GET sim.3ue.co/widgetApi/WebsiteOverview/EngagementVisits/Graph#2', url: 'https://sim.3ue.co/widgetApi/WebsiteOverview/EngagementVisits/Graph?keys=canva.com,adobe.com&latest=28d', body: { Data: {} } },
+  ];
+  const found = findTrendGraphNetworkEntry(entries);
+  assert.ok(found);
+  assert.equal(found.key, 'GET sim.3ue.co/widgetApi/WebsiteOverview/EngagementVisits/Graph#2');
+  assert.equal(findTrendGraphNetworkEntry([]), null);
+  assert.equal(findTrendGraphNetworkEntry(null), null);
+});
+
+test('deriveTrendGraph: 实测响应体形态——逐日 {Key,Value}，求和跟页面图例的期间总访问量一致（在这条测试里核对内部自洽：totalsByDomain 就是 series 求和）', () => {
+  const entry = {
+    url: 'https://sim.3ue.co/widgetApi/WebsiteOverview/EngagementVisits/Graph?keys=canva.com,adobe.com&latest=28d',
+    body: {
+      Data: {
+        'canva.com': { Total: [[{ Key: '2026-08-15', Value: 19689933.217545487 }, { Key: '2026-08-16', Value: 22654117.29636067 }]] },
+        'adobe.com': { Total: [[{ Key: '2026-08-15', Value: 10000000.4 }, { Key: '2026-08-16', Value: 11000000.6 }]] },
+      },
+      KeysDataVerification: { 'canva.com': false, 'adobe.com': false },
+    },
+  };
+  const result = deriveTrendGraph(entry, { primaryDomain: 'canva.com' });
+  assert.equal(result.status, 'data');
+  assert.deepEqual(result.domains.sort(), ['adobe.com', 'canva.com']);
+  assert.equal(result.primaryDomain, 'canva.com');
+  assert.deepEqual(result.comparedDomains, ['adobe.com']);
+  assert.deepEqual(result.series['canva.com'], [
+    { date: '2026-08-15', visits: 19689933 },
+    { date: '2026-08-16', visits: 22654117 },
+  ]);
+  assert.equal(result.totalsByDomain['canva.com'], 19689933 + 22654117);
+  assert.equal(result.totalsByDomain['adobe.com'], 10000000 + 11000001); // Math.round(10000000.4)=10000000, Math.round(11000000.6)=11000001
+});
+
+test('deriveTrendGraph: body 是原始 JSON 字符串也能解析（opencli network --raw 有时给字符串）', () => {
+  const entry = { url: 'x', body: JSON.stringify({ Data: { 'canva.com': { Total: [[{ Key: '2026-08-15', Value: 100 }]] } } }) };
+  const result = deriveTrendGraph(entry);
+  assert.equal(result.status, 'data');
+  assert.equal(result.series['canva.com'][0].visits, 100);
+});
+
+test('deriveTrendGraph: 网络条目没找到 / 响应体结构不认识——unresolved + 具体 reason，不猜数字', () => {
+  assert.deepEqual(deriveTrendGraph(null), { status: 'unresolved', reason: 'network-entry-not-found', domains: null, series: null });
+  assert.equal(deriveTrendGraph({ body: 'not json{' }).reason, 'body-not-json');
+  assert.equal(deriveTrendGraph({ body: { NotData: {} } }).reason, 'no-data-field');
+  assert.equal(deriveTrendGraph({ body: { Data: { 'canva.com': { Total: [] } } } }).reason, 'empty-series');
 });
 
 /* ------------------------------------------------------------------ *
