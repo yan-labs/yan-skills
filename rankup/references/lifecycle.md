@@ -105,6 +105,8 @@
 
 ## 段 1：调研
 
+原生 App 与网页先按 `playbooks/research.md` 的 App 分支分流。以下网页量/KD/网站流量条件只裁决 Web 获客，不能用它们否决商店或原生直销市场。
+
 > **选词之前再读一条**：[`experiences/webcafe-topics.md`](experiences/webcafe-topics.md) 一
 > 与 [`experiences/webcafe-experiences.md`](experiences/webcafe-experiences.md) 二十一。
 > **低 KD 不等于能做**——「能不能打」和「值不值得打」是两个独立判断；
@@ -258,16 +260,18 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 
 ### 2.2 意图类型 → 产品形态 → 变现方式
 
-段 1 的意图核验（1.2）结论直接决定做什么、怎么收钱，不要反过来先定产品再找词：
+段 1 的网页、商店和原生使用证据共同决定形态：macOS、iOS、iPad、网站/SaaS 均可，唯独不做 Android App。离线/系统集成/触控绘制等任务优先评估原生；即时分享/跨平台协作可评估Web。按真实用户任务选择，不以低网页量强迫放弃App或改做网站：
 
 | 意图类型（SERP 前十在排什么） | 产品形态 | 变现方式 | 路由 |
 |---|---|---|---|
 | 信息型（文章、问答、百科、对比） | 内容站 | 接广告（AdSense / Adsterra），后期联盟 | [`monetization.md`](monetization.md) 广告一节 |
-| 工具型（一次性完成一件事：转换、生成、计算、下载） | 在线工具页 / 桌面客户端上架商店 | 单次付费、去水印/高清解锁、客户端买断 | [`monetization.md`](monetization.md) Stripe / PayPal / 商店上架 |
-| 持续使用型（每天/每周回来用：管理、追踪、协作） | SaaS / 账号体系 | 订阅 | [`monetization.md`](monetization.md) 订阅一节 |
+| 工具型（一次性完成一件事：转换、生成、计算、下载） | 在线工具页 / macOS、iOS、iPad App（商店或适用的直销渠道） | 单次付费、去水印/高清解锁、客户端买断 | [`monetization.md`](monetization.md) Stripe / PayPal / 商店上架 |
+| 持续使用型（每天/每周回来用：管理、追踪、协作） | SaaS / macOS、iOS、iPad App | 订阅或买断，按使用价值验证 | [`monetization.md`](monetization.md) 订阅一节 |
 | 混合（工具型意图但 SERP 上是内容页） | 工具页 + 内容页各一 | 工具收费，内容接广告 | 两节都读 |
 
-**支付先有 Stripe + PayPal**（段 3.4 接入），广告、订阅、商店上架按形态在段 7 沉淀。
+**支付按分发方式接入**：Web直销走段3.4；App按商店和市场当前规则验证IAP/买断/订阅，macOS直销另记授权与支付。见 `monetization.md` 五，不强制所有App接Stripe+PayPal。
+
+后续Web的shadcn、Cloudflare、SEO/URL检查只适用Web面。原生开发用对应平台工具与专项Skill（macOS可用build-macos-apps），App包/商店发布走 `monetization.md` 五；网页项不适用时记N/A与原因，不强建网站。
 
 ### 输入
 

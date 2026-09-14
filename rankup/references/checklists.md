@@ -85,10 +85,11 @@
 
 说明见 [`lifecycle.md`](lifecycle.md) 段 1、[`playbooks/research.md`](playbooks/research.md)、[`experiences/demand-discovery.md`](experiences/demand-discovery.md)、[`demand-sources.md`](demand-sources.md)。
 
-**验收单**：[`research-checklist.md`](research-checklist.md) 是本环节的逐项验收单——覆盖 seo.web.cafe / Semrush / Similarweb / Google Trends / 收入三榜 / 折成钱的完整工具链。**每次调研必须逐项走完，不许只用一部分工具。** 操作顺序以 `playbooks/research.md` 为准。
+**验收单**：[`research-checklist.md`](research-checklist.md) 是本环节的逐项验收单——覆盖 seo.web.cafe / Semrush / Similarweb / Google Trends / 收入三榜 / 折成钱的完整工具链。**按拟交付平台逐项核验；网页项不能替代App市场验证，不适用项记N/A与理由。** 操作顺序以 `playbooks/research.md` 为准。
 
 | 检查项 | 客观通过条件 | 证据落点 | 怎么做 | 复查 |
 |---|---|---|---|---|
+| **平台与App市场证据** | 已记录macOS/iOS/iPad/Web分发形态；不交付Android App；App按research.md分支与demand-sources.md证据表逐项有状态，公开估计与自有后台分开，网页低量未被误用为App否决 | `.rankup/research/` | App证据表；无权限记未知，不编下载/收入/留存 | 每轮 |
 | **否决清单已对过** | 本轮每个候选词/方向/功能开跑前都在 `.rankup/rejected.md` 里查过：命中的要么直接跳过并在报告里引用那一行，要么写明「复活：<复活条件> 已于 <日期> 满足，证据 <…>」再继续；**没有第三种** | `.rankup/research/<词根>-<date>.md` 开头的「已否决对照」段 | `grep -i "<词根或功能名>" .rankup/rejected.md .rankup/decisions.md`，再翻 `.rankup/research/` 有没有同词根旧报告 | 每轮 |
 | **多引擎首页实勘** | 目标词/方向在 **Google + Bing + 目标市场本地引擎**（做非英语市场时必看）各搜过一遍，**且是无痕/隔离窗口、显式指定了地区与语言**；每个引擎按 [`demand-sources.md`](demand-sources.md)「每个引擎记下这七样」一节逐样记全，带引擎+国家+日期（七样是什么以那一节为准，本表不复述）。**引擎之间不一致要写出来，不能只留一个「综合印象」** | `.rankup/keywords.md`（词级）或 `.rankup/decisions.md`（方向级） | 见 [`demand-sources.md`](demand-sources.md) 第一·五节。**这一步在任何取数之前**，不许拿 `serp-query.mjs` / `seo-webcafe.mjs serp` 这类二手接口代替——它们看不到版式、SERP 特性和 AI 答案。DuckDuckGo 用的是 Bing 索引，**和 Bing 不算两个独立样本** | 会过期 |
 | **词根已扩树且有停止条件** | 用户给的词按词根处理：先亲眼搜过，再扩成树（面板相关词 + Google/Bing/DDG 下拉联想）；**不超过两层**；每片停止扩的叶子写了停止原因（月量低于阈值 / KD 高于阈值 / 已到两层）；三引擎下拉的原始 manifest 落盘 | `.rankup/research/` + `.rankup/keywords.md` | `scripts/demand/suggest.mjs <词根> --engine google,bing,ddg --hl <语种> --gl <地区> --json --out`，顺序见 [`playbooks/research.md`](playbooks/research.md) 步骤 2。**0 条不等于没词**，先看 manifest 里的 status | 会过期 |
@@ -109,13 +110,15 @@
 | 检查项 | 客观通过条件 | 证据落点 | 怎么做 | 复查 |
 |---|---|---|---|---|
 | **单语种裁定已落** | 一行裁决：做哪个语种/市场 + W1 的并排数据（各语种量 / KD / CPC）+ 为什么不做多语言 + 扩张候选。**起步没有规划多语言路由**；多语言只在「单语站已拿到流量」的扩张期出现 | `.rankup/decisions.md` | [`trends.md`](trends.md) W1 探测；判据见 [`lifecycle.md`](lifecycle.md) 段 2 · 2.1 | 一次 |
-| **意图 → 形态 → 变现对得上** | 产品形态与变现方式是从段 1 的 SERP 意图核验推出来的（信息型 → 内容站接广告；工具型 → 工具页/客户端；持续使用型 → 订阅），三者写在同一行 | `.rankup/PROJECT.md` | 对照 [`lifecycle.md`](lifecycle.md) 段 2 · 2.2 的表；变现细节路由到 [`monetization.md`](monetization.md) | 一次 |
+| **意图 → 形态 → 变现对得上** | 产品形态与变现方式是从段 1 的网页/商店意图与原生使用任务证据推出来的（信息型 → 内容站接广告；工具型 → 工具页/客户端；持续使用型 → 订阅），三者写在同一行 | `.rankup/PROJECT.md` | 对照 [`lifecycle.md`](lifecycle.md) 段 2 · 2.2 的表；变现细节路由到 [`monetization.md`](monetization.md) | 一次 |
 | 关键路径有可测试的验收标准 | `plan.md` 每条 P0 都写了动作、证据、预期影响和完成判定 | `.rankup/plan.md` | 手写 | 每轮 |
 | 每个 Cloudflare 服务都有理由 | 每个服务写明需求、binding、环境边界和失败处理；**没有「以后可能需要」而提前创建的资源** | `.rankup/architecture.md` | 对照 [`cloudflare-stack.md`](cloudflare-stack.md) 逐项填 | 一次 |
 | 域名是待定项 | `infrastructure.md` 的域名一栏写「待段 5 定稿」，本段没有选域名、没有买域名 | `.rankup/infrastructure.md` | 域名裁决在段 5，这里只留位 | 一次 |
 | 高风险动作有回滚方案 | 数据、支付、发布三类各有一条回滚路径 | `.rankup/decisions.md` | 手写 | 一次 |
 
 ## 段 3 · 建站与开发
+
+Web组件、Cloudflare和后续URL/SEO检查仅适用Web面；原生App按lifecycle.md 2.2与平台专项工具验收，网页项N/A需说明理由。
 
 说明见 [`lifecycle.md`](lifecycle.md) 段 3（3.1 初始化 / 3.2 Cloudflare 基础 / 3.3 开发与测试 / 3.4 集成）、[`cloudflare-stack.md`](cloudflare-stack.md)、[`integrations.md`](integrations.md)。
 

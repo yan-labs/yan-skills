@@ -20,6 +20,8 @@ SKILL.md 段 6 与取数纪律只一行指回本文件，改脚本入口时只�
 
 ---
 
+**App需求/市场入口**：macOS、iOS、iPad与Web/SaaS按任务选择，仅排除Android交付；`references/playbooks/research.md` App市场验证分支编排，`references/demand-sources.md` App证据表定义指标。榜单/评论脚本不提供商店完整下载或留存；官方后台与第三方估计分开，未覆盖能力不可宣称已配置。
+
 ## 一、流程控制与项目记忆（判「现在该做什么」）
 
 | 能力 | 一句话能干什么 | 入口 | 典型触发说法 |

@@ -10,7 +10,7 @@ import { resolveRoots } from "./registry.mjs";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "3.13.7";
+const expectedVersion = "3.14.0";
 const requiredReferences = [
   "discipline.md",
   "monetization.md",
@@ -63,6 +63,8 @@ const requiredContent = {
     "上线前与发布后复核入口",
     "references/design-references.md#多功能工具站侧栏统一规范",
   ],
+  "references/demand-sources.md": ["## App 市场证据与原生分发", "macOS 直销另开一行", "评分数不是安装数"],
+  "references/playbooks/research.md": ["## App 市场验证分支", "不能单独否决 App 市场"],
   "references/lifecycle.md": [
     "清除 React / Vite / TanStack 脚手架默认图标",
     "SSR HTML 与浏览器水合后 DOM",

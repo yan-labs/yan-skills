@@ -203,6 +203,33 @@ node scripts/demand/boards.mjs traffic-cv --json \
 
 ---
 
+## App 市场证据与原生分发
+
+用于 `research.md` App 分支；产品形态不限，包括macOS、iOS、iPad App 与 Web/SaaS 按任务选择，不交付 Android App，Android 只作参考。**每条指标带 store/platform/country/window/source/is_estimate/gross_or_net/access_status**，不适用字段写 N/A，未取到写 unknown/null，不把缺数据补成零。
+
+| 要验证什么 | 公开竞品事实/估计 | 自有或获授权后台 | 不能推导什么 |
+|---|---|---|---|
+| 商店搜索需求 | 目标国家/设备实际搜索结果、关键词相关性、ASO相对热度 | 商店搜索来源的展示、下载、转化 | 相对热度不是月搜索次数，不能用Google Trends锚点换算 |
+| 榜单与历史 | 同国家/设备/类别/免费或付费榜的日期快照、持续位置；历史取决于权限 | 与活动/版本/获取数据对照 | 单日冲榜不证明长期需求；排名不能乘固定系数变安装或收入 |
+| 下载/安装量级 | Appfigures/AppTweak等明确标注的模型估计，核查平台覆盖 | 首次下载、重新下载、安装分别记录，按原报告定义 | 评分数不是安装数；同账号多设备、更新与重装不等新用户；iOS估计不能借给Mac |
+| 价格、IAP与订阅 | 地区价格、周期、试用、解锁点、是否存在付费产品 | 试用转付费、付款人数、续订/退款与交易明细 | 开价/有IAP不是成交；试用、活跃订阅不等付费人数 |
+| 收入 | 平台核验的经营数据或有出处的估计；开发者自述单列 | Sales、Proceeds、结算/到账各按原定义对账 | 榜单/价格/下载不等收入，收银台引荐不等成交；毛收入与净所得不能混比 |
+| 评分/评论增量 | 同地区、版本、日期快照与新增书面评论；找任务、失败、替代、付费原话 | 反馈与版本/客服记录 | 评分可能重置；均分/评论好评率不是留存，评论数不能按固定比例推安装 |
+| 使用与留存 | 有出处的公开披露/研究仅作有限证据，缺项未知 | 固定cohort、D1/D7/D30、分母、窗口、平台与来源；注明分析同意覆盖 | 下载不等活跃，订阅续订留存与App使用留存不同；未开发候选不要求先有自家留存 |
+
+**取数入口**：现成 `appstore-charts.mjs --lookup` 取榜单及价格/评分，`reviews-mine.mjs --source appstore` 取评论；二者不提供竞品真实下载或留存。公开竞品先读商店页与现成榜单，再查第三方估计。Appfigures、AppTweak有公开/免费与付费深度差异，先查当前账号权限、平台和时间窗；不能因可免费注册就声称历史全可用，也不要未查就说全部付费。Sensor Tower、七麦、点点等按官方当前覆盖与权限核验，未实跑不记已配置。不新增或杜撰私有API。方法定义与权限复查入口：
+
+- [Apple商店评分与评论](https://developer.apple.com/app-store/ratings-and-reviews/)；[Apple Analytics指标](https://developer.apple.com/help/app-store-connect-analytics/reference/metrics-definitions)：下载/安装与分析同意覆盖、Sales/Proceeds按各指标定义分列。
+- [Apple Sales and Trends](https://developer.apple.com/help/app-store-connect/reference/reporting/sales-and-trends-metrics-and-dimensions)：Units、付款/续订事件与付费人数口径不同，不机械合并报表。
+- [Apple Ads指标](https://ads.apple.com/app-store/help/reporting/0023-reporting-options-and-definitions)：Search Popularity是相对热度，按当前量表记录，非搜索次数；查看现有数据不授权投放。
+- [Appfigures权限](https://appfigures.com/platform/pricing)、[AppTweak估计方法](https://www.apptweak.com/en/aso-blog/app-download-revenue-estimates)、[历史图权限](https://help.apptweak.com/en/articles/4785076-compare-downloads-estimates-with-competitors)：估计不是账本，先核国家、设备、月份及收入是否含广告/站外支付。Mac榜单支持不自动意味着Mac竞品下载估计可用。
+
+**macOS 直销另开一行**：Mac App Store不能代表全部Mac市场，见[Apple macOS分发](https://developer.apple.com/macos/distribution/)。自有产品串联下载→首次启动/激活→完成任务→付费→留存/退款的原始事件和支付记录；DMG请求、重复下载、Sparkle更新流量不能计为独立用户。竞品无授权后台时，用公开价格/用户原话/可信经营披露分级，真实安装、激活、收入、留存留未知，不能从网站访问估成事实。
+
+新候选至少两类独立证据，尚无自家后台时记录竞品证据缺口和后续小样本验证计划，不因缺自家留存直接否决；已上线产品则回读自己真实漏斗。**网页月量低只能说明该网页获客路径弱，不能单独否决有商店或直销证据的App市场。**
+
+---
+
 ## 二·五、长尾支付网关反查
 
 **不要只盯最大的那家网关。** 专精小微商户的网关，用户多是个人开发者或极小团队——

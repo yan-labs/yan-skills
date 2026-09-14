@@ -59,11 +59,11 @@ export const GATES = [
     id: 0, name: '硬约束', judgment: 'human',
     criteria: '逐条对照约束清单，撞一条即出局',
     checklist: [
-      '已验证搜索需求：搜的是工具本身（工具词），还是搜某个问题、由我们的 AI 应用给答案（问题词）？两者都没有就出局',
+      '已验证目标市场需求：Web查工具词/问题词；App查商店搜索、使用与付费证据；低网页量不单独否决App，缺证据待验证',
       '不雇客服/运营团队：上线后运营/审核/答疑是否需要雇人来做？（创始人本人偶尔处理支持邮件不算违反）',
-      '自助 SaaS/Credit 付费：用户能否不联系任何人就完成购买？',
+      '自助获取与购买：买断、订阅、Credit、IAP均可；用户能否不联系任何人就完成购买？',
       '一人可建可维护：技术栈、内容量、迭代节奏一个人扛得住吗？',
-      'SEO 驱动获客：主要流量入口是不是自然搜索，而不是地推/销售/持续自我宣发？',
+      '平台与分发：产品形态不限，包括macOS、iOS、iPad、Web/SaaS均可，不做Android App；SEO、商店自然发现或macOS直销获客有无证据？',
       '非企业销售周期：签单是否需要多轮沟通/合同谈判才能敲定？',
       '不买量：验证与冷启动阶段是否需要自己砸钱投广告？（只能读别人的买量数据当信号，不能自己买）',
     ],
@@ -84,8 +84,8 @@ export const GATES = [
   },
   {
     id: 3, name: '付费信号', judgment: 'semi-auto',
-    criteria: 'CPC + 意图分类；这批人在不在为笨办法付钱',
-    suggestedScripts: ['keyword-value', 'stripe-referring', 'freelance-demand', 'payment-referrers'],
+    criteria: 'Web核CPC/购买意图；App核商店付费买方或经营证据，价格/IAP不等成交',
+    suggestedScripts: ['keyword-value', 'stripe-referring', 'freelance-demand', 'payment-referrers', 'appstore-charts', 'reviews-mine'],
   },
   {
     id: 4, name: '护城河', judgment: 'human',
@@ -98,18 +98,18 @@ export const GATES = [
   },
   {
     id: 5, name: '获客可行性', judgment: 'human',
-    criteria: '靠自己持续宣发/蹲社区才能起量→与约束冲突→杀；SEO 能带流量则过',
+    criteria: '按交付平台验证SEO、商店自然发现或原生分发；缺数据待验证，不用网页占比否决App',
     checklist: [
-      '目标用户能否通过 SEO/内容/自然搜索找到你，而不需要地推/电话销售/线下渠道？',
-      '冷启动阶段是否需要自己在各平台持续宣发/蹲社区才能拿到量？（与"获客只走 SEO 链路"约束冲突）',
+      '目标用户能否通过SEO、商店搜索/榜单发现或原生分发找到你？各渠道有无独立证据？',
+      '获客方式是否符合明确的成本与人工运营约束？不可只凭网站Search占比否决App',
       '获客成本能否随时间被内容资产摊薄，而不是持续的边际成本？',
     ],
   },
   {
     id: 6, name: '量化验证', judgment: 'semi-auto',
-    criteria: '两条独立路径互证 + 亲眼看 SERP + Semrush 打 3 折',
+    criteria: '两类独立市场证据互证；Web核SERP/量，App核商店/下载/收入/留存（按research.md）',
     suggestedScripts: ['ads-transparency', 'appstore-charts', 'gplay-charts', 'stripe-referring', 'site-network', 'sitemap-diff'],
-    humanSteps: ['亲眼看一遍目标关键词的 SERP（人工，脚本不代劳）', 'Semrush 给的数字打 3 折再作为参考（人工换算，脚本不代劳）'],
+    humanSteps: ['亲眼看网页与目标商店搜索，按平台分开裁决', 'App按demand-sources.md证据表核验；评价数不是安装，价格不是收入，下载不是留存', 'Web搜索量按research.md做Trends交叉验证，不套固定折扣否决App'],
   },
 ];
 
@@ -542,11 +542,11 @@ scripts/demand/*.mjs 取证据，判定仍然由人做——不把阈值硬编�
   1 使用频次   人工   每天/每周→过；一年几次→杀；几年一次→立即杀
   2 痛点证据   半自动 抱怨句式搜 Reddit/X/YT；<3 个独立的人说同一件事→杀
                建议脚本：reddit-wishes / hn-signals / chrome-ext-gap / reviews-mine
-  3 付费信号   半自动 CPC + 意图分类；这批人在不在为笨办法付钱
-               建议脚本：keyword-value / stripe-referring / freelance-demand / payment-referrers
+  3 付费信号   半自动 ${GATES[3].criteria}
+               建议脚本：${GATES[3].suggestedScripts.join(' / ')}
   4 护城河     人工   AI 工厂两周能不能复制？能→杀
-  5 获客可行性 人工   靠自己持续宣发/蹲社区才能起量→与约束冲突→杀；SEO 能带流量则过
-  6 量化验证   半自动 两条独立路径互证 + 亲眼看 SERP（人工）+ Semrush 打 3 折（人工）
+  5 获客可行性 人工   按交付平台验证SEO、商店自然发现或原生分发；缺数据待验证，不用网页占比否决App
+  6 量化验证   半自动 Web核SERP/Trends；App核商店/下载/收入/留存，按research.md分支
                建议脚本：ads-transparency / appstore-charts / gplay-charts / stripe-referring / site-network / sitemap-diff
 
 示例:
@@ -731,6 +731,12 @@ function selfTest() {
   check('半自动闸门都带 suggestedScripts', [2, 3, 6].every((id) => Array.isArray(GATE_BY_ID[id].suggestedScripts) && GATE_BY_ID[id].suggestedScripts.length > 0));
   check('STATUS_LABEL 覆盖全部用到的状态值',
     ['pending', 'pass', 'kill', 'in_progress', 'killed', 'passed_all'].every((s) => s in STATUS_LABEL));
+
+  // Runtime gate text is the operator's actual prompt; prevent Web-only policy returning.
+  check('App 低网页量不单独否决', GATES[0].checklist.some((x) => x.includes('低网页量不单独否决App')));
+  check('允许买断与 IAP，不限定 SaaS', GATES[0].checklist.some((x) => x.includes('买断、订阅、Credit、IAP')));
+  check('App 商店分发进入量化闸门', GATES[6].criteria.includes('App核商店/下载/收入/留存'));
+  check('评价、安装、收入、留存不可替代', GATES[6].humanSteps.some((x) => x.includes('评价数不是安装，价格不是收入，下载不是留存')));
 
   // slugify
   const s1 = slugify('AI Resume Polish SaaS');

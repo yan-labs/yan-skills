@@ -2,13 +2,13 @@
 name: rankup
 description: 网站从零到一与长期增长的总控 Skill。用于新建网站、SaaS、工具站或内容站，规划或初始化 TanStack Start Monorepo，使用 Cloudflare Workers、D1、R2 部署全栈应用，接入支付，执行 SEO、内容、外链、上线验证和持续迭代；也负责 Google Trends 查询、关键词难度（KD）估算与选词工作流；2026 AI 搜索范式（AI Overviews、AI Mode、Preferred Sources、Discover 独立算法、Information Gain、引用优先于排名）；AI Agent 就绪度评分（is-agentic、agent readiness、llms.txt、MCP 可发现性、AI 代理优化）。用户提到 rankup、rankup init、rankup check、环节闸门、检查清单、checklist、"现在该做什么"、"到哪一步了"、"这个环节能不能过"、"本轮还差什么"、建站、网站改版、搜索流量、GSC、排名、关键词、CTR、索引、网站增长，或提到 谷歌趋势、Google Trends、搜索热度、热度对比、搜索趋势、trending、"XX 和 YY 哪个更火"、"今天美国/日本在搜什么"、每日热搜、"这个词能不能做站"、"哪个市场/国家有机会"、帮我选 SEO 关键词、选词、选品调研、市场探测、挖需求、找需求、需求挖掘、找方向、找选题、选品、"这个方向能不能做"、"值不值得做"、"帮我看看这个想法"、"最近有什么能做的"、"找几个关键词"、"挖个新词的工具站"、"看看有什么游戏站能做"、竞品调研、榜单调研、差评挖掘、反查谁在赚钱、关键词难度、KD、竞争度、SERP 分析、"这个词难不难做"、"做这个词要多少外链"，或提到 哥飞、web.cafe、哥飞论坛、哥飞的朋友们、悬赏、悬赏问答、经验帖、"群里怎么说的"、"社群里有没有讲过"、"论坛里搜一下"、"哥飞说过什么"、哥飞.ai，或提到 AI 搜索优化、AI Overviews、AI Mode、被 AI 引用、AEO、GEO、Preferred Sources、Discover 优化、Google 算法更新、核心更新、spam 更新、Information Gain，或提到 AI Agent 就绪度、is-agentic、agent readiness、llms.txt、对 AI 代理友好、AI 代理优化、agent-friendly、agentic score 时使用。也覆盖用户真正会打出来的模糊说法：我想让流量涨一点、今天弄下 SEO、帮我看看这个站有什么问题、优化一下我的网站、流量掉了、排名没了、是不是被 K 了、怎么一直不收录、新页面多久能进索引、提交 sitemap、IndexNow、站慢不慢、跑个性能、Core Web Vitals、PageSpeed、Lighthouse、全站内链失效、TDK、标题描述怎么写、关键词密度、能不能上线了、上线前还差什么、帮我搞点外链、外链、反链、去哪发外链、抓一下后台数据、导出报表、数据面板、这站没有 API、访客不注册、没人付费、定价怎么定、要不要上多语言、hreflang、发个 Product Hunt、跑一下小游戏监测。也覆盖：词根、扩词、扩词树、占位链接、占位文案、变现、PayPal、域名黑历史、域名前世、单语种、hello@、"这个域名能不能用"、"看下这批数据有没有能做的关键词"、"调研一下这个词"、"review 一下我的站"、"数据检测平台都接入了吗"、"把 Ahrefs 的检验结果都修了"、"我们开始执行这个项目的计划"、"一步步来"、"调研一下这关键词"、"我们做个网站吧"、"我们做个内页吧"、"把这个关键词做成内页"、"看一下 GEO 有没有问题"、"SEO 有没有问题"、"把这个经验写进 rankup"、"记下来更新到源码里"、"帮我生成 logo"、配图、封面、og 图、"写一下这页的文案"、"AI 味太重"、"帮我改稿"、"语言结构理顺"、"文案怎么写才有人点"、"用户为什么不买"、"Reddit 上怎么说"、"X 上有没有人讨论"、社区验证、社区调研、"做个好看的页面"、设计参考、组件库参考、"Hero 怎么设计"、"landing page 怎么排"、动画效果、动效、页面设计灵感、21st.dev。
 metadata:
-  version: "3.13.7"
+  version: "3.14.0"
 ---
 
 # Rankup 3.0
 
 给独立开发者用：做产品，也做关键词流量站、AI 工具、桌面客户端上架商店、付费订阅。
-共同点是靠 SEO + GEO 拿免费曝光导到自己的平台；市场是全球，任何语种任何国家，有流量就做。
+产品形态不限，包括macOS、iOS、iPad App、网站与 SaaS 均可，唯独不做 Android App；Android 商店只作需求参考。按用户任务和真实市场证据选平台，不把所有 App 机会改成网站。SEO + GEO 保留为网页获客验证，App 同时验证商店及原生分发市场，见 [`research.md` App 分支](references/playbooks/research.md#app-市场验证分支)。
 本文件只做两件事：把一句话落到七段生命周期的哪一段，以及每段的硬规则。怎么干活的纪律在 [`references/discipline.md`](references/discipline.md)。
 
 ## 一句话落到哪一段
@@ -20,6 +20,7 @@ metadata:
 | 「看下这批数据有没有能做的关键词」「找几个关键词」「挖点需求」「最近有什么能做的」 | 1 | [`playbooks/research.md`](references/playbooks/research.md)（P0 分流 → 词根调研） |
 | 「调研一下这个词」「调研一下这关键词」「调研的关键词」「这个词能不能做站」「这词难不难」「帮我扩词」 | 1 | `research.md` **P2 词根调研**：任何词都是词根，先直接搜再扩树（旧 P3 已并入 P2，不再有单独的扩词流水线） |
 | 「找个方向」「这个方向能不能做」「值不值得做」「选品」「有什么能做的」「帮我看看这个想法」 | 1 | [`playbooks/selection.md`](references/playbooks/selection.md)：先过七道选品闸门判"该不该做"（硬约束/频次/痛点/付费信号/护城河/获客可行性，几乎零配额），过闸的候选才把主词交给 `research.md` P2 花配额查清楚——不要跳过闸门直接进 P2 |
+| 「App 有没有需求」「找 iOS/iPad/macOS 产品」「商店里哪个方向能做」 | 1–2 | `research.md` App 市场验证分支 → `lifecycle.md` 2.2 按任务选择平台；不做 Android App |
 | 「谁在赚钱」「反查这个站」「竞品最近在做什么」「帖子说月入 X 是真的吗」 | 1 | `research.md` P4 + [`demand-sources.md`](references/demand-sources.md) 第十节 |
 | 「XX 和 YY 哪个更火」「今天美国/日本在搜什么」「哪个国家有机会」 | 1–2 | [`trends.md`](references/trends.md)，`scripts/gt.py` |
 | 「有什么游戏站能做」「跑一下小游戏监测」「游戏关键词怎么找」 | 1 | [`game-sites.md`](references/game-sites.md)：Rankup 总控发现、探索、研究和是否值得做的判断，内部按需调用 `game-opportunity` |
@@ -82,7 +83,7 @@ metadata:
 | 亲眼看 SERP，用页面类型核实**真实意图** | 宠物诊断那次：词看着是工具需求，首页全是兽医内容，做工具就错了 |
 | 空结果先核 manifest：429 / CAPTCHA / 超时都产出 0 条 | 采集失败 ≠ 没需求，把失败读成结论是最贵的错 |
 | **开跑前先 grep 项目的 `.rankup/rejected.md` 与 `research/`**：上一轮 pass 掉的词或方向，命中就跳过并引用，或写明复活条件已满足再重开；本轮 pass 掉的带理由与复活条件写回 `rejected.md` | 换个会话就把否决过的东西当新点子重做一遍、再踩同一个坑，是项目记忆最常见的失效形态；理由留着，条件变了才能有据翻案 |
-| 结论要折成钱：查同类站真实流量，`seo-webcafe.mjs money` | 能排上去 ≠ 能赚钱，漏掉这道闸会得出 SEO 正确、商业错误的结论 |
+| 结论要折成钱：Web 查同类站真实流量，`seo-webcafe.mjs money`；App 按 `research.md` App 分支核对收入、下载与留存，不能拿网页低量否决App市场 | 能排上去 ≠ 能赚钱，漏掉这道闸会得出 SEO 正确、商业错误的结论 |
 
 - **闸门**：[`checklists.md`](references/checklists.md) 段 1。
 
@@ -95,12 +96,14 @@ metadata:
 |---|---|
 | 第一目标是拿到流量，语种跟着流量走：先看哪个语种量大竞争小 | 没流量的定位再漂亮也验证不了 |
 | 某语种流量大竞争小就**只做单语站**，不做多语言 | 多语言是翻车最多的路，还把权重摊薄；要上也是先 2–3 个语言、hreflang 代码统一生成、禁止按 IP 跳转 |
-| 意图类型决定产品形态与变现方式：信息型 → 内容站 → 广告；工具型 → 在线工具 / 客户端 → 一次付费或订阅；持续使用型 → SaaS → 订阅 | 形态跟着意图走，不跟着技术偏好走 |
+| 意图类型与使用环境决定产品形态：信息型可做内容站；工具型及持续使用型可做网站/SaaS或macOS/iOS/iPad App；按 `lifecycle.md` 2.2 选择买断、IAP或订阅 | 形态跟着意图走，不跟着技术偏好走 |
 | 写清「1」的定义与放弃条件 | 0→1 最常见的死法是不知道什么时候该停 |
 
 - **闸门**：[`checklists.md`](references/checklists.md) 段 2。
 
 ### 3 建站与开发
+
+**适用范围**：本段 shadcn、TanStack、Cloudflare 和段 4–6 的网页 SEO/部署规则只约束 Web 面，不套到原生控件、App 包或商店发布。macOS 实现按已安装的 `build-macos-apps` 专项 Skill；iOS/iPad 按对应原生开发工具，商店分发读 `monetization.md` 五。仅有 App 时网页项标 N/A 并写明原因，不强建网站。
 
 - **触发**：「帮我搭起来」，或开发中把本 Skill 当规范挂着。
 - **入口**：[`lifecycle.md`](references/lifecycle.md) 段 3 + [`cloudflare-stack.md`](references/cloudflare-stack.md)（脚手架命令原文、资源选择、8.6 邮箱）；三方库/服务优先见 [`integrations.md`](references/integrations.md)。常用：`gh repo create --private`、`wrangler types`、对 dev server 跑 `scripts/seo-audit.mjs`。
@@ -191,7 +194,7 @@ Day-1 清单里最容易漏、也最贵的三条单列在这里，其余见 `lif
 
 | 硬规则 | 为什么 |
 |---|---|
-| **Stripe + PayPal 先有** | 支付通道必须有备份，被关户不至于断粮 |
+| **Web/站外直销支付有备份**：优先 Stripe + PayPal；App商店按目标市场当前IAP/买断/订阅规则 | 按分发方式验证支付，不强制原生App接网页支付 |
 | 广告（AdSense / Adsterra）、订阅、商店上架后续沉淀；AdSense 先传 `ads.txt` 再申请审核 | 每条通道各有过审与关户的坑，边做边写回 `monetization.md` |
 | 动页面之前先查上游流量意图 | 转化率低常常是词选错了，不是按钮颜色 |
 | 流量掉了先查 GSC 与 TDK / canonical 有没有被改坏；退款全退不部分退 | 被 K 与被拦是不同的死法，先分清再动手；部分退款制造争议 |
