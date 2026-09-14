@@ -226,6 +226,10 @@ node scripts/demand/boards.mjs traffic-cv --json \
 
 **macOS 直销另开一行**：Mac App Store不能代表全部Mac市场，见[Apple macOS分发](https://developer.apple.com/macos/distribution/)。自有产品串联下载→首次启动/激活→完成任务→付费→留存/退款的原始事件和支付记录；DMG请求、重复下载、Sparkle更新流量不能计为独立用户。竞品无授权后台时，用公开价格/用户原话/可信经营披露分级，真实安装、激活、收入、留存留未知，不能从网站访问估成事实。
 
+**Appfigures 公开快照**：从站内搜索结果或公开应用页确认 **Appfigures product ID**（不是 Apple App ID），再用 `https://app.appfigures.com/reports/app-profile/<product-id>?dates=last-month`。复用兄弟 `opencli/scripts/appfigures.mjs --product-id <id> --out-dir <目录>`，读取实际页面的 Est. Downloads、Est. Revenue (After Fees)、地区/月份与新评分卡片；`Not Available` 留空，`<$5K` 保留为严格上限区间，不能输出为收入 5000。每次核对显示的是 iOS 还是包含 Google Play 的统一应用。历史/关键词页若出现登录墙或 Loading 占位，不采占位排名；公开概览可读不代表深度报表已获授权，控制应用有数也不保证每个长尾应用有估计。 下载页若说明多数买断付费应用不提供下载估计，记录为该提供方的覆盖缺口，不能归因于未登录、无需求，也不能靠升级承诺解决；收入有数仍需核查国家覆盖和估计口径。 登录后另查关键词表；Popularity、Competitiveness、# Apps 与应用排名分别记录，不能当月搜索次数或 SEO KD。遇到结果截断保留条数/限制；竞品跟踪可用额度与套餐升级分开核验。
+
+**Mac 安装代理渠道**：先在 [Homebrew Cask](https://formulae.brew.sh/cask/) 找产品的实际 token，再读 `https://formulae.brew.sh/api/cask/<token>.json` 的 `analytics.install`（30/90/365 天）与 `generated_date`。这些是启用 analytics 的 Homebrew 安装事件样本（用户可退出统计），不是全渠道下载、独立用户或付款人数；窗口相互重叠，不能相加，未收录或缺失不记零。结合开发者官网价格、Mac App Store 评论和有出处的经营披露判断，仍沿用上面的实际值/估计/代理指标分列。
+
 新候选至少两类独立证据，尚无自家后台时记录竞品证据缺口和后续小样本验证计划，不因缺自家留存直接否决；已上线产品则回读自己真实漏斗。**网页月量低只能说明该网页获客路径弱，不能单独否决有商店或直销证据的App市场。**
 
 ---

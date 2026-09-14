@@ -2,7 +2,7 @@
 name: opencli
 description: 用 OpenCLI 驱动用户本机那个真实的、已登录的 Chrome，或调用它的 160+ 站点 adapter。任何需要登录态的页面操作都从这里开始——读登录后的后台、抓没有 API 的表格、填表提交、跑一个站点命令、把页面数据取回来。也覆盖会话命名与租约纪律（"我的标签页被别人抢了"）、批量取数与落盘、adapter 的编写与自修复、opencli doctor 排障。用户提到 opencli、浏览器自动化、用我的浏览器、驱动 Chrome、登录态、抓后台数据、抓表格、导出报表、填表、自动点击、截图、adapter、doctor 报错、session 撞名、标签页被抢、tab 泄漏，或说"打开这个页面看看""帮我登录后台查一下""这个站没有 API"时，务必使用本 Skill。也在需要判断"这件事该不该开浏览器"时使用——本 Skill 第零节就是那张判断表（要不要登录态、有没有现成脚本或 adapter、配额站能不能动手、什么时候该转给 agent-reach 或业务 Skill）。只要动作会落在浏览器上，先读这里再动手。
 metadata:
-  version: "1.4.0"
+  version: "1.5.0"
 ---
 
 # OpenCLI
@@ -757,6 +757,7 @@ node <opencli-skill-dir>/scripts/access-report.mjs --degraded     # 只看 detec
 
 | 脚本 | 干什么 |
 |---|---|
+| `scripts/appfigures.mjs` | Appfigures 公开应用概览，支持 product ID / URL 与顺序批量；输出月份、地区、下载/扣费后收入估计、新评分与访问状态；已登录时可读商店关键词表（以 `--help` 支持的报表为准）。`--help` 查看参数；product ID 不是 Apple App ID，收入区间和缺失值不会伪装成精确数。 |
 | `scripts/opencli-core.mjs` | 给 JS 调用方的最小封装：`defaultSession()` / `sessionForUrl()` 生成安全的会话名、`openAndExtract()` 把一次访问打包成原子 batch、`sequentialCrawl()` 顺序采集带间隔、`reconcileSessions()` 差集回收、`sleepStep()` 真睡眠、`batchBrowser()` / `openAndEval()` 包住 batch |
 | `scripts/session.sh` | Bash tool 侧的同一套：`oc_session <base>`、`oc_session_for <url>`（配额站自动收敛）、`oc_guard_session` 拒绝 `$$` 形状的名字 |
 | `scripts/pressure.mjs` | **开工前的自查：现在能不能动手。** 配额站各有几个标签页（分「我的 / 共享 / 别人的」）、到没到线、tools-share 锁被哪个 pid 拿着多久、那个进程还活着吗，裁决 `go` / `wait` / `stale-lock` / `unknown` 并给出具体动作。`--tool <key>` 只看一个工具，`--json` 机读，退出码 0/2/3/4 可以直接当闸门。**陈旧锁只报告不删**——删别人的锁比等更危险 |

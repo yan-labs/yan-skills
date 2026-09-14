@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "name": "opencli",
-  "version": "1.4.0",
-  "releasedAt": "2026-08-29T00:00:00.000Z",
+  "version": "1.5.0",
+  "releasedAt": "2026-09-14T19:26:25.926962Z",
   "source": "yan-labs/yan-skills",
   "manifestUrl": "https://raw.githubusercontent.com/yan-labs/yan-skills/main/opencli/skill.json"
 }
