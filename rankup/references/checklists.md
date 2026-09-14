@@ -145,10 +145,10 @@
 | 集成在目标环境端到端验证 | 不是本地 mock 通过就算；Stripe 与 PayPal 各有一条 | `.rankup/integrations.md` | 按 [`integrations.md`](integrations.md) 逐项验证 | 每轮 |
 | 回调签名、幂等、错误路径 | 三类各有一次真实验证记录 | `.rankup/integrations.md` | 构造真实回调与重复回调 | 一次 |
 | 四处均未暴露密钥 | 代码、日志、Git、`.rankup/` 扫描都干净 | `.rankup/secrets.md` | 扫描 | 每轮 |
-| **D1 · `SITE_URL` 构建期注入客户端** | 真实浏览器打开预览域，`document.querySelectorAll('link[rel=canonical]').length === 1` 且 outerHTML 不含占位域名；水合前后 canonical/og:url 一致；取不到 `SITE_URL` 时构建**直接失败**而不是回落占位默认值 | 真实浏览器 DOM 快照（非 `curl`）进 `.rankup/audit.md` | 做法见 [`lifecycle.md`](lifecycle.md) 段 3 · 3.2「脚手架初始化当天默认清单」D1；`curl` 看不出这项，必须真实浏览器渲染后读 | 一次 |
+| **D1 · `SITE_URL` 构建期注入客户端** | 域名与索引开关的共享构建配置在 SSR / 无 `process` 的客户端一致；production 开与 preview 关两条构建回归都通过，缺 `SITE_URL` 构建失败。首次 SSR、水合后、真实 SPA 导航后 canonical 恰好一条、自指且无占位，og:url 一致；站点控制的 robots meta 恰好一条并符合环境，响应头及额外机器人指令无冲突，preview 保留 `noindex` 与 robots 封锁 | 两种构建回归 + SSR/响应头 + 浏览器三阶段 DOM 进 `.rankup/audit.md` | [`lifecycle.md`](lifecycle.md) 段 3 D1；不能仅找到一条正确标签 | 初始化 / 动了共享配置或 head / 发布 |
 | D2 · 边缘缓存随脚手架就位 | 与本表「匿名页 HTML 边缘缓存已实现且线上验证」同一项，验证补一条：**用 GET 而不是 HEAD**——多数实现的缓存键只对 GET 生效，HEAD 会得到假阴性 | 同上 | 见 [`cloudflare-stack.md`](cloudflare-stack.md)「12」 | 一次 |
 | D3 · 字体策略当天定死 | 判据见闸门 6「Web 字体总字节是独立判据」一行，本行不重复；CJK 系统字体栈、拉丁自托管子集化、不 `preload` 非首屏字重；装饰字体不在 PSI 前 15 个请求里 | 同闸门 6 | 见 [`seo-box.md`](seo-box.md) 一 | 一次 |
-| D4 · 分析脚本延迟加载 | 与段 5「第三方分析脚本延迟到首次交互或 6s 兜底」同一判据，脚手架当天即接入这个加载策略，不留到接入分析平台那天 | 同段 5 | 见 [`analytics-platforms.md`](analytics-platforms.md) | 一次 |
+| D4 · 分析脚本延迟加载 | 判据统一见段 5「分析通道在采集」：开发时即验证延迟触发、首屏与 SPA 去重及实际远端上报，性能优化后不遗漏这些回归 | 同段 5 | [`analytics-platforms.md`](analytics-platforms.md) | 动了分析加载器或共享入口 |
 | **D5 · 图片默认已到位** | 页面内的 logo、hero 图、装饰图均为 WebP+PNG 回退（favicon 按 D15 的图标格式规则）且按显示尺寸出图（含 2x）、标注 `width`/`height`；首屏 LCP 图有 `fetchpriority="high"`，非首屏图有 `loading="lazy"`；`og:image` 不在首屏渲染路径里；**任意一张首屏图片原始文件 > 200KB 视为不通过** | 图片体积清单进 `.rankup/audit.md` | `curl -sI` 逐张图取 `content-length`，检查首屏 HTML 里的 `fetchpriority`/`loading` 属性 | 一次 |
 | **D6 · 大数据不进入口 bundle** | 构建产物分析（`vite build --report` 或等价）确认入口 chunk 不含题库/条目库这类大数据；路由 loader 数据随 HTML dehydrate，客户端**没有**针对同一份数据的二次 `import()` | 构建产物分析记录进 `.rankup/audit.md` | 看构建产物体积分布 + 网络面板确认无冗余请求 | 一次 |
 | D7 · DOM 与动画默认项 | 列表/网格缩略图用单个 SVG/canvas 而非逐格 `div`；首屏下内容有 `content-visibility: auto`；动画属性检查（`transition`/`animation`）只涉及 `transform`/`opacity`；无「主内容 `opacity: 0` 靠 JS 淡入」的写法 | grep + DOM 节点计数进 `.rankup/audit.md` | 浏览器 DevTools 数节点数，grep 动画 CSS 属性 | 一次 |
@@ -156,8 +156,8 @@
 | D9 · 路由与协商中间件已处理边界 | 尾斜杠 301 规范化到全站统一形态；`curl -H 'Accept: text/markdown' <404路径>` 与 `curl -H 'Accept: application/json'` 均不返回 500 | curl 输出进 `.rankup/audit.md` | 逐条构造非常规 `Accept` 头请求 | 一次 |
 | D10 · sitemap 策略已裁定 | sitemap 只含有独立搜索意图的页（首页/分类页/说明法律页）；模板化内页默认不进 sitemap，`.rankup/decisions.md` 写明触发补入条件（GSC 收录比例阈值）；sitemap 由运行时路由生成，仓库里**没有**构建期写死的静态 sitemap 文件 | `.rankup/decisions.md` + sitemap 源码位置 | 见 [`lifecycle.md`](lifecycle.md) 段 3 D10；段 4「一个关键词对应一个内页」不等于「模板化内页都要进 sitemap」 | 一次 |
 | D11 · og 图渲染失败必须可见 | CJK/RTL 站已用真实文本验证过至少一张 og 图渲染成功（非静态占位、非 0 字节 200）；渲染管线里模拟一次失败输入，确认返回非 200 而不是空图 200 | 渲染验证记录 + 故障注入结果进 `.rankup/audit.md` | 手动构造一次会导致渲染失败的输入 | 一次 |
-| D12 · JSON-LD 注入方式与类型选择已定 | 全站 JSON-LD 统一走路由 `head()` 的 `scripts` 字段（grep 业务组件内没有手写 `<script type="application/ld+json">`）；`Organization.sameAs` 里每个链接真实可访问；`author`/`datePublished`/`dateModified` 是构建期注入的真实日期，不是硬编码占位日期 | grep 输出 + 抽样 curl 验证 `sameAs` 链接 | 见 [`lifecycle.md`](lifecycle.md) 段 3 D12 与闸门 4b | 一次 |
-| D13 · a11y 属性组件级核对 | 网格/按钮类组件的 `role`/`aria-label`/`aria-pressed` 逐一核对不缺失；纯装饰图 `alt=""` | 组件审计记录进 `.rankup/audit.md` | 抽查 `components/ui/` 之外自己包装的交互组件 | 一次 |
+| D12 · JSON-LD 注入方式与类型选择已定 | JSON-LD 统一走路由 head；合法 JSON 之外，实际类型、属性 domain / 继承关系和值类型已按官方定义及验证工具通过语义核验；适用富结果的必需字段有真实内容支持，无伪造类型、评价或数据；sameAs 可访问、日期与联系资料为真值 | 各模板实际 JSON-LD + 官方规则/验证结果进 `.rankup/audit.md` | [`lifecycle.md`](lifecycle.md) D12；内容形状另见闸门 4b，不能以 JSON.parse 成功代替 | 初始化 / 动了 JSON-LD 或模板 |
+| D13 · a11y 属性组件级核对 | 真实 DOM 的 role 与父子语义合法；交互网格为 `grid → row → gridcell`，网格项不越过 row；焦点与方向键、输入、点击及相关按钮实测正常，包装层未破坏布局；属性按真实语义设置，纯装饰图 `alt=""` | 真实 DOM + 键盘/点击结果进 `.rankup/audit.md` | [`lifecycle.md`](lifecycle.md) D13；不只查属性存在 | 初始化 / 动了交互组件或 DOM |
 | D14 · 部署与仓库卫生当天完成 | Workers Builds Git 集成已连接（判据同段 5「Cloudflare Git 集成已连接」一行）且 `wrangler.jsonc` 注释记录了接入日期；`lint`/`test` 命令脚手架跑通当天即为绿并已进 `ship` 命令；`.env`/`.cf-token` 类文件在首次提交前已入 `.gitignore`（`git log --all --full-history -- .env` 应为空） | `wrangler.jsonc` 注释 + `git log` 输出 | 见 [`lifecycle.md`](lifecycle.md) 段 3 D14 | 一次 |
 | **D15 · 品牌图标当天做齐** | 段 4「图标专项（上线前必过）」的资产、引用与图案检查在开发当天已通过；静态目录及构建产物无 React / Vite / TanStack 默认图标残留，含根 `/favicon.ico` | 图标清单与实图预览进 `.rankup/audit.md` | 唯一操作源见 [`lifecycle.md`](lifecycle.md) 段 4 · A 节；不能只改 SVG 或文件名 | 一次 |
 
@@ -169,6 +169,7 @@
 **改判据要回各自的出处改，别只改这张表。**
 站主原话：「这些东西都必须要走一遍……这是硬性要求」。**只跑了命令、没留下证据不算过这项。**
 预览域的 `noindex` / `Disallow: /` 是设计：闸门 1、2、4 里由它引起的 robots 类项记「设计，段 5 放开索引后复核」，不算红灯。
+上线前复用 D1、D4、D12、D13 与 P3 的判据；发布后在正式环境回读本轮涉及项。共享模板或加载器改动覆盖其消费模板，延迟脚本性能优化须回归相关 head、交互与分析上报；这项增补不扩大为每次小改都重测无关页面或平台。
 
 | 检查项 | 客观通过条件 | 证据落点 | 怎么做 | 复查 |
 |---|---|---|---|---|
@@ -180,7 +181,7 @@
 | 闸门 0 · 站点身份 | OG 元数据（`og:image` ≥1200px，逐页独立）与图标全集预览域 200，`manifest.json` 引用全部命中真实文件，标记经 16px 实测；`manifest.json` 的 `display` 按站点类型判过（详见 [`lifecycle.md`](lifecycle.md) 段 4 · A 节第 5b 条），纯营销/引流/内容站预览域没有浏览器安装提示；无占位扫描零命中 | `.rankup/integrations.md` | curl 各路径 + 人工核对预览域 HTML | 动了页面 |
 | **图标专项（上线前必过）** | 首页及各模板的 SSR / 水合后 DOM 所有 icon、shortcut icon、apple-touch-icon 引用，manifest icons 与根 `/favicon.ico` 均完成核对；逐个 GET 为 200 且解码为真图（非 HTML），响应类型、声明尺寸与真实尺寸一致，方形、URL 稳定且有 ICO/PNG 搜索回退；每张图经人眼确认属于同一品牌、非脚手架默认图标；16px 可辨认 | 引用清单、响应类型/真实尺寸、实图预览进 `.rankup/audit.md` | [`lifecycle.md`](lifecycle.md) 段 4 · A 节第 4–5a 条；仅有文件或浏览器标签显示正常均不算通过 | 动了图标或 head/manifest |
 | **占位专项（硬性红线，不过不许进段 5）** | 按 sitemap 逐 URL `curl` 全站 HTML，用 [`discipline.md`](discipline.md) 十四那批正则 grep 零命中；**且人工抽查首页、定价页、关于页、联系页、法律页（隐私政策/条款）**，每个链接真的可点（不是 404、不是 `#`）、每张图真的有内容（不是占位图床、不是空 `src`） | grep 输出（逐 URL）+ 人工抽查记录进 `.rankup/audit.md` | `seo-audit.mjs --sitemap` 的 `PLACEHOLDER_*` issue 已内置这批检测，逐页读 `issues` 即可；人工抽查那半不能省，脚本只覆盖 HTML 里能匹配到的字面量，链接是否真的可达要点开确认 | 动了页面 |
-| 闸门 1 · 技术 SEO | sitemap 条目与真实 URL 集合一致且零 404；内链零 404、零 `href="#"`；`llms.txt` 列出的路径与真实 URL 一致（不是模板占位）；robots 除预览封锁外未误挡应收录路径 | `.rankup/audit.md` | 抓 sitemap 逐条请求 + 抓全站内链逐条请求 + 请求 `/robots.txt`。站点已在 Ahrefs 里验证过所有权时（段 5 之后），`ahrefs-site-audit.mjs report <id> links` 是**第二双眼睛**——**两边都说没问题才算数，且必须一起记下 Ahrefs 那次抓取的日期**（它抓的可能是几天前的站）。Ahrefs 报的每条问题要用 `issues --json` 里的 data-explorer 链接拿逐 URL 清单，与本地 `seo-audit.mjs` 的结果对上再修，修完手动重抓核销。→ 对应 [`seo-growth.md`](seo-growth.md)「2026 年 Google 十大排名因素」#8（技术 SEO 健康度）与 #10（内部链接） | 动了页面 |
+| 闸门 1 · 技术 SEO | sitemap 条目与按 D10 裁定的 URL 集合一致且零 404；全体可索引页面的 SSR 可达性另按 P3 核验；内链零 404、零 `href="#"`；`llms.txt` 列出的路径与真实 URL 一致（不是模板占位）；robots 除预览封锁外未误挡应收录路径 | `.rankup/audit.md` | 抓 sitemap 逐条请求 + 抓全站内链逐条请求 + 请求 `/robots.txt`。站点已在 Ahrefs 里验证过所有权时（段 5 之后），`ahrefs-site-audit.mjs report <id> links` 是**第二双眼睛**——**两边都说没问题才算数，且必须一起记下 Ahrefs 那次抓取的日期**（它抓的可能是几天前的站）。Ahrefs 报的每条问题要用 `issues --json` 里的 data-explorer 链接拿逐 URL 清单，与本地 `seo-audit.mjs` 的结果对上再修，修完手动重抓核销。→ 对应 [`seo-growth.md`](seo-growth.md)「2026 年 Google 十大排名因素」#8（技术 SEO 健康度）与 #10（内部链接） | 动了页面 |
 | 闸门 2 · TDK | 全站 title 互不重复、description 互不重复且长度在截断阈值内；**每页恰好一个 `h1`**；必修观察项清零（seo-audit 已改为只出事实记录，哪些算必修按 [`seo-box.md`](seo-box.md)「seo-audit 判读指引」判：NO_TITLE / NO_DESCRIPTION / NO_VIEWPORT / NO_H1 等为零，`fetchError` 为零——抓取失败 ≠ 通过；预览域的 NOINDEX 记为设计）。**覆盖全站每一个 URL，不是抽样** | `.rankup/audit.md`（逐 URL，不是一条总述） | `seo-audit.mjs --sitemap <url> --json`（顶层是以 "0"… 为键的对象，`Object.values()` 后逐页读；title / description 是 `{text,length}` 对象），逐条读 `issues` | 动了页面 |
 | 闸门 3 · 关键词密度 | 密度在自然区间，且**「声明的短语」与「测量的短语」逐页是同一个字符串** | `.rankup/audit.md` | `seo-audit.mjs --sitemap <url> --density-only`。实测过 8 个页面在构建绿灯下全过，逐页核对才发现每页测的都不是自己声明的短语 | 动了页面 |
 | 闸门 4 · GEO / AI Agent 就绪度 | 有带分数与逐项结果的基线报告，且**每条 `partial`/`failed` 都独立核实过**（成立则改，误报则记驳回理由）；`llms.txt` 存在且与 sitemap 一致 | `.rankup/agentic/<domain>/<date>.json` + 核实结论进 `audit.md` | `is-agentic.mjs scan <domain> --save` | 动了页面 |
@@ -192,7 +193,7 @@
 | **改动即全套重跑** | 本段内（以及段 7 之后）每一次页面改动，上面九行闸门**全部**重跑并留了本轮证据，对比数字进 `experiments.md`；**没有「只重跑第 4、6 行」这类抽样记录** | `.rankup/experiments.md` | `is-agentic.mjs diff` 与 `pagespeed.mjs collect --strategy both`（`plan` 仅兜底）只是其中两行的对比工具，不是全套 | 动了页面 |
 | **P1 · 内页 TDK 规格达标** | title 40–60 字且主词在句首、分隔符按语种（日文全角「｜」，拉丁站用 `-`/`\|`）；description 140–160 字且含本页真实事实（具体数字，不是套话）；H1 唯一含目标词；H2 ≥ 2、H3 ≥ 2 | seo-audit `--json` 输出 + 人工核对分隔符与事实 | 见 [`lifecycle.md`](lifecycle.md) 段 4「新增内页 / 新模板的随手清单」P1 | 动了页面 |
 | **P2 · 内容形状随模板带** | 每个内容页有 `<table>` 规格信息、≥1 条 `<cite>`+外链的外部来源、FAQ 用 H3 + `FAQPage` JSON-LD、可见更新日期；模板化内页正文 ≥ 150 字且含本页独有事实（不是同模板复制文案）；首屏第一句话说清本页解决什么 | `.rankup/evidence/aitdk-geo-<date>/` 与人工抽查 | 与闸门 4b 判据一致，本行是「新增内页当场自查」，闸门 4b 是「批量体检」 | 动了页面 |
-| **P3 · 独立 og + 内链闭环** | 每页 og:image 真实、体积 > 10KB、不与其他页共用；canonical 自引；面包屑 + 同类上一项/下一项 + 回分类页三件套都在；分类页样板控件文案（「开始」「查看」等）在 `aria-label` 里、不进 SSR 正文 | seo-audit `--json` + `--density-only` top15 无样板词 | 见段 4 内页清单 P3 | 动了页面 |
+| **P3 · 独立 og + 内链闭环** | 每页 og:image 真实、体积 > 10KB、不共用；canonical 自引，面包屑/同类上一项下一项/回分类页齐全；全部可索引内容经分类或可抓取分页的 SSR 真实 `<a href>` 可达，内链图与可索引路由清单对账无遗漏，包含 sitemap 外页面；不能仅靠客户端按钮/搜索/无限滚动，无需全塞首页或全入 sitemap；样板控件文案在 aria-label、不进 SSR 正文 | og/密度结果 + SSR 内链图和逐 URL 覆盖清单 | [`lifecycle.md`](lifecycle.md) 段 4 P3 | 动了 URL / 分类分页或内链模板 |
 | **P4 · 新页四张清单同步** | 新增页面已出现在：边缘缓存白名单（判据同「匿名页 HTML 边缘缓存」一行）、markdown 协商白名单（判据同闸门 1「技术 SEO」）、sitemap（仅当有独立搜索意图，按 D10 裁定）、本轮 IndexNow 增量推送清单 | `.rankup/audit.md` 逐页勾选 | 四项各自的验证命令见对应闸门；本行只判「四项都过了一遍，不是漏了某一项」 | 动了 URL |
 | **P5 · 新模板 PSI 抽样已覆盖** | 新增模板首次上线前，PSI 抽样清单里已包含该模板至少一个真实页面（不是复用旧模板的抽样结果代表新模板）；判据同闸门 6 | `.rankup/evidence/pagespeed-<date>/` | 见段 4 内页清单 P5 | 动了页面 |
 | P6 · 无 JS 内容占比 | 判据同闸门 3「关键词密度」，样板文案不进 SSR 正文（同 P3） | 同闸门 3 | 见段 4 内页清单 P6 | 动了页面 |
@@ -205,7 +206,7 @@
 | 检查项 | 客观通过条件 | 证据落点 | 怎么做 | 复查 |
 |---|---|---|---|---|
 | **批 A 在预览域接好并验证** | Cloudflare Web Analytics、GA4、Clarity 三个都有资源 ID 与「数据流状态条 / 互不相同的国家设备来源」两类证据；**先接的是不需要第三方账号的那个** | `.rankup/integrations.md` | `cf-analytics-setup.mjs`；GA4 与 Clarity 接入步骤见 [`analytics-platforms.md`](analytics-platforms.md) | 一次 |
-| 分析通道在采集 | **线上原始 HTML 里 grep 得到 beacon**。控制台显示「已启用」不算；beacon 注入方式按运行时选过，没有默认自动注入；grep 只证明代码在，**延迟加载器是否真的按设计触发**（不交互 6s 兜底 / 首次交互立即触发）另跑 `analytics-beacon-check.mjs` 验证 | `.rankup/integrations.md` | `cf-analytics-setup.mjs status <domain>`；`analytics-beacon-check.mjs <url> --both` | 每轮 |
+| 分析通道在采集 | 延迟加载器的首次交互与无交互兜底均按设计触发；HTML Accept 原始响应与真实浏览器分别核验，首屏及真实 SPA 导航无重复加载/重复同一事件，站点 ID 与目标远端一致，至少有实际远端上报证据。API 开关关闭不等于 HTML 无注入，源码含脚本或资源 200 不等于已上报；性能优化后仍须通过相关回归 | HTML 响应、浏览器脚本/事件及远端结果进 `.rankup/integrations.md`，仅存脱敏数据 | [`analytics-platforms.md`](analytics-platforms.md)；`analytics-beacon-check.mjs` 只覆盖其实际支持的检查，缺少项补真实浏览器验证 | 动了分析加载器 / 共享入口 / 注入配置或相关发布 |
 | **域名黑历史裁决** | 每个候选域名四项都有带日期的证据：`seo-webcafe.mjs history`（前世）、Wayback 快照、外链画像（`seo-webcafe.mjs backlink` 或 Ahrefs）、Google `site:` 与品牌名搜索；**成人 / 赌博 / 药 / 被惩罚 / 大量垃圾外链任一命中即否决**，否决的连证据一起记；通过且有前世的标 `has_history: true` | `.rankup/decisions.md` | 做法见 [`lifecycle.md`](lifecycle.md) 段 5 · 5.2。定稿前必查，**不允许「外链多但先用着」** | 会过期 |
 | zone 与 NS 用真实解析核验 | `whois` 的真实返回或 zone `active`，**不是「已告知用户改 NS」就结项**；NS 值交给用户自己改，没有代劳；域名没有代买 | `.rankup/infrastructure.md` | `whois -h <注册局 whois> <域名>`；路径见 [`cloudflare-stack.md`](cloudflare-stack.md) §8.5 | 一次 |
 | DNSSEC 先关后开 | 换 NS 前 `whois` 复查到 `unsigned`；zone active 后用 Cloudflare 的 DS 重新启用 | `.rankup/infrastructure.md` | [`cloudflare-stack.md`](cloudflare-stack.md)「换 NS 之前必须先关 DNSSEC」 | 一次 |
@@ -213,7 +214,7 @@
 | 域名留位已换成正式域名 | 只改了那一处常量；**全仓库 grep 预览域字面量为零**；canonical / `og:url` / sitemap 指向正式域名 | grep 输出 + `curl` | 见 [`lifecycle.md`](lifecycle.md) 段 5 · 5.3 第 16 条 | 一次 |
 | **Cloudflare Git 集成已连接且首次自动构建成功** | Pages「Git 存储库连接」或 Worker Workers Builds 已连到 `main`；控制台能看到一次成功的自动构建记录；仓库里**没有**给网站部署用的 `.github/workflows/*.yml`（跑测试/lint 的 workflow 不算）；接入前已在干净克隆里用 `pnpm install --frozen-lockfile` 构建通过。**验证方式是 push 一个无害提交（例如 `robots.txt` 加一行注释）后线上可见，不接受本地 `wrangler deploy` 作为通过证据**——本地部署证明的是产物能上线，不证明 Git 集成本身接通了 | `.rankup/infrastructure.md` | 配置模板见 [`cloudflare-stack.md`](cloudflare-stack.md) §9.1（优先用 `cf-builds-connect.mjs` 走 API）；`grep -rl "wrangler deploy\|pages deploy" .github/workflows/` 应为空；干净克隆验证见 [`cloudflare-stack.md`](cloudflare-stack.md) §9.1.1 | 一次 |
 | 线上部署关联到预期提交 | 部署状态里的提交号 = 本轮要发的提交 | `.rankup/releases.md` | `wrangler deployments` 或 CF 面板 | 每轮 |
-| 真实域名返回预期 SSR HTML | curl 拿到的原始 HTML 里有预期正文，不是壳。**构建成功 / Worker upload 成功 / 健康页 200 都不算完成** | `.rankup/releases.md` | `curl -s https://<域名>` | 每轮 |
+| 真实域名返回预期 SSR HTML | curl 拿到的原始 HTML 里有预期正文，不是壳；本轮涉及的 D1 / D12 / D13 与分析项按原判据回读，批量内容按 P3 验证包括 sitemap 外索引页的 SSR 图覆盖。**构建成功 / Worker upload 成功 / 健康页 200 都不算完成** | `.rankup/releases.md` | `curl -s https://<域名>` | 每轮 |
 | **正式域名图标回读** | 正式域名重跑段 4 图标专项；放开索引后首页允许 Googlebot、图标允许 Googlebot-Image 抓取，robots/访问控制无误挡；保存本次真实响应与图片证据，Google 搜索显示状态单独记录 | `.rankup/releases.md` + `.rankup/audit.md` | [`lifecycle.md`](lifecycle.md) 段 4 · A 节第 5a 条；用户代理请求成功不等于 Google 已重新抓取 | 每次发布 / 放开索引 |
 | 关键 API、bindings、上传、鉴权、支付回调 | 适用项逐条在线上跑过一次，支付用的是 **live** 凭证 | `.rankup/releases.md` | 逐条真实请求 | 每轮 |
 | 回滚目标和方法已记录 | 写明回滚到哪个版本、用什么命令 | `.rankup/releases.md` | 手写 | 一次 |
@@ -222,7 +223,7 @@
 | 两边 sitemap 已提交 | GSC 与 Bing 都提交过，记的是**快照日期**不是实时值 | `.rankup/integrations.md` | `webmaster-sitemap.mjs <gsc\|bing> submit` | 动了 URL |
 | **`hello@<domain>` 可收信且三处一致** | Email Routing 转发规则存在、收过一封测试邮件；JSON-LD `contactPoint.email`、`/about`、外链联络三处是同一个字符串，且只有 `hello@` 这一个地址 | 线上 HTML + `wrangler email routing rules list` | [`cloudflare-stack.md`](cloudflare-stack.md) §8.6 | 一次 |
 | **Cloudflare AI 爬虫阻止已关闭** | `curl <site>/robots.txt` 无 `# Cloudflare Managed Content` 段；CF dashboard 两个开关都已关（① Security → Bots → "阻止 AI 训练自动程序" → 不阻止；② Security → Bots → "管理您的 robots.txt" → 禁用）。**新建 zone 默认开启**，不关会阻止 AI 搜索引擎爬虫 | `.rankup/integrations.md` | [`cloudflare-stack.md`](cloudflare-stack.md) §8.7 | 一次 |
-| **索引已放开并复核** | 正式域名首页与内页 `curl` 无 `noindex`、robots 无 `Disallow: /`；段 4 闸门 1、2、4 重跑后「设计」项转绿 | `.rankup/audit.md` | 翻索引开关，重跑三行 | 一次 |
+| **索引已放开并复核** | 正式首页与代表内页按 D1 完成 SSR / 水合 / 真实 SPA 导航一致性复核，索引开关为开，无冲突 noindex、robots 无误挡；preview 仍封锁；段 4 闸门 1、2、4 的设计项转绿 | D1 三阶段证据 + robots/响应头进 `.rankup/audit.md` | [`lifecycle.md`](lifecycle.md) 段 5 第 28 条，判据复用 D1 | 放开索引 / 动了索引配置或 head |
 | **占位专项复查（硬性红线，放开索引前必过）** | 段 4 的占位专项已在**本域名**（正式域名，不是预览域）线上重跑一遍，零命中；**上一轮在预览域跑过的结果不采信**，域名换了、内容可能也动过 | grep 输出（逐 URL）+ 人工抽查记录进 `.rankup/audit.md` | 正则与人工抽查范围同段 4 闸门；域名定稿绑定后立即重跑，不等放开索引前才想起来 | 一次 |
 | **首页已请求编入索引** | GSC 与 Bing 各一条提交记录；域名 `has_history: true` 时这是放开索引后的**第一件事** | `.rankup/integrations.md` | GSC 网址检查 → 请求编入索引；Bing URL 提交 | 一次 |
 | 索引推送焊进出荷命令 | 项目自己的 ship 命令末段带索引推送，**脚本在项目仓库内而不是指向 Skill 目录** | 项目仓库 | 见 [`search-platforms.md`](search-platforms.md)「挂进发布流程」。这是静默收尾动作：漏了不会有任何东西变红 | 动了 URL |

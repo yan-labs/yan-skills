@@ -461,10 +461,10 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 
 | # | 规则 | 为什么 |
 |---|---|---|
-| D1 | **`SITE_URL` 必须在构建期（vite `define` / `import.meta.env`）烧进客户端 bundle，不能只放 Worker 环境变量**；默认值不许是占位域名，取不到就构建期直接抛错停止构建 | SSR 阶段能读到 Worker 的环境变量，但浏览器端水合后代码读不到——第二次渲染（客户端路由跳转、`document.title` 更新、动态插入的 `<link rel="canonical">`）会回落到代码里写死的占位默认值。`curl` 只看得到 SSR 首屏那一次输出，看不到水合之后的状态，`seo-audit.mjs` 这类基于 `curl` 的脚本因此测不出这个问题；只有真实浏览器渲染后再读 DOM，或 AITDK 这类跑在浏览器里的扩展才能看见。两个上线站都在这一条上翻过车：`SITE_URL` 没在构建期注入，`example.com` 占位域名泄到了线上 canonical/og:url 上，且是在 Googlebot 渲染之后才会看到的错误 |
+| D1 | **域名与索引开关共享构建期配置**：`SITE_URL` 与索引开关（如 `ALLOW_INDEX`）经 vite `define` / `import.meta.env` 注入服务端及客户端，缺域名时构建失败，不回落占位值；分别构建 production 开与 preview 关，覆盖没有 `process` 的浏览器环境；依次比较 SSR、真实浏览器水合后与点击站内链接的 SPA 导航 head | 构建期表达式外再包 `typeof process` 等运行时分支可能使浏览器走错回退。必须读取完整 canonical、robots 及响应头，不能仅找到一条正确标签；判据见 `checklists.md` D1 |
 | D2 | 边缘缓存中间件随脚手架当天就位，不留到上线前 | 见本节上一条第 8 步与 [`cloudflare-stack.md`](cloudflare-stack.md)「12. 匿名页面 HTML 边缘缓存」，不重复展开；提醒一点本节独有的坑：**HEAD 请求不会命中这条缓存路径**（多数实现只对 GET 建缓存键），验证边缘缓存生效必须用 GET，用 HEAD 验证会得到假阴性 |
 | D3 | Web 字体策略当天定死：CJK 站默认系统字体栈；拉丁站自托管、子集化到实际用到的字符与字重、`font-display: optional`、只 `preload` 首屏用到的那一个字重或干脆不 `preload` | 判据与字节预算见 [`seo-box.md`](seo-box.md) 一，不重复；**本节补一条实测细节**：`preload` 本身会抢在 HTML/JS 前面占带宽，实测反而把 LCP 推后了一个 RTT——「先 preload 保险」是一个直觉上正确、实测上有害的默认动作，脚手架初始化当天就不该无脑加；品牌/装饰字体按 seo-box 一的两全法：首屏后 FontFace 加载 + 子集 + 度量匹配 |
-| D4 | 第三方分析脚本（GA4、Clarity 等）统一延迟到首次交互或 6 秒兜底再加载，Cloudflare Web Analytics 关掉 `auto_install` | 判据见 [`analytics-platforms.md`](analytics-platforms.md) 与本文 SKILL 段 5 硬规则；脚手架当天就该把这个加载策略写进模板，不要等接入分析平台那天才想起来改 |
+| D4 | 第三方分析脚本（GA4、Clarity 等）统一延迟到首次交互或 6 秒兜底再加载，Cloudflare Web Analytics 关掉 `auto_install`；共享加载器从第一版具备幂等加载与 SPA 导航处理 | 首屏和真实 SPA 切页都须验证去重与远端实际上报；API 开关关闭不证明 HTML 无注入。操作见 [`analytics-platforms.md`](analytics-platforms.md)，判据统一见 `checklists.md` 段 5「分析通道在采集」 |
 | D5 | **图片默认**：页面内的 logo、hero 图、装饰图一律 WebP + PNG 回退（favicon 格式见 D15），按实际显示尺寸出图（含 2x 视网膜档），标注 `width`/`height`；首屏 LCP 图给 `fetchpriority="high"`，其余给 `loading="lazy"`；`og:image` 单独生成，不进首屏渲染路径 | 图片是最容易在脚手架阶段被忽略的一类默认项——设计稿或占位阶段随手塞进去的原图往往是未压缩的源文件。**实测两个站的 logo 分别是 650KB 与 1.1MB，且都直接被用在首屏**，这类体积问题在段 4 性能闸门里查出来，比开发时按流程做一次图片处理贵得多 |
 | D6 | **数据体量**：题库、条目库这类大数据绝不进入口 bundle；按路由或按项懒加载；路由 loader 取到的数据随 HTML 一起 dehydrate 给客户端，客户端不再用 `import()` 二次拉取；SSR 只发当前页真正需要的字段 | 入口 bundle 体积直接决定首屏 JS 执行时间；**实测按项拆分成独立 chunk 后客户端反而多了一跳网络请求，比不拆分更差**——正确做法是让 loader 阶段就把数据打进 HTML（SSR dehydrate），而不是打散成很多小 chunk 靠客户端各自 `import()` |
 | D7 | **DOM 与动画**：列表/网格卡片的缩略图用单个 SVG 或 canvas 绘制，不逐格套 `div`；首屏之下的内容用 `content-visibility: auto` 配 `contain-intrinsic-size`；动画只动 `transform`/`opacity`；不做把主内容压在 `opacity: 0` 上做入场动画的写法 | **实测某首页把 2,700 个 DOM 节点压到 760 个**，直接改善解析与布局耗时；把主内容初始状态设为 `opacity: 0` 再靠 JS 动画淡入，是「Googlebot 首次渲染读到空内容」的常见成因之一；同理，首屏内容如果靠定时 `animation-delay`（1–5 秒）淡入，会在 Lighthouse trace 窗口内制造新的 LCP 候选、拖高 Speed Index，判据见 [`seo-box.md`](seo-box.md) 一 |
@@ -472,8 +472,8 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 | D9 | **路由与协商**：所有尾斜杠路径 301 规范化到无尾斜杠（或反之，全站统一一种）；`Accept: text/markdown` 这类内容协商中间件对 404 或未知路径不许返回 500，也不许让非 `text/html` 的 `Accept` 落到框架默认 handler | **实测 TanStack Start 对不含 `text/html` 的 `Accept` 头会直接 500**——这不是业务代码的 bug，是框架默认行为，脚手架接入协商中间件那天就要显式处理这条分支，否则任何带非常规 `Accept` 头的抓取（包括部分 AI 抓取工具）会看到一片 500 |
 | D10 | **sitemap 策略**：只放有独立搜索意图的页面（首页、分类页、说明/法律页）；模板化生成的内页（题目页、条目页这类）默认不进 sitemap，靠分类页的内链承接，等 GSC 收录比例证明值得单独收录后再补进去；sitemap 用运行时路由动态生成，不用构建脚本写死成静态文件 | 构建脚本生成的静态 sitemap 容易在加页面时漏跑，页面已经上线但 sitemap 里没有是最常见的静默失效；「一个关键词对应一个内页」（见本文段 4）不等于「每个模板化内页都要单独进 sitemap 抢收录预算」，两者是不同层面的判断，见段 4「一个关键词对应一个内页」一节 |
 | D11 | **og 图渲染**：`workers-og` / `satori` 这类边缘渲染方案不支持阿拉伯语等需要复杂文字整形的书写系统；CJK / RTL 站上线前先验证一张真实渲染结果，渲不出来就退回静态图；渲染失败必须报错，**不许吞成 0 字节但状态码 200 的响应** | og 图渲染失败但返回 200 是最隐蔽的一类失败——分享卡片显示空白，抓取脚本却测不出问题，因为 HTTP 层面一切正常 |
-| D12 | **JSON-LD**：统一走路由 `head()` 的 `scripts` 字段注入，不要在组件里各自拼字符串；页面类型按实际内容选（Game / CollectionPage / FAQPage / ContactPage 等，不是全站一个类型打天下）；全站 `Organization` 节点带 `sameAs`（只写真实存在的账号链接，不编）、`contactPoint.email`、`address`；每页 `author` + `datePublished` + `dateModified` 在构建期注入真实日期，不是占位日期 | 判据同 [`checklists.md`](checklists.md) 闸门 4b；本节强调的是「当天定好注入方式与类型选择规则」，避免后面每加一页都要重新决定一遍该用哪个 schema 类型 |
-| D13 | **a11y 从组件第一版就带上**：网格/按钮类组件的 `role`、`aria-label`、`aria-pressed` 层级关系一次写对；纯装饰性图片给空 `alt=""` | 无障碍属性是最容易被「以后再补」推迟、然后再也不会被想起来补的一类默认项；组件库（shadcn）本身已经带了这些属性，业务代码在包装组件时最容易把它们弄丢，脚手架当天核对一次成本最低 |
+| D12 | **JSON-LD**：统一走路由 `head()` 的 `scripts` 字段注入，类型按实际内容选择。逐类模板查 [Schema.org](https://schema.org/docs/schemas.html) 的类型、属性 domain / 继承关系与值类型，用 [Schema Markup Validator](https://validator.schema.org/) 核验；适用 Google 富结果时另按 [Google 对应类型文档及工具](https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data) 核必需字段。Organization 联系资料、sameAs、作者与日期只写真值 | **合法 JSON 不等于 Schema 语义合法**；不能为消除 warning 伪造类型、评价或必需字段，无真实内容支持的标记应删去。语义判据见 `checklists.md` D12，内容形状另见闸门 4b |
+| D13 | **a11y 从组件第一版就带上**：role 与 aria 属性按实际语义设置；交互网格按 `grid → row → gridcell` 组织，不能把格子直接挂在 grid 下；纯装饰图片给空 `alt=""` | 用真实 DOM 检查父子语义，再操作方向键、焦点、输入与相关按钮；增加 row 包装后同步回归布局和点击坐标，不只 grep 属性存在。判据见 `checklists.md` D13 |
 | D14 | **部署与仓库卫生**：Workers Builds 的 Git 集成接好并在 `wrangler.jsonc` 里用注释记下接入日期；`lint`/`test` 命令脚手架跑通当天就要是绿的，并且进 `ship` 命令；`.env`、`.cf-token` 这类凭据文件必须在第一次提交前就写进 `.gitignore` | 这几项对应的失败形态都是「越往后越难补」：`ship` 脚本第一版没接 lint/test，后面加进去要重构整条命令链；凭据文件第一次提交时没 gitignore，事后清理 Git 历史比当天多写一行 `.gitignore`贵得多 |
 | D15 | **品牌图标当天做齐**：按段 4 · A 节完成图标资产和引用，清除 React / Vite / TanStack 脚手架默认图标；上线前再过图标专项 | 新 SVG 正常显示，不能证明根 favicon.ico、其他 head 引用或 manifest 没有旧图；默认图标必须在开发当天清掉 |
 
@@ -666,6 +666,8 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 
 **C. 上线前闸门：九行硬性检查（0–6 + 4b + 4c），逐行要证据，不是工具清单**
 
+上线前复用 `checklists.md` D1 / D4 / D12 / D13 与 P3 的判据。延迟脚本等性能优化须回归所影响模板的 head、交互与分析上报；共享模块覆盖其消费模板，本项增补不要求每次小改都重测无关页面或平台。
+
 下表每一行都要在预览域产出可核验的证据，证据落进 `.rankup/` 对应文件；
 **只跑了命令、没留下证据不算过这项**，口头「应该没问题」或控制台一个绿色图标都不算证据。
 预览域的 `noindex` / `Disallow: /` 是**设计**，不是缺口——闸门 1、2、4 里因此报出的 robots 类问题
@@ -761,7 +763,7 @@ TDK 与内链检查覆盖**全站每一个 URL** 而非抽样；`is-agentic.mjs 
 |---|---|
 | P1 | 目标词先登记进 `.rankup/keywords.md`（同本段 B 节第 6 条，一词一页）；title 40–60 字且主词在句首，分隔符按语种（日文站用全角「｜」，不要沿用拉丁站的 `-`/`\|`）；description 140–160 字且含本页真实事实（具体数量、尺寸、线索数这类不能套模板的数字）；H1 唯一且含目标词；H2 ≥ 2、H3 ≥ 2 |
 | P2 | **内容形状随模板带**，不是写完正文才想起来补：规格类信息用 `<table>`；至少一条外部来源用 `<cite>` + 真实外链；FAQ 用 H3 结构并配 `FAQPage` JSON-LD；页面带更新日期。**模板化生成的内页正文 ≥ 150 字且必须含本页独有的事实**——同一模板生成两百多页却是同一套话术，会被判定为薄内容；首屏第一句话就说清这一页解决什么，不要让用户往下滚才明白 |
-| P3 | **每页独立 og 图**（真实图片，体积 > 10KB，不是共享同一张模板底图）；canonical 自引；内链闭环三件套：面包屑、同类模板的上一项/下一项、回分类页的链接。分类页要列出全部子项，但「开始」「查看」这类样板控件文案放进 `aria-label`，不进 SSR 正文——批量出现的样板短语会稀释页面的密度与信息密度判读 |
+| P3 | **每页独立 og 图**（真实图片，体积 > 10KB，不是共享同一张模板底图）；canonical 自引；内链闭环三件套：面包屑、同类上一项/下一项、回分类页。批量新增与分页时，全部可索引内容须从分类页或可抓取分页的 SSR 真实 `<a href>` 到达，不能只靠客户端按钮、搜索或无限滚动；无需全塞首页或全部进 sitemap。分类页样板控件文案放进 aria-label，不进 SSR 正文；抓取内链图并与可索引路由清单对账，包含 sitemap 外页面 |
 | P4 | 新页上线要同步进四张清单，缺一个页面就在某处静默失效：边缘缓存白名单（[`cloudflare-stack.md`](cloudflare-stack.md)「12. 匿名页面 HTML 边缘缓存」的适用范围）、markdown 内容协商白名单（本段 D9）、sitemap（仅当有独立搜索意图，见本段 D10）、IndexNow 增量推送 |
 | P5 | **新模板上线前，PageSpeed 抽样必须专门覆盖这个模板**，不能只抽已有模板的页面代表全站——**实测某分类页模板加了规格表和 FAQ 之后 DOM 体积变大，TBT 从 120ms 回落到 280ms**，同样的改动放到内容更简单的模板上可能完全没有影响。任何一次改动都要按 [`checklists.md`](checklists.md) 闸门 6 全套重跑，不是只测改动的那一页 |
 | P6 | **无 JS 内容占比**：shadcn/Tailwind 的类名天然会拉高 HTML 里非文本字符的占比，这本身不是问题，但正文文本量要够——判据仍是本段闸门 3 的密度检测；重复出现的样板区块（如 P3 提到的批量控件文案）不进 SSR 正文，理由同上 |
@@ -816,7 +818,7 @@ API 能立刻生效。只有没有公开 API 端点的设置（如 AI 爬虫阻�
    其响应未必经过该管线（官方 FAQ 亦说明 RUM 只作用于初次客户端请求）。
    判据是**线上原始 HTML 里 grep 得到 beacon**，不是控制台开关显示已启用。
    改手动嵌入时，**必须同时关掉平台侧的自动注入**——否则将来它一旦生效就是一页两个 beacon，
-   而平台限制一页只允许一个。
+   而平台限制一页只允许一个。API 显示关闭后仍按 [`analytics-platforms.md`](analytics-platforms.md) 分别核验 HTML Accept 请求与真实浏览器首屏、SPA 导航及远端上报；源码和控制台开关不能替代正式响应。
 3. **分析 beacon 的站点 token 是公开值**（它本就印在页面 HTML 里），可以进源码，
    但要在注释里写明它不是机密，否则后人会当作泄露而删掉它。
 4. **GA4 与 Clarity（会话录制/热图）**：接入步骤见 [`analytics-platforms.md`](analytics-platforms.md)；
@@ -874,7 +876,7 @@ API 能立刻生效。只有没有公开 API 端点的设置（如 AI 爬虫阻�
     在控制台连好后 push 到 `main` 即自动构建部署，配置模板与实测坑见
     [`cloudflare-stack.md`](cloudflare-stack.md) §9。**不写 GitHub Actions 部署 workflow**——
     本地 `wrangler deploy` 只作应急兜底，两者并存时以 Cloudflare 自动构建的 deployment 为准。
-19. 上传完成后等待部署进入可服务状态，并从真实域名验证 SSR HTML、静态资源、API、D1、R2 上传/读取、鉴权和支付回调（**live 凭证**）；图标按段 4 · A 节第 5a 条逐项回读，放开索引后再核抓取权限。
+19. 上传完成后等待部署进入可服务状态，并从真实域名验证 SSR HTML、静态资源、API、D1、R2 上传/读取、鉴权和支付回调（**live 凭证**）；图标按段 4 · A 节第 5a 条逐项回读，放开索引后再核抓取权限。对本轮涉及的共享配置、结构化数据、交互组件、分析加载器，正式域名回读 D1 / D12 / D13 与段 5 分析判据；批量内容按 P3 对账包括 sitemap 外可索引页的 SSR 内链图。
 20. 对边缘缓存或传播延迟进行有界重试，并用版本标识、响应头或实际内容确认服务的是新版本。
 21. 检查日志与错误率，保存部署标识、时间、验证证据和回滚命令。
 22. **此时索引开关仍然是关**——正式域名先带着 `noindex` 上线，批 B 接完再放开。
@@ -975,7 +977,7 @@ API 能立刻生效。只有没有公开 API 端点的设置（如 AI 爬虫阻�
     ② Security → Bots → "管理您的 robots.txt" → 禁用 robots.txt 配置。
     改完 `curl <site>/robots.txt` 验证无 `# Cloudflare Managed Content` 段。
     详见 [`cloudflare-stack.md`](cloudflare-stack.md) §8.7。
-28. **重跑段 4 闸门 1、2、4**：确认 robots 类「设计」项转绿、canonical 指向正式域名、`is-agentic` 分数不低于预览域基线。
+28. **重跑段 4 闸门 1、2、4**，并按 D1 比对正式首页与代表内页的 SSR、水合及真实 SPA 切页 head，排除第二条冲突 robots，复核 preview 仍封锁：确认 robots 类「设计」项转绿、canonical 指向正式域名、`is-agentic` 分数不低于预览域基线。
 29. **提交首页请求编入索引**（GSC「网址检查 → 请求编入索引」，Bing「URL 提交」）。
     域名有「前世」（5.2 第 10 条）时，**这是放开索引后的第一件事**——
     把搜索引擎对该域名的旧记忆（停放页、旧站）尽快覆盖掉。

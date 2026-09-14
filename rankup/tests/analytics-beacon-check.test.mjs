@@ -1,67 +1,115 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyBeacons, formatBeaconTable } from "../scripts/analytics-beacon-check.mjs";
+import { classifyBeacons, formatBeaconTable, assessScenario } from "../scripts/analytics-beacon-check.mjs";
 
-const ALL_LOADED = [
-  "https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX",
-  "https://www.clarity.ms/tag/xzmumryb8r",
+const scripts = [
+  "https://www.googletagmanager.com/gtag/js?id=G-PRIVATE",
+  "https://www.clarity.ms/tag/private-id",
   "https://analytics.ahrefs.com/analytics.js",
-  "https://static.cloudflareinsights.com/beacon.min.js/v123",
-  "https://example.com/logo.png",
-  "https://example.com/assets/index-abc123.js",
+  "https://static.cloudflareinsights.com/beacon.min.js",
 ];
+const sends = [
+  "https://www.google-analytics.com/g/collect?tid=G-PRIVATE",
+  "https://c.clarity.ms/collect",
+  "https://analytics.ahrefs.com/api/event",
+  "https://cloudflareinsights.com/cdn-cgi/rum",
+];
+function snapshot(overrides = {}) {
+  return { url: "https://example.com/", timeOrigin: 123, scripts,
+    resources: scripts.map(url => ({ url, initiatorType: "script", responseStatus: 200 })),
+    network: sends.map(url => ({ url, method: "POST", status: 204 })), ...overrides };
+}
+const navigation = { requested: true, targetPath: "/play/2" };
 
-test("classifyBeacons: 四个平台全部加载时都判 loaded=true", () => {
-  const c = classifyBeacons(ALL_LOADED);
-  assert.equal(c.ga4.loaded, true);
-  assert.equal(c.clarity.loaded, true);
-  assert.equal(c.ahrefs.loaded, true);
-  assert.equal(c.cfWebAnalytics.loaded, true);
+test("same-URL duplicate DOM nodes survive resource classification and fail", () => {
+  const c = classifyBeacons(snapshot({ scripts: [...scripts, scripts[3]] }));
+  assert.equal(c.cfWebAnalytics.scriptCount, 2);
+  assert.equal(c.cfWebAnalytics.scriptUrls.length, 2);
+  assert.equal(c.cfWebAnalytics.status, "fail");
 });
 
-test("classifyBeacons: 没有任何分析脚本时全部判 loaded=false", () => {
-  const c = classifyBeacons(["https://example.com/logo.png", "https://example.com/app.js"]);
-  assert.equal(c.ga4.loaded, false);
-  assert.equal(c.clarity.loaded, false);
-  assert.equal(c.ahrefs.loaded, false);
-  assert.equal(c.cfWebAnalytics.loaded, false);
+test("normal SDK children and a separate GTM loader are not duplicate entrypoints", () => {
+  const children = ["https://scripts.clarity.ms/0.8.69/clarity.js", "https://www.googletagmanager.com/gtm.js?id=GTM-PRIVATE"];
+  const c = classifyBeacons(snapshot({ scripts: [...scripts, ...children], resources: [
+    ...snapshot().resources, ...children.map(url => ({ url, initiatorType: "script", responseStatus: 200 })),
+  ] }));
+  assert.equal(c.clarity.scriptCount, 1);
+  assert.equal(c.clarity.status, "pass");
+  assert(c.clarity.matchedUrls.includes(children[0]));
+  assert.equal(c.ga4.scriptCount, 1);
+  assert.equal(c.ga4.status, "pass");
 });
 
-test("classifyBeacons: 只加载了部分平台时逐项区分，不是全有或全无", () => {
-  const c = classifyBeacons([
-    "https://www.googletagmanager.com/gtag/js?id=G-XXXX",
-    "https://example.com/logo.png",
-  ]);
-  assert.equal(c.ga4.loaded, true);
-  assert.equal(c.clarity.loaded, false);
-  assert.equal(c.ahrefs.loaded, false);
-  assert.equal(c.cfWebAnalytics.loaded, false);
+test("four separate providers each have one script and independently verified sends", () => {
+  const c = classifyBeacons(snapshot());
+  for (const provider of Object.values(c)) {
+    assert.equal(provider.scriptCount, 1);
+    assert.equal(provider.scriptLoadStatus, "verified");
+    assert.equal(provider.sendingStatus, "verified");
+    assert.equal(provider.status, "pass");
+  }
+  assert(!JSON.stringify(c).includes("PRIVATE"));
+  assert(!JSON.stringify(c).includes("private-id"));
 });
 
-test("classifyBeacons: 命中的具体 URL 会被记下来，不只是布尔值", () => {
-  const c = classifyBeacons(ALL_LOADED);
-  assert.deepEqual(c.ga4.matchedUrls, ["https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"]);
+test("script presence and resource requests do not prove load or successful sending", () => {
+  const c = classifyBeacons(snapshot({ network: [], resources: scripts.map(url => ({ url, responseStatus: 0 })) }));
+  assert.equal(c.cfWebAnalytics.scriptPresent, true);
+  assert.equal(c.cfWebAnalytics.resourceRequestObserved, true);
+  assert.equal(c.cfWebAnalytics.scriptLoadStatus, "not_verified");
+  assert.equal(c.cfWebAnalytics.sendingStatus, "not_verified");
+  assert.equal(c.cfWebAnalytics.status, "needs-verification");
 });
 
-test("classifyBeacons: 对空数组/undefined 不抛错，全部判未加载", () => {
-  assert.equal(classifyBeacons([]).ga4.loaded, false);
-  assert.equal(classifyBeacons(undefined).ga4.loaded, false);
+test("legacy URL arrays remain accepted but cannot prove DOM counts or sending", () => {
+  const c = classifyBeacons([...scripts, scripts[3]]);
+  assert.equal(c.cfWebAnalytics.scriptCount, null);
+  assert.equal(c.cfWebAnalytics.sendingStatus, "not_verified");
+  assert.equal(c.cfWebAnalytics.status, "needs-verification");
   assert.equal(classifyBeacons(null).ga4.loaded, false);
+  assert.match(formatBeaconTable(c), /needs-verification/);
 });
 
-test("classifyBeacons: 重复出现的同一个 URL 只算一次匹配", () => {
-  const c = classifyBeacons([
-    "https://www.googletagmanager.com/gtag/js?id=G-XXXX",
-    "https://www.googletagmanager.com/gtag/js?id=G-XXXX",
-  ]);
-  assert.equal(c.ga4.matchedUrls.length, 1);
+test("substring lookalike host does not count as a provider", () => {
+  const c = classifyBeacons(snapshot({ scripts: ["https://googletagmanager.com.attacker.test/x.js"] }));
+  assert.equal(c.ga4.scriptCount, 0);
 });
 
-test("formatBeaconTable: 每个平台一行，命中显示 URL、未命中显示占位文案", () => {
-  const c = classifyBeacons(["https://www.googletagmanager.com/gtag/js?id=G-XXXX"]);
-  const table = formatBeaconTable(c);
-  const lines = table.split("\n");
-  assert.equal(lines.length, 4);
-  assert.match(lines.find((l) => l.includes("GA4")), /✅.*GA4.*googletagmanager/);
-  assert.match(lines.find((l) => l.includes("Clarity")), /❌.*Microsoft Clarity.*未加载/);
+test("missing navigation, unchanged pathname and full reload never pass SPA validation", () => {
+  const before = snapshot();
+  for (const [after, request] of [[null, {}], [before, navigation],
+    [snapshot({ url: "https://example.com/play/2", timeOrigin: 456 }), navigation]]) {
+    assert.equal(assessScenario(before, after, request).status, "needs-verification");
+  }
+});
+
+test("real same-document pathname change passes only with verified sends in both observations", () => {
+  const before = snapshot();
+  const after = snapshot({ url: "https://example.com/play/2" });
+  assert.equal(assessScenario(before, after, navigation).status, "pass");
+  assert.equal(assessScenario(before, { ...after, network: [] }, navigation).status, "needs-verification");
+  const duplicate = { ...after, scripts: [...scripts, scripts[0]] };
+  assert.equal(assessScenario(before, duplicate, navigation).status, "fail");
+});
+
+test("actual failed RUM response fails, while a script GET is not a send", () => {
+  const c = classifyBeacons(snapshot({ network: [{ url: "https://example.com/cdn-cgi/rum", method: "POST", status: 404 }] }));
+  assert.equal(c.cfWebAnalytics.sendingStatus, "failed");
+  assert.equal(c.cfWebAnalytics.status, "fail");
+  const scriptOnly = classifyBeacons(snapshot({ network: [{ url: scripts[3], method: "GET", status: 200 }] }));
+  assert.equal(scriptOnly.cfWebAnalytics.sendingStatus, "not_verified");
+});
+
+test("an old performance send cannot verify the post-navigation observation", () => {
+  const c = classifyBeacons(snapshot({ network: [], sendSince: 200,
+    resources: [{ url: sends[3], initiatorType: "beacon", responseStatus: 204, startTime: 100 }] }));
+  assert.equal(c.cfWebAnalytics.sendingStatus, "not_verified");
+});
+
+test("GET 200 on a POST collector, or methodless fetch timing, does not prove sending", () => {
+  for (const network of [[{ url: sends[3], method: "GET", status: 200 }], []]) {
+    const c = classifyBeacons(snapshot({ network,
+      resources: [{ url: sends[3], initiatorType: "fetch", responseStatus: 200 }] }));
+    assert.equal(c.cfWebAnalytics.sendingStatus, "not_verified");
+  }
 });

@@ -16,43 +16,11 @@
  * 以 auto_install: false 创建站点记录，改由代码延迟注入 beacon；status 对已存在且
  * auto_install 为 true 的站点会打印告警。
  *
- * ── verify：只读核验，抓真实项目踩过的两个坑（2026-09-13 新增）───────
- *
- * 真实项目复盘过两次「接了但没生效」，都不会让任何东西变红：
- *   1. **token 不一致**：代码里手嵌的 `data-cf-beacon` token 与 CF 后台该站
- *      实际的 `site_token` 对不上——beacon 脚本照样 200 加载、控制台照样绿，
- *      数据只是流进了别的 site。`site_tag` 与 `site_token` 同形（都是 32 位
- *      hex），把 token 填成 tag 也是这个症状的一种。
- *   2. **auto_install 与手嵌脚本同时存在**：zone 上 `auto_install=true`，
- *      边缘已经在每次响应上自动注入 beacon，代码里又手嵌了一份延迟加载的
- *      snippet——两份 beacon 同时打点，GraphQL `count > 0` 反而把这个问题
- *      掩盖掉（有数据 ≠ 接入方式正确），而边缘注入那份完全绕过了「首次交互
- *      或 6s 兜底」的延迟加载设计。
- * `verify` 三件事都做：(a) 从 CF API 取 `site_tag`/`site_token`/`auto_install`；
- * (b) `fetch` 线上 HTML，用 `extractCfBeaconTokens` 抠出所有 `data-cf-beacon`
- * 附近的 token；(c) 查 GraphQL `rumPageloadEventsAdaptiveGroups` 近 7 天 count。
- * 三者交叉出「token 一致吗」「是不是重复注入」「beacon 是不是干脆缺失」三条
- * 判定，count 只作参考，**不能单独当接通的证据**（两份 beacon 同时打点时
- * count 一样 > 0）。全程只读，不改任何 CF 配置。
- *
- * 【实测，2026-09-13，真实项目复盘】`extractCfBeaconTokens` 最初只认标准 CF
- * 静态 snippet 形态 `data-cf-beacon="..."`，认不出「统一延迟加载器里用 JS
- * `setAttribute('data-cf-beacon', ...)` 动态注入」这种同样常见的写法，会对
- * 这类项目误判「线上找不到任何手嵌 beacon」——**已修**：判据改成「`data-cf-beacon`
- * 出现之后、下一个语法收尾符号之前的窗口里找 32 位十六进制 token」，不再
- * 关心具体是哪种 JS/HTML 语法把它写出来的（函数细节见该函数自己的注释）。
- *
- * 规范（同步进 references/analytics-platforms.md「CF WA」节，两处不得各存一份）：
- * **`auto_install=false` + 手嵌 beacon 放进站点统一的延迟加载器 + token 只从
- * API 或页面 DOM 取，不手抄，不并存两条注入路径。**
- *
- * 【已知现象，非配置错误，2026-09-13 两个真实站点复现】同一个自动化环境
- * （本机 opencli/Chrome 或 Google 自己的 PageSpeed 服务端）短时间内对同一 URL
- * 重复访问几次之后，`/cdn-cgi/rum` 上报请求会从 `204` 转 `404`，导致 Lighthouse
- * best-practices 审计偶尔从 100 掉到 96（拍到一条同源 404）。怀疑是 Cloudflare
- * 对自动化/机器人特征流量的限流或反刷量机制——真实用户一次会话通常只加载一次，
- * 不会触发这个模式。验收时看**第一次**干净加载是不是 204，别被这类偶发 404
- * 带偏去重查 token/auto_install 配置本身。
+ * verify 只读：用 Accept: text/html 请求首页，分别检查 API 配置与响应中的
+ * 静态自动 beacon、静态手动 beacon、动态初始化。auto_install=false 不证明
+ * 边缘没有注入。token 仅在内存比较，输出只含脱敏状态和数量。
+ * HTML 检查不执行初始化器；真实加载、SPA 去重与成功发送另用浏览器核验。
+ * RUM 404 必须查实际注入路径、失败请求和浏览器环境，不推测为反刷而豁免。
  *
  * 【留给未来：给已存在的 site_info 记录改 auto_install】本脚本目前只有创建
  * （`enable`，新建时就是 `auto_install:false`），没有针对已存在记录去改
@@ -121,7 +89,7 @@ async function cf(path_, init = {}) {
   })
   const j = await r.json().catch(() => ({}))
   if (!j.success) {
-    const msg = (j.errors || []).map((e) => `${e.code} ${e.message}`).join("; ")
+    const msg = (j.errors || []).map((e) => e.code).join("; ")
     throw new Error(`${init.method || "GET"} ${path_} → HTTP ${r.status}: ${msg || "未知错误"}`)
   }
   return j.result
@@ -139,7 +107,7 @@ async function cfGraphQL(query, variables) {
   })
   const j = await r.json().catch(() => ({}))
   if (j.errors?.length) {
-    throw new Error(j.errors.map((e) => e.message).join("; "))
+    throw new Error("GraphQL 返回错误（响应内容不输出）")
   }
   return j.data
 }
@@ -176,29 +144,22 @@ function reportZone(z) {
 }
 
 
-function reportSite(s) {
-  console.log(`site tag     ${s.site_tag}   （这是查询/面板用的 ID，不是 beacon 里的 token）`)
-  console.log(`site token   ${s.site_token || "(API 未返回，去面板取 snippet)"}   ← 手动嵌 beacon 时只能用这个`)
-  console.log(`auto_install ${s.auto_install}`)
-  console.log(`zone         ${s.ruleset?.zone_name || "(未绑定 zone)"}`)
-  console.log(`规则启用     ${s.ruleset?.enabled}`)
-  if (s.snippet) console.log(`snippet      ${s.snippet}`)
-  if (!s.auto_install) {
-    console.log(`\n✅ auto_install 已关闭（这是期望状态）—— 手动把上面的 snippet 嵌进页面，`)
-    console.log(`   延迟到首次交互或 6s 兜底再注入，data-cf-beacon 里填 site_token，不是 site_tag。`)
-    console.log(`   两个都是 32 位十六进制，填错不报错、beacon 照样 200，只是永远 0 数据。`)
-  } else {
-    console.log(`\n⚠️ auto_install 为 true —— 边缘会在每次响应上自动注入 beacon，绕过代码里`)
-    console.log(`   任何延迟加载逻辑，/cdn-cgi/rum 会成为最长关键请求链之一。`)
-    console.log(`   【实测，多站复现】应改为手动嵌 snippet 并关闭 auto_install，去 Cloudflare`)
-    console.log(`   Dashboard 的 Web Analytics 设置里关掉，或删除后用本脚本 enable 重建`)
-    console.log(`   （enable 默认创建时就是 auto_install: false）。`)
-  }
-  console.log(`\n验收不能停在「HTML 里有 cloudflareinsights」。用 GraphQL 查 count，`)
-  console.log(`  或直接跑 \`cf-analytics-setup.mjs verify <domain>\` 做三件套核验：`)
-  console.log(`  rumPageloadEventsAdaptiveGroups(filter:{siteTag:"${s.site_tag}", date_geq:"<7 天前>"}) { count }`)
-  console.log(`  上线后一天仍是 [] 就是 token 填错或注入没生效。`)
+export function formatSiteStatus(s) {
+  return [
+    `site tag     ${s.site_tag || "(未返回)"} （查询 ID）`,
+    `site token   ${s.site_token ? "[REDACTED]" : "(API 未返回)"}`,
+    `snippet      ${s.snippet ? "[REDACTED]" : "(API 未返回)"}`,
+    `auto_install ${s.auto_install} （API 配置，不代表实际 HTML 注入情况）`,
+    `规则启用     ${s.ruleset?.enabled}`,
+    s.auto_install === false
+      ? "API 已关闭自动安装；仍需 verify 核对浏览器型 HTML 响应。"
+      : "需核对自动安装配置；手动延迟加载不得与边缘注入并存。",
+    "token 经受控 API 通道用于代码配置，不从终端输出、聊天或其他项目复制。",
+    "运行 cf-analytics-setup.mjs verify <domain> 核对配置与 HTML；另用浏览器验证实际发送及 SPA 去重。",
+  ].join("\n")
 }
+
+function reportSite(s) { console.log(formatSiteStatus(s)) }
 
 /* ── 纯函数：token 抠取与三件套判定（可脱离网络单测） ──────────── */
 
@@ -217,7 +178,7 @@ function reportSite(s) {
  * 固定是 32 位十六进制——`data-cf-beacon` 出现之后，到下一个语法收尾符号
  * （`>` 收静态属性、`)` 收函数调用，取先出现的那个）之间的窗口里找这个形状，
  * 三种写法通吃。解析不出十六进制 token 的片段不丢弃——记一条 `UNPARSED:`
- * 前缀的原始片段，让「抓到了但读不出 token」和「压根没有这个属性」在返回值里
+ * 前缀的脱敏标记，让「抓到了但读不出 token」和「压根没有这个属性」在返回值里
  * 可分辨，不静默合并成同一个「没有」。
  */
 export function extractCfBeaconTokens(html) {
@@ -234,26 +195,104 @@ export function extractCfBeaconTokens(html) {
     const windowText = rest.slice(0, closeIdx + 1)
     const hex = windowText.match(/\b[a-f0-9]{32}\b/i)
     if (hex) tokens.push(hex[0].toLowerCase())
-    else tokens.push(`UNPARSED:${windowText.slice(0, 80)}`)
+    else tokens.push("UNPARSED:[REDACTED]")
   }
   return tokens
 }
 
-/**
- * 三件套判定：token 是否一致、是否重复注入、beacon 是否干脆缺失。
- * 纯函数，不碰网络——三个输入都是调用方已经取到的事实。
- */
-export function diagnoseCfWebAnalytics({ siteToken, autoInstall, tokensInHtml }) {
-  const validTokens = (tokensInHtml || []).filter((t) => !t.startsWith("UNPARSED:"))
+// Keep offsets so only executable call sites are inspected, not quoted hydration data.
+function maskJsLiteralsAndComments(source) {
+  return source.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\/\*[\s\S]*?\*\/|\/\/[^\n\r]*/g,
+    part => part.replace(/[^\n\r]/g, " "))
+}
+
+function scriptAttributes(source) {
+  const attributes = new Map()
+  for (const match of source.matchAll(/([^\s=]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s]+))?/g)) {
+    const value = match[2] || ""
+    attributes.set(match[1].toLowerCase(), /^["']/.test(value) ? value.slice(1, -1) : value)
+  }
+  return attributes
+}
+
+// ponytail: Keep this a narrow source reader; do not execute JavaScript or build a browser here.
+// Declarations and automatic-injection markers need DOM/network evidence to establish execution/source.
+export function extractCfBeaconEvidence(html) {
+  const text = String(html || "").replace(/<!--[\s\S]*?-->/g, "")
+  let staticAuto = 0, staticManual = 0, dynamicInitializers = 0, unclassified = 0
+  const tokens = []
+  const scripts = /<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/script\s*>/gi
+  for (const match of text.matchAll(scripts)) {
+    const attrs = scriptAttributes(match[1])
+    const body = match[2]
+    // A JSON data block cannot execute a beacon, even if its tag carries beacon attributes.
+    if (attrs.get("type") && !/^(?:module|(?:text|application)\/javascript)$/i.test(attrs.get("type"))) continue
+    if (attrs.has("data-cf-beacon")) {
+      const decoded = attrs.get("data-cf-beacon").replace(/&quot;|&#34;|&#x22;/gi, '"').replace(/&#39;|&#x27;|&apos;/gi, "'")
+      if (/["']version["']\s*:/.test(decoded)) staticAuto++
+      else staticManual++
+      tokens.push(...extractCfBeaconTokens(`data-cf-beacon=${attrs.get("data-cf-beacon")}`))
+    } else if (/cloudflareinsights\.com\/beacon(?:\.min)?\.js/i.test(attrs.get("src") || "")) {
+      unclassified++ // e.g. tag-manager query-token form: present, but not parsed here
+    }
+    const code = maskJsLiteralsAndComments(body)
+    for (const call of code.matchAll(/\bsetAttribute\s*\(/g)) {
+      const rest = body.slice(call.index)
+      if (!/^setAttribute\s*\(\s*["']data-cf-beacon["']\s*,/.test(rest)) continue
+      dynamicInitializers++
+      tokens.push(...extractCfBeaconTokens(rest.slice(0, rest.indexOf(")") + 1)))
+    }
+    // Other executable injection shapes cannot be safely counted by this narrow reader.
+    if (/\b(?:innerHTML|outerHTML|insertAdjacentHTML|cfBeacon)\b/.test(code) && /data-cf-beacon|cloudflareinsights/.test(body)) unclassified++
+  }
+  return { staticAuto, staticManual, dynamicInitializers, unclassified, tokens }
+}
+
+export function diagnoseCfWebAnalytics({ siteToken, autoInstall, tokensInHtml = [], evidence }) {
+  const validTokens = tokensInHtml.filter((t) => !t.startsWith("UNPARSED:"))
   const tokenKnown = Boolean(siteToken)
-  // 大小写不敏感比较：token 本身是十六进制,写法上大小写不该影响"是不是同一个值"的判断。
   const normalized = (s) => String(s || "").toLowerCase()
-  const tokenMismatch =
-    tokenKnown && validTokens.length > 0 && !validTokens.map(normalized).includes(normalized(siteToken))
-  const duplicateInjection = Boolean(autoInstall) && (tokensInHtml || []).length > 0
-  const noBeaconFound = (tokensInHtml || []).length === 0 && !autoInstall
-  const ok = !tokenMismatch && !duplicateInjection && !noBeaconFound
-  return { ok, tokenKnown, tokenMismatch, duplicateInjection, noBeaconFound, validTokens }
+  const tokenMismatch = tokenKnown && validTokens.some(t => normalized(t) !== normalized(siteToken))
+  const declarationCount = evidence
+    ? evidence.staticAuto + evidence.staticManual + evidence.dynamicInitializers
+    : null
+  const duplicateInjection = declarationCount === null ? null : declarationCount > 1 ? true : evidence.unclassified ? null : false
+  const noBeaconFound = declarationCount === null || evidence.unclassified ? null : declarationCount === 0
+  // Compatibility field: means a version marker was observed, not proven edge provenance.
+  const automaticBeaconObserved = evidence ? evidence.staticAuto > 0 : null
+  const configurationConflict = autoInstall === true
+  const incomplete = automaticBeaconObserved === true || !evidence || typeof autoInstall !== "boolean" || Boolean(evidence.unclassified) || !tokenKnown || validTokens.length !== tokensInHtml.length || validTokens.length === 0
+  const failed = tokenMismatch || duplicateInjection === true || noBeaconFound === true || configurationConflict
+  const status = failed ? "fail" : incomplete ? "needs-verification" : "pass"
+  const ok = status === "pass"
+  return { status, ok, tokenKnown, tokenMismatch, duplicateInjection, noBeaconFound, validTokens,
+    configurationConflict, automaticBeaconObserved, incomplete }
+}
+
+export async function fetchHtmlEvidence(url, fetchImpl = fetch) {
+  const response = await fetchImpl(url, { redirect: "follow", headers: { Accept: "text/html" } })
+  const contentType = response.headers.get("content-type") || ""
+  if (!response.ok || !/^(?:text\/html|application\/xhtml\+xml)(?:;|$)/i.test(contentType)) {
+    await response.body?.cancel()
+    throw new Error(`首页没有返回成功 HTML（HTTP ${response.status}）`)
+  }
+  return { html: await response.text(), status: response.status, contentType }
+}
+
+export function formatVerification({ autoInstall, evidence, diag, status, contentType, count }) {
+  return [
+    `API auto_install：${autoInstall}（配置与响应独立判断）`,
+    `首页响应：HTTP ${status} / ${contentType} / Accept: text/html`,
+    `HTML 声明：带自动注入特征的静态声明 ${evidence.staticAuto}（来源待核）；其他静态声明 ${evidence.staticManual}；动态初始化 ${evidence.dynamicInitializers}；待浏览器核实 ${evidence.unclassified || 0}`,
+    `token(API)：${diag.tokenKnown ? "[REDACTED]" : "未返回"}；HTML 有效 token 数：${diag.validTokens.length}（值均脱敏）`,
+    `token 比对：${!diag.tokenKnown || !diag.validTokens.length ? "未完成" : diag.tokenMismatch ? "不一致" : "一致"}`,
+    `重复声明路径：${diag.duplicateInjection === null ? "未知" : diag.duplicateInjection ? "失败（实际 HTML 中多条声明路径；执行份数待 DOM 核实）" : "未发现"}`,
+    `自动注入策略：${diag.configurationConflict ? "需处理（API 自动安装开启）" : diag.automaticBeaconObserved ? "静态声明带自动注入特征，来源待核" : "未发现冲突"}`,
+    `beacon 声明：${diag.noBeaconFound === null ? "未知" : diag.noBeaconFound ? "缺失" : "存在"}；完整性：${diag.incomplete ? "未完成" : "已解析"}`,
+    `GraphQL 近 7 天 pageload：${count === null ? "不可用" : count}（历史参考，不证明本次发送）`,
+    diag.ok ? "HTML 与配置核验通过；尚未验证初始化器执行、SPA 去重和实际发送。" : "HTML/配置核验未通过，或证据不完整。",
+    "后续运行 analytics-beacon-check.mjs 验证浏览器加载、导航及真实请求；不以 HTML 声明代替运行结果。",
+  ].join("\n")
 }
 
 /* ── 命令 ─────────────────────────────────────────────────── */
@@ -304,89 +343,34 @@ async function doVerify(domain) {
   }
 
   const url = `https://${domain}`
-  let html = ""
+  let response
   try {
-    const r = await fetch(url, { redirect: "follow" })
-    html = await r.text()
-  } catch (e) {
-    console.error(`抓取线上 HTML 失败（${url}）：${e.message}`)
+    response = await fetchHtmlEvidence(url)
+  } catch {
+    console.error("抓取首页失败或不是成功 HTML；未进行配置通过判定。")
     process.exitCode = 1
     return
   }
-
-  const tokensInHtml = extractCfBeaconTokens(html)
+  const evidence = extractCfBeaconEvidence(response.html)
   const diag = diagnoseCfWebAnalytics({
-    siteToken: hit.site_token,
-    autoInstall: hit.auto_install,
-    tokensInHtml,
+    siteToken: hit.site_token, autoInstall: hit.auto_install,
+    tokensInHtml: evidence.tokens, evidence,
   })
-
   const since = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10)
   let count = null
-  let countError = null
-  try {
-    count = await rumPageloadCount(accountId, hit.site_tag, since)
-  } catch (e) {
-    countError = e.message
-  }
-
-  console.log(`── Cloudflare Web Analytics 只读核验：${domain} ──`)
-  console.log(`site tag        ${hit.site_tag}`)
-  console.log(`site token(API) ${hit.site_token || "(API 未返回——只能人工去面板 Web Analytics 设置页核对)"}`)
-  console.log(`auto_install    ${hit.auto_install}`)
-  console.log(
-    `线上 HTML 里的 data-cf-beacon token  ${tokensInHtml.length ? tokensInHtml.join(", ") : "(未找到)"}`,
-  )
-  console.log()
-  if (!diag.tokenKnown) {
-    console.log(`token 一致：（API 没返回 site_token，无法自动比对，人工去 Web Analytics 设置页核对）`)
-  } else {
-    console.log(
-      diag.tokenMismatch
-        ? `token 一致：❌ 不一致——线上手嵌的 token 与后台 site_token 对不上，这份 beacon 的数据流进了别的 site`
-        : diag.validTokens.length
-          ? `token 一致：✅`
-          : `token 一致：（线上没有手嵌脚本，无从比对）`,
-    )
-  }
-  console.log(
-    diag.duplicateInjection
-      ? `重复注入：❌ auto_install=true 的同时线上还有手嵌 beacon——边缘自动注入会绕过代码里` +
-          `「首次交互或 6s 兜底」的延迟加载逻辑，两条注入路径不该同时存在`
-      : `重复注入：✅ 没有同时出现`,
-  )
-  console.log(
-    diag.noBeaconFound
-      ? `beacon 缺失：❌ auto_install=false 且线上找不到任何手嵌 beacon——等于没接`
-      : `beacon 缺失：✅`,
-  )
-  console.log()
-  console.log(`GraphQL 近 7 天 pageload 数：${count === null ? `取不到（${countError}）` : count}`)
-  console.log(
-    `  count > 0 不能单独当「接通」的证据——两条注入路径同时打点时 count 一样 > 0，`,
-  )
-  console.log(`  掩盖的正是「重复注入」这个问题；判定以上面三行 ✅/❌ 为准，count 只作参考。`)
-
-  console.log()
-  if (!diag.ok) {
-    console.log(`结论：这个站的 CF Web Analytics 接入有问题，见上面标 ❌ 的行。`)
-    console.log(
-      `规范做法：auto_install=false + 手嵌 beacon 放进站点统一的延迟加载器 + token 只从` +
-        ` API 或页面 DOM 取，不手抄、不并存两条注入路径。`,
-    )
-    process.exitCode = 1
-  } else {
-    console.log(`结论：token 一致、没有重复注入、beacon 确实存在——接入方式正常。`)
-  }
+  try { count = await rumPageloadCount(accountId, hit.site_tag, since) } catch { /* unavailable, not zero */ }
+  console.log(formatVerification({ autoInstall: hit.auto_install, evidence, diag,
+    status: response.status, contentType: response.contentType, count }))
+  if (!diag.ok) process.exitCode = diag.status === "fail" ? 1 : 2
 }
 
 function usage() {
   console.log(`用法: cf-analytics-setup.mjs <status|enable|verify> <domain>
 
-  status <domain>   查询是否已启用，打印 site_tag/site_token/auto_install
+  status <domain>   查询是否已启用，打印配置状态（token/snippet 脱敏）
   enable <domain>   启用（auto_install 默认 false，需手动嵌延迟加载的 snippet）
   verify <domain>   只读核验：抓线上 HTML 比对 data-cf-beacon token、判断是否与
-                    auto_install 重复注入、查 GraphQL 近 7 天 pageload 数`)
+                    实际 beacon 路径重复、查 GraphQL 近 7 天 pageload 数`)
 }
 
 async function main() {

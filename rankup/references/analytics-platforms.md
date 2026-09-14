@@ -77,7 +77,7 @@ Firebase 项目可以关联这个 GA4 媒体资源（下一节），但纯 Web �
 ### auto_install 默认必须关闭
 
 **【实测，多站复现】Cloudflare Web Analytics 的 `auto_install`（RUM 自动安装）会在边缘给
-每一次响应注入 beacon，绕过代码里写的任何延迟加载逻辑**——beacon 请求
+符合注入条件的 HTML 响应注入 beacon，绕过代码里的延迟加载逻辑**——beacon 请求
 （`/cdn-cgi/rum`）因此成为页面最长的关键请求链之一，与「第三方分析脚本一律延迟到首次
 交互或 6s 兜底再加载」这条硬规则直接冲突：代码侧的延迟加载做得再干净，边缘还是会在
 HTML 响应经过时把 beacon 塞进去，等于白做。
@@ -101,16 +101,12 @@ node <rankup-skill-dir>/scripts/cf-analytics-setup.mjs verify <domain>   # 只�
 ### 规范：两条注入路径不得并存
 
 **`auto_install=false` + 手嵌 beacon 放进站点统一的延迟加载器 + token 只从
-API 或页面 DOM 取，不手抄、不并存两条注入路径。** 这是唯一正确的组合：
+API 或页面 DOM 取，不手抄、不并存两条注入路径。** 接入后还要分别核对 API 配置与实际 HTML/DOM：
 
-- `auto_install=false`——边缘不自动注入，注入时机完全交给代码里「首次交互或
-  6s 兜底」的统一延迟加载器（与 GA4/Ahrefs WA 同一套逻辑，不要各写一份）。
-- token 只从 `cf-analytics-setup.mjs status` 的输出或 CF Dashboard 的 Web
-  Analytics 设置页取，不从记忆、聊天记录或别的项目的代码里抄——`site_tag`
+- `auto_install=false` 是期望的 API 配置，不证明响应中没有边缘注入。用浏览器型 HTML 请求与真实 DOM 另核注入路径；手动脚本仍使用统一的首次交互/6 秒延迟加载器。
+- token 只经受控 API 进程通道或平台设置页用于配置；`status`/`verify` 的终端与证据输出全部脱敏，不从记忆、聊天记录或别的项目代码里抄——`site_tag`
   与 `site_token` 同形（都是 32 位十六进制），抄错不报任何错。
-- **两条注入路径不得同时存在**：`auto_install=true` 的同时又在代码里手嵌了
-  一份 snippet，会变成边缘 + 代码各打一次点，GraphQL `count > 0` 看起来正常，
-  实际上边缘那份完全绕过了延迟加载设计，且两份数据是否重复计数未经核实。
+- **两条注入路径不得同时存在**：按实际静态自动脚本、手动初始化声明和浏览器 DOM 核实；即使 `auto_install=false`，观察到两条路径仍须处理。GraphQL 有历史流量不能掩盖重复注入。
 
 ### 验证
 
@@ -127,27 +123,32 @@ API 或页面 DOM 取，不手抄、不并存两条注入路径。** 这是唯�
 node <rankup-skill-dir>/scripts/cf-analytics-setup.mjs verify <domain>
 ```
 
-只读，不改任何 CF 配置：从 API 取 `site_tag`/`site_token`/`auto_install`，
-`fetch` 线上 HTML 抠出所有 `data-cf-beacon` 附近的 token 逐个比对，判 token 是否
-一致、是否重复注入、beacon 是否干脆缺失，GraphQL count 只作参考（已验证
-2026-09-13，在一个真实启用了 CF WA 的域名上跑通三件套核验）。
+只读，不改 CF 配置。API 返回的 `auto_install` 与实际响应分开记录；首页请求明确带
+`Accept: text/html`，非成功 HTML 不得通过。解析可执行 script 标签中带自动注入特征的静态声明与
+手动初始化声明；`version` 字段只是特征，不证明来源，单份声明加 API false 时应继续核实，不能直接判配置错误；不把 hydration 序列化字符串或 token 的出现次数当成执行份数。
+复杂注入或 token 不能解析时记未完成，转真实浏览器核实。token 仅在内存比较，输出脱敏。
 
-**token 抠取兼容静态属性与动态注入两种写法**（2026-09-13 真实项目复盘修）：
-标准 CF snippet 是 `data-cf-beacon="..."` 的 HTML 静态属性；本 Skill 推荐的
-「统一延迟加载器」常见写法是 JS 运行时 `setAttribute('data-cf-beacon', ...)`
-动态插入 `<script>`——两者字符串形状不同，早期版本的判据只认前者，会对用了
-延迟加载器的项目误判「线上找不到任何手嵌 beacon」。现在的判据不关心具体
-语法，只看「`data-cf-beacon` 出现之后到下一个语法收尾符号之间有没有一个
-32 位十六进制串」，静态属性、`setAttribute()` 调用、字符串拼接三种写法通吃。
+HTTP 检查只能证明声明路径，不能证明延迟初始化已执行。另跑：
 
-**已知现象，不是配置错误**：同一个自动化环境（本机 opencli/Chrome，或 Google
-自己的 PageSpeed 服务端）短时间内对同一 URL 重复访问几次之后，`/cdn-cgi/rum`
-上报请求会从 `204` 转 `404`，导致 Lighthouse best-practices 审计偶尔从 100 掉到
-96（`errors-in-console` 拍到一条同源 404）。【实测，2026-09-13，两个真实站点
-复现，其中一个是已知配置正确的站】怀疑是 Cloudflare 对自动化/机器人特征流量
-的限流或反刷量机制——真实用户一次会话通常只加载一次，不会触发这个模式。
-验收时看**第一次**干净加载是不是 204；看到偶发 404 先怀疑是不是短时间内被
-自动化工具重复请求过，不要直接去重查 token/auto_install 配置本身。
+```bash
+node <rankup-skill-dir>/scripts/analytics-beacon-check.mjs <url> --both \
+  --navigate-selector '<站内真实链接 CSS>' --navigate-path '<目标 pathname>' --json
+```
+
+必须在同一会话首次交互或超时后检查各 SDK 份数，再自然点击完成 SPA 导航重查；共享加载器
+按 provider 在排程时去重，首次触发前后的 head 回放都不能重复注册。脚本 URL 存在、
+资源请求发生、成功加载、真实发送与响应状态是不同事实，未知不能填通过。
+
+**RUM 404 或请求失败不能凭猜测豁免。** 先区分脚本下载失败与上报失败，核对实际请求的
+URL/方法/状态、静态及运行后脚本份数、API 配置、同一会话导航前后变化。再比较普通浏览器与
+隔离且无扩展的测试环境；不能只凭一次失败断言某个扩展拦截，也不能把重复访问后的 404
+无证据归为平台反刷。保留失败证据，只有自然操作产生的官方 SDK 请求能证明发送，禁止手造统计请求。
+
+[Cloudflare 官方 FAQ](https://developers.cloudflare.com/web-analytics/faq/) 说明每页只能有一份
+snippet，自动与手动上报端点不同。**仅在已证明重复注入、原生配置核实后仍不能消除边缘注入时**，
+可按官方说明对相关 HTML 响应追加 `Cache-Control: no-transform`，保留现有缓存策略；
+分别验证缓存 HIT、MISS、Cookie 旁路与非 HTML 响应，并重新确认手动 SDK 自然发送成功。
+不将它推广为全站、所有响应一律禁用变换的默认规则。
 
 **给已存在站点改 auto_install 的 PUT 坑**：本脚本目前只有 `enable`（新建时就是
 `auto_install:false`），没有针对已存在 `site_info` 记录去改 `auto_install` 的

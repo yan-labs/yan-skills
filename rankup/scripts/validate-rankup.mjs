@@ -10,7 +10,7 @@ import { resolveRoots } from "./registry.mjs";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "3.13.5";
+const expectedVersion = "3.13.6";
 const requiredReferences = [
   "discipline.md",
   "monetization.md",
@@ -60,6 +60,7 @@ const requiredContent = {
     "references/checklists.md",
     "品牌图标在开发当天做齐",
     "图标专项未通过不许上线",
+    "上线前与发布后复核入口",
   ],
   "references/lifecycle.md": [
     "清除 React / Vite / TanStack 脚手架默认图标",
@@ -67,11 +68,26 @@ const requiredContent = {
     "逐个 GET 并解码实际图片",
     "Googlebot-Image",
     "技术检查通过不等于 Google 搜索结果已更新",
+    "域名与索引开关共享构建期配置",
+    "合法 JSON 不等于 Schema 语义合法",
+    "https://validator.schema.org/",
+    "grid → row → gridcell",
+    "包含 sitemap 外页面",
   ],
   "references/checklists.md": [
     "D15 · 品牌图标当天做齐",
     "图标专项（上线前必过）",
     "正式域名图标回读",
+    "production 开与 preview 关两条构建回归",
+    "robots meta 恰好一条",
+    "不能以 JSON.parse 成功代替",
+    "属性 domain / 继承关系",
+    "grid → row → gridcell",
+    "内链图与可索引路由清单对账无遗漏",
+    "HTML Accept 原始响应与真实浏览器分别核验",
+    "实际远端上报证据",
+    "API 开关关闭不等于 HTML 无注入",
+    "性能优化后仍须通过相关回归",
   ],
   "references/experiences/INDEX.md": [
     "## 收录规则（强制）",
@@ -319,11 +335,22 @@ async function validate() {
     }
     if (relativePath === "references/checklists.md") {
       const prose = text.replace(/^```[^\n]*\n[\s\S]*?^```[^\n]*$/gm, "");
-      for (const [stage, label] of [[3, "D15 · 品牌图标当天做齐"], [4, "图标专项（上线前必过）"], [5, "正式域名图标回读"]]) {
-        const row = `| **${label}** |`;
+      for (const [stage, label, bold = true] of [
+        [3, "D15 · 品牌图标当天做齐"],
+        [4, "图标专项（上线前必过）"],
+        [5, "正式域名图标回读"],
+        [3, "D1 · `SITE_URL` 构建期注入客户端"],
+        [3, "D4 · 分析脚本延迟加载", false],
+        [3, "D12 · JSON-LD 注入方式与类型选择已定", false],
+        [3, "D13 · a11y 属性组件级核对", false],
+        [4, "P3 · 独立 og + 内链闭环"],
+        [5, "分析通道在采集", false],
+        [5, "索引已放开并复核"],
+      ]) {
+        const row = `| ${bold ? `**${label}**` : label} |`;
         const section = prose.split(new RegExp(`^## 段 ${stage} ·`, "m"))[1]?.split(/^## /m)[0] ?? "";
         if (text.split(row).length !== 2 || !section.includes(`|\n${row}`)) {
-          errors.push(`favicon gate must occur once as a table row in stage ${stage}: ${label}`);
+          errors.push(`checklist gate must occur once as a table row in stage ${stage}: ${label}`);
         }
       }
     }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractCfBeaconTokens, diagnoseCfWebAnalytics } from "../scripts/cf-analytics-setup.mjs";
+import { extractCfBeaconTokens, extractCfBeaconEvidence, diagnoseCfWebAnalytics, fetchHtmlEvidence, formatSiteStatus, formatVerification } from "../scripts/cf-analytics-setup.mjs";
 
 const TOKEN_A = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
 const TOKEN_B = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
@@ -38,7 +38,7 @@ test("extractCfBeaconTokens 找不到属性时返回空数组，不是 null/unde
   assert.deepEqual(extractCfBeaconTokens(""), []);
 });
 
-test("extractCfBeaconTokens 窗口内没有十六进制 token 时记原始片段而不是静默丢弃", () => {
+test("extractCfBeaconTokens 窗口内没有十六进制 token 时记脱敏标记而不是静默丢弃", () => {
   const broken = `<script data-cf-beacon='{not a real token here}'></script>`;
   const tokens = extractCfBeaconTokens(broken);
   assert.equal(tokens.length, 1);
@@ -62,7 +62,7 @@ test("diagnoseCfWebAnalytics: token 一致、无重复、有 beacon 时判 ok", 
   const diag = diagnoseCfWebAnalytics({
     siteToken: TOKEN_A,
     autoInstall: false,
-    tokensInHtml: [TOKEN_A],
+    tokensInHtml: [TOKEN_A], evidence: {staticAuto:0,staticManual:1,dynamicInitializers:0},
   });
   assert.equal(diag.ok, true);
   assert.equal(diag.tokenMismatch, false);
@@ -74,7 +74,7 @@ test("diagnoseCfWebAnalytics: token 比对大小写不敏感", () => {
   const diag = diagnoseCfWebAnalytics({
     siteToken: TOKEN_A.toUpperCase(),
     autoInstall: false,
-    tokensInHtml: [TOKEN_A],
+    tokensInHtml: [TOKEN_A], evidence: {staticAuto:0,staticManual:1,dynamicInitializers:0},
   });
   assert.equal(diag.tokenMismatch, false);
 });
@@ -85,29 +85,29 @@ test("diagnoseCfWebAnalytics: token 不一致时判 tokenMismatch", () => {
   const diag = diagnoseCfWebAnalytics({
     siteToken: TOKEN_A,
     autoInstall: false,
-    tokensInHtml: [TOKEN_B],
+    tokensInHtml: [TOKEN_B], evidence: {staticAuto:0,staticManual:1,dynamicInitializers:0},
   });
   assert.equal(diag.ok, false);
   assert.equal(diag.tokenMismatch, true);
 });
 
-// 回归:auto_install=true 时边缘已经在自动注入,代码里又手嵌了一份,
-// 两条注入路径同时打点,GraphQL count>0 反而把这个问题掩盖掉。
-test("diagnoseCfWebAnalytics: auto_install 开着且线上仍有手嵌 beacon 时判 duplicateInjection", () => {
+// API 配置不是实际注入证据；只有一条声明不能推断页面有两份脚本。
+test("diagnoseCfWebAnalytics: auto_install 开启单份声明是策略冲突，不伪报重复", () => {
   const diag = diagnoseCfWebAnalytics({
     siteToken: TOKEN_A,
     autoInstall: true,
-    tokensInHtml: [TOKEN_A],
+    tokensInHtml: [TOKEN_A], evidence: {staticAuto:0,staticManual:1,dynamicInitializers:0},
   });
   assert.equal(diag.ok, false);
-  assert.equal(diag.duplicateInjection, true);
+  assert.equal(diag.duplicateInjection, false);
+  assert.equal(diag.configurationConflict, true);
 });
 
 test("diagnoseCfWebAnalytics: auto_install=false 且线上没有任何 beacon 时判 noBeaconFound", () => {
   const diag = diagnoseCfWebAnalytics({
     siteToken: TOKEN_A,
     autoInstall: false,
-    tokensInHtml: [],
+    tokensInHtml: [], evidence: {staticAuto:0,staticManual:0,dynamicInitializers:0},
   });
   assert.equal(diag.ok, false);
   assert.equal(diag.noBeaconFound, true);
@@ -117,22 +117,144 @@ test("diagnoseCfWebAnalytics: API 没返回 site_token 时不误判 mismatch，�
   const diag = diagnoseCfWebAnalytics({
     siteToken: null,
     autoInstall: false,
-    tokensInHtml: [TOKEN_A],
+    tokensInHtml: [TOKEN_A], evidence: {staticAuto:0,staticManual:1,dynamicInitializers:0},
   });
   assert.equal(diag.tokenKnown, false);
   assert.equal(diag.tokenMismatch, false);
-  // API 取不到 site_token 这件事本身不该判定接入失败——只是没法自动比对 token 一项。
-  assert.equal(diag.ok, true);
+  // 未知不是不一致，但不能把未比对记为通过。
+  assert.equal(diag.incomplete, true);
+  assert.equal(diag.ok, false);
 });
 
 test("diagnoseCfWebAnalytics: UNPARSED 片段不计入有效 token 比对", () => {
   const diag = diagnoseCfWebAnalytics({
     siteToken: TOKEN_A,
     autoInstall: false,
-    tokensInHtml: ["UNPARSED:garbage"],
+    tokensInHtml: ["UNPARSED:garbage"], evidence: {staticAuto:0,staticManual:1,dynamicInitializers:0},
   });
   // 解析不出来的片段既不能证明 token 一致,也不能证明 beacon 缺失——
   // 它证明的是"抓到了但读不出内容",noBeaconFound 只在数组本身为空时才成立。
   assert.equal(diag.noBeaconFound, false);
   assert.equal(diag.validTokens.length, 0);
+});
+
+const automatic = `<script src="https://static.cloudflareinsights.com/beacon.min.js/v1" data-cf-beacon='{ "version":"2024.11.0", "token":"${TOKEN_A}" }'></script>`;
+const manual = `<script>s.setAttribute('data-cf-beacon', '{"token":"${TOKEN_A}"}');document.head.appendChild(s);</script>`;
+
+function diagnoseHtml(html, autoInstall = false) {
+  const evidence = extractCfBeaconEvidence(html);
+  return { evidence, diag: diagnoseCfWebAnalytics({siteToken: TOKEN_A, autoInstall, tokensInHtml: evidence.tokens, evidence}) };
+}
+
+test("API false 仍实际自动+手动两路径，必须失败", () => {
+  const {evidence, diag} = diagnoseHtml(automatic + manual);
+  assert.equal(evidence.staticAuto, 1);
+  assert.equal(evidence.dynamicInitializers, 1);
+  assert.equal(diag.duplicateInjection, true);
+  assert.equal(diag.ok, false);
+});
+
+test("API true、只有自动脚本，不凭开关捏造手动重复", () => {
+  const {evidence, diag} = diagnoseHtml(automatic, true);
+  assert.equal(evidence.dynamicInitializers, 0);
+  assert.equal(diag.duplicateInjection, false);
+  assert.equal(diag.configurationConflict, true);
+});
+
+test("API false 单一手动路径通过 HTML 核验；注释里的旧声明忽略", () => {
+  const {evidence, diag} = diagnoseHtml(manual + `<!-- ${automatic} -->` + `<script>// s.setAttribute('data-cf-beacon', '{"token":"${TOKEN_A}"}');\n/* data-cf-beacon ${TOKEN_B} */</script>`);
+  assert.equal(evidence.staticAuto, 0);
+  assert.equal(evidence.dynamicInitializers, 1);
+  assert.equal(diag.ok, true);
+});
+
+test("两份 token 有一份匹配也不能掩盖另一份错误", () => {
+  const diag = diagnoseCfWebAnalytics({siteToken:TOKEN_A, autoInstall:false, tokensInHtml:[TOKEN_A,TOKEN_B], evidence:{staticAuto:0,staticManual:2,dynamicInitializers:0}});
+  assert.equal(diag.tokenMismatch, true);
+  assert.equal(diag.duplicateInjection, true);
+});
+
+test("verify 请求显式采用 HTML Accept，拒绝错误状态和非 HTML", async () => {
+  const result = await fetchHtmlEvidence('https://example.test/', async (url, init) => {
+    assert.equal(init.headers.Accept, 'text/html');
+    assert.equal(init.redirect, 'follow');
+    return new Response(manual, {status:200,headers:{'content-type':'text/html; charset=utf-8'}});
+  });
+  assert.equal(result.status, 200);
+  for (const response of [new Response('no',{status:404}),new Response('{}',{headers:{'content-type':'application/json'}})]) {
+    await assert.rejects(fetchHtmlEvidence('https://example.test/', async () => response), /没有返回成功 HTML/);
+  }
+});
+
+test("status/verify 输出全脱敏，未知解析不回显原始片段", () => {
+  const {evidence, diag} = diagnoseHtml(automatic + manual);
+  const output = formatSiteStatus({site_token:TOKEN_A,snippet:automatic,auto_install:false}) + formatVerification({autoInstall:false,evidence,diag,status:200,contentType:'text/html',count:null});
+  for (const secret of [TOKEN_A,TOKEN_B,automatic]) assert.equal(output.includes(secret),false);
+  assert.match(output,/REDACTED/);
+  assert.match(output,/不可用/);
+  assert.equal(extractCfBeaconTokens('<script data-cf-beacon="private-value-not-hex"></script>')[0],'UNPARSED:[REDACTED]');
+});
+
+test("序列化 hydration 中的 script/初始化器字符串不是第二条可执行路径", () => {
+  const serialized = JSON.stringify(`s.setAttribute('data-cf-beacon', '{"token":"${TOKEN_A}"}')`);
+  const {evidence,diag} = diagnoseHtml(manual + `<script>window.payload=${serialized};</script>` + `<script type="application/json">${serialized}</script>`);
+  assert.equal(evidence.dynamicInitializers,1);
+  assert.equal(diag.duplicateInjection,false);
+  assert.equal(diag.ok,true);
+});
+
+test("只有 token 个数不足以判断重复；复杂 HTML 注入交浏览器验证", () => {
+  const unknown = diagnoseCfWebAnalytics({siteToken:TOKEN_A,autoInstall:false,tokensInHtml:[TOKEN_A,TOKEN_A]});
+  assert.equal(unknown.duplicateInjection,null);
+  assert.equal(unknown.ok,false);
+  const {evidence,diag} = diagnoseHtml(`<script>document.head.insertAdjacentHTML('beforeend', 'data-cf-beacon');</script>`);
+  assert.equal(evidence.unclassified,1);
+  assert.equal(diag.incomplete,true);
+});
+
+test("脚本正文序列化的 HTML 标记和其他属性里的同名文本不当成实际标签", () => {
+  const markup = JSON.stringify(automatic).replaceAll('</script>', '<\\/script>');
+  const {evidence,diag} = diagnoseHtml(manual + `<script>window.html=${markup};</script>` + `<script data-example='data-cf-beacon="${TOKEN_A}"'></script>`);
+  assert.equal(evidence.staticAuto,0);
+  assert.equal(evidence.staticManual,0);
+  assert.equal(evidence.dynamicInitializers,1);
+  assert.equal(diag.ok,true);
+});
+
+test("API 安装状态缺失时保持未完成", () => {
+  const evidence = extractCfBeaconEvidence(manual);
+  const diag = diagnoseCfWebAnalytics({siteToken:TOKEN_A,tokensInHtml:evidence.tokens,evidence});
+  assert.equal(diag.status,'needs-verification');
+});
+
+test("未支持的 beacon 配置形态记未完成，不伪报无脚本", () => {
+  const {diag} = diagnoseHtml(`<script src="https://static.cloudflareinsights.com/beacon.min.js?token=${TOKEN_A}"></script>`);
+  assert.equal(diag.noBeaconFound,null);
+  assert.equal(diag.status,'needs-verification');
+});
+
+test("单脚本的 version 只证明特征，不证明来自边缘自动注入", () => {
+  const {evidence,diag} = diagnoseHtml(automatic,false);
+  assert.equal(diag.automaticBeaconObserved,true);
+  assert.equal(diag.duplicateInjection,false);
+  assert.equal(diag.configurationConflict,false);
+  assert.equal(diag.status,'needs-verification');
+  const text = formatVerification({autoInstall:false,evidence,diag,status:200,contentType:'text/html',count:null});
+  assert.match(text,/来源待核/);
+  assert.doesNotMatch(text,/需处理/);
+});
+
+test("JSON 数据 script 即使带 beacon 属性也不算可执行声明", () => {
+  const data = automatic.replace('<script ','<script type="application/json" ');
+  const {evidence,diag} = diagnoseHtml(data+manual);
+  assert.equal(evidence.staticAuto,0);
+  assert.equal(evidence.dynamicInitializers,1);
+  assert.equal(diag.status,'pass');
+});
+
+test("格式化未知声明状态不能打印存在", () => {
+  const {evidence,diag} = diagnoseHtml(`<script src="https://static.cloudflareinsights.com/beacon.min.js?token=${TOKEN_A}"></script>`);
+  const text = formatVerification({autoInstall:false,evidence,diag,status:200,contentType:'text/html',count:null});
+  assert.match(text,/beacon 声明：未知/);
+  assert.doesNotMatch(text,/beacon 声明：存在/);
 });

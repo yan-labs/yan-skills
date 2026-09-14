@@ -21,6 +21,9 @@
  *   每个值是一页：{ url, title:{text,length}, description:{text,length}, h1:[…], canonical, robots,
  *   og:{…}, twitter:{…}, images:{total, missingAlt}, links:{…}, density:{…}, issues:[…] } 或 { url, fetchError }。
  *   读法：Object.values(JSON.parse(out))。title / description 是对象，取 .text 与 .length。
+ *   JSON-LD 仅做 JSON 语法检查：畸形 JSON 产生 STRUCTURED_PARSE_ERROR observation；
+ *   structuredValidation 标记 syntax-only / schemaSemantics=not-validated，
+ *   structured 数组接口保留。能解析不代表 Schema.org 类型与属性语义合法。
  *
  * ── sitemap 不等于全站，别假设 --sitemap 已经覆盖了所有该测的页面 ─────
  *
@@ -298,6 +301,10 @@ function analyzeIssues(html, url, overview) {
   const structured = analyzeStructured(html);
   if (structured.length === 0)
     push('info', 'NO_STRUCTURED', '構造化データ(JSON-LD)がありません', 'Schema.orgの構造化データを追加してください');
+  for (const item of structured) {
+    if (item.type === 'PARSE_ERROR')
+      push('error', 'STRUCTURED_PARSE_ERROR', item.summary);
+  }
 
   // Robots
   if (overview.robots && /noindex/i.test(overview.robots))
@@ -520,7 +527,7 @@ function analyzeStructured(html) {
     try {
       const data = JSON.parse(m[1]);
       items.push({
-        type: data['@type'] || (Array.isArray(data['@graph']) ? 'Graph' : 'Unknown'),
+        type: data?.['@type'] || (Array.isArray(data?.['@graph']) ? 'Graph' : 'Unknown'),
         summary: summarizeLD(data),
       });
     } catch (e) {
@@ -531,8 +538,9 @@ function analyzeStructured(html) {
 }
 
 function summarizeLD(data) {
+  if (data === null || typeof data !== 'object') return JSON.stringify(data);
   if (Array.isArray(data['@graph'])) {
-    return data['@graph'].map(item => item['@type']).join(', ');
+    return data['@graph'].map(item => item?.['@type'] || 'Unknown').join(', ');
   }
   const type = data['@type'];
   if (type === 'FAQPage') return `${(data.mainEntity || []).length} questions`;
@@ -566,6 +574,11 @@ async function auditPage(url) {
     social,
     hreflangs,
     structured,
+    structuredValidation: {
+      scope: 'syntax-only',
+      jsonSyntax: structured.length === 0 ? 'not-present' : structured.some(item => item.type === 'PARSE_ERROR') ? 'invalid' : 'valid',
+      schemaSemantics: 'not-validated',
+    },
   };
 }
 
@@ -668,6 +681,7 @@ function printReport(result) {
 
   // Structured
   console.log(`\n┌─ Structured Data (${structured.length}) ─`);
+  console.log('│ syntax-only: 仅检查 JSON 语法；Schema 语义未验证 (not-validated)');
   for (const s of structured) {
     console.log(`│ ${s.type}: ${s.summary}`);
   }

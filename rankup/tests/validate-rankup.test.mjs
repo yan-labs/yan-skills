@@ -211,3 +211,50 @@ test("release validator rejects a broken linked reference", async () => {
     assert.match(result.stderr, /broken local Markdown link/);
   });
 });
+
+test("release validator keeps release checks in their owning stage", async () => {
+  await withSkillCopy(async (skillRoot) => {
+    const target = path.join(skillRoot, "references", "checklists.md");
+    const original = await readFile(target, "utf8");
+    for (const label of [
+      "D1 · `SITE_URL` 构建期注入客户端",
+      "D4 · 分析脚本延迟加载",
+      "D12 · JSON-LD 注入方式与类型选择已定",
+      "D13 · a11y 属性组件级核对",
+      "P3 · 独立 og + 内链闭环",
+      "分析通道在采集",
+      "索引已放开并复核",
+      "图标专项（上线前必过）",
+    ]) {
+      const row = original.split("\n").find(line => line.startsWith("| ") && line.includes(label));
+      assert.ok(row, label);
+      // All wording survives, but the operative row is moved outside its stage.
+      await writeFile(target, original.replace(row, "") + `\n${row}\n`);
+      const result = validate(skillRoot);
+      assert.equal(result.status, 1, label);
+      assert.match(result.stderr, /checklist gate must occur once as a table row/);
+    }
+  });
+});
+
+test("release validator rejects removal of substantive release criteria", async () => {
+  await withSkillCopy(async (skillRoot) => {
+    const target = path.join(skillRoot, "references", "checklists.md");
+    const original = await readFile(target, "utf8");
+    for (const phrase of [
+      "production 开与 preview 关两条构建回归",
+      "robots meta 恰好一条",
+      "不能以 JSON.parse 成功代替",
+      "grid → row → gridcell",
+      "内链图与可索引路由清单对账无遗漏",
+      "HTML Accept 原始响应与真实浏览器分别核验",
+      "实际远端上报证据",
+    ]) {
+      assert.ok(original.includes(phrase));
+      await writeFile(target, original.replaceAll(phrase, "[removed]"));
+      const result = validate(skillRoot);
+      assert.equal(result.status, 1, phrase);
+      assert.match(result.stderr, /missing required content in references\/checklists\.md/);
+    }
+  });
+});
