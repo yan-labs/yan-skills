@@ -465,7 +465,7 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 | D2 | 边缘缓存中间件随脚手架当天就位，不留到上线前 | 见本节上一条第 8 步与 [`cloudflare-stack.md`](cloudflare-stack.md)「12. 匿名页面 HTML 边缘缓存」，不重复展开；提醒一点本节独有的坑：**HEAD 请求不会命中这条缓存路径**（多数实现只对 GET 建缓存键），验证边缘缓存生效必须用 GET，用 HEAD 验证会得到假阴性 |
 | D3 | Web 字体策略当天定死：CJK 站默认系统字体栈；拉丁站自托管、子集化到实际用到的字符与字重、`font-display: optional`、只 `preload` 首屏用到的那一个字重或干脆不 `preload` | 判据与字节预算见 [`seo-box.md`](seo-box.md) 一，不重复；**本节补一条实测细节**：`preload` 本身会抢在 HTML/JS 前面占带宽，实测反而把 LCP 推后了一个 RTT——「先 preload 保险」是一个直觉上正确、实测上有害的默认动作，脚手架初始化当天就不该无脑加；品牌/装饰字体按 seo-box 一的两全法：首屏后 FontFace 加载 + 子集 + 度量匹配 |
 | D4 | 第三方分析脚本（GA4、Clarity 等）统一延迟到首次交互或 6 秒兜底再加载，Cloudflare Web Analytics 关掉 `auto_install` | 判据见 [`analytics-platforms.md`](analytics-platforms.md) 与本文 SKILL 段 5 硬规则；脚手架当天就该把这个加载策略写进模板，不要等接入分析平台那天才想起来改 |
-| D5 | **图片默认**：logo/favicon 源图、hero 图、装饰图一律 WebP + PNG 回退，按实际显示尺寸出图（含 2x 视网膜档），标注 `width`/`height`；首屏 LCP 图给 `fetchpriority="high"`，其余给 `loading="lazy"`；`og:image` 单独生成，不进首屏渲染路径 | 图片是最容易在脚手架阶段被忽略的一类默认项——设计稿或占位阶段随手塞进去的原图往往是未压缩的源文件。**实测两个站的 logo 分别是 650KB 与 1.1MB，且都直接被用在首屏**，这类体积问题在段 4 性能闸门里查出来，比开发时按流程做一次图片处理贵得多 |
+| D5 | **图片默认**：页面内的 logo、hero 图、装饰图一律 WebP + PNG 回退（favicon 格式见 D15），按实际显示尺寸出图（含 2x 视网膜档），标注 `width`/`height`；首屏 LCP 图给 `fetchpriority="high"`，其余给 `loading="lazy"`；`og:image` 单独生成，不进首屏渲染路径 | 图片是最容易在脚手架阶段被忽略的一类默认项——设计稿或占位阶段随手塞进去的原图往往是未压缩的源文件。**实测两个站的 logo 分别是 650KB 与 1.1MB，且都直接被用在首屏**，这类体积问题在段 4 性能闸门里查出来，比开发时按流程做一次图片处理贵得多 |
 | D6 | **数据体量**：题库、条目库这类大数据绝不进入口 bundle；按路由或按项懒加载；路由 loader 取到的数据随 HTML 一起 dehydrate 给客户端，客户端不再用 `import()` 二次拉取；SSR 只发当前页真正需要的字段 | 入口 bundle 体积直接决定首屏 JS 执行时间；**实测按项拆分成独立 chunk 后客户端反而多了一跳网络请求，比不拆分更差**——正确做法是让 loader 阶段就把数据打进 HTML（SSR dehydrate），而不是打散成很多小 chunk 靠客户端各自 `import()` |
 | D7 | **DOM 与动画**：列表/网格卡片的缩略图用单个 SVG 或 canvas 绘制，不逐格套 `div`；首屏之下的内容用 `content-visibility: auto` 配 `contain-intrinsic-size`；动画只动 `transform`/`opacity`；不做把主内容压在 `opacity: 0` 上做入场动画的写法 | **实测某首页把 2,700 个 DOM 节点压到 760 个**，直接改善解析与布局耗时；把主内容初始状态设为 `opacity: 0` 再靠 JS 动画淡入，是「Googlebot 首次渲染读到空内容」的常见成因之一；同理，首屏内容如果靠定时 `animation-delay`（1–5 秒）淡入，会在 Lighthouse trace 窗口内制造新的 LCP 候选、拖高 Speed Index，判据见 [`seo-box.md`](seo-box.md) 一 |
 | D8 | **CSS**：Tailwind 的 `content` 扫描范围收紧到实际用到的目录；CSS gzip 后体积在约 10KB 以内时整份内联进 SSR 输出的 `<style>`，体积更大时走关键 CSS 提取；两种做法都必须**实测后**定，不能凭经验直接选一种 | **实测两个方向都出现过**：40KB 级别的内联样式表反而拖慢了首屏渲染（阻塞解析的内联体积过大）；而一个 8.5KB 的内联样式表省掉了一次渲染阻塞的外部请求、净赚一段 LCP。判据是「先测再定」，不是「小站一律内联」或「一律外链」；文档本身超出约 14.6KB brotli 的 Lantern 初始拥塞窗口也会多算一跳 RTT，同文档内去重 SVG 对此几乎无收益，见 [`seo-box.md`](seo-box.md) 一 |
@@ -475,6 +475,7 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 | D12 | **JSON-LD**：统一走路由 `head()` 的 `scripts` 字段注入，不要在组件里各自拼字符串；页面类型按实际内容选（Game / CollectionPage / FAQPage / ContactPage 等，不是全站一个类型打天下）；全站 `Organization` 节点带 `sameAs`（只写真实存在的账号链接，不编）、`contactPoint.email`、`address`；每页 `author` + `datePublished` + `dateModified` 在构建期注入真实日期，不是占位日期 | 判据同 [`checklists.md`](checklists.md) 闸门 4b；本节强调的是「当天定好注入方式与类型选择规则」，避免后面每加一页都要重新决定一遍该用哪个 schema 类型 |
 | D13 | **a11y 从组件第一版就带上**：网格/按钮类组件的 `role`、`aria-label`、`aria-pressed` 层级关系一次写对；纯装饰性图片给空 `alt=""` | 无障碍属性是最容易被「以后再补」推迟、然后再也不会被想起来补的一类默认项；组件库（shadcn）本身已经带了这些属性，业务代码在包装组件时最容易把它们弄丢，脚手架当天核对一次成本最低 |
 | D14 | **部署与仓库卫生**：Workers Builds 的 Git 集成接好并在 `wrangler.jsonc` 里用注释记下接入日期；`lint`/`test` 命令脚手架跑通当天就要是绿的，并且进 `ship` 命令；`.env`、`.cf-token` 这类凭据文件必须在第一次提交前就写进 `.gitignore` | 这几项对应的失败形态都是「越往后越难补」：`ship` 脚本第一版没接 lint/test，后面加进去要重构整条命令链；凭据文件第一次提交时没 gitignore，事后清理 Git 历史比当天多写一行 `.gitignore`贵得多 |
+| D15 | **品牌图标当天做齐**：按段 4 · A 节完成图标资产和引用，清除 React / Vite / TanStack 脚手架默认图标；上线前再过图标专项 | 新 SVG 正常显示，不能证明根 favicon.ico、其他 head 引用或 manifest 没有旧图；默认图标必须在开发当天清掉 |
 
 #### 步骤 check
 
@@ -490,7 +491,7 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 | 6 | 本地开发、预览、部署、观测、回滚五条命令都存在且真跑过一次 | `package.json` |
 | 7 | 预览域可访问且返回 `noindex`；**`wrangler.jsonc` 里没有 custom domain / routes 指向正式域名** | 预览域 `curl` + `wrangler.jsonc` |
 | 8 | 匿名页面线上连续两次 `curl` 第二次带 `x-edge-cache: HIT` 且 TTFB 明显下降 | `.rankup/infrastructure.md` |
-| 9 | Day-1 默认清单（D1–D14）逐条核对，客观通过条件见 [`checklists.md`](checklists.md) 段 3 对应行；**没有跳过任何一条也没有留到段 4 才做** | `checklists.md` 段 3 |
+| 9 | Day-1 默认清单（D1–D15）逐条核对，客观通过条件见 [`checklists.md`](checklists.md) 段 3 对应行；**没有跳过任何一条也没有留到段 4 才做** | `checklists.md` 段 3 |
 
 ### 3.3 开发与测试（原阶段 5）
 
@@ -609,7 +610,9 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 
 ### 必做动作
 
-**A. 品牌资产：图标一次做全，别只丢一个 favicon.ico**
+**A. 品牌资产：图标一次做全，开发当天完成、上线前复核**
+
+本节是图标制作与核验的唯一操作源；段 3 Day-1 即执行，上线前在预览域重跑，发布后在正式域名回读。
 
 1. **先定标记，且必须在 16px 实测下定。** 这是唯一有效的判据：
    16px 是浏览器标签页的真实尺寸，很多在 512px 下好看的方案在这里直接消失。
@@ -624,12 +627,17 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 3. **生成模型可以出概念，但不要直接用它的位图做图标**：位图在小尺寸糊边，
    且其色值往往是量化出来的、与色板不精确一致。**取其概念，重画为矢量。**
 4. **整套一次做齐**，缺一个就会在某个终端上露出默认图标：
-   `favicon.svg`（现代浏览器首选）、`favicon.ico`（含 16/32/48 多尺寸）、
+   `favicon.svg`（现代浏览器首选）、`favicon.ico`（含 16/32/48 多尺寸，`sizes` 声明须与实际内嵌尺寸一致）、
    `icon-192.png`、`icon-512.png`、`icon-maskable-512.png`（内容缩到约 80% 留安全区，
    四周补品牌底色，否则 Android 圆形裁切会切掉主体）、`apple-touch-icon.png`（180）。
 5. **`manifest.json` 必须逐个引用，且引用的文件必须真实存在**。
    脚手架自带的 manifest 常常指向不存在的 `logo192.png`／`logo512.png`，
    并留着框架自己的名字——它是 Android 添加到主屏时用户看到的东西。
+5a. **图标专项：不能只换 SVG，或只检查文件存在 / HTTP 200。**
+    - 清除静态目录、构建产物中的框架默认图标及旧引用；逐项核对首页与各模板的 **SSR HTML 与浏览器水合后 DOM** 中所有 `rel="icon"`、`shortcut icon`、`apple-touch-icon`（含其变体），manifest 的全部 `icons`，以及即使未声明也会被访问的根 `/favicon.ico`。一个入口残留默认图标，整项不通过。
+    - 对上述去重后的 URL **逐个 GET 并解码实际图片**：必须为 200、非空、可解码的真图，不能是路由回退的 HTML；响应 `Content-Type`、head/manifest 声明的 `type` / `sizes` 必须与文件格式及真实尺寸相符；ICO 逐层核对尺寸。每张图都亲眼查看，允许按尺寸简化，但必须属于同一品牌，不能仍是脚手架图案。**改名不等于换图，标签页显示正确不等于所有入口正确。**
+    - 搜索图标使用方形图片与稳定 URL，除 SVG 外保留 Google 支持的 ICO/PNG 回退；建议补 `favicon-96x96.png` 并在首页 head 声明。Google 当前要求至少 8×8，建议大于 48×48；不把页面图片的 WebP 规则套到 favicon 上。格式与抓取规则以 [Google Search Central 的 favicon 文档](https://developers.google.com/search/docs/appearance/favicon-in-search) 为准（2026-09-14 核验，规则变更时复查）。
+    - 预览域保留设计中的索引封锁；上线后在正式域名重跑实图核验，放开索引时确认首页不阻止 Googlebot、图标不阻止 Googlebot-Image（含 robots 与访问控制）。**技术检查通过不等于 Google 搜索结果已更新**：重新抓取可能需几天至几周，满足条件也不保证展示；需要刷新时按 `search-platforms.md` 请求重新抓取首页，搜索显示状态另记。
 5b. **`manifest.json` 的 `display` 按站点类型分情况判，不要照抄脚手架默认的 `standalone`。**
     判据一句话：问「用户把它装成 PWA 之后，能在里面完成什么」，答不出来就不做。
     - **网站本身有可用功能**（在线工具、SaaS、有登录态的产品）：可以做 standalone PWA——
@@ -866,7 +874,7 @@ API 能立刻生效。只有没有公开 API 端点的设置（如 AI 爬虫阻�
     在控制台连好后 push 到 `main` 即自动构建部署，配置模板与实测坑见
     [`cloudflare-stack.md`](cloudflare-stack.md) §9。**不写 GitHub Actions 部署 workflow**——
     本地 `wrangler deploy` 只作应急兜底，两者并存时以 Cloudflare 自动构建的 deployment 为准。
-19. 上传完成后等待部署进入可服务状态，并从真实域名验证 SSR HTML、静态资源、API、D1、R2 上传/读取、鉴权和支付回调（**live 凭证**）。
+19. 上传完成后等待部署进入可服务状态，并从真实域名验证 SSR HTML、静态资源、API、D1、R2 上传/读取、鉴权和支付回调（**live 凭证**）；图标按段 4 · A 节第 5a 条逐项回读，放开索引后再核抓取权限。
 20. 对边缘缓存或传播延迟进行有界重试，并用版本标识、响应头或实际内容确认服务的是新版本。
 21. 检查日志与错误率，保存部署标识、时间、验证证据和回滚命令。
 22. **此时索引开关仍然是关**——正式域名先带着 `noindex` 上线，批 B 接完再放开。

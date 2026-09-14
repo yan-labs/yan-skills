@@ -10,7 +10,7 @@ import { resolveRoots } from "./registry.mjs";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "3.13.3";
+const expectedVersion = "3.13.4";
 const requiredReferences = [
   "discipline.md",
   "monetization.md",
@@ -58,6 +58,20 @@ const requiredContent = {
     "## 主线：维护 checklist，使用 checklist",
     "### `rankup check`",
     "references/checklists.md",
+    "品牌图标在开发当天做齐",
+    "图标专项未通过不许上线",
+  ],
+  "references/lifecycle.md": [
+    "清除 React / Vite / TanStack 脚手架默认图标",
+    "SSR HTML 与浏览器水合后 DOM",
+    "逐个 GET 并解码实际图片",
+    "Googlebot-Image",
+    "技术检查通过不等于 Google 搜索结果已更新",
+  ],
+  "references/checklists.md": [
+    "D15 · 品牌图标当天做齐",
+    "图标专项（上线前必过）",
+    "正式域名图标回读",
   ],
   "references/experiences/INDEX.md": [
     "## 收录规则（强制）",
@@ -301,6 +315,16 @@ async function validate() {
     for (const snippet of snippets) {
       if (!text.includes(snippet)) {
         errors.push(`missing required content in ${relativePath}: ${snippet}`);
+      }
+    }
+    if (relativePath === "references/checklists.md") {
+      const prose = text.replace(/^```[^\n]*\n[\s\S]*?^```[^\n]*$/gm, "");
+      for (const [stage, label] of [[3, "D15 · 品牌图标当天做齐"], [4, "图标专项（上线前必过）"], [5, "正式域名图标回读"]]) {
+        const row = `| **${label}** |`;
+        const section = prose.split(new RegExp(`^## 段 ${stage} ·`, "m"))[1]?.split(/^## /m)[0] ?? "";
+        if (text.split(row).length !== 2 || !section.includes(`|\n${row}`)) {
+          errors.push(`favicon gate must occur once as a table row in stage ${stage}: ${label}`);
+        }
       }
     }
   }
