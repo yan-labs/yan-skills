@@ -19,8 +19,10 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import {
   DEFAULT_DISPLAY_MATCH, VIRTUAL_DISPLAY_WINDOW,
-  chooseTabTarget, classifyWindowTabs, createAutomationWindow, createFrontmostSampler, detectDedicatedSupport,
-  fallbackHint, findSessionEntry, pickAutomationDisplay, pickDedicatedDisplay, plainAutomationSummary,
+  chooseTabTarget, classifyWindowTabs, createAutomationWindow, createFrontmostSampler, dedicatedDisplayPattern,
+  detectDedicatedSupport,
+  fallbackHint, findSessionEntry, pickAutomationDisplay, pickDedicatedDisplay, pickFreeRect, plainAutomationSummary,
+  rectsOverlap,
   resolveDisplayMatcher, resolveWindowStrategy, sanitizeSlot, targetWindowBounds, toGlobalTopLeft, windowCenterInDisplay,
 } from '../scripts/lib-automation-window.mjs';
 
@@ -451,7 +453,9 @@ test('dedicated: supported + matching display → commits to dedicated, never to
   assert.equal(calls.windowStatus, 1);
   assert.equal(calls.windowEnsure.length, 1);
   assert.equal(calls.windowEnsure[0].slot, sanitizeSlot(SESSION));
-  assert.equal(calls.windowEnsure[0].display, String(DEFAULT_DISPLAY_MATCH));
+  // 名字匹配上了就锚定到那块屏的名字，而不是原样回传用户的模式串——同屏多块非主屏时
+  // 不会被另一块截胡（2026-09-14 起的契约，见 dedicatedDisplayPattern）。
+  assert.equal(calls.windowEnsure[0].display, '/^虚拟 16:9$/');
   assert.equal(calls.setWindowBounds.length, 0, 'dedicated never moves windows itself (opencli does the placing)');
   assert.equal(calls.closeSession, 0, 'dedicated never closes+reopens the session (extension owns isolation)');
   assert.equal(calls.listScreens, 0, 'dedicated never falls through to JXA screen detection');
@@ -586,7 +590,7 @@ test('automationWindow.opencliEnv: only non-empty when dedicated actually commit
   assert.deepEqual(awD.opencliEnv, {
     OPENCLI_WINDOW: 'dedicated',
     OPENCLI_WINDOW_SLOT: sanitizeSlot(SESSION),
-    OPENCLI_WINDOW_DISPLAY: String(DEFAULT_DISPLAY_MATCH),
+    OPENCLI_WINDOW_DISPLAY: '/^虚拟 16:9$/',
   });
 
   const legacy = fakeWorld({
@@ -623,4 +627,118 @@ test('wiring guard: the four visibility-dependent entry scripts default to the v
   }
   const share = readFileSync(new URL('../scripts/lib-tools-share.mjs', import.meta.url), 'utf8');
   assert.match(share, /window === VIRTUAL_DISPLAY_WINDOW/);
+});
+
+/* ------------------------------------------------------------------ *
+ * 2026-09-14 实机复盘后的三个修复：几何先行选屏 / 遮挡自愈 / 摆放期读数不算 blocker
+ * ------------------------------------------------------------------ */
+
+const NAMELESS_STATUS = {
+  ...DEDICATED_SUPPORTED_STATUS,
+  displays: [
+    { id: '1', name: '', primary: true, bounds: { left: 0, top: 0, width: 1512, height: 982 } },
+    { id: '8', name: '', primary: false, bounds: { left: -2560, top: -1440, width: 2560, height: 1440 }, workArea: { left: -2560, top: -1410, width: 2560, height: 1410 } },
+  ],
+};
+
+test('pickDedicatedDisplay: 名字全是空字符串时按几何兜底选非主屏，而不是判定「没有匹配屏」', () => {
+  const [primary, virtual] = NAMELESS_STATUS.displays;
+  assert.equal(pickDedicatedDisplay([primary, virtual], DEFAULT_DISPLAY_MATCH).id, '8');
+  // 只有一块没名字的主屏：几何兜底绝不把自动化窗口摆到用户正在看的屏上。
+  assert.equal(pickDedicatedDisplay([primary], DEFAULT_DISPLAY_MATCH), null, 'nameless sole primary is never borrowed');
+});
+
+test('pickDedicatedDisplay: 名字可用但用户显式模式匹配不上 ⇒ 严格失败；allowNameless 才几何兜底', () => {
+  const named = DEDICATED_SUPPORTED_STATUS.displays;
+  const explicit = /sidecar/i;
+  assert.equal(pickDedicatedDisplay(named, explicit), null, 'explicit pattern with usable names stays strict');
+  assert.equal(pickDedicatedDisplay(named, explicit, { allowNameless: true }).id, '2');
+});
+
+test('dedicatedDisplayPattern: 有名字锚定成 /^名字$/，没名字退回匹配一切', () => {
+  assert.equal(dedicatedDisplayPattern({ name: '虚拟 16:9' }), '/^虚拟 16:9$/');
+  assert.equal(dedicatedDisplayPattern({ name: 'Studio (1)' }), '/^Studio \\(1\\)$/');
+  assert.equal(dedicatedDisplayPattern({ name: '' }), '/.*' + '/');
+  assert.equal(dedicatedDisplayPattern(null), '/.*' + '/');
+});
+
+test('pickFreeRect: 跳过已占矩形，占满一档就缩小一档，实在放不下返回 null', () => {
+  const area = { left: -2560, top: -1440, width: 2560, height: 1440 };
+  const first = pickFreeRect({ area, occupied: [] });
+  assert.deepEqual(first, { left: -2560, top: -1440, width: 1280, height: 900 });
+  const second = pickFreeRect({ area, occupied: [first] });
+  assert.equal(rectsOverlap(second, first), false);
+  // 两格占满 ⇒ 层叠错开，而不是绕回第 0 格与别人**完全重合**（完全重合才会被判 hidden）
+  const third = pickFreeRect({ area, occupied: [first, second] });
+  assert.ok(third, 'cascades instead of stacking exactly on top of an existing window');
+  assert.equal(third.width, first.width, 'window size never shrinks: the scraped DOM stays comparable');
+  assert.ok(third.left !== first.left || third.top !== first.top, 'offset from the window it overlaps');
+  const swallowed = [first, second].some((r) => third.left >= r.left && third.top >= r.top
+    && third.left + third.width <= r.left + r.width && third.top + third.height <= r.top + r.height);
+  assert.equal(swallowed, false, 'never fully covered by an existing window');
+});
+
+test('dedicated: 显示器没有名字时仍然走 dedicated（不再静默退回会抢焦点的 JXA），ensure 用匹配一切的模式', async () => {
+  const { deps, calls } = fakeWorld({ windowStatus: NAMELESS_STATUS, windowEnsure: () => dedicatedEnsureResult({ windowId: 888 }) });
+  const aw = createAutomationWindow({ session: SESSION, deps });
+  const r = await aw.prepare();
+  assert.equal(r.mode, VIRTUAL_DISPLAY_WINDOW);
+  assert.equal(aw.summary().strategy, 'dedicated');
+  assert.equal(calls.listScreens, 0, 'never falls through to the focus-stealing legacy path');
+  assert.equal(calls.setWindowBounds.length, 0);
+  assert.equal(calls.windowEnsure[0].display, '/.*' + '/');
+  assert.deepEqual(aw.opencliEnv, {
+    OPENCLI_WINDOW: 'dedicated',
+    OPENCLI_WINDOW_SLOT: sanitizeSlot(SESSION),
+    OPENCLI_WINDOW_DISPLAY: '/.*' + '/',
+  });
+});
+
+test('dedicated: 摆好却读到 hidden（被同屏别的 slot 压住）⇒ 重摆到空闲矩形，后续命令改带 bounds', async () => {
+  const occupiedByOtherSlot = { left: -2560, top: -1410, width: 1280, height: 900 };
+  const status = {
+    ...NAMELESS_STATUS,
+    windows: [{ slot: 'other-slot', windowId: 4242, exists: true, bounds: occupiedByOtherSlot }],
+  };
+  const { deps, calls } = fakeWorld({
+    windowStatus: status,
+    windowEnsure: () => dedicatedEnsureResult({ windowId: 900 }),
+    visSequence: [...Array(8).fill('hidden'), 'visible'],
+  });
+  const aw = createAutomationWindow({ session: SESSION, deps });
+  const r = await aw.prepare();
+  assert.equal(r.vis, 'visible', 'the relocation actually rescues the run');
+  assert.equal(calls.windowEnsure.length, 2, 'one display ensure, then one bounds ensure');
+  const relocated = calls.windowEnsure[1].bounds;
+  assert.ok(relocated, 'second ensure places explicit bounds');
+  assert.equal(rectsOverlap(relocated, occupiedByOtherSlot), false, 'the new rect avoids the other slot window');
+  const s = aw.summary();
+  assert.equal(s.dedicatedPlacement.relocations, 1);
+  assert.deepEqual(s.dedicatedPlacement.bounds, relocated);
+  // 后续每条会话命令都必须带 bounds，否则扩展会按 display 把窗口挪回撞车的格子
+  assert.equal(aw.opencliEnv.OPENCLI_WINDOW_BOUNDS, [relocated.left, relocated.top, relocated.width, relocated.height].join(','));
+  assert.equal(aw.opencliEnv.OPENCLI_WINDOW_DISPLAY, undefined);
+});
+
+test('dedicated: 摆放阶段中途的 hidden 不计入读数，first 只记这一轮的最终结果（问题 4）', async () => {
+  const { deps } = fakeWorld({
+    windowStatus: NAMELESS_STATUS,
+    windowEnsure: () => dedicatedEnsureResult(),
+    visSequence: ['hidden', 'visible'],
+  });
+  const aw = createAutomationWindow({ session: SESSION, deps });
+  await aw.prepare();
+  const v = aw.summary().visibility;
+  assert.equal(v.first, 'visible', 'a freshly created window must not poison first-read completeness blockers');
+  assert.equal(v.reads, 1, 'the arrange phase contributes exactly one read: its final state');
+  assert.equal(v.hidden, 0);
+});
+
+test('pickDedicatedDisplay: 合盖/熄屏后只剩一块没名字的屏 ⇒ 只有 internal===false 这条硬证据才敢用', () => {
+  const soleVirtual = { id: '8', name: '', primary: true, internal: false, bounds: { left: 0, top: 0, width: 2560, height: 1440 } };
+  assert.equal(pickDedicatedDisplay([soleVirtual], DEFAULT_DISPLAY_MATCH).id, '8', 'a sole external/virtual display is usable even with no name');
+  const soleBuiltin = { ...soleVirtual, internal: true };
+  assert.equal(pickDedicatedDisplay([soleBuiltin], DEFAULT_DISPLAY_MATCH), null, 'never borrow the built-in screen');
+  const soleUnknown = { ...soleVirtual, internal: undefined };
+  assert.equal(pickDedicatedDisplay([soleUnknown], DEFAULT_DISPLAY_MATCH), null, 'no evidence, no borrowing');
 });

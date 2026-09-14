@@ -169,12 +169,99 @@ export function pickAutomationDisplay(globalScreens, matcher) {
  * 主屏"的道理）——dedicated-window-contract.md 第 3 节说扩展自己的 `pickDisplay` 就是
  * 这个规则，这里对齐，不要因为 `primary:true` 就一律排除。
  */
-export function pickDedicatedDisplay(displays, matcher) {
+export function pickDedicatedDisplay(displays, matcher, { allowNameless = false } = {}) {
   if (!matcher || !Array.isArray(displays)) return null;
-  const valid = (d) => d && d.bounds && Number(d.bounds.width) > 0 && Number(d.bounds.height) > 0 && matcher.test(String(d.name ?? ''));
-  const nonPrimary = displays.find((d) => valid(d) && d.primary !== true);
-  if (nonPrimary) return nonPrimary;
-  if (displays.length === 1 && valid(displays[0])) return displays[0];
+  const usable = (d) => d && d.bounds && Number(d.bounds.width) > 0 && Number(d.bounds.height) > 0;
+  const hasName = (d) => String(d?.name ?? '').trim() !== '';
+  const pool = displays.filter(usable);
+  if (!pool.length) return null;
+  // 几何先行：候选永远是非主屏；只剩一块屏时才允许用它（熄屏/锁屏场景，见 pickAutomationDisplay）。
+  const secondary = pool.filter((d) => d.primary !== true);
+  const candidates = secondary.length ? secondary : (pool.length === 1 ? pool : []);
+  if (!candidates.length) return null;
+  const byName = candidates.find((d) => matcher.test(String(d.name ?? '')));
+  if (byName) return byName;
+  // 名字没匹配上：名字信号本身不存在（整份列表都没有名字）时按几何兜底，调用方明确允许
+  // （默认匹配器）时同样兜底。
+  const nameSignalAvailable = pool.some(hasName);
+  if (nameSignalAvailable && !allowNameless) return null;
+  if (secondary.length) return secondary[0];
+  // 只剩一块屏（物理屏熄屏/合盖，虚拟屏顶替占据原点）：没有名字佐证时，只认
+  // `internal === false` 这条硬证据——内建屏或者读不出这个字段，都不能拿用户唯一
+  // 在用的屏幕当自动化屏。2026-09-14 实测：合盖后扩展只报一块 id=8、name=''、
+  // internal:false、2560x1440 的屏，正是配好的虚拟屏。
+  if (pool.length === 1 && pool[0].internal === false) return pool[0];
+  return null;
+}
+
+/**
+ * 把选中的屏换算成传给扩展的 display 模式串。扩展侧 `pickDisplay` 只认名字，所以：
+ * 有名字 ⇒ 锚定成 `/^名字$/`（精确到这一块，不会被另一块同样非主的屏截胡）；
+ * 没名字（本机 `chrome.system.display` 两块屏的 name 都是空字符串，2026-09-14 实测）
+ * ⇒ 用「匹配一切」的正则（见 fallbackPattern 默认值），它能匹配空名字，而扩展自己的
+ * pickDisplay 同样只会落在非主屏上，
+ * 与这里的几何判定一致。
+ */
+export function dedicatedDisplayPattern(display, fallbackPattern = '/.*/') {
+  const name = String(display?.name ?? '').trim();
+  if (!name) return fallbackPattern;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return `/^${escaped}$/`;
+}
+
+/** `{left,top,width,height}` → opencli `--bounds` / `OPENCLI_WINDOW_BOUNDS` 的 `x,y,w,h` 串。 */
+export function formatBounds(b) {
+  return [b.left, b.top, b.width, b.height].map((n) => Math.round(Number(n) || 0)).join(',');
+}
+
+/** 两个 `{left,top,width,height}` 矩形是否相交（边贴边不算）。 */
+export function rectsOverlap(a, b) {
+  if (!a || !b) return false;
+  return Number(a.left) < Number(b.left) + Number(b.width)
+    && Number(b.left) < Number(a.left) + Number(a.width)
+    && Number(a.top) < Number(b.top) + Number(b.height)
+    && Number(b.top) < Number(a.top) + Number(a.height);
+}
+
+/**
+ * 在一块屏里找一块**不与任何已占矩形重叠**的位置。
+ *
+ * 为什么需要：扩展按固定 1280x900 切格，2560x1440 的屏只有 2 格，第 3 个 slot 会绕回
+ * 第 0 格，新窗口整个被压在老窗口下面 —— Chrome 对完全遮挡的窗口报 `hidden`，抓取
+ * 侧于是拿到一堆没渲染的区块，而 `window status` 还在报 `onDisplay:true`（2026-09-14
+ * 实测：82 次可见度读数全 hidden，只拿到 11/23 区块）。放不下就缩小一档窗口再排，
+ * 缩到底仍放不下才返回 null，由调用方如实记录 `dedicated-relocate-failed`。
+ */
+export function pickFreeRect({ area, occupied = [], size = AUTOMATION_WINDOW_GEOMETRY, cascade = { x: 120, y: 90, tries: 8 } } = {}) {
+  if (!area || !(Number(area.width) > 0) || !(Number(area.height) > 0)) return null;
+  const taken = (Array.isArray(occupied) ? occupied : []).filter((r) => r && Number(r.width) > 0 && Number(r.height) > 0);
+  const w = Math.min(Number(size.width), Number(area.width));
+  const h = Math.min(Number(size.height), Number(area.height));
+  if (!(w > 0) || !(h > 0)) return null;
+  const clamp = (rect) => ({
+    left: Math.min(Math.max(rect.left, Number(area.left)), Number(area.left) + Number(area.width) - w),
+    top: Math.min(Math.max(rect.top, Number(area.top)), Number(area.top) + Number(area.height) - h),
+    width: w,
+    height: h,
+  });
+  // 1) 完全不重叠的格子优先——窗口尺寸一个像素都不改，抓到的 DOM 与单窗口时逐字节可比。
+  const cols = Math.max(1, Math.floor(Number(area.width) / w));
+  const rows = Math.max(1, Math.floor(Number(area.height) / h));
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const rect = clamp({ left: Number(area.left) + col * w, top: Number(area.top) + row * h });
+      if (!taken.some((r) => rectsOverlap(rect, r))) return rect;
+    }
+  }
+  // 2) 屏幕放不下第三块全尺寸窗口时，层叠错开：Chrome 只在窗口**被完全遮住**时报 hidden，
+  //    错开之后总有一条边露在外面，既不缩窗口（不改渲染宽度）也不会被判成不可见。
+  for (let i = 1; i <= (cascade.tries ?? 8); i += 1) {
+    const rect = clamp({ left: Number(area.left) + i * cascade.x, top: Number(area.top) + i * cascade.y });
+    const swallowed = taken.some((r) => rect.left >= r.left && rect.top >= r.top
+      && rect.left + rect.width <= r.left + r.width && rect.top + rect.height <= r.top + r.height);
+    const duplicate = taken.some((r) => r.left === rect.left && r.top === rect.top);
+    if (!swallowed && !duplicate) return rect;
+  }
   return null;
 }
 
@@ -324,7 +411,17 @@ export function defaultAutomationDeps({ session, env, placeholderUrl = process.e
   // dedicated 之前逐字节一致（--window isolated），一个参数都没多传给 opencli()。
   const sessionCmd = (args, timeoutMs = 60_000, dedicated = null) => opencli(['browser', session, ...args], {
     windowMode: dedicated ? 'dedicated' : 'isolated',
-    env: dedicated ? { ...env, OPENCLI_WINDOW_SLOT: dedicated.slot, ...(dedicated.display ? { OPENCLI_WINDOW_DISPLAY: dedicated.display } : {}) } : env,
+    // bounds 优先于 display：重摆到空闲位置之后，后续每条命令都必须带同一份 bounds，
+    // 否则扩展会按 display 模式把 placement 重置回原来那个撞车的格子，把窗口挪回去。
+    env: dedicated
+      ? {
+        ...env,
+        OPENCLI_WINDOW_SLOT: dedicated.slot,
+        ...(dedicated.bounds
+          ? { OPENCLI_WINDOW_BOUNDS: formatBounds(dedicated.bounds) }
+          : (dedicated.display ? { OPENCLI_WINDOW_DISPLAY: dedicated.display } : {})),
+      }
+      : env,
     timeoutMs,
   });
   return {
@@ -368,9 +465,10 @@ export function defaultAutomationDeps({ session, env, placeholderUrl = process.e
       catch { return null; }
       try { return firstJson(out.stdout); } catch { return null; }
     },
-    windowEnsure: async ({ slot, display } = {}) => {
+    windowEnsure: async ({ slot, display, bounds } = {}) => {
       const args = ['browser', 'window', 'ensure', '--slot', String(slot || 'default')];
-      if (display) args.push('--display', String(display));
+      if (bounds) args.push('--bounds', formatBounds(bounds));
+      else if (display) args.push('--display', String(display));
       args.push('-f', 'json');
       let out;
       try { out = await run('opencli', args, { timeoutMs: 20_000, allowFailure: true }); }
@@ -429,6 +527,11 @@ export function createAutomationWindow({
     windowMode: fallbackWindowMode,
     slot: dedicatedSlot,
     dedicatedSupport: null, // 最近一次 windowStatus() 探测结果的摘要，见 detectDedicatedSupport
+    dedicatedDisplay: null, // window status 里选中的那块屏（几何先行，名字只是辅助信号）
+    dedicatedPattern: null, // 传给扩展的 display 模式串（名字为空时是 /.*/）
+    dedicatedBounds: null,  // 重摆到空闲位置后钉死的窗口矩形；非空时压过 display 模式
+    relocations: 0,
+    relocationFailures: 0,
     moves: 0,
     tabSelects: 0,
     recoveries: 0,
@@ -534,14 +637,14 @@ export function createAutomationWindow({
     } catch (e) { err('readVisibility', e); return null; }
   }
 
-  async function pollVisible(label, dedicated) {
+  async function pollVisible(label, dedicated, { record = true } = {}) {
     let vis = null;
     for (let i = 0; i < visiblePollTries; i += 1) {
       vis = dedicated ? await readVis(dedicated) : await readVis();
       if (vis === 'visible') break;
       await deps.sleep(visiblePollMs);
     }
-    recordRead({ vis, label });
+    if (record) recordRead({ vis, label });
     return vis;
   }
 
@@ -570,11 +673,15 @@ export function createAutomationWindow({
     if (!support.supported) return { attempted: false };
     const displays = statusJson && Array.isArray(statusJson.displays) ? statusJson.displays : null;
     if (!displays) return { attempted: false };
-    const display = pickDedicatedDisplay(displays, matcher.matcher);
+    // 几何先行：名字匹配不上（本机 chrome.system.display 的 name 全是空字符串）时不再
+    // 直接放弃 dedicated——那等于静默退回会抢焦点的 osascript 路径。
+    const display = pickDedicatedDisplay(displays, matcher.matcher, { allowNameless: matcher.source === 'default' });
     if (!display) return { attempted: false };
+    st.dedicatedDisplay = display;
+    st.dedicatedPattern = dedicatedDisplayPattern(display);
 
     let ensured;
-    try { ensured = await deps.windowEnsure({ slot: dedicatedSlot, display: matcher.pattern }); }
+    try { ensured = await deps.windowEnsure({ slot: dedicatedSlot, display: st.dedicatedPattern }); }
     catch (e) { err('windowEnsure', e); ensured = null; }
     if (!ensured || ensured.placement?.displayFound === false) {
       toFallback('virtual-display-lost');
@@ -587,13 +694,59 @@ export function createAutomationWindow({
     st.windowMode = 'dedicated';
     st.display = { name: display.name, bounds: { ...display.bounds } };
     st.windowId = Number.isInteger(ensured.windowId) ? ensured.windowId : null;
-    event('dedicated-ensure', { slot: dedicatedSlot, created: Boolean(ensured.created), moved: Boolean(ensured.moved), onDisplay: ensured.onDisplay ?? null });
+    event('dedicated-ensure', { slot: dedicatedSlot, created: Boolean(ensured.created), moved: Boolean(ensured.moved), onDisplay: ensured.onDisplay ?? null, pattern: st.dedicatedPattern });
 
-    const marker = { slot: dedicatedSlot, display: matcher.pattern };
-    try { await deps.openPlaceholder(marker); } catch (e) { err('openPlaceholder', e); }
+    try { await deps.openPlaceholder(dedicatedMarker()); } catch (e) { err('openPlaceholder', e); }
     await sampler.sample(`${label}:after-select`, { force: true });
-    const vis = await pollVisible(label, marker);
+    // 摆放阶段不记读数：窗口刚建出来那一瞬间的 hidden 不该被算成「首次读数是 hidden」
+    // 的完整性 blocker（问题 4）。只有这一轮的**最终**结果才记一次。
+    let vis = await pollVisible(label, dedicatedMarker(), { record: false });
+    if (vis !== 'visible' && await relocateToFreeRect('occluded-at-arrange')) {
+      await selectDedicatedTab(dedicatedMarker());
+      vis = await pollVisible(label, dedicatedMarker(), { record: false });
+    }
+    recordRead({ vis, label });
     return { attempted: true, vis };
+  }
+
+  /** 当前这轮 dedicated 会话命令要带的窗口标记：重摆过就钉死在那块 bounds 上。 */
+  function dedicatedMarker() {
+    return st.dedicatedBounds
+      ? { slot: dedicatedSlot, bounds: st.dedicatedBounds }
+      : { slot: dedicatedSlot, display: st.dedicatedPattern || matcher.pattern };
+  }
+
+  /**
+   * 专用窗口读到 hidden，多半是被同一块屏上另一个 slot 的窗口整个压住了（扩展按固定
+   * 1280x900 切格，格子用完就绕回第 0 格重叠）。这里不等扩展改：自己从 window status
+   * 拿到同屏所有已存在窗口的矩形，算一块不重叠的位置，用 `--bounds` 把自己挪过去。
+   * 挪成功后 `st.dedicatedBounds` 会一直带在后续每条命令上，避免被 display 模式挪回去。
+   */
+  async function relocateToFreeRect(reason) {
+    const display = st.dedicatedDisplay;
+    if (!display) return false;
+    let status = null;
+    try { status = await deps.windowStatus(); } catch (e) { err('windowStatus', e); }
+    const windows = Array.isArray(status?.windows) ? status.windows : [];
+    const occupied = windows
+      .filter((w) => w && w.exists !== false && w.bounds && String(w.slot) !== String(dedicatedSlot))
+      .map((w) => w.bounds);
+    const area = display.workArea && Number(display.workArea.width) > 0 ? display.workArea : display.bounds;
+    const rect = pickFreeRect({ area, occupied });
+    if (!rect) {
+      st.relocationFailures += 1;
+      event('dedicated-relocate-failed', { reason, occupied: occupied.length });
+      return false;
+    }
+    let ensured;
+    try { ensured = await deps.windowEnsure({ slot: dedicatedSlot, bounds: rect }); }
+    catch (e) { err('windowEnsure', e); ensured = null; }
+    if (!ensured) return false;
+    st.dedicatedBounds = rect;
+    st.relocations += 1;
+    st.windowId = Number.isInteger(ensured.windowId) ? ensured.windowId : st.windowId;
+    event('dedicated-relocate', { reason, slot: dedicatedSlot, bounds: rect, occupied: occupied.length });
+    return true;
   }
 
   /** 完整的一轮摆放：先试 dedicated，不适用才走会话窗口 → 移窗 → 选中标签 → 等 visible。 */
@@ -623,7 +776,7 @@ export function createAutomationWindow({
 
   /** dedicated 模式下的 ensureVisible：hidden 时 windowEnsure 重新摆放 + tab select + 轮询。 */
   async function ensureVisibleDedicated(reason) {
-    const marker = { slot: dedicatedSlot, display: matcher.pattern };
+    const marker = dedicatedMarker();
     const vis = await readVis(marker);
     if (vis === 'visible') { recordRead({ vis, label: reason }); return { mode: st.mode, visible: true }; }
     recordRead({ vis, label: `${reason}:hidden` });
@@ -634,16 +787,25 @@ export function createAutomationWindow({
     st.recoveries += 1;
     event('recover', { reason, vis });
     let ensured;
-    try { ensured = await deps.windowEnsure({ slot: dedicatedSlot, display: matcher.pattern }); }
-    catch (e) { err('windowEnsure', e); ensured = null; }
+    try {
+      ensured = st.dedicatedBounds
+        ? await deps.windowEnsure({ slot: dedicatedSlot, bounds: st.dedicatedBounds })
+        : await deps.windowEnsure({ slot: dedicatedSlot, display: st.dedicatedPattern || matcher.pattern });
+    } catch (e) { err('windowEnsure', e); ensured = null; }
     if (!ensured || ensured.placement?.displayFound === false) {
       toFallback('virtual-display-lost');
       return { mode: st.mode, visible: false, displayLost: true, fallbackReason: st.fallbackReason };
     }
     st.windowId = Number.isInteger(ensured.windowId) ? ensured.windowId : st.windowId;
     event('dedicated-ensure', { slot: dedicatedSlot, created: Boolean(ensured.created), moved: Boolean(ensured.moved), onDisplay: ensured.onDisplay ?? null, recovery: reason });
-    await selectDedicatedTab(marker);
-    const after = await pollVisible(`recover:${reason}`, marker);
+    await selectDedicatedTab(dedicatedMarker());
+    let after = await pollVisible(`recover:${reason}`, dedicatedMarker(), { record: false });
+    // 还是 hidden：多半是被同屏另一个 slot 压住了，换一块空闲位置再看一次。
+    if (after !== 'visible' && await relocateToFreeRect(`occluded-at-${reason}`)) {
+      await selectDedicatedTab(dedicatedMarker());
+      after = await pollVisible(`recover:${reason}`, dedicatedMarker(), { record: false });
+    }
+    recordRead({ vis: after, label: `recover:${reason}` });
     return { mode: st.mode, visible: after === 'visible' };
   }
 
@@ -672,6 +834,9 @@ export function createAutomationWindow({
       ...(st.fallbackReason ? { fallbackReason: st.fallbackReason } : {}),
       display: st.display ? { name: st.display.name, bounds: st.display.bounds } : null,
       displayMatcher: { source: matcher.source, pattern: matcher.pattern, disabled: matcher.disabled },
+      dedicatedPlacement: st.strategy === 'dedicated'
+        ? { pattern: st.dedicatedPattern, bounds: st.dedicatedBounds, relocations: st.relocations, relocationFailures: st.relocationFailures }
+        : null,
       windowId: st.windowId,
       windowMode: st.windowMode,
       slot: st.slot,
@@ -704,10 +869,20 @@ export function createAutomationWindow({
      */
     get opencliEnv() {
       if (st.mode !== 'virtual-display' || st.strategy !== 'dedicated') return {};
+      // 重摆过就传 bounds，别再传 display：display 会让扩展每条命令都把 placement 重算回
+      // 原来那个撞车的格子，等于把窗口挪回被遮挡的位置。
+      if (st.dedicatedBounds) {
+        return {
+          OPENCLI_WINDOW: 'dedicated',
+          OPENCLI_WINDOW_SLOT: st.slot,
+          OPENCLI_WINDOW_BOUNDS: formatBounds(st.dedicatedBounds),
+        };
+      }
+      const pattern = st.dedicatedPattern || matcher.pattern;
       return {
         OPENCLI_WINDOW: 'dedicated',
         OPENCLI_WINDOW_SLOT: st.slot,
-        ...(matcher.pattern ? { OPENCLI_WINDOW_DISPLAY: matcher.pattern } : {}),
+        ...(pattern ? { OPENCLI_WINDOW_DISPLAY: pattern } : {}),
       };
     },
   };
