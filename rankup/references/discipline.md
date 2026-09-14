@@ -328,7 +328,7 @@ Skill 集合不一样，文档只保证「该用什么」；遇缺就跳过会�
 | 搜索平台 | Naver Search Advisor | grep `naver-site-verification`；爬虫 UA `Yeti` |
 | 外链视角 | Ahrefs Webmaster Tools（Ahrefs WA） | 后台查项目验证状态；grep `analytics.ahrefs.com` |
 | 站点体检 | Ahrefs Site Audit | 后台查有已完成的抓取；`ahrefs-site-audit.mjs report <id> <section>` |
-| 邮箱 | Cloudflare Email Routing `hello@` | 发一封测试邮件收到 |
+| 邮箱 | Cloudflare Email Routing `hello@` + SPF / DKIM / DMARC | 收信与防冒充分开验收：按 [`cloudflare-stack.md`](cloudflare-stack.md) §8.6 盘点用途及发信子域、补齐并回读策略；权威/公共 DNS 生效，外发认证通过或有依据标不适用；`p=none` 仅观察，不能以收信成功代替防护完成 |
 | 受众忠诚度 | Preferred Sources 引导按钮 | 人工核对页面已有引导按钮/组件 |
 | 品牌资产 | favicon / manifest / icons | `curl` 各路径 HTTP 200 |
 | SEO 元素 | title / description / robots / OG（含图） | grep 各标签，逐页 |

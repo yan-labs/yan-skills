@@ -361,7 +361,8 @@ Cloudflare 后台点"用该身份登录"会失败，表现为**控制台整个�
 ## 8.6 品牌邮箱：Cloudflare Email Routing
 
 域名在 Cloudflare 上之后，用 **Email Routing** 给站点加一个官方邮箱（如 `hello@<domain>`），
-零成本把收到的邮件转发到个人邮箱。Wrangler 4.x 已有完整 CLI（open beta）。
+零成本把收到的邮件转发到个人邮箱。先用 `wrangler --version` 和 `wrangler email routing --help`
+核验本机支持的命令与参数；支持则优先 CLI，不支持则直接用官方 API，不要求打开控制台。
 
 ```bash
 wrangler email routing settings <domain>          # 查看状态
@@ -376,25 +377,15 @@ wrangler email routing rules list <domain>        # 验证规则
 wrangler email routing dns get <domain>           # 验证 DNS 记录
 ```
 
-**路径 B：Cloudflare API。** Wrangler CLI 和 Dashboard 都不可用时（浏览器连不上、
-wrangler 认证失败），用 API 直接操作。需要 Global API Key 或有 `Zone > Email Routing
-Addresses > Edit` 权限的 scoped token。
+**路径 B：Cloudflare API。** CLI 不支持或认证不可用时直接使用官方 REST API；
+按操作核验 Email Routing 或 DNS 编辑权限。凭据只从环境变量或安全存储读入进程内的认证头，
+不得打印、落入报告或放进命令实参；不要复制带明文认证头的 curl 命令。
 
-```bash
-ZONE_ID="<zone_id>"
-# 启用 Email Routing（DNS 记录已存在则直接激活，否则需先添加）
-curl -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/enable" \
-  -H "X-Auth-Email: <email>" -H "X-Auth-Key: <global_key>" \
-  -H "Content-Type: application/json"
-
-# 查看状态（enabled / status 字段）
-curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing" \
-  -H "X-Auth-Email: <email>" -H "X-Auth-Key: <global_key>"
-
-# 列出转发规则
-curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/rules" \
-  -H "X-Auth-Email: <email>" -H "X-Auth-Key: <global_key>"
-```
+| 操作 | API 路径（基址 `https://api.cloudflare.com/client/v4`） |
+|---|---|
+| 启用 Email Routing（先核验所需 DNS 与现有收件配置不冲突） | `POST /zones/{zone_id}/email/routing/enable` |
+| 查看状态 | `GET /zones/{zone_id}/email/routing` |
+| 列出转发规则 | `GET /zones/{zone_id}/email/routing/rules` |
 
 **实测陷阱**：Dashboard 上 Email Routing 的「启用/禁用」开关有时点击无响应——
 routing 显示「已禁用」但 DNS 记录和规则都在。此时 API `POST .../enable`
@@ -405,7 +396,27 @@ routing 显示「已禁用」但 DNS 记录和规则都在。此时 API `POST ..
 （Google Workspace / Zoho 等），启用前先确认不会抢走现有邮箱的收件。
 
 **只管收件**：Email Routing 只做转发，不提供发件能力。
-需要用域名邮箱发信要配付费邮箱服务。内容站通常只需收件。
+需要用域名邮箱发信时另接实际发信服务，并验证该服务的 SPF / DKIM 与 DMARC 对齐；不能因已接 Routing 就认定能外发。
+
+### 邮件防冒充：与收信一起验收
+
+新建或绑定域名、接入 `hello@`、上线验收及现站 `rankup review` 时，**主动核查 SPF、DKIM、DMARC 并补齐可确认的缺口**；收信成功不能代替防冒充验收。先读现有 DNS、代码与发送服务配置，区分只收信、实际外发及用途未知，并核对独立发信子域及其 DMARC 策略。
+
+- **只收信**须有证据或用户确认：核对没有会受父域策略影响的发信子域后，可在 `_dmarc.<domain>` 添加 TXT：`v=DMARC1; p=reject; sp=reject; adkim=r; aspf=r`。已有独立发信子域先验证其认证与策略，不能直接套 `sp=reject`。保留 Cloudflare Routing 所需 MX / SPF / DKIM，不为套用「不发信」模板而改坏转发记录。
+- **有外发**：盘点验证码、通知、营销、人工回复等实际发送服务；逐个验证 SPF / DKIM 及与可见 From 的 DMARC 对齐，再启用 `quarantine` / `reject`。`p=none` 只是观察，不能标记已防护；只收信无需虚构外发 DKIM 测试。
+- **用途未知**：继续只读核验及其他可完成工作，仅阻塞拒收/隔离策略变更，不得默认为只收信。
+
+通用 DNS TXT 使用 [Cloudflare DNS Records API](https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/create/)；先读后写，不创建重复 DMARC、不覆盖其他 TXT、不降级现有策略：
+
+| 操作 | API 路径（同上基址） |
+|---|---|
+| 查询目标记录 | `GET /zones/{zone_id}/dns_records?type=TXT&name=_dmarc.<domain>` |
+| 仅在缺失时新增 | `POST /zones/{zone_id}/dns_records`，正文含 `type: "TXT"`、`name: "_dmarc.<domain>"`、已确定的 `content`、`ttl: 1` |
+| 已存在且确需调整 | `PATCH /zones/{zone_id}/dns_records/{dns_record_id}`，精确使用查询所得 ID，仅修改需要的字段 |
+
+写入后 API 回读，并查询权威 DNS 与公共递归 DNS，确认唯一有效 DMARC 及策略内容一致；DNS 未生效时只能记待验证，不能报完成。在项目 `.rankup/integrations.md` 记录用途依据、变更前后、记录 ID、验证时间和回滚方法（恢复旧值；本次新增则删除该精确 ID），不保存凭据。收信测试与实际外发邮件头的 SPF / DKIM / DMARC 认证测试分开记录；无外发时后者标不适用，不主动发送未经授权的测试邮件。
+
+策略含义与配置参考：[Cloudflare 邮件安全记录](https://developers.cloudflare.com/dmarc-management/security-records/)。
 
 **地址只有一个约定：`hello@<domain>`**，不用 `contact@` / `admin@` / `info@`。
 详见 `lifecycle.md` 段 5 批 B 第 26 条的完整操作指南与注意事项。
@@ -428,6 +439,31 @@ Google AI Overview）的爬虫与训练爬虫共用 User-Agent，阻止训练同
 没有 `# Cloudflare Managed Content` 段。【实测 2026-09-03】
 
 **API 替代**：目前这两个开关没有公开的 zone-level API 端点，只能通过 Dashboard 操作。
+
+## 8.8 基础安全：主动补齐，按用途取舍
+
+本节属于段 5 上站后的检查优化：**绑定正式域名并可访问后、上线验收前主动完成**；已上线站在 review 时补查。开发阶段先做好代码输入与接口边界，不要求未绑定域名就配置 DNS / HTTPS。用户只要求基础加固时，以这些适用项为范围，不扩成全面安全审计。先读线上响应、现有规则与实际路由，复用项目共享入口和平台能力，不为基础配置增加依赖。
+
+| 项目 | 默认处理与边界 |
+|---|---|
+| HTTPS | 按 §8.5 收敛 HTTP / www 到规范 HTTPS，保留路径与查询参数；检查证书有效、无循环，不叠加已有重定向 |
+| 类型与来源信息 | 补 `X-Content-Type-Options: nosniff`、`Referrer-Policy: strict-origin-when-cross-origin`；已有更严格且兼容业务的策略保留，先纠正脚本、样式与 API 的 Content-Type |
+| 页面嵌入 | 先确认工具是否供其他网站 iframe 嵌入。无跨站嵌入需求才设 `X-Frame-Options: SAMEORIGIN`；需要指定外域时按真实来源配置 CSP `frame-ancestors`，不加冲突的 X-Frame-Options |
+| CSP | 保留并核验已有策略；新增时盘点内联脚本、分析、支付、登录与资源域，必要时先 Report-Only。不要为了评分批量套严格 CSP，也不拿放开所有来源冒充有效防护 |
+| HSTS | 确认目标主机 HTTPS 稳定后，新增先用短 `max-age`（如 86400）观察；不默认加 `includeSubDomains` / `preload`，不降级已有有效策略。扩展前核对所有子域，回滚须经 HTTPS 下发 `max-age=0`，浏览器已缓存策略不会因删除服务器配置立即失效 |
+| 实际 API | 沿共享处理入口核对参数、请求体/上传大小、外部请求超时、对象权限与必要鉴权；URL 抓取还要核对协议、目标及重定向后的地址范围。耗资源接口复用已有服务端限流/额度，按真实入口设阈值；不能把进程内计数当分布式硬限额，不能只信客户端或 Content-Length |
+| 账号与凭据 | 可读时核对管理账号双重验证、令牌用途与最小权限；无法读取就注明未核验，不输出秘密，不自行轮换或撤销正在使用的凭据 |
+
+纯前端工具无需为了这轮加验证码；不批量启用攻击模式、全站挑战、国家封禁、封爬虫或复杂 WAF。已发现的真实高风险缺口如无法小改修复，单列证据与影响，不能标成已安全。
+
+**配置与验收顺序**：
+
+1. CLI 支持则用 CLI，否则用官方 API；执行前查当前官方文档与可用权限。按需要精确设置响应头，不为了少一次调用启用捆绑多种响应头的托管开关；启用前核清全部效果，避免夹带不需要的旧机制。复用已有响应头中间件、静态资产 `_headers` 或 Cloudflare Response Header Transform Rules 中实际覆盖目标请求的一处。`_headers` 只覆盖静态资产响应，不能代表 Worker 动态 HTML / API 已覆盖。
+2. 先保存现有配置与规则 ID，限定本次主机/路径；能改单条就改单条，必须更新规则集时先读取、合并并保留其他规则与顺序，发现并发变更则重读，不用整表覆盖模板。只填缺项，不削弱已有策略；权限不足时不改用范围更大的凭据绕过。
+3. 本地验证本次逻辑，发布后以真实生产 **GET** 回读首页、代表内页、关键 JS/CSS 与适用 API 的状态、响应头和 Content-Type；抽查正常业务与本次新增拒绝路径，涉及嵌入/登录/支付等策略时做相应浏览器回归。兼查正常缓存请求与新版本证据，不把 API 成功或控制台开关当生效。
+4. 在 `.rankup/audit.md` / `.rankup/infrastructure.md` 留本次范围、变更前后、规则 ID 或部署版本、验证时间、适用/不适用依据及精确回滚方法；应用代码发布另记 `.rankup/releases.md`。失败先回滚本次改动并复核，不撤销他人规则；未验证项单列，不宣称全面安全。
+
+官方参考：[响应头规则](https://developers.cloudflare.com/rules/transform/response-header-modification/)、[静态资产响应头](https://developers.cloudflare.com/workers/static-assets/headers/)、[HSTS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/http-strict-transport-security/)。
 
 ## 9. 部署
 
@@ -615,7 +651,7 @@ Wrangler 报”上传成功”只证明产物送达某个控制面步骤，不�
 - **上传成功不等于流量已经切过去**:新版本存在与旧响应仍在服务可以同时为真。判据只有一个——请求真实域名并断言响应内容里含本次的标识,`wrangler` 的输出不算。另外,OAuth 登录拿到的 wrangler 凭据**没有清缓存的权限**,边缘缓存到期前你无法强制刷新;对无哈希文件名的直连资产,这意味着"改完要等",不是"部署失败"。
 - **静态资产托管的默认 `Cache-Control` 可能是 `max-age=0, must-revalidate`,连内容哈希产物也一样**:构建工具产出的 `index-<hash>.js` 本该永久缓存——哈希文件名的全部意义就是内容变了 URL 就变——但托管层的默认值会把浏览器缓存整个关掉。后果不是变慢一点:回访用户为**每一个**子资源发一条条件请求、各付一个往返,尽管服务器全部回 304(实测一个静态站的单页受影响子资源 13–21 个)。修法是在资产目录里放 `_headers`(Workers 静态资产原生支持,构建时要被拷进产物目录),哈希产物给 `max-age=31536000, immutable`,**非哈希产物只给有限 `max-age`、不加 `immutable`**——脚本生成的图片、字体会被同名重生成,`immutable` 会让老访客长期拿不到新版。HTML 保持 `max-age=0, must-revalidate` 是**正确**的,不要顺手一起改。
 - **`cf-cache-status: HIT` 不能证明浏览器缓存生效**:它证明的是边缘缓存住了,省的是"边缘到源"那一段;`Cache-Control` 管的是"浏览器到边缘",而回访用户的耗时几乎全在后一段。这两层被混为一谈时的典型表现是"看到 HIT 就认为缓存没问题",而实际每次访问都在重新走网络。
-- **验证响应头必须绕开边缘缓存,否则会读到改动前的响应**:改完 `_headers` 立刻回读,很可能拿到 `HIT` 的旧副本,从而得出"规则没生效"的错误结论,并据此去改一个本来正确的规则。判据:回读时带一个随机查询参数(`?cb=<随机>`)——查询参数进边缘缓存键但不影响静态资产解析,因此必然拿到新回源的响应。**同一条规则里别的路径生效了,不代表这个路径也生效了,要逐个 URL 回读。**
+- **验证响应头要识别实际缓存与生效层**：改完 `_headers` 可能仍读到旧缓存；随机查询参数仅在缓存键包含该参数时才可能避开旧副本，不能保证重新回源。先看实际 Cache Rules、Worker 缓存键与响应头处理层，再用部署版本、资源哈希、响应内容及可用的缓存状态交叉核实；同时验证正常 URL，不能只验证带参数的请求。必要时精确刷新受影响缓存，不盲目清空全站。按 §8.8 对每类目标 URL 分别回读，其他路径生效不能代表本路径。
 
 ## 12. 匿名页面 HTML 边缘缓存（Cache API）
 

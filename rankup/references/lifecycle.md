@@ -873,6 +873,8 @@ API 能立刻生效。只有没有公开 API 端点的设置（如 AI 爬虫阻�
     （规则写法见 §8.5「www / http 收敛」与 [`seo-box.md`](seo-box.md) 二）。
 16. **把段 3 的域名留位常量换成正式域名**——只改这一处；然后全仓库 grep 预览域字面量，必须为零。
 
+16a. **绑定正式域名后主动补齐基础安全**：域名可访问后按 [`cloudflare-stack.md`](cloudflare-stack.md) §8.8 检查并配置；在 5.4 的生产验证中一并验收，再放开索引。已上线站 review 补查，开发期无需提前完成正式域名配置。
+
 **5.4 部署到正式域名并真实线上验证（原阶段 7）**
 
 17. 部署前确认精确 Git SHA、目标环境、bindings、待执行迁移、域名和回滚点。
@@ -907,37 +909,12 @@ API 能立刻生效。只有没有公开 API 端点的设置（如 AI 爬虫阻�
     都需要一个**看起来属于这个站的邮箱**——用个人 Gmail 会让 E-E-A-T 信任信号打折，
     也会让外链站主怀疑你是不是真的运营这个站。零成本做法是 Cloudflare Email Routing，
     在 Cloudflare 边缘接收发往你域名的邮件，转发到你的个人邮箱；不需要买邮箱服务、不配 SMTP、不要同意横幅。
-    Wrangler 4.x 已有完整 CLI（open beta），**不需要打开控制台**：
-
-    ```bash
-    wrangler email routing settings <domain>                 # 1. 查看当前状态
-    wrangler email routing enable <domain>                   # 2. 启用（自动配 MX + SPF + DKIM）
-    wrangler email routing addresses create <personal-email> # 3. 注册目标转发地址（首次需去邮箱点确认链接）
-    wrangler email routing addresses list                    # 4. 查看已验证的目标地址
-    wrangler email routing rules create <domain> \           # 5. 创建转发规则
-      --name "Forward hello@ to personal" \
-      --match-type literal --match-field to \
-      --match-value "hello@<domain>" \
-      --action-type forward --action-value "<personal-email>" \
-      --enabled --priority 0
-    wrangler email routing rules list <domain>               # 6. 验证规则
-    wrangler email routing dns get <domain>                  # 7. 验证 DNS 记录已自动配好
-    ```
-
-    **API 退路**（wrangler CLI 不可用或 Dashboard 开关无响应时）：
-
-    ```bash
-    # 启用 Email Routing
-    curl -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/enable" \
-      -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" \
-      -H "Content-Type: application/json"
-    # 查看状态
-    curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing" \
-      -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY"
-    # 列出规则
-    curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/rules" \
-      -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY"
-    ```
+    先用 `wrangler --version` 与 `wrangler email routing --help` 核验本机命令，支持则 CLI，
+    否则直接用官方 API；操作与安全认证方式统一见 [`cloudflare-stack.md` §8.6](cloudflare-stack.md#86-品牌邮箱cloudflare-email-routing)。
+    **新建/绑定域名、接邮箱及上线时主动核查 SPF / DKIM / DMARC**：先盘点外发用途与独立发信子域，
+    只收信有证据或用户确认后补拒收策略；有外发先验证认证对齐，用途未知只阻塞策略变更。
+    先读后写、不重复、不降级、不改坏 Routing 的 MX / SPF / DKIM；API 回读、权威与公共 DNS 都验证生效，
+    并留变更前后与回滚记录。收信测试和外发认证测试分开，无外发标不适用；`p=none` 只算观察。
 
     注意事项：
     - **`enable` 会自动配 MX、SPF 和 DKIM DNS 记录**——如果域名已有 MX（比如用着 Google Workspace），
@@ -947,8 +924,7 @@ API 能立刻生效。只有没有公开 API 端点的设置（如 AI 爬虫阻�
     - **Dashboard 开关可能无响应**：实测 Email Routing 的「启用/禁用」按钮偶尔点击无效——
       routing 显示「已禁用」但 DNS 记录和规则都在。此时用 API `POST .../enable` 能立刻生效。【实测 2026-09-03】
     - **这只解决收件**。如果需要用 `hello@<domain>` 发信（不只是收），
-      需要 Google Workspace / Zoho / Fastmail 等付费邮箱服务。
-      对于内容站，通常只需要收件（接外链联络、接用户反馈），发件走个人邮箱即可。
+      需另接发信服务并验证 SPF / DKIM 与 DMARC 对齐，不能把 Routing 当成外发能力。
     - **地址只有一个约定：`hello@`。** 不用 `contact@`（多一个写法就多一处不一致）、
       不用 `admin@`（暗示管理入口）、不用 `info@`（垃圾邮件重灾区）。
 
@@ -1015,13 +991,14 @@ API 能立刻生效。只有没有公开 API 端点的设置（如 AI 爬虫阻�
 | P17 | 部署前把精确 SHA、目标环境、bindings、待执行迁移、域名、回滚点六项写下来了，不是发完再回忆 | `.rankup/releases.md` |
 | P18 | 迁移与依赖检查在部署**之前**完成，顺序没有反 | 命令输出 |
 | P19 | 从**真实域名**验证过 SSR HTML、静态资源、API、D1、R2 读写、鉴权、支付回调（适用项，live 凭证） | `.rankup/releases.md` |
+| P19a | 绑定正式域名后、上线验收前，基础安全按 [`cloudflare-stack.md`](cloudflare-stack.md) §8.8 主动检查并补齐适用项；判据复用 `checklists.md` 段 5「基础安全按用途核验」 | `.rankup/audit.md` + `.rankup/infrastructure.md` |
 | P20 | 对缓存/传播延迟做的是**有界**重试，并用版本标识、响应头或实际内容确认服务的是新版本 | `.rankup/releases.md` |
 | P21 | 日志与错误率看过；部署标识、时间、验证证据、回滚命令四样都记了 | `.rankup/releases.md` |
 | P22 | 正式域名首次上线时仍是 `noindex`，批 B 接完才放开 | `curl` 输出 + journal 时间顺序 |
 | B23 | 搜索平台优先建的是**网域（DNS 验证）**资源而不是网址前缀 | `.rankup/integrations.md` |
 | B24 | DNS 服务商的 OAuth 授权**由用户自己点**，没有代劳；Bing 没有走「从 GSC 导入」 | 同上 |
 | B25 | IndexNow 密钥文件线上正文逐字节等于密钥；GSC 与 Bing sitemap 已提交并记快照日期 | 同上 |
-| B26 | `hello@<domain>` 转发规则存在且收过一封测试邮件；JSON-LD `contactPoint.email`、`/about`、外链联络三处是同一字符串 | 线上 HTML + `wrangler email routing rules list` |
+| B26 | `hello@<domain>` 转发规则存在且收过测试邮件，三处地址一致；SPF / DKIM / DMARC 按 §8.6 核查，拒收/隔离策略已生效，外发认证通过或有依据标不适用；仅 `p=none` 不算已防护 | 线上 HTML + CLI/API 规则回读 + 权威/公共 DNS + `.rankup/integrations.md` |
 | B27 | 批 B 清单**每一行**都有状态（✅ 证据+日期 / ⏸ 阻塞原因 / ❌ 裁决依据），含 Ahrefs Site Audit 与兜底行；**兜底行按段 2 的市场填了具体平台或写明「该市场无额外引擎」** | `.rankup/integrations.md` |
 | I28 | 索引开关已翻开，正式域名首页与内页 `curl` 无 `noindex`、robots 无 `Disallow: /` | `curl` 输出 |
 | I29 | 放开索引后重跑了段 4 闸门 1、2、4，「设计」项已转绿，canonical 指向正式域名 | `.rankup/audit.md` |
@@ -1051,7 +1028,7 @@ API 能立刻生效。只有没有公开 API 端点的设置（如 AI 爬虫阻�
 四入口 301 一跳收敛，不是仅凭「已告知用户」结项；
 目标部署可通过 Cloudflare 部署状态关联到预期提交，真实域名返回预期 SSR HTML，关键 API 和实际 bindings 正常，上传、鉴权及适用的支付回调已用 live 凭证验证，回滚目标和方法已记录——仅有构建成功、Worker upload 成功或健康页 `200` 不算完成；
 批 B 清单每一行（含 Ahrefs Site Audit 与兜底行）都有状态，搜索平台资源**记的是资源 ID 不是资源名字**——网域资源覆盖全部子域，用错父级资源时单条 URL 的操作照样成功，只有聚合数字是别的站的，全程零报错；
-IndexNow 密钥文件经线上校验且首次推送已被接受；`hello@<domain>` 可收信且三处一致；
+IndexNow 密钥文件经线上校验且首次推送已被接受；`hello@<domain>` 可收信且三处一致，邮件防冒充按 §8.6 验证生效；
 索引已放开、段 4 闸门 1/2/4 复核通过、首页已请求编入索引。控制台显示"已启用"不算完成。
 
 ### 交给下一段的
