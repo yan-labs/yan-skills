@@ -53,15 +53,15 @@
  *
  * ── schedule：只读查看下次排程抓取时间（2026-09-13 新增）───────────
  *
- * **免费档（Basic）不支持手动立即抓取，「开始」按钮不要点。** 项目列表里那颗
- * 看起来像"立即抓一次"的「开始」按钮，点击后并不会触发一次性抓取，而是导航到
- * `project-settings/<id>/site-audit?isFromStartAoa=true&...`——这是「Always-On
- * Audit」（持续审计，Pro 版付费功能）的开通向导，页面上有一个需要升级到 Pro
- * 才能开的「始终在线的审计」开关。**已实测确认**：直接导航到
- * `project-settings/<id>/site-audit`（不带 `isFromStartAoa` 参数）会看到完全
- * 相同的内容——说明这个按钮本身只是普通页面跳转，不会自己触发任何抓取或计费
- * 动作，真正需要避免的是页面上那个「升级」/「始终在线的审计」开关，那会走进
- * 付费升级流程，不是本 Skill 该碰的动作。
+ * **先区分入口，不要按 Basic 档位一概判成不能手动重抓。**
+ * 2026-09-13 实测项目列表的「开始」进入 Always-On Audit 付费升级向导，
+ * 不是立即抓取；不要购买/升级或开启付费开关。
+ * 2026-09-14 同档位项目历史/报告页的「新的抓取」可直接启动手动抓取：
+ * 点击后先显示「开始新的抓取」，随后进入 crawl-log，顶部出现「停止抓取」，
+ * 新时间戳、已抓取URL与排队数持续增长。必须以这些实际运行证据确认，
+ * 不能仅凭按钮 enabled 或一次点击成功宣称重抓成功；完成后再读取新健康分。
+ * 触发前先完成当前站点修复与线上复核，并确认属于用户授权范围。
+ * 若当前账户/入口只提供 Always-On 升级，则保留现状并读取下次免费排程。
  *
  * `schedule` 子命令**不导航到上面这个设置页**——项目列表（`projects` 命令）的
  * 表格里本来就有一列"已排程"，直接给出下一次具体的日期与时间窗（形如
@@ -568,7 +568,7 @@ async function cmdReportDataExplorer(o, id, route) {
 
 /**
  * schedule：只读查看项目下次排程抓取时间，复用 projects 页面（不额外导航），
- * 全程零点击——免费/Basic 档位不支持手动立即抓取，见文件头「schedule」一节。
+ * 全程零点击；手动重抓的入口区别与实测证据见文件头「schedule」一节。
  */
 async function cmdSchedule(pos, o) {
   const [, target] = pos;
@@ -589,8 +589,8 @@ async function cmdSchedule(pos, o) {
   }
   const scheduledNext = parseScheduledCell(row.cells);
   const note =
-    "免费/Basic 档位不支持手动立即抓取；项目列表里的「开始」按钮进入的是 Always-On " +
-    "Audit 付费升级向导，本命令全程只读、不会点击任何按钮。";
+    "本命令只读下次排程。Basic 项目历史/报告页的「新的抓取」已实测可手动重抓；" +
+    "项目列表「开始」曾进入 Always-On 付费向导，两入口不可混为一谈，按当前实际页面核验。";
   const out = { projectId: target, scheduledNext, cellsRaw: row.cells, note };
   if (o.json) return JSON.stringify(out, null, 2);
   return (
