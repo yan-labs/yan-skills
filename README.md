@@ -308,7 +308,7 @@ Cloudflare-first：SSR 与 API 走 Workers，事务数据走 D1，文件与导�
 
 ### 数据资产：这是这个 Skill 最贵的部分
 
-数据文件是资产，参考文档是「怎么用它，以及怎么不骗自己」。全部机读、可提 PR、有 JSON Schema、有 CI 门禁。
+数据文件是资产，参考文档是「怎么用它，以及怎么不骗自己」。全部机读、可提 PR、有 JSON Schema、有本地校验脚本。
 
 **`data/submission-targets.json` — 492 个可提交入口，按闸位分好类：**
 
@@ -641,7 +641,7 @@ node backlink/scripts/semrush-keyword.mjs --bulk-plan countries.json --out keywo
 # 台账
 node backlink/scripts/ledger.mjs list --state public
 
-# 改数据必跑，CI 跑的就是这条
+# 改数据后在本地必跑
 node backlink/scripts/validate-data.mjs
 ```
 
@@ -651,10 +651,21 @@ node backlink/scripts/validate-data.mjs
 
 **证据规则。** 每一条渠道的状态都要有实测支撑，不接受「我看别人清单上有」。你说它 `open-form`，那就是你自己打开过那个表单；你说它 `indexed`，那就得指名是哪个引擎。
 
-提交前跑通门禁：
+本仓库不使用 GitHub Actions workflow。提交前在本地运行与修改相关的校验；数据和引用校验必须通过：
 
 ```bash
 node backlink/scripts/validate-data.mjs   # 必须 exit 0
+node backlink/scripts/validate-skill-xml.mjs
+```
+
+其他现有检查也保留，按修改范围运行：
+
+```bash
+(set -e; cd backlink; for t in tests/*.test.mjs; do node "$t"; done)
+node rankup/scripts/validate-rankup.mjs
+node scripts/check-doc-links.mjs
+node scripts/check-help.mjs
+python3 -m unittest discover -s skill-link-check/tests -v
 ```
 
 ## 本地开发
