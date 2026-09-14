@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   parseArgs,
+  isKnownReportRoute,
   isTransientOpenError,
   parseDataExplorerTotal,
   extractRowUrl,
@@ -135,4 +136,13 @@ test("parseScheduledCell: 找不到时返回 null", () => {
   assert.equal(parseScheduledCell(["无关文本", "其他列"]), null);
   assert.equal(parseScheduledCell([]), null);
   assert.equal(parseScheduledCell(undefined), null);
+});
+
+test("known report routes preserve crawl-date queries without allowing external or unknown paths", () => {
+  assert.equal(isKnownReportRoute("overview?current=10-09-2026T191531"), true);
+  assert.equal(isKnownReportRoute("issues?current=10-09-2026T191531"), true);
+  assert.equal(isKnownReportRoute("data-explorer?issueId=example"), true);
+  for (const route of ["https://evil.test/overview", "//evil.test/overview", "../overview", "unknown?current=x", "__proto__"]) {
+    assert.equal(isKnownReportRoute(route), false);
+  }
 });

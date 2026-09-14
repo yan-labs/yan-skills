@@ -3,7 +3,8 @@
  * ahrefs-site-audit.mjs —— 读取 Ahrefs Site Audit 已有的抓取结果，
  * 驱动用户已登录的浏览器。与 ahrefs-setup.mjs 互补：那个负责建项目和验证，这个负责取数。
  *
- * 状态：双证人化改造 2026-08-30（截图链路已实盘验证）。
+ * 状态：2026-09-14 已验证已知报告路由保留 ?current= 指定抓取日期；未知路由/外域仍拒绝。
+ * 双证人化改造 2026-08-30（截图链路已实盘验证）。
  * 失败分支不再只留一句结论文案：退出前把「截图 + 页面文本 + manifest(stopReason)」
  * 落进 `.rankup/evidence/ahrefs-site-audit-<ts>/`，会话关闭发生在取证**之后**；
  * `--keep-session` 可以连现场标签页一起留下。
@@ -128,6 +129,10 @@ const ROUTES = {
   "crawl-log": "抓取日志：这次抓了什么、什么被拦了",
   "project-history": "项目历史：健康评分随时间变化",
 };
+
+export function isKnownReportRoute(route) {
+  return Object.hasOwn(ROUTES, String(route).split("?")[0]) || /^data-explorer\?/.test(route);
+}
 
 export function parseArgs(argv) {
   const pos = [];
@@ -452,7 +457,7 @@ async function cmdReport(pos, o) {
   // （形如 `data-explorer?columns=...&issueId=...`），用来拿某个问题的逐 URL 清单。
   // 这些路径带 filterId，只能从 `issues --json` 的 links 里取，没法预先登记进 ROUTES。
   const isRawPath = /^data-explorer\?/.test(route);
-  if (!ROUTES[route] && !isRawPath) {
+  if (!isKnownReportRoute(route)) {
     console.error(`未知报告 ${route}。可用：${Object.keys(ROUTES).join(", ")}，或 data-explorer?... 原始路径`);
     process.exit(1);
   }
