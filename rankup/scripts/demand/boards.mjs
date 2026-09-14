@@ -22,6 +22,7 @@
  *   node boards.mjs producthunt --resolve-urls --resolve-limit 10 --json
  *   node boards.mjs toolify --board new --limit 20
  *   node boards.mjs toolify --board revenue --limit 50 --out revenue.jsonl
+ *   node boards.mjs toolify --board trending --limit 20 --resolve-domains --resolve-limit 20
  *   node boards.mjs traffic-cv --type traffic --tab new --year 2026 --month 7
  *   node boards.mjs traffic-cv --type revenue --tab top
  *   node boards.mjs trustmrr --board mrr --limit 20 --resolve-domains
@@ -47,7 +48,7 @@
  *     异常带落点路径。
  *   - 每次运行落 manifest.json；「0 条 + 源失败」和「0 条 + 源成功」长得不一样。
  *
- * 已验证：2026-08-23
+ * 已验证：2026-08-23；toolify trending / revenue / new 分支 2026-09-13 复验
  *   producthunt（浏览器路径）/ toolify（浏览器路径）/ traffic-cv / trustmrr / columbus
  *   都真跑出数。producthunt 的 GraphQL 路径**未验证**（手上没有 token），
  *   代码按官方文档写，首次使用请以浏览器路径的结果为准做交叉核对。
@@ -75,6 +76,20 @@
  *     （如 openai.com toolify 197,235,347 ↔ traffic.cv 197.24M）。
  *     **拿这两家互相「交叉验证」等于自证，没有独立性。**
  *   - toolify /new 没有提交日期字段，顺序即新旧，date 只能记成抓取日。
+ *   - toolify `/Best-trending-AI-Tools`（2026-09-13 实测）：负载 data[0].tableData 300 行，
+ *     行字段只有 name / handle / month_visited_count / growth / growth_rate / date（榜单月份）/
+ *     tags，**没有 website**；渲染出的表格也只链到站内 /tool/<handle>。旧解析器只认带
+ *     website 的列表，于是整页判「结构改了」、0 条。现在退到带 handle+name 的列表，
+ *     url 记 toolify 工具页、domain=null、extra.websiteMissing=true；要域名加
+ *     --resolve-domains（读 /tool/<handle> 的 data[0].tool.website）。
+ *     该行的 created_at 是榜单记录写入时间，不是工具收录时间，date 取榜单月份。
+ *     是不是平台最近才去掉 website 未能证实（没有更早的 trending 实跑记录），
+ *     按 discipline.md 十五只修脚本、不改参考文档。
+ *   - toolify 榜单页（trending / revenue）一页即全量 300 条：?page=2 被忽略、原样返回
+ *     第一页、next_page_url=null。旧代码 --pages 2 会灌出整页重复行；现在按
+ *     next_page_url / total 停止翻页，并按 handle 去重。/new 的 total 上千、next_page_url=1，
+ *     但 ?page=2 同样原样返回第一页的 56 条——整页都是重复时停止翻页并打 note，
+ *     manifest 的 newRows=0 就是证据。要更多新品得换取数方式（滚动加载），不是加 --pages。
  *   - trustmrr 榜单本身不带官网域名（website 字段在列表里恒为 null），
  *     必须再打一次 /startup/<slug> 详情页才有，故 --resolve-domains 默认关闭。
  *   - traffic.cv / trustmrr / columbus 都是 Next.js App Router，数据在 RSC flight
@@ -85,7 +100,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -529,14 +544,20 @@ const TOOLIFY_BOARDS = {
   "most-used": { path: "/most-used", label: "monthly visits" },
 };
 
-const TOOLIFY_EXTRACT = `(()=>{
+export const TOOLIFY_EXTRACT = `(()=>{
   const n = window.__NUXT__;
   if(!n || !n.data || !n.data[0]) return {error:"no __NUXT__ payload"};
   const d = n.data[0];
   const prefer = ["toolsList","tableData","list","data","items"];
-  let key = prefer.find(k=>Array.isArray(d[k]) && d[k].length && d[k][0] && d[k][0].website);
-  if(!key) key = Object.keys(d).find(k=>Array.isArray(d[k]) && d[k].length && d[k][0] && d[k][0].website);
-  if(!key) return {error:"payload 里找不到带 website 的列表，页面结构可能改了"};
+  const keys = [...prefer, ...Object.keys(d).filter(k=>!prefer.includes(k))];
+  const listWhere = ok => keys.find(k=>Array.isArray(d[k]) && d[k].length && d[k][0] && ok(d[k][0]));
+  // 先找带 website 的列表；找不到再退到「像工具条目」的列表（handle + name + 访问量字段）。
+  // /Best-trending-AI-Tools 的 tableData 行只有 handle/name/访问量/增长，没有 website
+  // （2026-09-13 实测，DOM 里也只有 /tool/<handle> 站内链接），外链域名要靠 --resolve-domains。
+  // 回退必须要求 month_visited_count：/most-saved、/most-used 负载里的 category_group_list
+  // 也有 handle+name，只认这两个会把分类当工具、以 ok 状态吐出来，绕过失败留现场。
+  const key = listWhere(t=>t.website) || listWhere(t=>t.handle && t.name && Object.prototype.hasOwnProperty.call(t,"month_visited_count"));
+  if(!key) return {error:"payload 里找不到工具列表（既没有带 website 的，也没有带 handle+name+month_visited_count 的），页面结构可能改了"};
   // 「Payment Platform」优先从负载里的 t.payment_platform 数组取（2026-08-23 实测
   // 这个字段确实存在，早期版本误判为「只在 DOM 里」）。渲染出来的表格作为兜底，
   // 万一字段被改名还能救回来。social_media_site_id 是内部枚举，不可靠，别用。
@@ -553,9 +574,14 @@ const TOOLIFY_EXTRACT = `(()=>{
     }
   }
   const hostOf=u=>String(u||"").replace(/^https?:\\/\\//,"").split(/[/?]/)[0];
-  return {key, total:d.total, rows: d[key].map(t=>({
-    name:t.name||t.website_name, website:t.website, visits:t.month_visited_count,
+  // 翻页元信息：榜单页（trending / revenue）一页就是全量 300 条，?page=2 被忽略、
+  // 原样返回第一页且 next_page_url 为 null；/new 才是真分页。调用方据此停止翻页。
+  const paging = {page:d.page, perPage:d.per_page, total:d.total,
+    next: Object.prototype.hasOwnProperty.call(d,"next_page_url") ? d.next_page_url : undefined};
+  return {key, total:d.total, paging, rows: d[key].map(t=>({
+    name:t.name||t.website_name, website:t.website||null, visits:t.month_visited_count,
     handle:t.handle, desc:t.what_is_summary||t.description,
+    growth:t.growth ?? null, growthRate:t.growth_rate ?? null, rankingMonth:t.date || null,
     payment: (Array.isArray(t.payment_platform) && t.payment_platform.length)
       ? t.payment_platform.join(", ")
       : (payBy[hostOf(t.website)] || null),
@@ -569,6 +595,110 @@ const TOOLIFY_EXTRACT = `(()=>{
   }))};
 })()`;
 
+const numOrNull = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+const toolifyToolUrl = (handle) => (handle ? `https://www.toolify.ai/tool/${handle}` : null);
+
+/**
+ * TOOLIFY_EXTRACT 的一页结果 → 统一字段行，追加进 rows。纯函数（离线测试直接喂它）。
+ * 没有 website 的行（trending 榜）url 退到 toolify 工具页、domain 记 null、
+ * extra.websiteMissing=true——**不许把站内工具页的 toolify.ai 当成产品域名**。
+ * seen 按 handle/website 去重，防止「翻页参数被忽略、同一页返回两次」灌出重复行。
+ */
+export function appendToolifyRows(rows, res, { boardKey, limit, skipAds = false, date, seen = new Set() }) {
+  let added = 0;
+  for (const t of res.rows) {
+    if (rows.length >= limit) break;
+    if (skipAds && t.isAd) continue;
+    const dedupeKey = t.handle || t.website || t.name;
+    if (dedupeKey && seen.has(dedupeKey)) continue;
+    if (dedupeKey) seen.add(dedupeKey);
+    const website = t.website ? stripTracking(t.website) : null;
+    rows.push({
+      source: `toolify:${boardKey}`,
+      rank: rows.length + 1,
+      name: t.name,
+      url: website || toolifyToolUrl(t.handle),
+      domain: hostOf(website),
+      metric: numOrNull(t.visits),
+      metricLabel: "monthly visits",
+      // 月度榜（trending）行上的 date 是榜单月份；/new 没有提交日期字段，只能记抓取日；
+      // 其它榜单页有 created_at（工具收录时间）时用它。trending 行的 created_at 是
+      // 榜单记录的写入时间，不是工具收录时间，所以 rankingMonth 优先。
+      date: t.rankingMonth ? String(t.rankingMonth).slice(0, 10) : t.createdAt ? String(t.createdAt).slice(0, 10) : date,
+      extra: {
+        handle: t.handle,
+        toolifyUrl: toolifyToolUrl(t.handle),
+        websiteMissing: !website,
+        tagline: t.desc ? String(t.desc).slice(0, 160) : null,
+        paymentPlatform: t.payment,
+        traffic: t.traffic,
+        growth: numOrNull(t.growth),
+        growthRate: numOrNull(t.growthRate),
+        categories: t.categories,
+        isAd: t.isAd,
+        listKey: res.key,
+      },
+    });
+    added++;
+  }
+  return added;
+}
+
+/** 这一页之后还值得翻下一页吗？next_page_url 明确为 null、或本页已覆盖 total，就停。 */
+export function toolifyHasMorePages(res) {
+  const p = res?.paging;
+  if (!p) return true;
+  if (p.next === null) return false;
+  const page = numOrNull(p.page);
+  const perPage = numOrNull(p.perPage);
+  const total = numOrNull(p.total);
+  if (page && perPage && total !== null && page * perPage >= total) return false;
+  return true;
+}
+
+const TOOLIFY_DETAIL_WEBSITE = `(()=>{
+  const d = window.__NUXT__ && window.__NUXT__.data && window.__NUXT__.data[0];
+  if(!d || !d.tool) return {error:"工具详情页 __NUXT__ 里没有 tool 对象"};
+  return {website: d.tool.website || null, handle: d.tool.handle || null};
+})()`;
+
+/**
+ * 逐条打开 /tool/<handle> 读 tool.website，补 trending 榜缺的外链域名。慢（每条一次导航）。
+ * 只补 websiteMissing 的行；单条失败写 extra.resolveError，汇总状态进 manifest。
+ */
+function toolifyResolveDomains(session, rows, boardKey, max) {
+  let tried = 0;
+  let resolved = 0;
+  const errors = [];
+  for (const row of rows) {
+    if (tried >= max) break;
+    if (!row.extra?.websiteMissing || !row.extra.handle) continue;
+    tried++;
+    try {
+      browserOpen(session, toolifyToolUrl(row.extra.handle));
+      const r = browserEval(session, TOOLIFY_DETAIL_WEBSITE);
+      if (!r || r.error) throw new Error(r?.error ?? "eval 无返回");
+      const website = r.website ? stripTracking(r.website) : null;
+      const host = hostOf(website);
+      if (!host || /(^|\.)toolify\.ai$/.test(host)) throw new Error(`详情页没有可用的外链 website（${r.website ?? "null"}）`);
+      row.url = website;
+      row.domain = host;
+      row.extra.websiteMissing = false;
+      row.extra.websiteVia = "tool-detail";
+      resolved++;
+    } catch (e) {
+      row.extra.resolveError = String(e.message).slice(0, 160);
+      errors.push(`${row.extra.handle}: ${row.extra.resolveError}`);
+    }
+  }
+  recordSource({
+    source: `toolify:${boardKey}:resolve-domains`,
+    status: errors.length ? "resolve_error" : "ok",
+    rawCount: resolved,
+    ...(errors.length ? { error: `${errors.length}/${tried} 条没解析出域名：${errors.slice(0, 3).join("；")}` } : {}),
+  });
+}
+
 async function cmdToolify(args) {
   const boardKey = args.board && args.board !== true ? String(args.board) : "new";
   const path = args.path && args.path !== true ? String(args.path) : (TOOLIFY_BOARDS[boardKey] || {}).path;
@@ -578,6 +708,7 @@ async function cmdToolify(args) {
   const session = sessionName("demand-toolify");
   const date = today();
   const rows = [];
+  const seen = new Set();
   try {
     for (let page = 1; page <= pages && rows.length < limit; page++) {
       const url = `https://www.toolify.ai${path}${page > 1 ? `?page=${page}` : ""}`;
@@ -591,32 +722,35 @@ async function cmdToolify(args) {
         leaveSceneAndRecord(session, `toolify:${boardKey}:page${page}`, `toolify-${boardKey}-page${page}`, e);
         break;
       }
-      recordSource({ source: `toolify:${boardKey}:page${page}`, status: "ok", rawCount: res.rows.length });
-      for (const t of res.rows) {
-        if (rows.length >= limit) break;
-        if (args.skipAds && t.isAd) continue;
-        const url2 = stripTracking(t.website);
-        rows.push({
-          source: `toolify:${boardKey}`,
-          rank: rows.length + 1,
-          name: t.name,
-          url: url2,
-          domain: hostOf(url2),
-          metric: t.visits ?? null,
-          metricLabel: "monthly visits",
-          // toolify /new 没有提交日期字段，只能记抓取日；榜单页有 created_at 时用它
-          date: t.createdAt ? String(t.createdAt).slice(0, 10) : date,
-          extra: {
-            handle: t.handle,
-            tagline: t.desc ? String(t.desc).slice(0, 160) : null,
-            paymentPlatform: t.payment,
-            traffic: t.traffic,
-            categories: t.categories,
-            isAd: t.isAd,
-            listKey: res.key,
-          },
-        });
+      const missing = res.rows.filter((t) => !t.website).length;
+      const added = appendToolifyRows(rows, res, { boardKey, limit, skipAds: Boolean(args.skipAds), date, seen });
+      recordSource({
+        source: `toolify:${boardKey}:page${page}`,
+        status: "ok",
+        rawCount: res.rows.length,
+        newRows: added,
+        listKey: res.key,
+        ...(missing ? { websiteMissing: missing } : {}),
+      });
+      if (page > 1 && res.rows.length && added === 0) {
+        console.error(`note: toolify ${path}?page=${page} 返回的全是前页已有条目（翻页参数无效），不再翻页`);
+        break;
       }
+      if (page < pages && !toolifyHasMorePages(res)) {
+        console.error(`note: toolify ${path} 这一页已是全量（next_page_url=null 或已覆盖 total=${res.paging?.total}），不再翻页`);
+        break;
+      }
+    }
+    const missingRows = rows.filter((r) => r.extra.websiteMissing).length;
+    if (missingRows && args.resolveDomains) {
+      toolifyResolveDomains(session, rows, boardKey, num(args.resolveLimit, 10));
+      const left = rows.filter((r) => r.extra.websiteMissing).length;
+      if (left) console.error(`note: 仍有 ${left} 条 domain 为 null（超出 --resolve-limit 或解析失败，见 extra.resolveError）`);
+    } else if (missingRows) {
+      console.error(
+        `note: ${missingRows} 条没有外链 website（该榜单负载本身不带），url 记成 toolify 工具页、domain 为 null；` +
+          `要域名加 --resolve-domains [--resolve-limit n]`,
+      );
     }
   } finally {
     if (!args.keepOpen) browserClose(session);
@@ -1025,8 +1159,10 @@ taaft（需浏览器；不需要登录账号，只需要一个能过 CF 质询�
 toolify：
   --board <k>        new | revenue | trending | most-saved | most-used（默认 new）
   --path </x>        直接指定任意榜单路径，覆盖 --board
-  --pages <n>        翻几页（默认 1）
+  --pages <n>        翻几页（默认 1；榜单页一页即全量，next_page_url=null 时自动停）
   --skip-ads         过滤 is_ad 的推广位
+  --resolve-domains  trending 榜负载不带外链 website：逐条打开 /tool/<handle> 补域名（慢）
+  --resolve-limit <n>  最多补几条（默认 10）
 
 traffic-cv：
   --type <t>         traffic | revenue（默认 traffic）
@@ -1073,4 +1209,14 @@ async function main() {
   }
 }
 
-main();
+// 只有直接执行时才跑 main；被测试 import 时保持零副作用（tests/boards-toolify.test.mjs）。
+// 两边都取 realpath：经 ~/.claude/skills/rankup 软链调用时 argv[1] 是链接路径。
+const invokedDirectly = (() => {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(resolve(process.argv[1]));
+  } catch {
+    return false;
+  }
+})();
+if (invokedDirectly) main();
