@@ -10,7 +10,7 @@ import { resolveRoots } from "./registry.mjs";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "3.13.6";
+const expectedVersion = "3.13.7";
 const requiredReferences = [
   "discipline.md",
   "monetization.md",
@@ -61,6 +61,7 @@ const requiredContent = {
     "品牌图标在开发当天做齐",
     "图标专项未通过不许上线",
     "上线前与发布后复核入口",
+    "references/design-references.md#多功能工具站侧栏统一规范",
   ],
   "references/lifecycle.md": [
     "清除 React / Vite / TanStack 脚手架默认图标",
@@ -88,6 +89,16 @@ const requiredContent = {
     "实际远端上报证据",
     "API 开关关闭不等于 HTML 无注入",
     "性能优化后仍须通过相关回归",
+    "**多功能工具站侧栏模式**",
+    "design-references.md#多功能工具站侧栏统一规范",
+  ],
+  "references/design-references.md": [
+    "### 多功能工具站侧栏统一规范",
+    "实施并经用户确认的统一规范",
+    "不再增加重复的全局 Home / All tools 菜单",
+    "PanelLeftClose / PanelLeftOpen",
+    "仅 SidebarContent 滚动",
+    "首页 → 工具页 → 首页",
   ],
   "references/experiences/INDEX.md": [
     "## 收录规则（强制）",

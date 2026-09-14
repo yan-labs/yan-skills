@@ -71,7 +71,7 @@ npx skills add yan-labs/yan-skills -g --all
 
 ## `rankup` — 网站全生命周期总控
 
-版本 `3.13.6`。开发与上线检查补齐索引水合、Schema 语义、网格无障碍、SSR 内链与分析上报核验；检查脚本明确区分通过、失败和未验证，保留完整品牌图标闸门。它不重复实现 Wrangler、Stripe 或趋势工具，它负责把这些能力串成一条长期可维护的工作流，并且记住你在每个项目上做过什么。小游戏站另有一条从新词监控、iframe 供给、可玩页面、广告到持续迭代的[专用链路](rankup/references/game-sites.md)。
+版本 `3.13.7`。多功能工具站采用统一的[侧栏规范](rankup/references/design-references.md#多功能工具站侧栏统一规范)，开发入口与检查清单同步加入模式验收门禁；保留现有 SEO、无障碍、分析上报和品牌图标检查。它不重复实现 Wrangler、Stripe 或趋势工具，它负责把这些能力串成一条长期可维护的工作流，并且记住你在每个项目上做过什么。小游戏站另有一条从新词监控、iframe 供给、可玩页面、广告到持续迭代的[专用链路](rankup/references/game-sites.md)。
 
 登录态数据平台可以直接走薄 CLI，把一次探路沉淀成可续跑清单：
 
