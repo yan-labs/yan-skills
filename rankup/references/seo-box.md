@@ -93,10 +93,28 @@ bash <rankup-skill-dir>/scripts/aitdk-opencli.sh <url> [session-name] [output.js
 | `issues` | 页面级问题数组。含 `placeholder-domain-leak`——**`og:url` / `canonical` / `og:image` / `twitter:image` 里出现 `example.com` 时触发**，正是 nonogram-jp / crossword-ar 那个 `SITE_URL` 没在构建期注入、占位域名泄到线上的失败模式 |
 | `aitdkPanel.sections.<name>` | 每个 section 一个对象，含 `raw`（面板全文）与 `fields`（尽力配对出来的键值） |
 
+### AITDK 研究报告离线分流
+
+用于 P2 关键词竞争与 P4 竞品研究：先用现有 `aitdk-opencli.sh` 保存完整报告，再离线筛选已有文件；不重新采集有效报告。
+
+```bash
+bash "$RANKUP/scripts/aitdk-opencli.sh" '<目标URL>' '<独有会话>' report1.json
+# 其他页面同样各存一份完整报告，然后统一离线处理：
+node "$RANKUP/scripts/aitdk-triage.mjs" report1.json report2.json --out '<output-prefix>'
+```
+
+输出 `<output-prefix>.json` 保存完整筛选结果，`<output-prefix>.md` 给 AI 默认阅读统计与异常页。JSON 的 `pages[]` 含 `url/source/status/findings[]`；每条 finding 含 `code/kind/evidence/ref/recheck`。需要复核时按 `ref` 的 **`file#JSON-pointer`** 定点读取原字段，结合 `recheck` 操作，不反复展开整份 raw。
+
+命令 stdout 仅输出统计和产物路径。退出码 `0` 表示处理完成，`2` 表示已写报告但有输入/采集缺口，`1` 表示参数或输出错误；都不代表网站质量评分。`review` 是待判读线索，`reported-defect` 是原采集器明确记录的错误，`capture` 是取证缺口。体积统计使用 UTF-8 字节与 Unicode 字符数，未测 tokenizer 时不声称精确 token 节省。输入文件保持原样，输出不得与输入或另一输出互为同文件/符号链接/硬链接。
+
+- 正常项只统计数量，不逐条推送。先看采集状态：15 面板仅部分完成、采集错误、必要字段缺失均须显式保留；未知/采集错误不能算通过或竞品缺陷。
+- `meta keywords` 缺失、固定字数或关键词密度不作为**研究筛选**的硬失败。AITDK 分数不等于 Google 评分或 KD；机械异常只能产生复核线索，不能穷尽页面承诺与真实功能不符的问题。
+- **本脚本只做研究分流，不做上线放行。** 无异常不等于全站合格；段 4 / `rankup review` 仍按现有闸门检查完整报告，所有标红/标黄及未满分项的修复、复跑与解释要求不变。
+
 **解析器短板（消费这份 JSON 之前必须知道）：**
 
 - **Overview 的 Title / Description / Keywords 是三行一组**（标签、字数计数、值），`fields` 里拿到的是**计数**不是真值；真值在 `unpaired` 或 `raw` 里，要读文本。
-- **Issues、Structured、Headings 是散文式排版**，`fields` 基本为空——直接读 `raw`。
+- **Issues、Structured、Headings 是散文式排版**，`fields` 基本为空；研究时先读离线异常摘要，确需复核才按指针读取相应 `raw`，不要默认展开全部面板。
 - **重复标签会合并成数组**（例如面板里两个 `Unique`）。
 - **【实测 2026-09-13】GEO 的总分是切标签页之后才播动画画出来的，读早了会拿到假分数**：有时读到的
   `raw` 只有五个分类名重复两遍、没有任何数字（`bodyLength` 看起来有 190 左右，不算「空」，触发不了
