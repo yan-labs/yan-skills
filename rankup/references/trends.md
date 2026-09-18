@@ -309,8 +309,8 @@ node scripts/seo-webcafe.mjs kd --keyword "remove background" --gl JP
 
 1. **全球扫描**：`region <词> --time 12m --top 15` → 圈出 over-index 的国家（相对热度高 = 该国用户格外关心这个需求）。
 2. **趋势健康度**：对每个候选国 `compare <词> --geo <国> --time 5y` → 只留上升或平稳的市场，衰退的淘汰；顺便记录季节性。
-3. **语言决策**：同一国家内 `compare "本地语词" "英语词" --geo <国>` → 哪个赢就做哪种语言的内容。不要想当然——实测中印尼用户搜 "remove background"（英语）反而压过 "hapus background"（本地语）。
-4. **挖本地搜法**：`related <词> --geo <国>` → rising 词往往是当地真实长尾，回填候选词表。
+3. **语言决策**：同一国家内 `compare "本地语词" "英语词" --geo <国>` → 哪个赢就做哪种语言的内容。不要想当然——实测中印尼用户搜 "remove background"（英语）反而压过 "hapus background"（本地语）。**同一语言分布在多个国家时**（西班牙语的墨西哥与西班牙、葡萄牙语的巴西与葡萄牙……），每个国家各自跑一遍 `--geo`，不要把同语言的多个国家合并成一组结论——两地用户不是同一批人。
+4. **挖本地搜法**：`related <词> --geo <国>` → rising 词往往是当地真实长尾，回填候选词表。挖出来的 rising 词同样是候选而非定论，写进 `.rankup/keywords.md` 前要按 [`playbooks/research.md`「小语种候选词三关与本地竞品取词」](playbooks/research.md#小语种候选词三关与本地竞品取词)过一遍语义 → 搜索 → SERP 三关。
 5. **竞争侧收口**：对幸存的候选词 `seo-webcafe.mjs kd --keyword <词> --gl <国>` → 查难度分 + 搜索量 + SERP 盘面。重点看：
    - `score` < 40 且 `keywordVolume` > 1000 = 高价值蓝海
    - 有新站信号（< 18 个月新域名排进前十）= 赛道对新站友好

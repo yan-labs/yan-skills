@@ -44,6 +44,70 @@ BACKLINK=~/.agents/skills/backlink    # 本仓库开发时 = <repo>/backlink
 
 ---
 
+## 五个取数动作与编排（探索循环）
+
+**目标函数**：调研要找的是「同一个需求下，更大、更容易打、这个产品能承接」的关键词集合，不是给用户
+扔来的那个种子词判生死。种子词只是入口——上溯到用户真正要完成的任务、相邻任务、同一任务的替代
+说法、上位词/下位词，是预期中的正常路径，不是跑偏。**只在种子词上换前后缀、换修饰语反复取量，是这
+套流程里最贵的一种原地打转。**
+
+**五个取数动作**：
+
+| 动作 | 回答什么 | 用哪些现成脚本/通道 | 配额档 | 产出 |
+|---|---|---|---|---|
+| **词→词** | 这个说法还有哪些近义/变体/上下位表达 | `demand/suggest.mjs`（下拉联想）· `demand/word-roots.mjs expand`（模板扩展）· `$BACKLINK/similarweb-keywords.mjs --tab relatedKeywords`（面板相关词）· `gt.py related`（Trends rising）· 词序变体（人工，见「AI/App 组合扩词」同款手法） | 前四项零配额，面板那项配额 | 更多候选词（仍是候选串，未取量） |
+| **词→问题** | 用户不知道产品名时怎么描述这个需求 | `demand/serp-query.mjs "<词>" --expand`（拿 `peopleAlsoAsk` + `relatedSearches`，需 `SERPER_API_KEY`）· `$BACKLINK/similarweb-keywords.mjs --tab questions`（问题查询）· `demand/suggest.mjs "<疑问词> <词>"`（人工拼问句前缀）· `demand/reddit-wishes.mjs` / `demand/hn-signals.mjs` / `/agent-reach`（社区原话） | `--expand` 与面板配额，其余零配额 | 问题句清单——**问题→数据→词**：把问题句拿去社区/面板核对讨论量与真实措辞，再从原话里提炼新词根回灌词池，不是问完就完事 |
+| **词→站** | 这个词现在被谁占着、以什么页面类型 | 阶段 1 人眼实勘（最重要，不可替代）· `demand/serp-query.mjs "<词>" --json`（结构化 SERP，需 `SERPER_API_KEY`）· `seo-webcafe.mjs serp --keyword "<词>"`（无 key 时退路，计 1） | 人眼零配额，二手接口计额 | 前十域名清单 + 页面类型 |
+| **站→词** | 这个站在打哪些词、怎么称呼这个需求 | `$BACKLINK/semrush-report.mjs --report organic-positions --domain <站> --db <db>`（排名词）· `demand/sitemap-diff.mjs --domain <站> --all --slug-words --top-words 40`（slug 词频）· `seo-webcafe.mjs mineSeed --input <站URL>`（不计配额）· `demand/aitdk-lookup.mjs <站>`（核心搜索词，每域 1 配额）· `seo-audit.mjs <url1> <url2> … --density-only`（页面高频词） | sitemap-diff/seo-audit/mineSeed 零配额，其余配额 | 新词根（很可能不含原种子字面串） |
+| **站→站** | 还有哪些站在做同一件事 | `$BACKLINK/similarweb-query.mjs --domain <站> --report similar-sites`· `demand/site-network.mjs --domain <站> --confirm --max 25`（零配额但慢）· `semrush-overview.mjs --domain <站> --db <db>` 读 `organicCompetitors` 字段（页面「主要自然搜索竞争对手」区块）· SERP 共现域名（词→站已采集的结果里重复出现的域名，不需要新脚本） | site-network/共现域名零配额，其余配额 | 新站清单，回「站→词」 |
+
+脚本能力据实标注，不存在的没有写进上表：**Semrush 没有独立的「关键词 → 排名域名列表」报表**，
+词→站只能靠 SERP 通道（`serp-query.mjs` / `seo-webcafe.mjs serp` / 人眼），不冒称有等效面板报表；
+上表每个脚本与参数已逐个用 `--help` 或读源码核实真实存在。
+
+**几套编排**（不是唯一顺序，起手信息决定先跑哪套）：
+
+| 起手有什么 | 动作顺序 | 对应现有流水线 |
+|---|---|---|
+| ① **有词根**（默认，「找个 xxx 关键词需求」走这条） | 词→词浅扩一层（零配额）→ 词→站（看 SERP，记页面类型与域名）→ 站→词（对 SERP 里 3–5 个专门做这个需求的站反查）→ 站→站（从这些站跳到同类站）→ 再站→词 → 合并去重、与种子树做差集 → 对差集里的新词根做第二层词→词 → 才进阶段 3 取量/KD/CPC → 阶段 4 筛子 → 阶段 5 社区 → 阶段 6 意图 → 阶段 7 折成钱 | 阶段 1–8 全程，只是在阶段 2 之前插入了站→词/站→站的往返 |
+| ② **问题驱动**（用户话里全是「怎么才能……」，没有一个现成的词） | 词→问题 → 问题→社区原话与数据 → 原话→词 → 并回① | 问题→词补进阶段 2 的词池，之后走① |
+| ③ **有域名**（别人的站，反查它在打什么） | 站→词 → 站→站 → 站→词 → 词→站回核 SERP | 对应 P4，反查出的头部词当词根再交 P2（P4 阶段 8） |
+| ④ **什么都没有** | P1 榜单/候选池 → 站→词，选中候选后并回③ | 对应 P1 之后转 P2 |
+| ⑤ **非英语市场** | [阶段 0.7 开工卡](#阶段-07--非英语市场开工卡目标市场非英语时必填) → 本地 SERP 词→站 → 本地站→词（2e）→ [三关](#小语种候选词三关与本地竞品取词) → 并回① | 阶段 0.7 + 2e，过三关后回① |
+
+两条不变约束：**先广后深**——五个动作各跑过一轮、词池撑开之后才花配额取量/KD/CPC，不要在还没换过
+动作时就急着精测；**先看 SERP 再看数**——词→站永远排在站→词/站→站之前，判据同[铁律一](#四条贯穿全部流水线的铁律)
+与阶段 1「顺序固定：先搜再扩再取量」。零配额动作可以并行发起，面板动作串行独占（见铁律三）。
+
+**探索广度闸（防牛角尖，硬规则）**：进入阶段 4 筛子、或对任何候选下「能做/不能做」结论之前，必须
+同时满足：
+
+| # | 条件 |
+|---|---|
+| 1 | 五个动作**每个至少跑过一轮**；某个动作确实不适用（例如没有域名可反查），写明原因，不能悄悄跳过 |
+| 2 | 词池里必须出现**至少一个不含种子字面串的候选词根**（来自站→词 / 站→站 / 问题→词）；一个都没有，判定仍在原地打转，**不许下任何结论** |
+| 3 | **强制切换触发器**：某一轮扩出来的新词全是种子的前后缀/修饰语变体，或候选普遍高竞争低量 → 下一步必须换动作（去站→词、站→站或词→问题），**禁止继续在同一个种子上换修饰词** |
+
+这道闸是[「否决前必须反查」](#否决前必须反查只看种子词判不做是禁止的)与[阶段 0.6](#阶段-06--词根说法不确定时先站找词新兴方向必跑)
+的推广，不是第三条平行规则：那两条把"先站找词"限定在"新兴方向"或"要下否决判断"这两个特例场景才
+触发；本闸把它提升为**默认路径的必经步骤**——不管候选是不是新兴方向、不管这一轮是不是要下否决结论，
+只要还没做到上面三条，就不能收敛。
+
+**本 playbook 裁定，直接纠正用户报告的失败形态**：agent 拿到一个词根后只在这个词根上换后缀取量，
+不知道用词找词、词找站、站找词、站找站，结果停在一个片面的词范围里，漏掉更大、更容易的流量。这道
+闸门是[「否决前必须反查」](#否决前必须反查只看种子词判不做是禁止的)那组【实测】站找词/词找站对照
+实验（单靠种子词估出的盘子可以比反查后小一个数量级以上）的推广，不是另一组新证据——那组案例证明
+的是「反查能纠正判断」，本节把「反查」从「下结论前才做一次」提前到「默认编排里每轮都做」。
+
+**收敛条件**：每轮记一行探索日志（动作 | 输入 | 新增词根数 | 新增站数 | 备注），写进调研报告第 3 节。
+**饱和口径**：连续两个不同动作的新增都低于本轮词池的 10% 且没有新的非种子词根，才算探索饱和，可以
+转阶段 3；站跳最多两跳（站→站只做两层，不无限点下去）；探索循环本身最多三轮（一轮 = 五个动作各跑
+一次）。**这与阶段 2「整棵树最多两层」不是同一条规则、不互相打架**：两层上限约束的是单个词根往下的
+词→词深度，探索循环的三轮上限约束的是横向换词根、换动作的轮数——一棵树扩到两层就停，不代表探索
+循环也该停，可能第二轮探索换出的新词根还没扩过树。
+
+---
+
 ## 阶段 0 开工前 30 秒（每条流水线都以它开头）
 
 **串行，主线自己跑，不派 agent。** 30 秒，决定后面整场调研的规模。
@@ -122,7 +186,7 @@ node $BACKLINK/scripts/tools-share-node.mjs list --tool similarweb
 
 | 用户交给你的输入 | 直接去 | 不要问 |
 |---|---|---|
-| **一个词**——不管他叫它「关键词」「词根」「这个词」「方向」（"kd 这个词能做吗"、"调研一下 clipboard history 这个关键词"、"围绕 converter 挖长尾"、"想做个 PDF 转换的站"） | [P2 词根调研](#p2--词根调研这个词能不能做扩成树) | 别问"您想了解哪方面"——先搜、再扩树 |
+| **一个词**——不管他叫它「关键词」「词根」「这个词」「方向」（"kd 这个词能做吗"、"调研一下 clipboard history 这个关键词"、"围绕 converter 挖长尾"、"想做个 PDF 转换的站"、"找个 PDF 转换的关键词需求"） | [P2 词根调研](#p2--词根调研这个词能不能做扩成树)，按[五个取数动作与编排](#五个取数动作与编排探索循环)编排①全自动跑，不只在这一个词上换后缀 | 别问"您想了解哪方面"——先搜、再扩树 |
 | **别人的一个域名 / 竞品 / 帖子链接**（"这站月入 5k 真的吗"、"查查这个站"） | [P4](#p4--竞品调研--反查谁在赚钱) | 别问"要查哪些指标"——四件套全跑 |
 | **什么都没有**（"不知道做什么"、"最近有什么能做的"、"帮我调研下关键词"——句子里一个词都没有） | [P1](#p1--挖需求--找方向--不知道做什么) | — |
 
@@ -170,6 +234,9 @@ node $BACKLINK/scripts/tools-share-node.mjs list --tool similarweb
 4. **被排除的方向 + 排除理由（带数据）** 和 **数据局限性声明**（哪些没取到、为什么）——这两项不是可选的，见 research-checklist 第九节。
 
 ### 流水线
+
+候选池扩容同样按[「五个取数动作与编排」](#五个取数动作与编排探索循环)的编排④（什么都没有）跑：
+从榜单候选域名做站→词，不要只在某一个候选词根上换后缀。
 
 #### 第一小时最小可执行子集（面对 24 个脚本不要发呆，先跑这 6 个）
 
@@ -284,6 +351,8 @@ Semrush / Similarweb / seo.web.cafe 这些面板给的月量，是**过去 28–
 残缺的，即使结论碰巧是对的。这条约束同样绑定 [`selection.md`](selection.md) 的七道闸门——不是只在
 进入本文件阶段 4 才生效；[阶段 0.6](#阶段-06--词根说法不确定时先站找词新兴方向必跑) 是这条安全网在
 扩树起点的前置版本，两者配合覆盖「扩树漏词」与「否决建立在残缺认知上」这同一个根因的两种表现形式。
+这条反查安全网现在也是[「五个取数动作与编排」](#五个取数动作与编排探索循环)探索广度闸在阶段 4
+否决点的具体应用——广度闸把「先站找词」从这里的特例场景，提升成了默认路径的必经步骤。
 
 | 硬规则 | 为什么 |
 |---|---|
@@ -291,6 +360,9 @@ Semrush / Similarweb / seo.web.cafe 这些面板给的月量，是**过去 28–
 | 说法不确定的新兴候选，在任何一道闸门被否决前都要先完成一轮站找词反查，不许仅凭调研者自己猜的种子词下否决判断 | 【实测】单次案例：某新兴方向候选在选品阶段被否决时，全程未反查该赛道已存在的站点真实措辞，否决判断建立在调研者自己临时猜测的 1–2 个候选词之上——单案例级别的流程缺口验证，非大规模统计结论 |
 
 ### 流水线
+
+**默认按[「五个取数动作与编排」](#五个取数动作与编排探索循环)的编排①跑**：种子词浅扩一层就去看
+SERP、反查专门做这个需求的站、再从这些站跳到同类站，不要只在种子词字面串上换修饰语。
 
 **顺序固定：先搜（阶段 1），再扩（阶段 2），再取量（阶段 3）。** 反过来先取量再看 SERP，
 量会先入为主，意图核验就成了走过场（[`lifecycle.md`](../lifecycle.md) 段 1 · 1.2 的教训）。
@@ -359,6 +431,26 @@ Semrush / Similarweb / seo.web.cafe 这些面板给的月量，是**过去 28–
 【实测】单次案例：某新兴方向候选调研中，全程只凭调研者临时拼的 1–2 个候选词直接扩树，未反查该赛道
 已存在的站点真实措辞——单案例级别的流程缺口验证，非大规模统计结论，仅作为本阶段存在的依据。
 
+本阶段是[「五个取数动作与编排」](#五个取数动作与编排探索循环)探索广度闸在「词根说法不确定」这个
+特例下的具体应用——广度闸把「站→词先行」从这里的特例场景，扩展成了默认路径的必经步骤。
+
+#### 阶段 0.7 · 非英语市场开工卡（目标市场非英语时必填）
+
+**触发**：阶段 0 判定某国的搜索用户以本地语言为主（`hl` 非英语）。**先把这五件事逐条写清楚，
+再进阶段 1**——顺序反了，扩出来的词和实际接的页面会对不上：
+
+| # | 写什么 | 要点 |
+|---|---|---|
+| 1 | 核心词 | 产品帮用户完成的那个动作，不是产品名 |
+| 2 | 目标语言 + 国家 | 精确到「语言-地区」（`es-MX`、`es-ES`、`pt-BR`、`pt-PT`、`de-DE`……）；**同语言不同地区的用户不是同一批人，不按语言合并**——延续阶段 0「逐国查，每国一组」的原则，只是把粒度说清楚：语言相同不等于可以共用同一组 `(gl,hl,db)` |
+| 3 | 产品卖点 | 页面准备突出的一两个优势 |
+| 4 | 目标用户与场景 | 谁在什么情况下用 |
+| 5 | 预设页面类型 | 产品页 / 工具页 / 博客页 / 对比页——**阶段 1 拿到 SERP 后必须回头核对这一栏**：首页页面类型和这里预设的不一样，就改页面类型或换词，不能揣着错的预设往下扩树 |
+
+五件事写进调研报告第 1 节，不替代阶段 0 的 `gt.py` 取数命令，只是先把「查什么、给谁查、准备接成
+什么页面」定下来——首页全是教程却拿功能介绍页去打，从一开始就没接住意图。
+**【经验】（独立开发者出海经验分享，外部经验帖，未经本库实测）**
+
 #### AI / App 组合扩词（阶段 2 默认分支）
 
 每个词根在保留原词的同时，检查两组自然表达：**关键词 + AI** 与 **关键词 + App**。
@@ -384,13 +476,42 @@ Semrush / Similarweb / seo.web.cafe 这些面板给的月量，是**过去 28–
 
 **竞品页面报告先离线分流**：已有 `aitdk-opencli.sh` 完整 JSON 时，按 [`seo-box.md`「AITDK 研究报告离线分流」](../seo-box.md#aitdk-研究报告离线分流)生成摘要，AI 默认只读异常 Markdown；仅按证据引用定点回读需要核验的原字段。复用有效采集，不反复读取全部 raw 或重跑面板。机械筛选不覆盖语义承诺与真实功能是否一致，原 SERP 和任务验收仍须保留。
 
+#### 小语种候选词三关与本地竞品取词
+
+**本地竞品页面怎么取词**（非英语市场，零配额优先）：对象是阶段 1 SERP 前排的本地页面，优先「工具
+功能 + 内容说明 + 转化入口」三合一页面——它能排到前面，说明需求存在且 Google 认可这种承接方式。
+已有该竞品的 AITDK 完整报告时，按上文「竞品页面报告先离线分流」处理，不重复采集；没有就跑
+`node $RANKUP/scripts/seo-audit.mjs <url1> <url2> … --density-only`（参数以 `node scripts/seo-audit.mjs --help` 为准）
+取本地零配额密度，再人工记 Title、H1、目录、FAQ 的措辞。**不是抄密度**——看四点：页面怎么称呼产品、
+哪些相关词与主词共现、强调了哪些本地场景、哪些表达在英文页里不常见。取到的词来源标 `本地竞品`，
+并入阶段 2 的词池（见阶段 2「2e」）。
+
+**候选词过三关，未过三关不许写进 `.rankup/keywords.md`**：翻译工具或 AI 产出的候选词一律先标来源
+`翻译假设`。
+
+| 关 | 判什么 | 对应哪一步 |
+|---|---|---|
+| ① 语义确认 | 这个说法在目标语言里自然，不是语法对但没人这么说；判法：这个串有没有出现在目标地区下拉/相关搜索，或本地竞品的 Title/H1 里——两处都没有就按翻译腔处理，能找母语者确认一遍更好 | 本节新增判法，此前流程没有对应步骤 |
+| ② 搜索确认 | 放进目标地区搜索框看下拉、相关搜索有没有类似表达，再用工具核量/趋势/难度 | 阶段 2b/2c 下拉联想 + 阶段 3 取量 |
+| ③ SERP 确认 | 首页是工具 / 教程 / 测评 / 论坛 / 电商哪一类，决定用什么页面承接 | 阶段 1 页面类型列 + 阶段 6 意图核验 |
+
+**对标竞品在场信号**：候选词进阶段 4「关键词竞争与竞品页面证据」复核时，额外看一眼 SERP 前十或
+`semrush-report.mjs --report organic-positions` 里有没有自己平时对标的那批竞品——它们也在为这个词
+做页面，**只是方向一致的线索**，量与真实意图仍按阶段 3 取量、阶段 6 意图核验判，不能单凭这一条
+就下结论；出现的全是别的行业，回阶段 6 按撞词处理，不要急着定档。
+
+**本土垂直站信号**：前十里出现一个域名权重不占优、却排过知名大站的本土垂直站，是小语种市场没被
+大站吃干净、新站可以入场的信号——仍要按现有规则核这个域名的注册年龄与目标 URL 的真实流量，
+不能只凭一次排名下结论（与阶段 1 判读的「低 DR 分叉」并列参考）。
+**【经验】（独立开发者出海经验分享，外部经验帖，未经本库实测）**
+
 #### 主流水线
 
 | 阶段 | 并行/串行 | 跑什么 | 拿到什么 | 卡住了怎么办 |
 |---|---|---|---|---|
 | **0 · 档位 + 定国家与语种** | 串行，主线 | [阶段 0](#阶段-0-开工前-30-秒每条流水线都以它开头) 之后紧接着：<br>`python3 $RANKUP/scripts/gt.py region "<词根>" --time 12m --top 15`<br>对每个 over-index 的国家：`python3 $RANKUP/scripts/gt.py compare "<本地语词>" "<英语词>" --geo <国>`<br>把词根翻成该国语种（agent 自己翻，不用脚本） | 一张 `(gl, hl, db)` 三元组清单：**逐国查，每个国家一组**；每国一个「用本地语还是英语搜」的结论；每国一个本地语词根 | **市场是全球，不默认 us。** `--db` / `--gl` / `--hl` 三个参数后面每一步都要带，漏了会默默落到错误市场（`semrush-keyword` 不传 `--db` 落 `jp`）。region 空 → 词太冷或太新，先跑阶段 5 看社区，再定国家。判据 [`trends.md`](../trends.md) W1「印尼用户搜英语 remove background 压过本地语」 |
 | **1 · 亲眼看 SERP**（在任何取数之前；**意图核验第一遍**） | **并行 C**，每个（引擎 × 国家）一个 agent | 沙箱浏览器（公开搜索**不需要**登录态），**无痕/隔离窗口 + 显式参数**：<br>Google `?q=<词根>&gl=<gl>&hl=<hl>`<br>Bing `?q=<词根>&mkt=<hl>-<GL>`<br>目标市场本地引擎（Naver / Yandex / 百度 / Seznam），非英语市场必做<br>有钥匙再补计数：`node $RANKUP/scripts/demand/serp-query.mjs "<词根>" --gl <gl> --json`，没钥匙 `node $RANKUP/scripts/seo-webcafe.mjs serp --keyword "<词根>"`（计 1） | 每个引擎的**七样**（[`demand-sources.md`](../demand-sources.md) 一·五）**外加一列「页面类型」**：前十每条是工具页 / 文章 / 商品 / 视频 / 论坛 / 维基 / 新闻 / 官方文档——**这一列就是这个词的真实意图**，阶段 6 要拿它对照 | **DuckDuckGo 不是独立样本**（结果主要来自 Bing 索引）。**不要用二手 SERP 接口代替人眼**：2026-08 起 Google 出站链接换成 `google.com/goto` 跳板，二手通道降级而接口照样 200。盘面里出现 DR 0–3 首页 → 对每个跑 `curl -s https://rdap.verisign.com/com/v1/domain/<域名> \| jq -r '.events[]\|select(.eventAction=="registration").eventDate'` + `aitdk-lookup <域名>`，**`dr:null` 不是 `dr<10`** |
-| **2 · 扩树**（最多两层） | **并行 E**（2a–2c 零配额，一条消息三个 agent）→ **串行**（2d 独占面板） | **2a 本地模板**：`node $RANKUP/scripts/demand/word-roots.mjs list --grep <主题>`；`node $RANKUP/scripts/demand/word-roots.mjs expand <词根> --seeds a,b,c --json \| jq -r '.[]."候选串"' > /tmp/k/roots.txt`（**别用 `--out`**：它落 JSON 对象数组，下一步 `--seed-file` 按一行一个读，会把 `[`、`{` 当种子喂进面板，返回空且不报错）<br>**2b 三引擎下拉**：`node $RANKUP/scripts/demand/suggest.mjs "<词根>" --engine google,bing,ddg --hl <hl> --gl <gl> --json --out /tmp/k/suggest-L1.json`；要 26 个方向：`for c in {a..z}; do node $RANKUP/scripts/demand/suggest.mjs "<词根> $c" --hl <hl> --gl <gl> --json --out /tmp/k/soup-$c.json; done`<br>**2c 多语言**：每个国家用阶段 0 翻好的本地语词根把 2b 再跑一遍（`--hl ja --gl jp`）<br>**2d 面板相关词**（一个 agent 顺序跑）：`node $BACKLINK/scripts/similarweb-keywords.mjs --seed-file /tmp/k/roots.txt --tab relatedKeywords --out /tmp/k/sw-kw.jsonl --jsonl`（`--tab` 四选：`phraseMatch` / `relatedKeywords` **量最大** / `trending` / `questions` **专补问句**）；`node $BACKLINK/scripts/semrush-report.mjs --report keyword-magic --keyword "<词根>" --db <db>`；反查 3–5 个同赛道、站龄 9–24 个月的站 `node $BACKLINK/scripts/semrush-report.mjs --report organic-positions --domain <竞品> --db <db> --out /tmp/k/pos-<竞品>.json` 做差集<br>**第二层**：把第一层里过了阶段 4 筛子的叶子当新词根，再走一遍 2b + 2d（**只扩两层，到此为止**） | 一棵树：根 → L1 叶子（模板串 + 三引擎联想 + 面板相关词 + 竞品差集） → L2 叶子。三引擎的差集本身是信息（实测 Bing 独有 "not working"/"hotkey" 类问题串，Google 独有平台串） | **扩出来的是候选串，不是关键词**——没有量也没有难度。「我扩出了 300 个词」≠「找到 300 个词」。**停止条件**：某叶子在完成取量与必要反查后，需求或实际竞争证据不足以继续，**可停止该分支并记录依据；不能仅因 KD 高就停止**；整棵树最多两层。`suggest.mjs` 某引擎 `null` = 没取到（开 manifest），`[]` 才是真没联想。不知道竞品是谁：① `similarweb-query --report similar-sites`；② 阶段 1 前十里专门为该词做的独立站；③ `site-network.mjs --domain <已知竞品>` 拿兄弟站 |
+| **2 · 扩树**（最多两层） | **并行 E**（2a–2c 零配额，一条消息三个 agent）→ **串行**（2d 独占面板） | **2a 本地模板**：`node $RANKUP/scripts/demand/word-roots.mjs list --grep <主题>`；`node $RANKUP/scripts/demand/word-roots.mjs expand <词根> --seeds a,b,c --json \| jq -r '.[]."候选串"' > /tmp/k/roots.txt`（**别用 `--out`**：它落 JSON 对象数组，下一步 `--seed-file` 按一行一个读，会把 `[`、`{` 当种子喂进面板，返回空且不报错）<br>**2b 三引擎下拉**：`node $RANKUP/scripts/demand/suggest.mjs "<词根>" --engine google,bing,ddg --hl <hl> --gl <gl> --json --out /tmp/k/suggest-L1.json`；要 26 个方向：`for c in {a..z}; do node $RANKUP/scripts/demand/suggest.mjs "<词根> $c" --hl <hl> --gl <gl> --json --out /tmp/k/soup-$c.json; done`<br>**2c 多语言**：每个国家用阶段 0 翻好的本地语词根把 2b 再跑一遍（`--hl ja --gl jp`）<br>**2d 面板相关词**（一个 agent 顺序跑）：`node $BACKLINK/scripts/similarweb-keywords.mjs --seed-file /tmp/k/roots.txt --tab relatedKeywords --out /tmp/k/sw-kw.jsonl --jsonl`（`--tab` 四选：`phraseMatch` / `relatedKeywords` **量最大** / `trending` / `questions` **专补问句**）；`node $BACKLINK/scripts/semrush-report.mjs --report keyword-magic --keyword "<词根>" --db <db>`；反查 3–5 个同赛道、站龄 9–24 个月的站 `node $BACKLINK/scripts/semrush-report.mjs --report organic-positions --domain <竞品> --db <db> --out /tmp/k/pos-<竞品>.json` 做差集<br>**2e 本地竞品页面取词**（非英语市场必做，零配额）：对阶段 1 SERP 前排的本地页面（优先三合一页面）取词，法子与判据见[「小语种候选词三关与本地竞品取词」](#小语种候选词三关与本地竞品取词)<br>**第二层**：把第一层里过了阶段 4 筛子的叶子当新词根，再走一遍 2b + 2d（**只扩两层，到此为止**） | 一棵树：根 → L1 叶子（模板串 + 三引擎联想 + 面板相关词 + 竞品差集 + 本地竞品词） → L2 叶子。三引擎的差集本身是信息（实测 Bing 独有 "not working"/"hotkey" 类问题串，Google 独有平台串） | **扩出来的是候选串，不是关键词**——没有量也没有难度。「我扩出了 300 个词」≠「找到 300 个词」。**停止条件**：某叶子在完成取量与必要反查后，需求或实际竞争证据不足以继续，**可停止该分支并记录依据；不能仅因 KD 高就停止**；整棵树最多两层。`suggest.mjs` 某引擎 `null` = 没取到（开 manifest），`[]` 才是真没联想。不知道竞品是谁：① `similarweb-query --report similar-sites`；② 阶段 1 前十里专门为该词做的独立站；③ `site-network.mjs --domain <已知竞品>` 拿兄弟站。**2d 的竞品排名词反查就是[「五个取数动作与编排」](#五个取数动作与编排探索循环)里的站→词，「不知道竞品是谁」这三条就是站→站**——扩树扩不动、或扩出来的全是种子变体时，去跑这两个动作，不要在同一个词根上死磕 |
 | **3 · 取量 / KD / CPC** | **串行 · 独占面板**（铁律三），一个 agent 按国家逐库跑 | 初筛整棵树：`node $BACKLINK/scripts/semrush-keyword.mjs --kw-file /tmp/k/tree.txt --bulk --db <db> --out /tmp/k/kw-<db>.jsonl`（每个国家一次，100 词/次）<br>过筛叶子回单词模式：`node $BACKLINK/scripts/semrush-keyword.mjs --kw "<词>" --db <db> --out /tmp/k/kw-single.jsonl`（补 `globalVolume` / `byCountry`）<br>入选叶子逐个：`node $RANKUP/scripts/seo-webcafe.mjs kd --keyword "<词>" --gl <gl>`（每词 1，7 天缓存）<br><br>**⚠️ 量级交叉验证（单词，决定生死时必做）：** `node $RANKUP/scripts/gefei-ask.mjs --session <描述性名> --slice <本轮名> --question "查一下 <词> 美国的月搜索量，以及全球搜索量"`（走 OpenCLI 驱动已登录 Chrome 问哥飞 SEO Agent，Google Ads 级精度；本机未配置 `SEO_WEBCAFE_COOKIE`，不用 `seo-webcafe.mjs chat`，见 [`seo-webcafe.md`](../seo-webcafe.md)「SEO Agent 可以查关键词搜索量」）<br>**Trends 锚点交叉验证（硬规则，出结论前必做，不是可选步骤）**：先单独拉一次锚点（默认 `gpts`）过去 12 个月的曲线取全年均值做本轮校准基准；再把入选叶子和锚点（量级差超过约 10 倍换同量级第二锚点）同框 `python3 $RANKUP/scripts/gt.py compare "<词>" "<锚点>" --geo <国> --time 12m`，用锚点的 Semrush 实测月量与它自己的 12 个月均值算出「1 指数点 ≈ N 次/月」，折算候选词的月量区间，和 Semrush 报的月量算偏差倍数——判据与折算表见 [`trends.md`](../trends.md)「〇·六」<br>本地折算：`node $RANKUP/scripts/demand/keyword-value.mjs --in /tmp/k/kw-<db>.jsonl --json` | 每片叶子的月量、`globalVolume`、KD、CPC、竞争密度、意图标签；**每片叶子的 Trends 折算月量区间与相对 Semrush 的偏差倍数，或标「Trends 无法分辨」**；top 9 盘面与 `linkBudget`；每个词的 CPC 与同批中位数之比 | **bulk 模式没有 `globalVolume` 也没有 `byCountry`**（恒为 null，不是查不到）。`--db` 别省。主指标不可用记 `volume:null + noData:true`，页面明确显示零才记 `volume:0`；`kd` 摘要行印「月搜 —」是**停止信号**不是「按 KD 走」。`cpc:null ≠ cpc:0`。**只有零需要被证明是零**：决定生死的零换一种调用复查到两次一致。**SEO Agent 搜索量核实的数据与 Google Ads Keyword Planner 完全一致**（2026-09-04 实测），Semrush 与 `kd` 的量级存疑时用它做仲裁。**Trends 折算偏差超过 0.5x–2x 区间、且换锚点复测方向一致时，按折算区间重新定档，不采信 Semrush 原值**（见 [`trends.md`](../trends.md)「〇·六」的判读用词） |
 | **4 · 筛子** | 串行，主线判读，**不跑脚本** | 对阶段 3 的表逐行套两条（**本 playbook 裁定，来自用户硬规则**）：<br>① **月量太低且 CPC 低 → 直接否**：默认阈值 **月量 < 500 且 CPC 低于同批中位数**；做「精品工具页 + 关键词域名」时按 [`demand-discovery.md`](../experiences/demand-discovery.md) 二·规模化心得 2 放到「几千到一万出头就值得上」，做大站另换一套——**阈值写进报告第一节，改了要写为什么**<br>② **竞争复核**：KD 仅用于安排复核顺序；按上文「关键词竞争与竞品页面证据」检查前 10–20 结果、新产品上线证据、目标 URL 非品牌自然量及具体任务/SEO 缺陷，分别给出支持、反证和未知，不能仅按 KD 分档淘汰 | 存活叶子清单 + 每片叶子的档位；**存活叶子决定第二层扩不扩** | 全部叶子被筛掉 → 不是「这棵树死了」，先看阶段 3 的 manifest 与 `noData` 比例；面板 0 量的词**必须**经阶段 5 再判（28 天盲区）。导航类意图（品牌词）直接去掉——导航词抢不走 |
 | **5 · 社区验证（必做，不许跳）** | **并行 G**（零配额，与阶段 3 同时开） | **先问一句要不要借浏览器**：Reddit / X / 小红书的采集后端是 OpenCLI，会在用户的 Chrome 里开标签页；用户没点头就只跑 HN、下拉、YouTube、B 站、V2EX、GitHub 与 Jina 读公开页这些纯 HTTP 通道，报告里写明跳过了哪个平台（判据 [`discipline.md`](../discipline.md) 五·5）。<br>**派 sub agent 跑这一步时，把本行「跑什么」整块原样贴进它的 prompt，并要求它产出四平台各一行状态**（2026-09-02 实盘：主线只写了「community demand signals」，子代理自己发挥，只跑了 Reddit 和 HN，X / YouTube / B 站一条没跑，报告里也没人发现）。<br>**Reddit 两个窗口对照**（脚本内部走 `opencli reddit search --site-session persistent`：整批复用一个 reddit.com 标签页，不再每次调用新开标签页导航首页；用户看到「一直刷新首页、从没搜索」是 v1.8.7-yan.3 及更早的行为；yan.4 起 `reddit search` 直接导航到这次查询的搜索结果页，标签页 URL 就是查询本身，搜索仍是页内 fetch）：<br>`node $RANKUP/scripts/demand/reddit-wishes.mjs --topic "<词根>" --time week --limit 40 --json --out /tmp/k/reddit-week.json`<br>`node $RANKUP/scripts/demand/reddit-wishes.mjs --topic "<词根>" --time month --limit 100 --json --out /tmp/k/reddit-month.json`<br>`node $RANKUP/scripts/demand/hn-signals.mjs --mode ask --q "<词根>" --days 14 --json`<br>**X / YouTube / B 站 / 小红书**走 `/agent-reach` 的命令组（下面四条 2026-09-03 在本机实跑通过；先 `agent-reach doctor --json` 看每个平台的 `active_backend`，doctor 说的优先）：<br>X：`opencli twitter search "<词根>" --limit 50 -f yaml --site-session persistent`（doctor 报 OpenCLI 后端时；`twitter search` 需要 twitter-cli 配好 cookie，没配会报 `not_authenticated`）<br>Reddit 补位（`reddit-wishes` 只抓许愿句式）：`opencli reddit search "<词根>" --limit 50 -f yaml --site-session persistent`<br>YouTube：`yt-dlp --dateafter now-14days --no-download --print "%(upload_date)s | %(title)s | %(view_count)s | %(webpage_url)s" "ytsearch30:<词根>"`（**不要加 `--flat-playlist`**，flat 模式拿不到 upload_date 全是 NA；`ytsearchdate` 前缀本版 yt-dlp 不支持；30 条要 1–2 分钟，空输出 = 前 30 条相关结果里没有 14 天内的，不是命令坏了）<br>B 站：`bili search "<词根>" --type video -n 50`（无需登录；B 站不要用 yt-dlp）<br>小红书 / V2EX：`opencli xiaohongshu search "<词根>" -f yaml`、`curl -s https://www.v2ex.com/api/topics/hot.json`<br>**搜索侧的短时信号**：`python3 $RANKUP/scripts/gt.py compare "<词根>" --time 1d`（24 小时、8 分钟一点）与 `--time 7d --raw`（7 天小时级），必要时 `related "<词根>" --time 1d` 看同期 rising 词；**新词单独查**，与大词同框会被归一化压成 0（2026-09-03 实跑：openclaw 与 chatgpt 同框全程 0，单独查 60 上下）。<br>没有登录态又不想开浏览器时，`/tuner` 的 social 端点是 API 替代；泛网页讨论用 `/anysearch` 的 `batch_search`；`/deep-research` 只做背景不出条数。按词根（含本地语词根）搜近 14 天的帖子/视频，逐条记 `平台 \| 日期 \| 标题 \| 互动数 \| 链接`，再取近 30 天做基线 | **四平台各一行**（Reddit / X / YouTube / B 站；做中文市场再加小红书）：`平台 \| 状态(ok/failed/skipped+原因) \| 近 14 天条数 / 日均 \| 前 30 天条数 / 日均`；以及最高互动的 3 条原话。**缺一行就是没做完**，不许只交 Reddit | **口径**：近 14 天有帖 **且** 14 天日均明显高于 30 天日均（≥2 倍）→ **新起话题**，面板 0 量不构成否决；14 天有帖但与 30 天持平 → 存量需求，以面板量为准；14 天无帖 → 先开 manifest（Reddit RSS 429 是常态），全 `ok` 才记「社区无讨论」。`/agent-reach` **只取原话不出数字**——条数由你数，写进报告时带链接。**只跑面板不跑这一步的报告不许下结论** |
@@ -437,9 +558,9 @@ Semrush / Similarweb / seo.web.cafe 这些面板给的月量，是**过去 28–
 
 ```
 # <词根> 调研（YYYY-MM-DD）
-## 1 国家与语种        (gl,hl,db) 清单 · 每国用本地语还是英语 · 筛子阈值及理由
-## 2 SERP 页面类型      每引擎×每国前十的页面类型构成 + 七样
-## 3 扩树              根 → L1 → L2；每片叶子标来源（模板/google/bing/ddg/面板/竞品差集）与层级；停在哪一层、为什么
+## 1 国家与语种        (gl,hl,db) 清单 · 每国用本地语还是英语 · 筛子阈值及理由 · 非英语市场附阶段 0.7 开工卡五件事，locale 精确到语言-地区
+## 2 SERP 页面类型      每引擎×每国前十的页面类型构成 + 七样 · 非英语市场另记本地竞品页（三合一优先）
+## 3 扩树              根 → L1 → L2；每片叶子标来源（模板/google/bing/ddg/面板/竞品差集/本地竞品/翻译假设）与层级；停在哪一层、为什么 · 探索日志（动作/输入/新增词根数/新增站数/备注）+ 非种子词根清单
 ## 4 量·KD·CPC         每叶一行，带口径(db/gl/日期)；bulk 与单词模式分开标
 ## 5 筛子结果           存活叶子 / 淘汰叶子 + 淘汰依据（哪条阈值）
 ## 6 社区验证           每平台：近 14 天条数·日均 / 前 30 天条数·日均 / 结论(新起/存量/无) / 3 条原话带链接
@@ -448,7 +569,7 @@ Semrush / Similarweb / seo.web.cafe 这些面板给的月量，是**过去 28–
 裁决：能排上去 <是/否/未验证，依据> ；排上去能赚 <$区间/未验证> ；下一步 <立项/否决/补哪一步>
 ```
 
-再同步三处：`.rankup/keywords.md` 逐叶一行（带层级与口径）；`.rankup/decisions.md` 一行裁决；
+再同步三处：`.rankup/keywords.md` 逐叶一行（带层级与口径；来源枚举与第 3 节一致，含 `本地竞品`/`翻译假设`）；`.rankup/decisions.md` 一行裁决；
 `.rankup/checks.md` 打勾 [`research-checklist.md`](../research-checklist.md) 必做项（含 1.5 意图核验、3.7/3.8 社区验证）与第七节。
 
 ---
@@ -471,6 +592,9 @@ Semrush / Similarweb / seo.web.cafe 这些面板给的月量，是**过去 28–
 需要判断竞品哪里可改时，复用 P2「关键词竞争与竞品页面证据」：取入选目标页的 AITDK 完整报告，再按 `seo-box.md` 的离线分流命令读取异常摘要。它补充产品/SEO 缺口，不能替代本节收入、渠道、目标页面自然量的核验，也不把正常项展开推送。
 
 ### 流水线
+
+本节的站→词、站→站两个动作就是[「五个取数动作与编排」](#五个取数动作与编排探索循环)编排③（有域名）
+的具体展开；反查出的头部词交 P2 后按编排①继续。
 
 | 阶段 | 并行/串行 | 跑什么 | 拿到什么 | 卡住了怎么办 |
 |---|---|---|---|---|
@@ -515,6 +639,7 @@ Semrush / Similarweb / seo.web.cafe 这些面板给的月量，是**过去 28–
   两源并排列出，**不做算术运算**，渠道行合计不得冒充 Performance 总访问
 - 站群清单 → `.rankup/decisions.md`，逐个标「做成了 / 没跑起来」
 - 原始采集文件留在 `rawFilesDir`（默认 `.rankup/evidence/demand/revenue-site-audit-<时间戳>/`），**不要清理**
+- 非英语市场里查到的本地竞品（尤其三合一页面）→ 项目侧 `.rankup/competitors.md`（可选文件，模板见 [`project-memory.md`](../project-memory.md)）；文件不存在就照模板新建，不重新调研已收录过的竞品
 - `.rankup/checks.md` 打勾 research-checklist 第四、五、六节
 
 ---

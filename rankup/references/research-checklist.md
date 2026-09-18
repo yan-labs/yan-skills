@@ -176,12 +176,14 @@
 |---|---|---|---|
 | 7.1 词根扩展（本地模板） | `demand/word-roots.mjs` | `expand <词根>` | 51 条词根库 + 8 个扩展模板 |
 | 7.1b 三引擎搜索框下拉 | `demand/suggest.mjs` | `"<词根>" --engine google,bing,ddg --hl <hl> --gl <gl> --json` | Google / Bing / DDG 各自的联想串（按语种分国家；失败引擎为 `null`，开 manifest） |
+| 7.1c 本地竞品页面取词（非英语市场必做） | `seo-audit.mjs` | `<url1> <url2> … --density-only`（已有该竞品的 AITDK 完整报告时改读它的 Density，见 seo-box.md 离线分流） | 本地竞品页高频词 + Title/H1/目录/FAQ 措辞，取法与三关判据见 [`playbooks/research.md`](playbooks/research.md#小语种候选词三关与本地竞品取词) |
 | 7.2 竞品排名词反查 | `backlink/scripts/semrush-report.mjs` | `--report organic-positions --domain <竞品> --db <目标国>` | 竞品前 100 词，与自己的池子做差集 |
 | 7.3 Semrush Keyword Magic | `backlink/scripts/semrush-report.mjs` | `--report keyword-magic --keyword <词> --db <目标国>` | 整包词 + 聚簇（Topics） |
 | 7.4 Similarweb 扩词 | `backlink/scripts/similarweb-keywords.mjs` | `--seed <词> --tab phraseMatch` | 匹配词（relatedKeywords 量最大） |
 | 7.5 补测差集词的量与难度 | `backlink/scripts/semrush-keyword.mjs` + `seo-webcafe.mjs kd` | 逐个补测 | 被自己判过「太难」的头词也测 |
 | 7.6 重算按量加权的 CPC | 手算或 `demand/keyword-value.mjs` | `--in <关键词JSON>` | 扩完词后 CPC 可能掉 |
 | 7.7 树只扩两层、停止条件写明 | 人工核对 | 报告第 3 节 | 每片叶子标层级；月量低于筛子阈值或 KD 高于阈值的叶子没有往下扩 |
+| 7.8 探索广度闸（防牛角尖） | 人工核对 | 报告第 3 节 | 词→词/词→问题/词→站/站→词/站→站五个动作各至少一轮 + 探索日志；词池里有不含种子字面串的新词根；判据见 [`playbooks/research.md`](playbooks/research.md#五个取数动作与编排探索循环) |
 
 ---
 
@@ -262,6 +264,7 @@
 - [ ] 3.4 Google Trends 趋势方向
 - [ ] 3.7 社区验证：Reddit 近 7 天 vs 近 30 天
 - [ ] 3.8 社区验证：X / YouTube / B 站近 14 天（/agent-reach）
+- [ ] 7.8 探索广度闸（五个取数动作各一轮 + 非种子词根）
 - [ ] 4.1 Similarweb 竞品真实流量
 - [ ] 4.6 Semrush 竞品自然流量
 - [ ] 5.1 Stripe 引荐流量榜
@@ -283,6 +286,7 @@
 - [ ] 6.3 竞品 sitemap 结构
 - [ ] 7.1 词根扩展（本地模板）
 - [ ] 7.1b 三引擎搜索框下拉（suggest.mjs，按目标语种）
+- [ ] 7.1c 本地竞品页面取词（非英语市场必做）
 - [ ] 7.2 竞品排名词反查
 - [ ] 7.7 树只扩两层、停止条件写明
 
