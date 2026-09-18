@@ -19,7 +19,7 @@ metadata:
 |---|---|---|
 | 「看下这批数据有没有能做的关键词」「找几个关键词」「挖点需求」「最近有什么能做的」 | 1 | [`playbooks/research.md`](references/playbooks/research.md)（P0 分流 → 词根调研） |
 | 「调研一下这个词」「调研一下这关键词」「调研的关键词」「这个词能不能做站」「这词难不难」「帮我扩词」 | 1 | `research.md` **P2 词根调研**：任何词都是词根，先直接搜再扩树（旧 P3 已并入 P2，不再有单独的扩词流水线） |
-| 「找个 xxx 关键词需求」「找个 xxx 的词」「xxx 这块有什么词能做」「帮我找 xxx 的需求」 | 1 | xxx 当词根进 `research.md` P2，按[「五个取数动作与编排」](references/playbooks/research.md#五个取数动作与编排探索循环)编排①全自动跑完（词→词浅扩 → 词→站看 SERP → 站→词反查竞品 → 站→站 → 取量/KD/CPC → 筛子 → 社区 → 意图 → 折成钱），不反问、不只在种子词上换后缀 |
+| 「找个 xxx 关键词需求」「找个 xxx 的词」「xxx 这块有什么词能做」「帮我找 xxx 的需求」 | 1 | xxx 当词根进 `research.md` P2，按[「五个取数动作与编排」](references/playbooks/research.md#五个取数动作与编排探索循环)编排①全自动跑完（词→站看 SERP → 词→词浅扩 → 站→词反查竞品 → 站→站 → 取量/KD/CPC → 筛子 → 社区 → 意图 → 折成钱），不反问、不只在种子词上换后缀 |
 | 「做小语种」「这个词在德语/葡语/印尼语怎么搜」「本地化关键词」「某国市场找词」「别机翻」 | 1 | `research.md` P2 [阶段 0.7 开工卡](references/playbooks/research.md#阶段-07--非英语市场开工卡目标市场非英语时必填) + [三关小节](references/playbooks/research.md#小语种候选词三关与本地竞品取词)；语种探测见 [`trends.md`](references/trends.md) W1 |
 | 「找个方向」「这个方向能不能做」「值不值得做」「选品」「有什么能做的」「帮我看看这个想法」 | 1 | [`playbooks/selection.md`](references/playbooks/selection.md)：先过七道选品闸门判"该不该做"（硬约束/频次/痛点/付费信号/护城河/获客可行性，几乎零配额），过闸的候选才把主词交给 `research.md` P2 花配额查清楚——不要跳过闸门直接进 P2 |
 | 「App 有没有需求」「找 iOS/iPad/macOS 产品」「商店里哪个方向能做」 | 1–2 | `research.md` App 市场验证分支 → `lifecycle.md` 2.2 按任务选择平台；不做 Android App |
