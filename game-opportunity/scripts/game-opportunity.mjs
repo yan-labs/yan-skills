@@ -9,6 +9,7 @@
  *   evaluation 文件（AI 判读写入），脚本原样透传，缺失时如实标「未判」。
  * - 「未查询」与「测得为零」严格分开：未查询的市场是 status:'not-queried'，
  *   全部数值为 null，绝不落 0。
+ * - 修复：缺指标缓存曾被复用为已查，未测趋势/竞争字段曾因形状完整而通过验收。
  */
 
 import fs from 'node:fs';
@@ -41,10 +42,15 @@ const HELP = `game-opportunity.mjs — 每日小游戏机会发现、筛选与�
   decision-checklist 执行需求调查、日报并逐项验收
   render     从已有候选或 --evaluation 文件重新排版日报
   daily      依次运行 collect + demand + evaluate
+  reject <entity-name>  在 watch-pool 里把匹配到的实体标记为已否决
+                         （写 action:"rejected" 与 rejectedAt 时间戳），
+                         此后 carryForward 与 watch-pool 续带都会跳过它，
+                         不再每天重新带回候选列表
 
 选项:
   --date YYYY-MM-DD       报告日期（默认今天）
   --limit <n>             每个平台/来源最多读取条数（默认 30）
+  --source <name>         radar 仅重跑指定来源（steam、itch、poki、reddit、youtube、x）
   --evaluation <file>     人工或外部量化结果；数组或 {candidates:[...]}
   --semrush-node <n>      指定 Semrush 网页节点（节点故障时重试）
   --project-root <dir>    .rankup 所在项目（默认当前目录）
@@ -56,7 +62,12 @@ const HELP = `game-opportunity.mjs — 每日小游戏机会发现、筛选与�
 
 固定产物：.rankup/demand/game-review/YYYY-MM-DD-{discovery,radar,new-games,demand-plan,demand-results,candidates}.json、
           YYYY-MM-DD-report.md、YYYY-MM-DD-evidence/（挑战页等原始现场）、latest.json、latest.md、latest-new-games.json
-可选输入：YYYY-MM-DD-demand-selection.json（AI 写入的深查名单，entityId 数组；缺省用机械顺序）`;
+可选输入：YYYY-MM-DD-demand-selection.json（AI 写入的深查名单，entityId 数组；缺省用机械顺序）
+
+reject 用法:
+  node game-opportunity/scripts/game-opportunity.mjs reject <entity-name> [--project-root <dir>] [--dry-run]
+  <entity-name>           按 entityId 或名称匹配（大小写不敏感），从 --project-root（默认当前目录）
+                          下的 .rankup/tasks/game-opportunity-watch-pool.json 的 active 列表中查找并标记`;
 
 function parseArgs(argv) {
   const out = { command: null, date: new Date().toISOString().slice(0, 10), limit: 30, root: process.cwd() };
@@ -67,8 +78,11 @@ function parseArgs(argv) {
       return argv[++i];
     };
     if (!a.startsWith('-') && !out.command) out.command = a;
+    // Second bare positional: only `reject <entity-name>` consumes this today.
+    else if (!a.startsWith('-') && out.entityName === undefined) out.entityName = a;
     else if (a === '--date') out.date = next();
     else if (a === '--limit') out.limit = Number(next());
+    else if (a === '--source') out.source = next();
     else if (a === '--evaluation') out.evaluation = path.resolve(next());
     else if (a === '--semrush-node') out.semrushNode = String(next()).trim();
     else if (a === '--project-root') out.root = path.resolve(next());
@@ -81,6 +95,7 @@ function parseArgs(argv) {
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(out.date)) throw new Error('--date 需要 YYYY-MM-DD');
   if (!Number.isInteger(out.limit) || out.limit < 1) throw new Error('--limit 需要正整数');
+  if (out.source && !['steam', 'itch', 'poki', 'reddit', 'youtube', 'x'].includes(out.source)) throw new Error('--source 必须是 steam、itch、poki、reddit、youtube 或 x');
   out.root = path.resolve(out.root);
   out.reviewDir = path.join(out.root, '.rankup/demand/game-review');
   out.radarState = path.join(out.root, '.rankup/demand/game-radar-snapshots');
@@ -139,6 +154,22 @@ function noisyName(candidate) {
   return normalizeName(name) === normalizeName(slug) && (name === name.toLowerCase() || !/\s/.test(name));
 }
 
+// Keyword rows are observations, not append-only JSON blobs. Keep the caller's
+// preferred row intact: merging old numbers into an explicit new null revives stale data.
+function mergeKeywordRows(base, incoming) {
+  const rows = [...arr(base), ...arr(incoming)];
+  const market = (row) => String(row?.market ?? row?.gl ?? row?.db ?? '').toLowerCase();
+  const namedMarkets = new Set(rows.filter((row) => market(row)).map((row) => normalizeName(row.keyword)));
+  const seen = new Set();
+  return rows.filter((row) => {
+    const word = normalizeName(row?.keyword);
+    if (word && !market(row) && row.status === 'not-queried' && namedMarkets.has(word)) return false;
+    const key = word ? `${word}:${market(row)}` : JSON.stringify(row);
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+}
+
 function mergeMissing(base, incoming) {
   if (!nonempty(base)) return incoming;
   if (!nonempty(incoming)) return base;
@@ -152,7 +183,7 @@ function mergeMissing(base, incoming) {
   }
   if (typeof base === 'object' && typeof incoming === 'object') {
     const out = { ...base };
-    for (const [k, v] of Object.entries(incoming)) out[k] = mergeMissing(out[k], v);
+    for (const [k, v] of Object.entries(incoming)) out[k] = k === 'keywords' && Array.isArray(v) ? mergeKeywordRows(out[k], v) : mergeMissing(out[k], v);
     return out;
   }
   return base;
@@ -268,14 +299,22 @@ function socialRows(source, rows) {
     source,
     title: row.title ?? row.text ?? row.name,
     author: row.author ?? row.channel,
-    url: row.url,
+    url: row.url ?? row.webpage_url,
     destinationUrl: row.url_overridden_by_dest,
-    publishedAt: row.created_utc ? new Date(Number(row.created_utc) * 1000).toISOString() : (row.created_at ?? row.published ?? null),
+    publishedAt: row.created_utc ? new Date(Number(row.created_utc) * 1000).toISOString()
+      : (row.created_at ?? row.published ?? (row.timestamp ? new Date(Number(row.timestamp) * 1000).toISOString() : null)),
     engagement: {
       score: row.score ?? null, comments: row.comments ?? null, likes: row.likes ?? null,
-      views: row.views ?? null,
+      views: row.views ?? row.view_count ?? null,
     },
   })).filter((row) => row.title || row.url);
+}
+
+function parseSocialRows(source, stdout) {
+  const data = source === 'youtube'
+    ? stdout.split('\n').filter(Boolean).map((line) => JSON.parse(line))
+    : JSON.parse(stdout);
+  return socialRows(source, arr(data));
 }
 
 async function socialRadar(o) {
@@ -284,16 +323,17 @@ async function socialRadar(o) {
   yesterday.setUTCDate(yesterday.getUTCDate() - 1);
   const since = yesterday.toISOString().slice(0, 10);
   const specs = [
-    ['reddit', ['reddit', 'search', 'new browser game', '--sort', 'new', '--time', 'day', '--limit', String(o.limit), '-f', 'json']],
-    ['youtube', ['youtube', 'search', 'new browser game', '--upload', 'today', '--sort', 'date', '--limit', String(o.limit), '-f', 'json']],
-    ['x', ['twitter', 'search', `"browser game" since:${since}`, '--product', 'live', '--limit', String(o.limit), '-f', 'json']],
+    ['reddit', 'opencli', ['reddit', 'search', 'new browser game', '--sort', 'new', '--time', 'day', '--limit', String(o.limit), '-f', 'json']],
+    ['youtube', 'yt-dlp', ['--dump-json', '--playlist-end', String(o.limit), `ytsearch${o.limit}:new browser game`]],
+    ['x', 'opencli', ['twitter', 'search', `"browser game" since:${since}`, '--product', 'live', '--limit', String(o.limit), '-f', 'json']],
   ];
   const sources = [], rows = [], errors = [];
-  for (const [source, argv] of specs) {
-    const r = await runProcess('opencli', argv, o.root);
+  for (const [source, command, argv] of specs) {
+    if (o.source && o.source !== source) continue;
+    const r = await runProcess(command, argv, o.root);
     if (!r.ok) { const error = `${source}: ${r.error}`; errors.push(error); sources.push({ source, kind: 'social-24h', status: 'failed', count: 0, error }); continue; }
     try {
-      const items = socialRows(source, JSON.parse(r.stdout));
+      const items = parseSocialRows(source, r.stdout);
       rows.push(...items);
       sources.push({ source, kind: 'social-24h', status: 'collected', count: items.length });
     } catch (e) {
@@ -312,6 +352,7 @@ function mergeRadarReport(previous, current, date) {
     sourceMap.set(row.source, older ? {
       ...older,
       ...row,
+      error: ['compared', 'baseline_created', 'collected'].includes(row.status) ? null : (row.error ?? older.error),
       added: [...new Map([...arr(older.added), ...arr(row.added)].map((item) => [itemKeys(item)[0] ?? JSON.stringify(item), item])).values()],
     } : row);
   }
@@ -329,6 +370,8 @@ function mergeRadarReport(previous, current, date) {
     } : row);
   }
   const candidates = [...candidateMap.values()];
+  const retriedSources = new Set(arr(current.sources).map((row) => row.source));
+  const retainedErrors = arr(previous.errors).filter((error) => !retriedSources.has(String(error).split(':', 1)[0]));
   return {
     ...current,
     runCount: Number(previous.runCount ?? 1) + 1,
@@ -337,7 +380,7 @@ function mergeRadarReport(previous, current, date) {
     candidates,
     queue: candidates,
     coreErrors: uniq([...arr(previous.coreErrors), ...arr(current.coreErrors)]),
-    errors: uniq([...arr(previous.errors), ...arr(current.errors)]),
+    errors: uniq([...retainedErrors, ...arr(current.errors)]),
   };
 }
 
@@ -348,6 +391,7 @@ async function radar(o) {
   const sources = [];
   const errors = [];
   for (const source of ['steam', 'itch', 'poki']) {
+    if (o.source && o.source !== source) continue;
     const stateFile = path.join(o.radarState, `${source}.json`);
     const previous = readJson(stateFile, { seenKeys: [] });
     const seen = new Set(previous.seenKeys ?? []);
@@ -433,8 +477,22 @@ function mergeRichIntoOrdered(ordered, richerRows) {
   return out;
 }
 
-function isQuantified(c) {
-  return arr(c.keywords).some((k) => ['semrushVolume', 'volume', 'localVolume', 'semrushGlobalVolume', 'globalVolume', 'semrushKd', 'webcafeKd', 'kd'].some((key) => nonempty(k?.[key])));
+const numericMetric = (value) => nonempty(value) && typeof value !== 'boolean' && Number.isFinite(Number(value)) && Number(value) >= 0;
+const measuredStatus = (row) => row && (row.status == null || ['ok', 'measured', 'collected'].includes(row.status)) && !row.error;
+const evidencePresent = (value, root) => typeof value === 'string' && exists(path.resolve(root, value)) && fs.statSync(path.resolve(root, value)).isFile() && fs.statSync(path.resolve(root, value)).size > 0;
+
+// Empty is a provider result only after the raw page and a known-volume control
+// were checked. noData/absent alone also describe login and extraction failures.
+function providerResultReady(row, scope, root) {
+  if (!row || row.error) return false;
+  if (['verified-empty', 'absent-confirmed'].includes(row.status)) {
+    return row.verification?.pageChecked === true && row.verification?.controlPassed === true
+      && evidencePresent(row.evidenceFile, root) && evidencePresent(row.verification?.controlFile, root);
+  }
+  if (!measuredStatus(row)) return false;
+  if (scope === 'country') return numericMetric(row.volume);
+  return numericMetric(row.globalVolume) && (Number(row.globalVolume) === 0
+    || (row.byCountry && Object.values(row.byCountry).some((value) => numericMetric(value) && Number(value) > 0)));
 }
 
 /**
@@ -472,11 +530,18 @@ function annotateCarryForward(candidate, latestDate, date) {
   return { ...candidate, firstSeen: candidate.firstSeen ?? latestDate, carryForward: { from: latestDate, ageDays, recheckDue: crossed.length > 0, recheckMilestones: crossed } };
 }
 
+// A candidate leaves an active/carry-forward pool only once the AI has recorded
+// a terminal decision: 'develop' (moved into the build pipeline) or 'rejected'
+// (explicit no-go). Everything else — research, watch, or no action yet — keeps
+// circulating so it gets looked at again.
+const TERMINAL_ACTIONS = new Set(['develop', 'rejected']);
+const isTerminalAction = (action) => TERMINAL_ACTIONS.has(action);
+
 function carryForward(latest, date) {
   if (!latest?.date || latest.date >= date) return [];
-  // 机械规则：只有 AI 明确判了 develop 的候选离开续带池（进入建站流程）；
-  // research、watch 与未判候选一律续带，不由脚本替 AI 淘汰。
-  return arr(latest.candidates).filter((c) => c.action !== 'develop').map((c) => annotateCarryForward(c, latest.date, date));
+  // 机械规则：只有 AI 给出终态判决的候选离开续带池——develop（进入建站流程）
+  // 或 rejected（已否决）；research、watch 与未判候选一律续带，不由脚本替 AI 淘汰。
+  return arr(latest.candidates).filter((c) => !isTerminalAction(c.action)).map((c) => annotateCarryForward(c, latest.date, date));
 }
 
 /**
@@ -498,7 +563,10 @@ function previousReportPool(latest, date) {
 // merely because it fell below the report's display limit.
 function watchPoolCandidates(o) {
   const pool = readJson(path.join(o.root, '.rankup/tasks/game-opportunity-watch-pool.json'));
-  return arr(pool?.active).map((row) => {
+  // Same terminal-action rule as carryForward(): a row a decision writer marked
+  // 'develop' or 'rejected' stays in the file for its own record-keeping, but must
+  // not keep resurfacing here — otherwise a rejected entity gets re-offered daily.
+  return arr(pool?.active).filter((row) => !isTerminalAction(row.action)).map((row) => {
     const firstSeen = String(row.firstSeen ?? o.date).slice(0, 10);
     const ageDays = Math.max(0, Math.round((new Date(`${o.date}T00:00:00Z`) - new Date(`${firstSeen}T00:00:00Z`)) / 86_400_000));
     const due = Boolean(row.nextDeepCheck && String(row.nextDeepCheck).slice(0, 10) <= o.date);
@@ -512,6 +580,28 @@ function watchPoolCandidates(o) {
       carryForward: { from: 'watch-pool', ageDays, recheckDue: due, recheckMilestones: [] },
     };
   }).filter((row) => validUrl(row.url));
+}
+
+/**
+ * 记录一条否决决定并让 watch-pool 立刻停止续带该实体：按 entityId 或名称
+ * （大小写不敏感，规范化后精确匹配）在 watch-pool 的 active 列表里定位一行，
+ * 写入 action:"rejected" 与 rejectedAt 时间戳。找不到匹配项时不改动文件。
+ */
+function reject(o) {
+  const watchPoolFile = path.join(o.root, '.rankup/tasks/game-opportunity-watch-pool.json');
+  if (!o.entityName) return { ok: false, error: '缺少要否决的实体名，用法：reject <entity-name>', file: watchPoolFile };
+  const pool = readJson(watchPoolFile);
+  if (!pool) return { ok: false, error: `watch-pool 文件不存在或无法读取：${watchPoolFile}`, file: watchPoolFile };
+  const target = normalizeName(o.entityName);
+  const active = arr(pool.active);
+  const index = active.findIndex((row) => target && [row.entityId, row.name].some((v) => normalizeName(v) === target));
+  if (index < 0) return { ok: false, error: `watch-pool 中未找到匹配 "${o.entityName}" 的实体`, file: watchPoolFile };
+  const matched = active[index];
+  if (o.dryRun) return { ok: true, dryRun: true, file: watchPoolFile, entity: matched.name ?? matched.entityId };
+  const rejectedAt = new Date().toISOString();
+  active[index] = { ...matched, action: 'rejected', rejectedAt };
+  writeJson(watchPoolFile, { ...pool, active });
+  return { ok: true, file: watchPoolFile, entity: matched.name ?? matched.entityId, action: 'rejected', rejectedAt };
 }
 
 async function checkUrl(url) {
@@ -546,10 +636,10 @@ async function checkUrl(url) {
  */
 function keywordFacts(c) {
   const keywords = arr(c.keywords);
-  const measured = keywords.filter((k) => k.status !== 'not-queried');
+  const measured = keywords.filter((k) => measuredStatus(k) && [k.semrushVolume, k.volume, k.localVolume, k.semrushGlobalVolume, k.globalVolume, k.semrushKd, k.webcafeKd, k.kd].some(numericMetric));
   const notQueried = keywords.length - measured.length;
-  const volumes = measured.map((k) => Number(k.semrushVolume ?? k.volume ?? k.localVolume)).filter(Number.isFinite);
-  const globalVolumes = measured.map((k) => Number(k.semrushGlobalVolume ?? k.globalVolume)).filter(Number.isFinite);
+  const volumes = measured.map((k) => k.semrushVolume ?? k.volume ?? k.localVolume).filter(numericMetric).map(Number);
+  const globalVolumes = measured.map((k) => k.semrushGlobalVolume ?? k.globalVolume).filter(numericMetric).map(Number);
   const kdValues = uniq(measured.flatMap((k) => [k.semrushKd, k.webcafeKd, k.kd]).filter(nonempty).map(Number).filter(Number.isFinite));
   return {
     measuredRows: measured.length, notQueriedRows: notQueried,
@@ -570,8 +660,10 @@ function finishCandidate(c) {
   const playLinks = uniq([...arr(c.playLinks), c.playUrl, c.embed?.url].filter(validUrl));
   const evidenceLinks = uniq([...arr(c.evidenceLinks), ...sourceLinks].filter(validUrl));
   const action = c.action ?? ({ 'quick-ship': 'develop', 'priority-research': 'research', watch: 'watch' }[c.decision]) ?? null;
-  const decision = c.decision ?? ({ develop: 'quick-ship', research: 'priority-research', watch: 'watch' }[action]) ?? null;
-  return { ...c, urls, sourceLinks, playLinks, evidenceLinks, action, decision, keywordMetrics: keywordFacts(c), trend: c.trend ?? {} };
+  // Explicit AI action is authoritative; an older derived label cannot contradict it.
+  const decision = ({ develop: 'quick-ship', research: 'priority-research', watch: 'watch' }[action]) ?? c.decision ?? null;
+  const keywords = mergeKeywordRows(c.keywords, []);
+  return { ...c, urls, sourceLinks, playLinks, evidenceLinks, action, decision, keywords, keywordMetrics: keywordFacts({ keywords }), trend: c.trend ?? {} };
 }
 
 function staleReason(c) {
@@ -613,7 +705,7 @@ const link = (label, url) => validUrl(url) ? `[${md(label)}](${url})` : md(label
 // 只排版事实：实测值带市场标注，未查询行单独计数；不做「待查/达标」之类的定性。
 const metric = (c) => {
   const k = c.keywordMetrics ?? keywordFacts(c);
-  const rows = arr(c.keywords).filter((row) => row.status !== 'not-queried')
+  const rows = arr(c.keywords).filter((row) => measuredStatus(row) && numericMetric(row.semrushVolume ?? row.volume ?? row.localVolume))
     .map((row) => ({ row, volume: Number(row.semrushVolume ?? row.volume ?? row.localVolume) }))
     .filter(({ volume }) => Number.isFinite(volume));
   const top = rows.sort((a, b) => b.volume - a.volume)[0];
@@ -837,9 +929,10 @@ function demandOverlay(o, planData, globalRows, countryRows) {
     nextAction: candidate.nextAction,
     discoveryMarkets: candidate.discoveryMarkets,
     demandCoverage: {
-      globalChecked: true,
-      keywordsChecked: candidate.keywords,
-      countriesChecked: uniq(countryRows.filter((row) => candidate.keywords.some((kw) => normalizeName(kw) === normalizeName(row.keyword))).map((row) => row.db.toUpperCase())),
+      globalAttempted: candidate.keywords.some((word) => globalByKeyword.has(normalizeName(word))),
+      globalChecked: candidate.keywords.every((word) => providerResultReady(globalByKeyword.get(normalizeName(word)), 'global', o.root)),
+      keywordsChecked: candidate.keywords.filter((word) => providerResultReady(globalByKeyword.get(normalizeName(word)), 'global', o.root)),
+      countriesChecked: uniq(countryRows.filter((row) => providerResultReady(row, 'country', o.root) && candidate.keywords.some((kw) => normalizeName(kw) === normalizeName(row.keyword))).map((row) => row.db.toUpperCase())),
     },
     keywords: candidate.keywords.flatMap((keyword) => {
       const global = globalByKeyword.get(normalizeName(keyword)) ?? {};
@@ -883,7 +976,7 @@ async function demand(o) {
   if (!planned.plan.globalKeywords.length) return { ok: false, error: '没有可查询的真实游戏关键词' };
   if (o.dryRun) return { ok: true, dryRun: true, plan: planned.plan, outputs: [f.globalSemrush, f.demandResults] };
   let globalRows = readJsonLines(f.globalSemrush);
-  const globalKeys = new Set(globalRows.filter((row) => row.status !== 'error').map((row) => normalizeName(row.keyword)));
+  const globalKeys = new Set(globalRows.filter((row) => providerResultReady(row, 'global', o.root)).map((row) => normalizeName(row.keyword)));
   const canReuseGlobal = planned.plan.globalKeywords.every((keyword) => globalKeys.has(normalizeName(keyword)));
   if (!canReuseGlobal) {
     const globalRun = await runNode(SEMRUSH_KEYWORD, ['--kw-file', f.globalKeywords, '--db', 'us', '--no-follow-top-country', ...semrushNodeArgs, '--out', f.globalSemrush], o.root);
@@ -908,7 +1001,7 @@ async function demand(o) {
   const countryRows = globalRows.map((row) => ({ ...row, db: 'us' }));
   const countryPlan = Object.fromEntries([...countryKeywords].map(([db, words]) => [db, [...words]]));
   const cachedCountryRows = readJsonLines(f.countrySemrush);
-  const cachedCountryKeys = new Set(cachedCountryRows.map((row) => `${row.db}:${normalizeName(row.keyword)}`));
+  const cachedCountryKeys = new Set(cachedCountryRows.filter((row) => providerResultReady(row, 'country', o.root)).map((row) => `${row.db}:${normalizeName(row.keyword)}`));
   const canReuseCountries = Object.entries(countryPlan).every(([db, words]) => words.every((word) => cachedCountryKeys.has(`${db}:${normalizeName(word)}`)));
   let countries = { ok: true, count: 0, reused: canReuseCountries, plan: f.countryPlan, output: f.countrySemrush };
   if (Object.keys(countryPlan).length) {
@@ -926,7 +1019,7 @@ async function demand(o) {
   }
   const overlay = demandOverlay(o, planned.plan, globalRows, countryRows);
   writeJson(f.demandResults, overlay);
-  return { ok: countries.ok, plan: planned.plan, global: { file: f.globalSemrush, count: globalRows.length, reused: canReuseGlobal }, countries, results: f.demandResults };
+  return { ok: countries.ok && overlay.candidates.every((row) => row.demandCoverage.globalChecked && row.keywords.every((keyword) => countryRows.some((raw) => normalizeName(raw.keyword) === normalizeName(keyword.keyword) && String(raw.db).toLowerCase() === keyword.gl && providerResultReady(raw, 'country', o.root)))), plan: planned.plan, global: { file: f.globalSemrush, count: globalRows.length, reused: canReuseGlobal }, countries, results: f.demandResults };
 }
 
 async function evaluate(o, inheritedErrors = []) {
@@ -1149,11 +1242,26 @@ function inspectDecision(o) {
   const report = readJson(f.candidates);
   const latest = readJson(f.latestJson);
   const markdown = exists(f.report) ? fs.readFileSync(f.report, 'utf8') : '';
-  const globalKeys = new Set(globalRows.filter((row) => row.status !== 'error').map((row) => normalizeName(row.keyword)));
-  const countryKeys = new Set(countryRows.map((row) => `${String(row.db).toLowerCase()}:${normalizeName(row.keyword)}`));
+  const globalKeys = new Set(globalRows.filter((row) => providerResultReady(row, 'global', o.root)).map((row) => normalizeName(row.keyword)));
+  const localResults = [...globalRows.map((row) => ({ ...row, db: 'us' })), ...countryRows];
+  const countryKeys = new Set(localResults.filter((row) => providerResultReady(row, 'country', o.root)).map((row) => `${String(row.db).toLowerCase()}:${normalizeName(row.keyword)}`));
   const priority = arr(planData?.candidates);
   const finalPriority = priority.map((candidate) => arr(report?.candidates).find((row) => row.entityId === candidate.entityId || sameCandidate(row, candidate))).filter(Boolean);
-  const plannedCountryRows = Object.entries(countryPlan).flatMap(([db, words]) => arr(words).map((word) => `${db}:${normalizeName(word)}`));
+  const requiredCountryKeys = (candidate) => arr(candidate.keywords).flatMap((word) => {
+    const global = globalRows.find((row) => normalizeName(row.keyword) === normalizeName(word));
+    return uniq(['us', ...arr(candidate.mandatoryCountryDbs), ...Object.entries(global?.byCountry ?? {}).filter(([, volume]) => numericMetric(volume) && Number(volume) > 0).map(([db]) => db.toLowerCase())])
+      .map((db) => `${db}:${normalizeName(word)}`);
+  });
+  const plannedCountryRows = uniq([...Object.entries(countryPlan).flatMap(([db, words]) => arr(words).map((word) => `${db}:${normalizeName(word)}`)), ...priority.flatMap(requiredCountryKeys)]);
+  const coverageReady = (candidate) => arr(candidate.keywords).length > 0
+    && candidate.keywords.every((word) => globalKeys.has(normalizeName(word)))
+    && requiredCountryKeys(candidate).every((key) => countryKeys.has(key));
+  const coverageRecorded = (candidate) => {
+    const coverage = arr(demandData?.candidates).find((row) => sameCandidate(candidate, row))?.demandCoverage;
+    return coverageReady(candidate) && coverage?.globalChecked === true
+      && candidate.keywords.every((word) => arr(coverage.keywordsChecked).some((checked) => normalizeName(checked) === normalizeName(word)))
+      && requiredCountryKeys(candidate).every((key) => arr(coverage.countriesChecked).some((db) => String(db).toLowerCase() === key.split(':')[0]));
+  };
   const stats = report?.stats ?? {};
   const statsMatch = ACTIONS.every((action) => Number(stats[action] ?? 0) === arr(report?.candidates).filter((row) => row.action === action).length)
     && Number(stats.unjudged ?? 0) === arr(report?.candidates).filter((row) => !row.action).length;
@@ -1167,20 +1275,37 @@ function inspectDecision(o) {
       && clusters.every((cluster) => cluster.intent && arr(cluster.terms).length)
       && (strategy.entityType === 'brand' || terms.length >= 2);
   };
-  const competitionReady = (row) => {
-    if (!isQuantified(row)) return true;
+  const competitionState = (row) => {
     const review = row.competitionReview ?? {};
-    return typeof review.serpIntent === 'string'
-      && Array.isArray(review.weakPositions)
-      && typeof review.newSitePresent === 'boolean'
-      && typeof review.kdInterpretation === 'string'
-      && ['consistent', 'reviewed', 'not-applicable'].includes(review.metricConflict);
+    const candidate = priority.find((candidate) => sameCandidate(row, candidate));
+    const checked = candidate && coverageReady(candidate);
+    const noObservedVolume = checked && candidate.keywords.every((word) => globalRows.some((raw) => normalizeName(raw.keyword) === normalizeName(word)
+      && providerResultReady(raw, 'global', o.root) && (raw.globalVolume === 0 || ['verified-empty', 'absent-confirmed'].includes(raw.status))));
+    if (review.status === 'not-applicable') return noObservedVolume && nonempty(review.reason) ? 'not-applicable' : 'missing';
+    return checked && ['reviewed', 'collected'].includes(review.status) && evidencePresent(review.evidenceFile, o.root)
+      && nonempty(review.serpIntent) && Array.isArray(review.weakPositions)
+      && typeof review.newSitePresent === 'boolean' && nonempty(review.kdInterpretation)
+      && ['consistent', 'reviewed', 'not-applicable'].includes(review.metricConflict) ? 'reviewed' : 'missing';
   };
   const trendReady = (row) => {
     const windows = row.trend?.windows ?? {};
-    return Boolean(windows['28d'] ?? windows['30d'])
-      && Boolean(windows['7d'])
-      && ['rising', 'flat', 'cooling', 'insufficient'].includes(row.trend?.direction);
+    const windowReady = (window, days) => {
+      if (!window || !['ok', 'collected', 'measured', 'insufficient'].includes(window.status) || window.error || !evidencePresent(window.file, o.root)) return false;
+      const end = Date.parse(window.end), start = Date.parse(window.start), today = Date.parse(o.date);
+      const duration = (end - start) / 86400000, age = (today - end) / 86400000;
+      return Number.isFinite(duration) && duration >= days - 2 && duration <= days + 2 && age >= -1 && age <= 3;
+    };
+    return windowReady(windows['28d'] ?? windows['30d'], windows['28d'] ? 28 : 30)
+      && windowReady(windows['7d'], 7)
+      && ['rising', 'flat', 'cooling', 'insufficient'].includes(row.trend?.direction)
+      && (!Object.values(windows).some((window) => window?.status === 'insufficient') || row.trend.direction === 'insufficient');
+  };
+  const supplyReady = (row) => {
+    const pagesChecked = arr(row.urlChecks).length > 0 && row.urlChecks.every((check) => numericMetric(check.status) && !check.error && !challengePageTitle(check.title)) && typeof row.reachable === 'boolean';
+    if (row.pageType !== 'companion-tool') return pagesChecked && typeof row.playable === 'boolean';
+    const supply = row.supplyReview ?? {};
+    return pagesChecked && supply.status === 'reviewed' && evidencePresent(supply.evidenceFile, o.root)
+      && ['dataSource', 'license', 'implementation'].every((field) => typeof supply[field] === 'string' && supply[field].trim().length > 0);
   };
   const demandSeparated = (row) => typeof row.demandProof?.independentDemand === 'boolean'
     && ['low', 'medium', 'high'].includes(row.promotionRisk?.internalTrafficRisk);
@@ -1193,11 +1318,11 @@ function inspectDecision(o) {
     checkItem('D01', '当天采集 Checklist 已全部通过。', collectResult?.ok === true && collectResult?.date === o.date, collectResult?.ok ? '采集通过' : '采集未通过或缺失'),
     checkItem('D02', '已按优先级选出不超过 6 个真实游戏进入深查。', priority.length > 0 && priority.length <= 6 && priority.every((row) => row.entityId && arr(row.urls).some(validUrl)), `${priority.length} 个深查游戏`),
     checkItem('D03', '每个深查游戏都已区分品牌词或品类词，并建立去重的关键词需求簇。', finalPriority.length === priority.length && finalPriority.every(strategyReady), `${finalPriority.filter(strategyReady).length}/${priority.length} 个需求簇已核对`),
-    checkItem('D04', '每个计划关键词都有全球与国家结果、来源和明确的数据状态。', arr(planData?.globalKeywords).length > 0 && arr(planData?.globalKeywords).every((word) => globalKeys.has(normalizeName(word))) && plannedCountryRows.every((key) => countryKeys.has(key)) && [...globalRows, ...countryRows].every((row) => row.status !== 'error'), `${globalRows.length} 条全球、${countryRows.length}/${plannedCountryRows.length} 条国家结果`),
-    checkItem('D05', '每个深查游戏都记录关键词、国家、主要市场和 demandCoverage。', arr(demandData?.candidates).length === priority.length && arr(demandData?.candidates).every((row) => row.demandCoverage?.globalChecked && arr(row.demandCoverage?.keywordsChecked).length && arr(row.demandCoverage?.countriesChecked).length), `${arr(demandData?.candidates).length} 个需求结果`),
-    checkItem('D06', '有量候选都完成 KD 口径、SERP 意图、弱位、新站和冲突复核。', finalPriority.length === priority.length && finalPriority.every(competitionReady), `${finalPriority.filter(competitionReady).length}/${priority.length} 个竞争盘面已核对`),
-    checkItem('D07', '每个深查游戏都分开记录近 28 天总量与最近 7 天方向。', finalPriority.length === priority.length && finalPriority.every(trendReady), `${finalPriority.filter(trendReady).length}/${priority.length} 个趋势已核对`),
-    checkItem('D08', '每个深查游戏都区分平台内流量与独立外部需求，并核对页面和可玩供给。', finalPriority.length === priority.length && finalPriority.every((row) => demandSeparated(row) && arr(row.urlChecks).length > 0 && typeof row.reachable === 'boolean' && typeof row.playable === 'boolean'), `${finalPriority.filter((row) => demandSeparated(row) && arr(row.urlChecks).length > 0).length}/${priority.length} 个独立需求与供给已核对`),
+    checkItem('D04', '每个计划关键词都有有效全球与国家结果；已核实未覆盖与取数故障分开。', arr(planData?.globalKeywords).length > 0 && arr(planData.globalKeywords).every((word) => globalKeys.has(normalizeName(word))) && plannedCountryRows.every((key) => countryKeys.has(key)), `${arr(planData?.globalKeywords).filter((word) => globalKeys.has(normalizeName(word))).length}/${arr(planData?.globalKeywords).length} 条有效全球、${plannedCountryRows.filter((key) => countryKeys.has(key)).length}/${plannedCountryRows.length} 条有效国家结果`),
+    checkItem('D05', '每个深查游戏的 demandCoverage 与实际取数证据一致。', priority.length > 0 && priority.every(coverageRecorded), `${priority.filter(coverageRecorded).length}/${priority.length} 个需求结果完整，不能以 globalChecked 自证`),
+    checkItem('D06', '竞争盘面已核对；无已观测搜索量而不适用的候选单列并给出理由。', finalPriority.length === priority.length && finalPriority.every((row) => competitionState(row) !== 'missing'), `${finalPriority.filter((row) => competitionState(row) === 'reviewed').length}/${priority.length} 个竞争盘面已核对；不适用 ${finalPriority.filter((row) => competitionState(row) === 'not-applicable').length}；缺失 ${priority.length - finalPriority.filter((row) => competitionState(row) !== 'missing').length}`),
+    checkItem('D07', '每个深查游戏有近期月度和七天窗口的有效证据，未测与日期异常不算完成。', finalPriority.length === priority.length && finalPriority.every(trendReady), `${finalPriority.filter(trendReady).length}/${priority.length} 个趋势窗口已核对（含有效样本不足）`),
+    checkItem('D08', '每个深查游戏区分独立需求并核对适用供给；伴随工具核数据、许可和实现。', finalPriority.length === priority.length && finalPriority.every((row) => demandSeparated(row) && supplyReady(row)), `${finalPriority.filter((row) => demandSeparated(row) && supplyReady(row)).length}/${priority.length} 个独立需求与适用供给已核对`),
     checkItem('D09', '判决只来自 AI：有 action 的候选带理由或缺失证据，报告不含脚本自产结论。', arr(report?.candidates).every(decisionExplained) && report?.verdict === undefined, `develop ${stats.develop ?? 0}／research ${stats.research ?? 0}／watch ${stats.watch ?? 0}／未判 ${stats.unjudged ?? 0}`),
     checkItem('D10', 'JSON、Markdown、latest、分组数量、链接和异常信息彼此一致。', statsMatch && latestMatch && arr(report?.candidates).every((row) => [...arr(row.sourceLinks), ...arr(row.urls)].some(validUrl)) && (!arr(report?.errors).length || markdown.includes('本次异常')), `${arr(report?.candidates).length} 个候选，异常 ${arr(report?.errors).length}`),
   ];
@@ -1216,6 +1341,14 @@ function selfTest() {
   if (demandKeywords({ keywords: [{ keyword: 'queens puzzle hints' }], names: ['Queens explained hints', 'techniques'] }).join('|') !== 'queens puzzle hints') {
     throw new Error('显式查询词不能被页面 slug 或内部实体名扩充');
   }
+  const youtubeRows = parseSocialRows('youtube', '{"title":"New Browser Game","channel":"Demo","webpage_url":"https://youtube.com/watch?v=test","timestamp":1735689600,"view_count":12}\n');
+  if (youtubeRows.length !== 1 || youtubeRows[0].url !== 'https://youtube.com/watch?v=test' || youtubeRows[0].engagement.views !== 12 || !youtubeRows[0].publishedAt) {
+    throw new Error('YouTube JSONL 备用后端解析失败');
+  }
+  const keywordMerge = finishCandidate(mergeMissing({ names: ['Merge'], action: 'watch', decision: 'priority-research', keywords: [{ keyword: 'merge', market: 'US', status: 'metrics_unavailable', semrushVolume: null }] },
+    { keywords: [{ keyword: 'merge', status: 'not-queried', semrushVolume: null }, { keyword: 'merge', gl: 'us', status: 'ok', semrushVolume: 100 }, { keyword: 'merge', market: 'DE', status: 'not-queried', semrushVolume: null }] }));
+  if (keywordMerge.action !== 'watch' || keywordMerge.decision !== 'watch' || keywordMerge.keywords.length !== 2 || keywordMerge.keywords[0].semrushVolume !== null || keywordMerge.keywords[1].market !== 'DE'
+    || keywordMerge.keywordMetrics.measuredRows !== 0 || finishCandidate(keywordMerge).keywords.length !== 2) throw new Error('关键词占位/旧结果重复计数、复活旧数值或旧decision覆盖action');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'game-opportunity-'));
   try {
     const o = parseArgs(['render', '--date', '2099-01-02', '--project-root', tmp]);
@@ -1239,6 +1372,9 @@ function selfTest() {
       carryForward({ date: '2099-01-01', candidates: [{ names: ['Old Game'], firstSeen: '2098-12-30', sourceLinks: ['https://example.com/old'], action: 'research' }] }, o.date),
     );
     if (carried[0].names[0] !== 'New Game' || carried[1].firstSeen !== '2098-12-30' || carried[1].sourceLinks[0] !== 'https://example.com/old' || carried[1].carryForward.recheckDue !== true) throw new Error('旧候选续查或新词顺序失败');
+    // rejected 是和 develop 对称的终态：一旦 AI 判了否决，脚本不能每天把它带回来。
+    const rejectedCarry = carryForward({ date: '2099-01-01', candidates: [{ names: ['Rejected Game'], firstSeen: '2098-12-30', sourceLinks: ['https://example.com/rejected'], action: 'rejected' }] }, o.date);
+    if (rejectedCarry.length !== 0) throw new Error('已否决候选未被排除出续带池');
     // A skipped run must not swallow a milestone. Age jumps 2 -> 4 here, so the
     // day-3 recheck has to fire late rather than never.
     const skipped = carryForward({ date: '2099-01-01', candidates: [{ names: ['Gap Game'], urls: ['https://example.com/gap'], firstSeen: '2098-12-29', action: 'watch', carryForward: { ageDays: 2 } }] }, o.date);
@@ -1261,9 +1397,26 @@ function selfTest() {
     if (previousReportPool({ date: '2099-01-01', candidates: [{ names: ['Aged'], firstSeen: '2098-12-31', action: 'develop' }] }, o.date)[0].carryForward.ageDays !== 2) throw new Error('计划阶段未给上一份报告计龄');
     const watchPoolFile = path.join(tmp, '.rankup/tasks/game-opportunity-watch-pool.json');
     fs.mkdirSync(path.dirname(watchPoolFile), { recursive: true });
-    writeJson(watchPoolFile, { active: [{ entityId: 'pool-due', name: 'Pool Due', url: 'https://example.com/pool-due', firstSeen: '2098-12-30', nextDeepCheck: '2099-01-01', action: 'watch' }] });
-    const poolDue = watchPoolCandidates(o)[0];
+    writeJson(watchPoolFile, { active: [
+      { entityId: 'pool-due', name: 'Pool Due', url: 'https://example.com/pool-due', firstSeen: '2098-12-30', nextDeepCheck: '2099-01-01', action: 'watch' },
+      { entityId: 'pool-rejected', name: 'Pool Rejected', url: 'https://example.com/pool-rejected', firstSeen: '2098-12-30', action: 'rejected', rejectedAt: '2099-01-01T00:00:00.000Z' },
+      { entityId: 'pool-developed', name: 'Pool Developed', url: 'https://example.com/pool-developed', firstSeen: '2098-12-30', action: 'develop' },
+    ] });
+    const poolRows = watchPoolCandidates(o);
+    if (poolRows.length !== 1 || poolRows[0].entityId !== 'pool-due') throw new Error('已否决/已建站的观察池实体未被排除出续带');
+    const poolDue = poolRows[0];
     if (poolDue?.carryForward?.recheckDue !== true || poolDue?.carryForward?.ageDays !== 3) throw new Error('观察池到期候选未进入深查计划');
+    // reject 命令：按名称大小写不敏感匹配，写 action:"rejected" 与 rejectedAt，
+    // 写回后该实体立刻从 watchPoolCandidates 消失；未匹配到时不改动文件。
+    const rejectResult = reject({ ...o, entityName: 'pool due' });
+    if (!rejectResult.ok || rejectResult.action !== 'rejected' || !rejectResult.rejectedAt) throw new Error('reject 命令未能标记匹配实体');
+    const afterReject = readJson(watchPoolFile);
+    const rejectedRow = afterReject.active.find((row) => row.entityId === 'pool-due');
+    if (rejectedRow.action !== 'rejected' || !rejectedRow.rejectedAt) throw new Error('reject 命令未写回 watch-pool 文件');
+    if (watchPoolCandidates(o).length !== 0) throw new Error('reject 后该实体仍被续带');
+    const rejectMissing = reject({ ...o, entityName: 'does not exist' });
+    if (rejectMissing.ok !== false || !rejectMissing.error) throw new Error('reject 未匹配到实体时应报错而不是静默成功');
+    if (JSON.stringify(readJson(watchPoolFile)) !== JSON.stringify(afterReject)) throw new Error('reject 未匹配到实体时不应改动文件');
     // decision-checklist runs evaluate with no --evaluation, so the conventional
     // dated file has to be found on its own or every judgement field is lost.
     const evalFiles = files(o);
@@ -1283,6 +1436,12 @@ function selfTest() {
       '2099-01-02',
     );
     if (radarMerged.runCount !== 2 || radarMerged.sources[0].added.length !== 1 || radarMerged.candidates.length !== 1) throw new Error('雷达同日累积合并失败');
+    const retriedRadar = mergeRadarReport(
+      { date: '2099-01-02', sources: [{ source: 'steam', status: 'failed' }], errors: ['steam: temporary failure'] },
+      { date: '2099-01-02', sources: [{ source: 'steam', status: 'compared', added: [] }], errors: [] },
+      '2099-01-02',
+    );
+    if (retriedRadar.errors.length !== 0 || retriedRadar.sources[0].error !== null || parseArgs(['radar', '--source', 'steam']).source !== 'steam') throw new Error('雷达单源重试未清理已修复错误');
     if (campaigns.length !== 1 || campaigns[0].mentions !== 2) throw new Error('campaign 去重失败');
     const fresh = { names: ['Fresh Game'], urls: ['https://example.com/fresh'] };
     const ranked = rankCandidates([
@@ -1337,6 +1496,39 @@ function selfTest() {
       { candidates: [{ entityId: 'unavailable', names: ['Unavailable'], urls: [], keywords: ['unavailable'], mandatoryCountryDbs: [], discoveryMarkets: [] }] },
       [{ keyword: 'unavailable', volume: null, globalVolume: null, byCountry: null, status: 'metrics_unavailable' }], []).candidates[0].keywords;
     if (unavailableRows.length !== 1 || unavailableRows[0].gl !== 'us' || unavailableRows[0].status !== 'metrics_unavailable') throw new Error('无国家分布的未测词丢失 US 状态');
+    // Regression: the real failed run had all-null rows plus shape-complete
+    // not-measured trends; it used to pass D04-D07 and claim 5/5 reviewed.
+    const testCandidate = { entityId: 'foo', names: ['Foo'], urls: ['https://example.com/foo'], keywords: ['foo'], mandatoryCountryDbs: ['us'] };
+    const testPlan = { candidates: [testCandidate], globalKeywords: ['foo'] };
+    const rawFailure = { keyword: 'foo', db: 'us', status: 'absent', volume: null, globalVolume: null, byCountry: null };
+    const failedOverlay = demandOverlay(o, testPlan, [rawFailure], [rawFailure]);
+    if (failedOverlay.candidates[0].demandCoverage.globalChecked || failedOverlay.candidates[0].demandCoverage.countriesChecked.length) throw new Error('失败被写成已查覆盖');
+    failedOverlay.candidates[0].demandCoverage = { globalChecked: true, keywordsChecked: ['foo'], countriesChecked: ['US'] };
+    writeJson(f.demandPlan, testPlan); writeJson(f.countryPlan, {});
+    writeText(f.globalSemrush, JSON.stringify(rawFailure)); writeText(f.countrySemrush, JSON.stringify(rawFailure));
+    writeJson(f.demandResults, failedOverlay);
+    const testReport = { ...failedOverlay.candidates[0], trend: { direction: 'insufficient', windows: { '28d': { status: 'not-measured' }, '7d': { status: 'rejected-date-mismatch' } } } };
+    saveReport(o, [testReport], []);
+    const falseGreen = inspectDecision(o);
+    if (falseGreen.checks.some((check) => ['D04', 'D05', 'D06', 'D07'].includes(check.id) && check.passed)) throw new Error('空取数/未测趋势/无量误报再次通过验收');
+    if (metric({ keywords: [{ status: 'metrics_unavailable', semrushVolume: null, semrushGlobalVolume: null, globalVolume: null }] }).includes('全球 0')) throw new Error('null 被排版成实测零');
+    const rawZero = { keyword: 'foo', db: 'us', status: 'ok', volume: 0, globalVolume: 0, byCountry: {} };
+    writeText(f.globalSemrush, JSON.stringify(rawZero)); writeText(f.countrySemrush, JSON.stringify(rawZero));
+    writeJson(f.demandResults, demandOverlay(o, testPlan, [rawZero], [rawZero]));
+    const testEvidence = path.join(tmp, 'raw-evidence.json'); writeJson(testEvidence, { measured: true });
+    const verifiedReport = { ...testReport, pageType: 'companion-tool', reachable: true, playable: null,
+      urlChecks: [{ url: 'https://example.com/foo', status: 200, ok: true }], demandProof: { independentDemand: false }, promotionRisk: { internalTrafficRisk: 'high' },
+      competitionReview: { status: 'not-applicable', reason: '已核实全局量为零，保留观察' },
+      supplyReview: { status: 'reviewed', evidenceFile: testEvidence, dataSource: 'test data', license: 'test permission', implementation: 'test feasibility' },
+      trend: { direction: 'insufficient', windows: { '28d': { status: 'insufficient', start: '2098-12-05', end: o.date, file: testEvidence }, '7d': { status: 'insufficient', start: '2098-12-26', end: o.date, file: testEvidence } } } };
+    saveReport(o, [verifiedReport], []);
+    const verified = inspectDecision(o);
+    if (verified.checks.some((check) => ['D04', 'D05', 'D06', 'D07', 'D08'].includes(check.id) && !check.passed)
+      || !verified.checks.find((check) => check.id === 'D06').evidence.includes('不适用 1')) throw new Error('实测零/有效样本不足/伴随工具适用供给被误拒');
+    verifiedReport.trend.windows['7d'].start = '2004-12-26'; verifiedReport.trend.windows['7d'].end = '2005-01-02';
+    saveReport(o, [verifiedReport], []);
+    if (inspectDecision(o).checks.find((check) => check.id === 'D07').passed) throw new Error('错误年份趋势通过验收');
+    saveReport(o, merged, []);
     if (!challengePageTitle('Just a moment...')) throw new Error('Cloudflare 验证页识别失败');
     if (![f.candidates, f.report, f.latestJson, f.latestMd].every(exists)) throw new Error('报告产物不完整');
     const reportJson = readJson(f.candidates);
@@ -1344,7 +1536,7 @@ function selfTest() {
     const reportMd = fs.readFileSync(f.report, 'utf8');
     if (!reportMd.includes('[Foo Game](https://example.com/foo)')) throw new Error('Markdown 链接缺失');
     if (reportMd.includes('结论：') || !reportMd.includes('未判')) throw new Error('日报仍在下结论或未如实标未判');
-    return { ok: true, checks: ['normalize-and-merge', 'no-script-verdict', 'ai-passthrough', 'checklist-output', 'carry-forward-order', 'recheck-milestone-crossing', 'deep-check-mechanical-default', 'deep-check-ai-selection', 'evaluation-overlay-discovery', 'display-rank-mechanical', 'partial-discovery', 'stale-vs-timeout', 'title-and-iframe', 'campaign-dedupe', 'radar-same-day-merge', 'new-games-dedupe', 'not-queried-vs-zero', 'challenge-title-detect', 'markdown-links', 'stable-latest'] };
+    return { ok: true, checks: ['normalize-and-merge', 'keyword-market-merge', 'no-script-verdict', 'ai-passthrough', 'checklist-output', 'carry-forward-order', 'rejected-terminal-action', 'recheck-milestone-crossing', 'deep-check-mechanical-default', 'deep-check-ai-selection', 'evaluation-overlay-discovery', 'display-rank-mechanical', 'partial-discovery', 'stale-vs-timeout', 'title-and-iframe', 'campaign-dedupe', 'radar-same-day-merge', 'new-games-dedupe', 'not-queried-vs-zero', 'failed-evidence-regression', 'verified-zero-and-applicability', 'trend-date-rejection', 'challenge-title-detect', 'markdown-links', 'stable-latest', 'reject-command'] };
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
 
@@ -1352,10 +1544,10 @@ async function main() {
   const o = parseArgs(process.argv.slice(2));
   if (o.help) { console.log(HELP); return; }
   if (o.selfTest) { console.log(JSON.stringify(selfTest(), null, 2)); return; }
-  if (!['discover', 'radar', 'collect', 'collect-checklist', 'dedupe', 'plan', 'demand', 'evaluate', 'decision-checklist', 'render', 'daily'].includes(o.command)) {
+  if (!['discover', 'radar', 'collect', 'collect-checklist', 'dedupe', 'plan', 'demand', 'evaluate', 'decision-checklist', 'render', 'daily', 'reject'].includes(o.command)) {
     console.log(HELP); process.exitCode = 2; return;
   }
-  const result = await ({ discover, radar, collect, 'collect-checklist': collectChecklist, dedupe, plan, demand, evaluate, 'decision-checklist': decisionChecklist, render, daily })[o.command](o);
+  const result = await ({ discover, radar, collect, 'collect-checklist': collectChecklist, dedupe, plan, demand, evaluate, 'decision-checklist': decisionChecklist, render, daily, reject })[o.command](o);
   console.log(JSON.stringify(result, null, 2));
   if (!result.ok) process.exitCode = 1;
 }

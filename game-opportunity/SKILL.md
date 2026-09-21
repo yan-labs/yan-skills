@@ -432,6 +432,16 @@ node game-opportunity/scripts/game-opportunity.mjs render \
 evaluation 文件。`collect-checklist` / `decision-checklist` 是这套证据在场判定的机器化形式，
 它们验证的是「证据齐不齐、账对不对」，不是「判决对不对」——判决质量由 AI 与用户对着证据复核。
 
+验收字段与适用性：
+
+- D04/D05 与缓存复用共用取数状态规则。`ok/measured/collected` 的真实数值（含 0）有效；正全球量还需有量国家分布。`absent`、`metrics_unavailable`、错误或全空行是未测，不可复用成已完成，也不能把 `globalChecked: true` 当证据。
+- 确认词库未覆盖时用 `verified-empty` 或 `absent-confirmed`，保留原始页面 `evidenceFile`，以及 `verification: {pageChecked: true, controlPassed: true, controlFile: "..."}`。先检查原始页面的空态并用有量词验证同一取数通道，再填写；未覆盖不是零需求。
+- D06 的 `competitionReview` 除原有 SERP 字段，还记录 `status: "reviewed"` 与 `evidenceFile`。全球与国家取数完整且全局实测零/核实未覆盖时，AI 可写 `status: "not-applicable"` 和 `reason`；验收单独显示不适用，不称盘面已核对。取数故障不适用不了这条例外。
+- D07 的每个 `trend.windows["28d"或"30d"/"7d"]` 保存 `status`、`file`、实际测量的 `start/end`。有效状态为 `ok/collected/measured/insufficient`，窗口跨度与名称一致，截至日期应在报告日前 3 天内。`insufficient` 只用于实际查询后样本不足，并配 `direction: "insufficient"`；未测、错误年份与抓取失败不得通过。
+- D08 按产品形态核供给。网页游戏保留页面实测与 `playable`；`companion-tool` 用 `supplyReview: {status: "reviewed", evidenceFile: "...", dataSource: "...", license: "...", implementation: "..."}` 记录已查明的数据来源、使用许可和实现可行性，不要求 iframe。仍未查明的字段不填成完成。
+
+上述文件路径支持项目相对路径。机器检查状态、日期、数值和文件在场；原始文件是否真正支持所写判断，仍必须由 AI 阅读核实，不得造字段让检查变绿。失败项继续保留 partial 报告。
+
 - 早间任务以 `collect-checklist` 10 项证据验收为完成门槛；
 - 决策任务以 `decision-checklist` 10 项证据验收为完成门槛；
 - discovery 报告存在，并给出成功、baseline、失败和新增数量；失败平台在 manifest 里可见；
