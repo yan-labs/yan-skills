@@ -813,3 +813,11 @@ browser 与 adapter 都在用户当前窗口开标签页、不切走活动标签
 **改过扩展源码之后必须在 `chrome://extensions` 手动 reload 一次**才生效——
 CLI 侧的改动重启守护进程即可，扩展侧的不会自动生效。**`opencli doctor` 打印的扩展版本
 就是判据**：它显示什么，加载的就是什么。
+
+### X 搜索与免费原帖追溯
+
+`node scripts/x-research.mjs read POST_URL --depth 1`：通过免费 FxTwitter 公共接口读取已知帖子及回复父帖，不使用 Chrome Cookie；引用帖随响应一起精简。depth 默认 0，最多 3；遇到错误即停，不自动重试。
+
+`node scripts/x-research.mjs search 'QUERY' --scrolls 0`：OpenCLI 打开真实 Chrome 搜索页，只读 DOM，输出精简 JSON；默认仅当前已加载一屏，最多滚动 3 次。不是完整搜索全集，父帖 ID 未知保留 null，外链可能仍为 t.co。网页自身仍会请求 X，不能规避账号限速。不要对已受限账号连续运行。
+
+2026-09-17 验证：FxTwitter 回复→父帖、引用帖和游戏外链成功；Chrome 实页显示“出错了”，正常搜索 DOM 提取尚待账号恢复后验收。page_error 不等同已确认 HTTP 429。运行离线检查：`node tests/x-research.test.mjs`。
