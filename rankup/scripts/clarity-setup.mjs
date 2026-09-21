@@ -168,37 +168,42 @@ async function doCreate() {
     bail("login-text-seen", "页面文本命中 Sign in/登录——多半未登录 Clarity（也可能是撞词，看截图）。请先在浏览器中登录 clarity.microsoft.com")
   }
 
+  // /projects can restore the last dashboard; return via the project header first.
+  if (!String(evalJs(`return !!document.querySelector('[data-clarity-id="addNewProjectButton"]')`)).includes("true")) {
+    stampAndClick(`document.querySelector('button[class*="myProjectsButton"]')`, "项目列表")
+    settle(1000)
+  }
   // 点击 "+ Add new project" 按钮
   stampAndClick(
-    `[...document.querySelectorAll('button')].find(b=>/add.*project|新建项目|添加/i.test(b.textContent))`,
+    `document.querySelector('[data-clarity-id="addNewProjectButton"]')`,
     "Add new project 按钮"
   )
   settle(3000)
 
   // 填写项目名称
   const nameInput = `document.querySelector('input[placeholder*="name" i],input[placeholder*="名称" i],input[type="text"]')`
-  evalJs(`const el=${nameInput};if(!el)throw new Error('找不到名称输入框');el.focus();el.value='';`)
-  cli(`type "${name}"`)
+  evalJs(`const el=${nameInput};if(!el)throw new Error('找不到名称输入框');el.setAttribute('data-rankup-field','name');`)
+  cli(`fill '[data-rankup-field=name]' '${name.replace(/'/g, "'\\''")}'`)
   settle(500)
 
   // 填写网站 URL
-  const urlInput = `[...document.querySelectorAll('input[type="text"],input[type="url"]')].find(i=>/url|网站|site/i.test(i.placeholder||i.labels?.[0]?.textContent||''))`
-  evalJs(`const el=${urlInput};if(!el)throw new Error('找不到 URL 输入框');el.focus();el.value='';`)
-  cli(`type "https://${site}"`)
+  const urlInput = `[...document.querySelectorAll('input[type="text"],input[type="url"]')].find(i=>/url|网站|site/i.test([i.placeholder,i.labels?.[0]?.textContent,i.getAttribute('aria-label')].join(' ')))`
+  evalJs(`const el=${urlInput};if(!el)throw new Error('找不到 URL 输入框');el.setAttribute('data-rankup-field','url');`)
+  cli(`fill '[data-rankup-field=url]' 'https://${site.replace(/'/g, "'\\''")}'`)
   settle(500)
 
   // 选择网站类别（如果有下拉框的话跳过，不是必填项）
 
   // 点击 "Add" / "添加" 按钮
   stampAndClick(
-    `[...document.querySelectorAll('button[type="submit"],button')].find(b=>/^(add|create|添加|创建)$/i.test(b.textContent.trim()))`,
+    `[...document.querySelectorAll('button[type="submit"],button')].find(b=>/^(add|create|add new project|添加|创建|添加新项目)$/i.test(b.textContent.trim()))`,
     "Add/创建 按钮"
   )
   settle(5000)
 
   // 从跳转后的 URL 或页面内容中提取 project ID
   const finalUrl = evalJs(`return window.location.href`)
-  const idMatch = finalUrl.match(/\/projects\/([a-z0-9]+)/) || finalUrl.match(/projectId=([a-z0-9]+)/)
+  const idMatch = finalUrl.match(/\/projects\/(?:view\/)?(?!view(?:[/?#]|$))([a-z0-9]+)(?:[/?#]|$)/) || finalUrl.match(/projectId=([a-z0-9]+)/)
   if (idMatch) {
     // URL 命中 ≠ 创建成功：页面跳到 /projects/<id> 只说明导航发生了，
     // 项目建没建好（有没有报错横幅）以截图为准。
@@ -234,6 +239,8 @@ async function doCreate() {
 try {
   if (action === "status") await doStatus()
   else await doCreate()
+} catch (e) {
+  bail("execution-error", e.message)
 } finally {
   if (!keepSession) {
     try { cli("close") } catch {}

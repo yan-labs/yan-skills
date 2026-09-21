@@ -85,6 +85,7 @@ const execFileP = promisify(execFile);
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+const FETCH_TIMEOUT_MS = 30_000;
 
 const HELP = `game-newtitles.mjs — 新游戏标题批量取数（新游戏 = 新词 = 新需求）
 
@@ -214,7 +215,10 @@ const strip = (s) => decode(s.replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim
 const domainOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return null; } };
 
 async function get(url, headers = {}) {
-  const res = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9', ...headers } });
+  const res = await fetch(url, {
+    headers: { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9', ...headers },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
   if (!res.ok) {
     // HTTP 源失败先存响应体：403 挑战页/429 配额页和「端点变了」在响应体里长得不一样。
     const body = await res.text().catch(() => null);

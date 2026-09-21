@@ -48,6 +48,11 @@ const CAPTURE_FIXTURES = {
         [10.4, 10, [[1704067200], [1704672000]], false, 1],
         [20.6, 20, [[1704672000], [1705276800]], false, 1],
       ]],
+      // Prior-year same-name comparison must not overwrite the requested primary series.
+      ["demo", null, null, 40, [
+        [90, 90, [[1672531200], [1673136000]], false, 1],
+        [95, 95, [[1673136000], [1673740800]], false, 1],
+      ]],
     ],
   ]),
 };
@@ -172,17 +177,21 @@ function run(args, extraEnv = {}) {
 
 try {
   // --- compare：REST 主路（multiline）---
-  const compare = run(["compare", "demo", "--time", "1m", "--session", "gt-browser-test"]);
+  const compare = run(["compare", "demo", "--time", "2024-01-01:2024-01-08", "--session", "gt-browser-test"]);
   assert.equal(compare.status, 0, compare.stderr);
   assert.match(compare.stdout, /2024-01-01/, "compare 应按 timelineData.time 的 epoch 换算出日期");
   assert.match(compare.stdout, /2024-01-01\s*\|\s*10\b/, "compare 应取 value[i]");
   assert.match(compare.stdout, /峰值/);
 
   // --- compare：REST 挂掉时回落到 batchexecute 抓包 ---
-  const compareFallback = run(["compare", "demo", "--time", "1m", "--session", "gt-browser-test"], { GT_FAKE_REST_FAIL: "1" });
+  const compareFallback = run(["compare", "demo", "--time", "2024-01-01:2024-01-08", "--session", "gt-browser-test"], { GT_FAKE_REST_FAIL: "1" });
   assert.equal(compareFallback.status, 0, compareFallback.stderr);
   assert.match(compareFallback.stdout, /2024-01-01/, "抓包兜底也应换算出日期");
   assert.match(compareFallback.stdout, /\b10\b/, "抓包兜底应取 roundedValue（第二个字段），不是浮点原值");
+
+  const wrongWindow = run(["compare", "demo", "--time", "28d", "--session", "gt-browser-test"]);
+  assert.notEqual(wrongWindow.status, 0, "old timestamps must not pass a current 28-day request");
+  assert.match(wrongWindow.stderr, /do not match requested/);
 
   // --- region：REST 主路（comparedgeo）---
   const region = run(["region", "demo", "--top", "5", "--session", "gt-browser-test"]);

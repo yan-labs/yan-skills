@@ -154,7 +154,6 @@ const PRESETS = {
   "1d": "now 1-d",
   "24h": "now 1-d",
   "7d": "now 7-d",
-  "28d": "today 4-w",
   "30d": "today 1-m",
   "1m": "today 1-m",
   "3m": "today 3-m",
@@ -174,6 +173,11 @@ function fail(stopReason, msg, extra) {
 }
 
 function toTimeframe(t = "12m") {
+  // Google rejects today 4-w; express 28 days explicitly instead of falling back to 12 months.
+  if (t === "28d") {
+    const end = new Date();
+    return `${new Date(end.getTime() - 28 * 86400000).toISOString().slice(0, 10)} ${end.toISOString().slice(0, 10)}`;
+  }
   if (PRESETS[t]) return PRESETS[t];
   if (t.includes(":")) return t.split(":").join(" ");
   return t;
@@ -841,11 +845,11 @@ function cmdCompare(kws, opts) {
       timeline = JSON.parse(restBody)?.default?.timelineData || [];
     } catch { timeline = []; }
     const rows = timeline.map((pt) => [
-      pt.time ? new Date(Number(pt.time) * 1000).toISOString().slice(0, 10) : (pt.formattedAxisTime || ""),
-      ...kws.map((_, i) => (pt.value?.[i] == null ? "" : String(pt.value[i]))),
+      pt.time ? epochDay(pt.time) : (pt.formattedAxisTime || ""),
+      ...kws.map((_, i) => (pt.hasData?.[i] === false || pt.value?.[i] == null ? "" : String(pt.value[i]))),
     ]);
     if (!rows.length) widgetEmptyExit(evidenceDir, "热度对比曲线（multiline，REST）");
-    printCompare(kws, geo, timeframe, rows);
+    printCompare(kws, geo, timeframe, rows, evidenceDir);
     return;
   }
 
@@ -862,28 +866,65 @@ function cmdCompare(kws, opts) {
     widgetEmptyExit(evidenceDir, "热度对比曲线（g4kJzf）");
   }
   // 结构【实测确认，2026-09-09】：[[keyword, ?, ?, ?, [[value, roundedValue, [[startEpoch],[endEpoch]], flag, ?], ...]], ...]
-  const byKw = new Map(series.map((entry) => [entry[0], entry[4] || []]));
+  // Same keyword may also have a prior-year comparison series. Bind by window before mapping.
+  const byKw = new Map(kws.map(k => {
+    const matches = series.filter(entry => entry[0] === k).filter(entry => {
+      try {
+        const points = entry[4] || [];
+        if (!points.length) return false;
+        assertTimelineWindow(points.map(p => [epochDay(p?.[2]?.[0]?.[0])]), timeframe);
+        return true;
+      } catch { return false; }
+    });
+    if (matches.length !== 1) fail("timeline-series-ambiguous", `Expected one ${k} series for ${timeframe}, found ${matches.length}`);
+    return [k, matches[0][4]];
+  }));
   const pointCount = Math.max(0, ...kws.map((k) => (byKw.get(k) || []).length));
   const rows = [];
   for (let i = 0; i < pointCount; i++) {
     const startEpoch = kws.map((k) => byKw.get(k)?.[i]?.[2]?.[0]?.[0]).find((v) => v != null);
-    const date = startEpoch ? new Date(Number(startEpoch) * 1000).toISOString().slice(0, 10) : `#${i}`;
+    const date = startEpoch ? epochDay(startEpoch) : `#${i}`;
     const vals = kws.map((k) => {
       const p = byKw.get(k)?.[i];
-      const v = p ? (p[1] ?? Math.round(p[0])) : null;
+      const v = p && p[0] != null ? (p[1] ?? Math.round(p[0])) : null;
       return v == null ? "" : String(v);
     });
     rows.push([date, ...vals]);
   }
   if (!rows.length) widgetEmptyExit(evidenceDir, "热度对比曲线（g4kJzf，解析后为空）");
-  printCompare(kws, geo, timeframe, rows);
+  printCompare(kws, geo, timeframe, rows, evidenceDir);
 }
 
 /** compare 的输出（REST 主路与抓包兜底共用，两条路解析出来的 rows 形状一样）。 */
-function printCompare(kws, geo, timeframe, rows) {
+function epochDay(epoch) { return new Date(Number(epoch) * 1000).toISOString().slice(0, 10); }
+
+function assertTimelineWindow(rows, timeframe, now = Date.now()) {
+  if (timeframe === "all") return;
+  let start, end = now, tolerance = 86400000;
+  const exact = timeframe.match(/^(\d{4}-\d{2}-\d{2}) (\d{4}-\d{2}-\d{2})$/);
+  const relative = timeframe.match(/^(now|today) (\d+)-(h|d|m|y)$/);
+  if (exact) { start = Date.parse(exact[1]); end = Date.parse(exact[2]) + 86400000; }
+  else if (relative) {
+    const unit = {h: 3600000, d: 86400000, m: 31 * 86400000, y: 366 * 86400000}[relative[3]];
+    start = now - Number(relative[2]) * unit;
+    tolerance = relative[3] === 'm' || relative[3] === 'y' ? 8 * 86400000 : 86400000;
+  } else return;
+  const times = rows.map(r => Date.parse(r[0]));
+  if (times.some(t => !Number.isFinite(t) || t < start - tolerance || t > end + 86400000)
+      || Math.max(...times) < end - Math.max(tolerance, 2 * 86400000)) {
+    fail("timeline-window-mismatch", `Returned dates ${rows[0]?.[0]}–${rows.at(-1)?.[0]} do not match requested ${timeframe}`);
+  }
+}
+
+function printCompare(kws, geo, timeframe, rows, evidenceDir) {
+  assertTimelineWindow(rows, timeframe);
+  const measured = rows.some(r => r.slice(1).some(v => v !== ""));
+  writeFileSync(join(evidenceDir, "compare-result.json"), JSON.stringify({keywords:kws, geo, timeframe,
+    status: measured ? "ok" : "insufficient", start:rows[0]?.[0], end:rows.at(-1)?.[0], rows}, null, 2) + "\n");
   console.log(`## 热度对比：${kws.join(" vs ")}`);
   console.log(scopeLine(geo, timeframe));
   console.log(mdTable(["date", ...kws], rows));
+  if (!measured) { console.log("\n样本不足：源数据未给出可测热度，空值不代表零需求。"); return; }
   const peaks = kws.map((k, i) => {
     let best = rows[0];
     for (const r of rows) if (Number(r[i + 1] || -1) > Number(best[i + 1] || -1)) best = r;
