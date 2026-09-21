@@ -32,5 +32,13 @@
     "apiKeyEnv": "GEMINI_GATEWAY_API_KEY",
     "authHeader": "x-api-key",
     "requiresGateway": true
+  },
+
+  "kollab-gateway": {
+    "description": "Kollab 自己的公开 LLM 网关(POST /api/llm,Anthropic Messages 兼容协议),用账号自助生成的 kollab_live_* standalone API key 鉴权,费用从该 key 绑定的 Space 额度实时扣除。不要求申请第三方官方 Key,是 DeepSeek/Kimi 之外的第三个即用选项,模型范围由 Kollab 侧放开、不做白名单过滤。当前填的是 TEST 环境地址;换生产环境时把 baseURL 换成 https://kollab.im/api/llm 并用一把生产环境生成的 key。",
+    "baseURL": "https://test.flowus.work/api/llm",
+    "model": "claude-sonnet-4-6",
+    "apiKeyEnv": "KOLLAB_LIVE_API_KEY",
+    "authHeader": "x-api-key"
   }
 }

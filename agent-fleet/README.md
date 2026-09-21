@@ -7,8 +7,11 @@
 **核心场景**:你想同时跑好几个任务,每个任务用不同的模型——比如同时起一个用 Gemini 写文案的任务、
 一个用 DeepSeek 做调研头脑风暴的任务,两个并行跑,互不干扰,跑完各自把结果交回来。
 
-**纯本地工具**:完全不经过 Kollab 或任何托管基础设施,就在这台机器上跑。模型接的是**你自己的**
-第三方 API key(DeepSeek、Moonshot/Kimi 官方,或你自己有的任何 Anthropic 兼容端点)。
+**本地编排,模型来源你自己选**:Agent 的读写文件、跑命令、多轮工具调用全部在这台机器上进行,不
+经过任何托管的编排基础设施。模型请求接的是**你自己的** API key——可以是 DeepSeek、Moonshot/Kimi
+官方端点,可以是你自己搭的任何 Anthropic 兼容端点,也可以是 `kollab-gateway`:Kollab 自己的公开
+LLM 网关(`POST /api/llm`),用你账号自助生成、随时可吊销的 `kollab_live_*` standalone key 鉴权,
+费用从对应 Space 的额度里扣,不需要再单独去 DeepSeek/Moonshot 官网申请 key 就能先跑起来。
 
 ## 它是怎么做到"一个工具接多个模型"的
 
@@ -28,6 +31,7 @@ Agent 能力去驱动它们的模型——你拿到的不是"一问一答",而�
 | `deepseek-v4-flash` | DeepSeek | 同上,`model: "deepseek-flash"` | 同一端点的 Flash 档位(官方默认回退模型),快、便宜,适合调研/头脑风暴/大批量任务 |
 | `kimi` | Moonshot(Kimi) | `https://api.moonshot.cn/anthropic`,`Authorization: Bearer` 鉴权 | 官方 Anthropic 兼容端点(中国站)。国际站把 `baseURL` 换成 `https://api.moonshot.ai/anthropic` 即可,鉴权方式不变 |
 | `gemini` | Google | **没有官方端点** | 见下方说明,需要你自备网关 |
+| `kollab-gateway` | Kollab 自己的公开 LLM 网关 | `https://test.flowus.work/api/llm`(TEST 环境),`x-api-key` 鉴权,key 是 `kollab api-key create` 生成的 `kollab_live_*` | 不需要申请任何第三方官方 key,模型范围不限白名单(当前配的是 `claude-sonnet-4-6`,可自行换成 `kollab model list` 里的其它 id);已做过真实端到端验证,见下方「验证情况」。费用从这把 key 绑定的 Kollab Space 额度实时扣除,换生产环境用 `https://kollab.im/api/llm` 加一把生产环境生成的 key |
 
 **关于 Gemini 的如实说明**:查证下来,Google 官方**没有**为 Gemini 提供 Anthropic Messages 协议
 兼容端点(不像 DeepSeek/Moonshot 那样)。市面上能找到的都是社区维护的转换代理(比如把 Anthropic
@@ -139,8 +143,19 @@ API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.
 
 ## 验证情况(如实说明)
 
-没有真实的 DeepSeek/Moonshot API key(也没有去别的项目"顺手"拿),所以**没有做过真实模型的端到端
-验证**。已经做到的:
+没有真实的 DeepSeek/Moonshot API key(也没有去别的项目"顺手"拿),所以**这两家官方端点没有做过真实
+模型的端到端验证**。`kollab-gateway` 是例外——它用的是 Kollab 产品自助生成的账号 key,不需要等第三方
+审批,已经做过一次真实的端到端验证(见第 0 条)。已经做到的:
+
+0. **`kollab-gateway` 真实端到端验证(TEST 环境)**:用 `kollab api-key create` 生成了一把真实的
+   `kollab_live_*` standalone key(账号自助生成、随时可在 Kollab 里吊销/重建,不是 Kollab 内部基础设施
+   或第三方供应商的密钥),写进本地 `.env`(未提交),跑了一次真实调用:
+   ```bash
+   node bin/agent-fleet.mjs run --model kollab-gateway --prompt "回复OK两个字" --json
+   ```
+   返回 `"ok": true`、`"result": "OK"`,带真实的 `totalCostUsd`(从该 key 绑定的 Space 额度扣除)和
+   `sessionId`,确认请求真的经过 `POST https://test.flowus.work/api/llm/v1/messages` 拿到了模型响应,
+   不是报错也不是 mock。
 
 1. **代码能正常跑**:`--help`、`--version`、`list-models`、缺参数/缺密钥/未知模型等错误路径都手动
    跑过,报错信息清晰可操作。
@@ -167,6 +182,8 @@ API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.
 
 ## 接下来你需要做的事
 
+0. 想先跑起来、不想等第三方 key 审批:直接用 `kollab-gateway`——`kollab api-key create --name <你的名字>`
+   生成一把 `kollab_live_*` key,填进 `.env` 的 `KOLLAB_LIVE_API_KEY`,已经验证过真实可用(见上一节第 0 条)。
 1. 去 DeepSeek(<https://platform.deepseek.com>)和/或 Moonshot(<https://platform.moonshot.cn>)
    生成真实 API key,填进 `.env`。
 2. 如果要用 Gemini,自己搭一个 Anthropic 兼容网关,把地址和它认的模型 ID 填进
