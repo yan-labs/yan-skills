@@ -53,7 +53,13 @@ test('unfinished/missing summary boundary stays unknown', () => {
     assert.equal(parse(text).volume, null);
     assert.equal(parse(text).status, 'metrics_unavailable');
   }
-  assert.equal(parse(unfinished, true).status, 'absent');
+  // 2026-09-13: updateOffered=true (page merely offers to calculate, e.g. the
+  // "更新指标 / 提供最新的关键词数据" button) no longer downgrades status to a
+  // separate 'absent' value — an offered calculation is not a confirmed empty
+  // measurement, so it still reads as metrics_unavailable, with updateOffered
+  // surfaced as its own field for callers that care.
+  assert.equal(parse(unfinished, true).status, 'metrics_unavailable');
+  assert.equal(parse(unfinished, true).updateOffered, true);
   assert.equal(parse(unfinished, true).volume, null);
 });
 test('bulk missing and null rows differ from explicit zero', () => {

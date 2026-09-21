@@ -246,7 +246,7 @@ function pickCountries(lines) {
   return Object.keys(out).length ? out : null;
 }
 
-function parseOverviewMetrics(bodyText, absent = false) {
+function parseOverviewMetrics(bodyText, updateOffered = false) {
   const all = bodyText.split(/\n+/).map((l) => l.trim()).filter(Boolean);
   const start = all.findIndex((l) => /^(关键词摘要|Keyword Summary)$/i.test(l));
   const end = all.findIndex((l, i) => i > start && /^(关键词意见|Keyword Ideas)$/i.test(l));
@@ -265,7 +265,8 @@ function parseOverviewMetrics(bodyText, absent = false) {
     byCountry: pickCountries(lines),
     ...pickIntent(lines),
     noData: volume === null,
-    status: absent ? 'absent' : volume === null ? 'metrics_unavailable' : 'ok',
+    status: volume === null ? 'metrics_unavailable' : 'ok',
+    updateOffered,
   };
 }
 
@@ -341,6 +342,9 @@ if (flags['self-test']) {
   });
   assert.equal(sample[1].status, 'absent');
   assert.equal(sample[1].volume, null);
+  // An offered calculation is not a completed empty measurement.
+  assert.equal(parseOverviewMetrics('更新指标\n提供最新的关键词数据。', true).status, 'metrics_unavailable');
+  assert.equal(parseOverviewMetrics('更新指标\n提供最新的关键词数据。', true).updateOffered, true);
 
   // scopeKeywordMetrics: no --db → volume comes from globalVolume, country-only fields nulled.
   const rawMetrics = {
@@ -490,9 +494,8 @@ for (const { database, keyword: kw, dbGiven: jobDbGiven } of uiJobs) {
         url: location.href,
         title: document.title,
         ready: /关键词难度|Keyword Difficulty/.test(t),
-        // 库里完全没有这个词时，页面渲染完也不会出现任何指标块，只留一个
-        // 「更新指标 / 提供最新的关键词数据」的取数按钮。这是**观测到的空**，
-        // 与「还没渲染完」形态不同，必须分开——否则冷门词全被记成脚本故障。
+        // 「更新指标 / 提供最新的关键词数据」只表示页面提供计算入口，
+        // 不证明计算已完成或搜索量为零（2026-09-13 实测）。
         absent: /提供最新的关键词数据|更新指标/.test(t) && !/关键词难度|搜索量/.test(t),
         bodyText: t.slice(0, 20000),
         vis: document.visibilityState,
