@@ -1,6 +1,6 @@
 ---
 name: agent-fleet
-description: 把机械化、大批量、对模型能力要求不高的子任务派给第三方模型(DeepSeek、Kimi/Moonshot,以及用户自备网关接入的 Gemini 或任何 Anthropic 兼容端点)去跑,省下 Claude 自己的 token 和上下文——用户已经用自己的 API Key 配置好 agent-fleet 时优先使用。底层是 Claude Agent SDK 驱动的一个 bypassPermissions 自主 Agent(能读写文件、跑 bash、多轮工具调用直到任务完成),纯本地工具,完全不经过 Kollab 或任何托管基础设施。当用户说"用便宜模型跑一下""省点 token""派给 DeepSeek/Kimi/Gemini""这个不需要用 Claude 做,批量处理一下就行""同时开几个后台任务分别用不同模型跑""用 agent-fleet"或类似意图时,必须使用本 Skill。也适用于 Claude 自己判断"这一步是机械抄写/批量翻译/大批量格式转换/低难度调研,没必要烧自己的 token"、想主动把子任务甩出去的场景。使用前必须确认目标模型在 `.env` 里配置了真实第三方 API Key(工具会给出清晰的缺失提示,不会静默失败);目标工作目录(`--cwd`)会被当作不可信输入处理。
+description: 把机械化、大批量、对模型能力要求不高的子任务派给第三方模型(DeepSeek、Kimi/Moonshot,以及用户自备网关接入的 Gemini 或任何 Anthropic 兼容端点)去跑,省下 Claude 自己的 token 和上下文——用户已经用自己的 API Key 配置好 agent-fleet 时优先使用。底层是 Claude Agent SDK 驱动的一个 bypassPermissions 自主 Agent(能读写文件、跑 bash、多轮工具调用直到任务完成),编排(读写文件/跑 bash/多轮工具调用)全部在本机进行、不经过任何托管的编排基础设施;模型请求来源你自己选,可以是 DeepSeek/Kimi 官方端点、自备的 Anthropic 兼容网关,也可以是 Kollab 自己的公开 LLM 网关(`kollab-gateway`,用账号自助生成的 key,计费走自己 Space 额度)。当用户说"用便宜模型跑一下""省点 token""派给 DeepSeek/Kimi/Gemini""这个不需要用 Claude 做,批量处理一下就行""同时开几个后台任务分别用不同模型跑""用 agent-fleet"或类似意图时,必须使用本 Skill。也适用于 Claude 自己判断"这一步是机械抄写/批量翻译/大批量格式转换/低难度调研,没必要烧自己的 token"、想主动把子任务甩出去的场景。使用前必须确认目标模型在 `.env` 里配置了真实第三方 API Key(工具会给出清晰的缺失提示,不会静默失败);目标工作目录(`--cwd`)会被当作不可信输入处理。
 ---
 
 # agent-fleet
@@ -10,8 +10,12 @@ description: 把机械化、大批量、对模型能力要求不高的子任务�
 但数量大或很机械"的子任务(批量翻译、批量格式转换、大批量抄写、低难度调研/头脑风暴)。这样
 可以省下 Claude 自己的 token,而不是每一步都用 Claude 亲自执行。
 
-它和 Kollab 产品完全无关,是一个独立的个人工具仓库(`yan-skills`),不接入任何托管基础设施、
-不使用任何托管账号体系——每个模型接的都是**用户自己的**第三方 API key(BYOK)。
+它是一个独立的个人工具仓库(`yan-skills`),和 Kollab 产品的代码库无关。它的信任边界是:本地
+编排(Agent 读写文件、跑 bash、多轮工具调用)完全在这台机器上进行,不经过任何托管的编排基础设施;
+但模型请求的来源你自己选——可以是 DeepSeek/Moonshot 官方端点、你自己搭的任意 Anthropic 兼容网关,
+也可以是 `kollab-gateway`(Kollab 自己的公开 LLM 网关,用你自己账号自助生成的 `kollab_live_*`
+standalone key,费用走你自己 Space 的实时额度)。不管选哪个,接的都是**用户自己的**key,不存在
+共享的托管账号体系。
 
 ## 什么时候用 / 什么时候不用
 
@@ -108,6 +112,7 @@ node bin/agent-fleet.mjs list-models
 | `deepseek-v4-flash` | DeepSeek | 同上端点,`model: "deepseek-flash"` | 官方默认回退模型,快、便宜,适合调研/头脑风暴/大批量任务 |
 | `kimi` | Moonshot(Kimi) | 官方 Anthropic 兼容端点 `https://api.moonshot.cn/anthropic`(中国站),`auth-token` 鉴权 | 国际站把 `baseURL` 换成 `https://api.moonshot.ai/anthropic` 即可,鉴权方式不变 |
 | `gemini` | Google | **没有官方端点**,`baseURL`/`model` 在配置里留空 | 见下方「已知限制」,选它会直接报错退出,不会假装能跑 |
+| `kollab-gateway` | Kollab 自己的公开 LLM 网关 | `https://test.flowus.work/api/llm`(TEST 环境),`x-api-key` 鉴权,key 是账号自助生成、随时可吊销的 `kollab_live_*` standalone key | 不占用第三方官方 key 申请流程,模型范围不限白名单(当前配的是 `claude-sonnet-4-6`,可换成 `kollab model list` 里的其它 id);费用从这把 key 绑定的 Space 额度实时扣除;**已做过真实端到端验证**(非 mock,详见下方「已知限制」和 [`../README.md`](../README.md) 的「验证情况」第 0 条);换生产环境用 `https://kollab.im/api/llm` 加一把生产环境生成的 key |
 
 模型 ID 会随官方迭代变化,需要时核对:DeepSeek 见
 <https://api-docs.deepseek.com/guides/anthropic_api>,Kimi 见
@@ -121,14 +126,21 @@ node bin/agent-fleet.mjs list-models
   `/anthropic` 路径。要用 Gemini,用户必须自己搭一个能把 Anthropic Messages 协议转换成
   Gemini 请求的网关(比如自建 LiteLLM proxy),把网关地址和它认的模型 ID 填进
   `models.config.json` 的 `gemini` 条目;不填的话选这个模型会直接报错退出。
-- **尚未做过真实第三方模型的端到端验证**:项目作者手头没有真实的 DeepSeek/Moonshot API key,
-  所以没有跑过一次真实模型调用。已经做到的验证是:(1)`--help`/`--version`/`list-models`/
-  缺参数缺密钥等错误路径手动跑过,报错清晰;(2)`npm run smoke-test` —— 自建一个模拟
-  Anthropic Messages 协议的本地假上游,真跑一次完整的 `run` 和 `run-many`,断言请求确实发到
-  配置的 `baseURL`、两种鉴权方式都生效、`run-many` 真的并发;(3)`npm run security-test` ——
-  针对下方安全边界的专项回归测试,同样用本地假上游,不需要真实密钥。**首次真实使用前**,建议
-  先用 `list-models` 确认密钥 present,再用一句简单 prompt(如"说一句你好")跑一次
-  `run --json` 验证端到端可用,而不是直接扔大任务上去。
+- **`kollab-gateway` 已完成真实端到端验证,`deepseek-v4-pro`/`deepseek-v4-flash`/`kimi` 这几条
+  原生第三方 key 路径仍未验证**:项目作者手头没有真实的 DeepSeek/Moonshot API key(也没有去别的
+  项目"顺手"拿),所以这三条官方端点还没跑过一次真实模型调用。`kollab-gateway` 是例外——它用的是
+  账号自助生成的 `kollab_live_*` standalone key,不需要等第三方审批,已经跑通一次真实调用
+  (`run --model kollab-gateway --prompt "回复OK两个字" --json`),返回 `"ok": true`、
+  `"result": "OK"`,带真实的 `totalCostUsd`(从该 key 绑定的 Space 额度扣除)和 `sessionId`,
+  确认请求真的经过 `POST https://test.flowus.work/api/llm/v1/messages` 拿到了模型响应,不是
+  报错也不是 mock,完整记录见 [`../README.md`](../README.md) 的「验证情况」第 0 条。除此之外
+  已经做到的验证是:(1)`--help`/`--version`/`list-models`/缺参数缺密钥等错误路径手动跑过,
+  报错清晰;(2)`npm run smoke-test` —— 自建一个模拟 Anthropic Messages 协议的本地假上游,真跑
+  一次完整的 `run` 和 `run-many`,断言请求确实发到配置的 `baseURL`、两种鉴权方式都生效、
+  `run-many` 真的并发;(3)`npm run security-test` —— 针对下方安全边界的专项回归测试,同样用
+  本地假上游,不需要真实密钥。**DeepSeek/Kimi 首次真实使用前**,建议先用 `list-models` 确认
+  密钥 present,再用一句简单 prompt(如"说一句你好")跑一次 `run --json` 验证端到端可用,而不是
+  直接扔大任务上去。
 - **`bypassPermissions` 全权限,没有沙箱**:Agent 会真的读写文件、跑 bash,不会逐步询问用户
   确认。任务描述含糊,或 `--cwd` 指向了不该碰的目录(比如用户主目录本身),它是有可能读到甚至
   改到不该动的文件的。`--cwd` 要指向具体的项目目录,不要指向 `~`。
