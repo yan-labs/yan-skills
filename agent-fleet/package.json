@@ -11,7 +11,9 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "smoke-test": "node test/smoke-test.mjs"
+    "smoke-test": "node test/smoke-test.mjs",
+    "security-test": "node test/security-unit-test.mjs && node test/security-e2e-test.mjs",
+    "test": "npm run smoke-test && npm run security-test"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.278"

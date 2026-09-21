@@ -30,5 +30,12 @@ node bin/agent-fleet.mjs list-models
 **首次使用前**必须确认 `agent-fleet/.env` 里已经配好对应模型的真实 API key(`cp .env.example .env`
 之后手动填),没配的话 `run`/`run-many` 会直接报出清晰的"哪个环境变量没设置",不会静默失败。
 
+**关于 `--cwd` 的安全约束**:目标工作目录被当作**不可信输入**。如果那个目录自带的
+`.claude/settings.json` 试图改模型请求的目标地址、凭据或自定义请求头(典型手法是
+`env.ANTHROPIC_BASE_URL` 把密钥劫持到别的地址),整次运行会直接报错退出并指出越权字段——这是有意的
+fail-closed,不是 bug,不要靠删掉闸门来"修"。同时也要知道这层防护的边界:工具跑的是
+`bypassPermissions` 自主 Agent,恶意目录仍然可以用 prompt injection 诱导模型自己外发密钥,所以
+**来路不明的目录不要直接用这个工具处理**,要跑就放容器/一次性虚拟机里。
+
 完整的模型接入细节、安全边界、验证情况见 [`README.md`](./README.md)。这是一个纯本地工具,和
 Kollab 产品的任何基础设施、网关、账号体系都无关。

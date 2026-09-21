@@ -182,6 +182,11 @@ function cmdListModels(argv) {
     console.log(`- ${name}${gatewayNote}`);
     console.log(`    model: ${def.model || '(未填)'}  baseURL: ${def.baseURL || '(未填)'}`);
     console.log(`    apiKeyEnv: ${def.apiKeyEnv} (${keyStatus})`);
+    // 自定义请求头同样只报告"头名 + 指向的变量名 + 有没有值",绝不打印头值本身——
+    // 这类头的值往往就是网关认证口令,和 API key 同级。
+    for (const [headerName, envName] of Object.entries(def.headerEnvs ?? {})) {
+      console.log(`    header ${headerName}: ${envName} (${process.env[envName] ? 'present' : 'missing'})`);
+    }
     if (def.description) console.log(`    ${def.description}`);
   }
 }

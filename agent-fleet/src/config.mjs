@@ -26,11 +26,78 @@ export function defaultConfigPath() {
 
 const VALID_AUTH_HEADERS = new Set(['x-api-key', 'auth-token']);
 
+/** RFC 7230 的 header field-name 允许字符集。用来挡住带空格/冒号/换行的畸形头名。 */
+const HEADER_NAME_RE = /^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/;
+/** 环境变量名的常规写法。headerEnvs 的**值**必须是变量名,不是头的真实内容。 */
+const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/**
+ * 不允许由 headerEnvs 自定义的头名(大小写不敏感)。
+ * 前两个由 authHeader + apiKeyEnv 这条链路唯一负责,放开会出现"两处都在设鉴权头、
+ * 实际生效的是哪个说不清"的歧义;后几个由 CLI 自己按协议维护,覆盖只会制造难查的 bug。
+ */
+const RESERVED_HEADER_NAMES = new Set([
+  'x-api-key',
+  'authorization',
+  'anthropic-version',
+  'anthropic-beta',
+  'content-type',
+  'host',
+]);
+
+/**
+ * 校验一条模型配置的自定义请求头声明。
+ *
+ * 【信任规则 —— 自定义头值一律按凭据对待】
+ * 自定义头的典型用途是企业网关/第三方代理要求的额外认证口令(`X-Gateway-Auth: ...`),
+ * 也就是说**头值本身常常就是一个密钥**。所以它适用和 apiKey 完全相同的规则:
+ *   - 禁止在 models.config.json 里写字面量头值(这个文件会进 git);
+ *   - 只能用 headerEnvs 做指针,`{ "头名": "环境变量名" }`,真实值只存在于 .env / shell;
+ *   - 不可信来源(--cwd 目标目录的项目配置、继承来的宿主环境变量)永远不能成为头的来源
+ *     ——前者由 src/project-trust.mjs 拒绝,后者由 src/isolated-env.mjs 剥离。
+ *
+ * @returns {Record<string, string>} 头名 -> 环境变量名
+ */
+function validateHeaderEnvs(name, def) {
+  if ('headers' in def) {
+    throw new ConfigError(
+      `models.config.json 里的 "${name}" 用了字面量 headers。自定义请求头的值通常本身就是凭据` +
+        `(网关口令之类),而这个文件会被提交进 git,禁止在这里放真实值。` +
+        `请改用 headerEnvs: { "头名": "环境变量名" },真实值放 .env。`,
+    );
+  }
+
+  const headerEnvs = def.headerEnvs;
+  if (headerEnvs === undefined) return {};
+  if (headerEnvs === null || typeof headerEnvs !== 'object' || Array.isArray(headerEnvs)) {
+    throw new ConfigError(`models.config.json 里的 "${name}" 的 headerEnvs 必须是一个对象: { "头名": "环境变量名" }。`);
+  }
+
+  const result = {};
+  for (const [headerName, envName] of Object.entries(headerEnvs)) {
+    if (!HEADER_NAME_RE.test(headerName)) {
+      throw new ConfigError(`models.config.json 里的 "${name}" 的 headerEnvs 含非法 HTTP 头名: "${headerName}"。`);
+    }
+    if (RESERVED_HEADER_NAMES.has(headerName.toLowerCase())) {
+      throw new ConfigError(
+        `models.config.json 里的 "${name}" 的 headerEnvs 试图自定义 "${headerName}",这个头由 authHeader/协议本身负责,不允许覆盖。`,
+      );
+    }
+    if (typeof envName !== 'string' || !ENV_NAME_RE.test(envName)) {
+      throw new ConfigError(
+        `models.config.json 里的 "${name}" 的 headerEnvs["${headerName}"] 必须是一个环境变量名(例如 "MY_GATEWAY_TOKEN"),` +
+          `而不是头的真实值——真实值只能放 .env。`,
+      );
+    }
+    result[headerName] = envName;
+  }
+  return result;
+}
+
 /**
  * 校验单条模型配置。
  * 关键决策:如果配置里出现字面量 `apiKey`(而不是 `apiKeyEnv` 指针),直接拒绝加载。
  * 这是防止有人图省事把真实 key 直接写进这个会被提交进 git 的文件的最后一道闸门,
- * 比事后 review 才发现要可靠。
+ * 比事后 review 才发现要可靠。同样的规则适用于自定义请求头,见 validateHeaderEnvs。
  */
 function validateEntry(name, def) {
   if (def == null || typeof def !== 'object') {
@@ -67,6 +134,7 @@ function validateEntry(name, def) {
     model: def.model,
     apiKeyEnv: def.apiKeyEnv,
     authHeader,
+    headerEnvs: validateHeaderEnvs(name, def),
     requiresGateway: Boolean(def.requiresGateway),
   };
 }
@@ -126,5 +194,26 @@ export function resolveModel(friendlyName, config) {
     );
   }
 
-  return { ...def, apiKey };
+  // 自定义头的真实值在这里才从环境变量取出。缺变量时和缺 apiKey 一样直接报错退出,
+  // 而不是"少发一个头"静默继续——网关少了认证头只会回一个语义不明的 4xx,对用户更难排查。
+  const headers = {};
+  for (const [headerName, envName] of Object.entries(def.headerEnvs ?? {})) {
+    const value = process.env[envName];
+    if (!value) {
+      throw new ConfigError(
+        `环境变量 ${envName} 没有设置(models.config.json 里 "${friendlyName}" 的 headerEnvs["${headerName}"] 指向它)。\n` +
+          `把真实值填进 .env 里的这一行,或者在当前 shell 里 export ${envName}=...`,
+      );
+    }
+    // 头值里带 CR/LF 就能往请求里多塞一整行头(header injection),而且 Claude Code 的
+    // ANTHROPIC_CUSTOM_HEADERS 本身就是按换行分隔多个头的,这里必须挡死。
+    if (/[\r\n]/.test(value)) {
+      throw new ConfigError(
+        `环境变量 ${envName} 的值里含换行符,不能用作 HTTP 头值(会造成请求头注入)。请检查 .env 里这一行。`,
+      );
+    }
+    headers[headerName] = value;
+  }
+
+  return { ...def, apiKey, headers };
 }
