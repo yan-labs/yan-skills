@@ -317,9 +317,12 @@ Cloudflare 后台点"用该身份登录"会失败，表现为**控制台整个�
    `dig` 下结论；也可以轮询 `GET /zones/<zone_id>`，看 `status` 从 `pending`
    变成 `active`。通常几分钟到 24 小时不等，不要在这一步空等或反复轮询占用前台。
 
-6. **NS 生效后放开索引**：在 `wrangler.jsonc` 的 `vars` 里加
+6. **NS 生效、正式域名验证通过后立刻放开索引**：在 `wrangler.jsonc` 的 `vars` 里加
    `"ALLOW_INDEX": "true"`，提交推送，走 Workers Builds 自动重新部署。
    同样不必走 Workers settings API——直接改配置文件更省事，理由同步骤 3。
+   **不要等 GSC/Bing/IndexNow 这批站长工具接完再放开**——那是分析与站长工具接入，
+   跟正式域名能不能被抓取无关，拿它当索引闸门只会平白拖长正式域名带着 `noindex`
+   公开可访问的窗口，见 [`lifecycle.md`](lifecycle.md) 段 5.4 第 22 条的真实教训。
 
 7. **协议/host 收敛到规范 URL**：zone 没开 Always Use HTTPS、`www` 子域也没收敛到
    裸域（或反过来），会让 http / http-www / https-www 三种非规范协议+host 组合
