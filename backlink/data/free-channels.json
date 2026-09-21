@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-06",
+  "updatedAt": "2026-09-17",
   "channels": [
     {
       "id": "telegraph",
@@ -109,7 +109,8 @@
         "Rate-limit failures are silent: no redirect, no HTTP error, only an inline ⚠ Error banner above the form. Read that banner after every submit or throttling is indistinguishable from rejection.",
         "A hidden field named like a password with tabindex=-1 is a honeypot. Never fill it."
       ],
-      "status": "live",
+      "status": "rejected",
+      "rejectReason": "New-domain publication requires answering an anti-bot question.",
       "lastVerifiedAt": "2026-08-18",
       "evidence": {
         "method": "both",
@@ -154,7 +155,7 @@
       "scope": "single-site",
       "urlPattern": "https://www.domain.glass/{domain}",
       "account": "none",
-      "captcha": "none",
+      "captcha": "interactive",
       "browserRequired": true,
       "anchorRendered": true,
       "relObserved": [
@@ -167,16 +168,18 @@
       "indexable": true,
       "howToPublish": "Visiting the templated URL generates the report page.",
       "traps": [
-        "Mixed rel values on the same page — some anchors carry none. Record the whole set, not the first one you happen to read."
+        "Mixed rel values on the same page — some anchors carry none. Record the whole set, not the first one you happen to read.",
+        "2026-09-16: a fresh-domain visit was blocked by a Cloudflare challenge (HTTP 403; browser navigation rejected). Treat it as interactive and never bypass it."
       ],
-      "status": "live",
-      "lastVerifiedAt": "2026-08-18",
+      "status": "rejected",
+      "rejectReason": "Fresh-domain access is blocked by an interactive Cloudflare challenge; automation must not bypass it.",
+      "lastVerifiedAt": "2026-09-16",
       "evidence": {
         "method": "browser-dom",
         "what": "Twenty anchors to the subject domain in the rendered DOM with a mix of rel values including bare anchors, on an index,follow page.",
         "publicUrl": null
       },
-      "notes": "captcha=none confirmed by this record's own evidence (browser-dom), not derived from submission-targets gates — 2026-09-07 audit"
+      "notes": "Historical published pages still prove the channel can render links; a 2026-09-16 fresh-domain attempt hit an interactive Cloudflare challenge, so captcha is no longer none."
     },
     {
       "id": "sitelike-org",
@@ -185,24 +188,27 @@
       "scope": "single-site",
       "urlPattern": "https://www.sitelike.org/similar/{domain}/",
       "account": "none",
-      "captcha": "none",
-      "browserRequired": false,
+      "captcha": "interactive",
+      "browserRequired": true,
       "anchorRendered": true,
       "relObserved": [
         "external nofollow noopener"
       ],
       "robotsObserved": null,
       "indexable": true,
-      "howToPublish": "Visiting the templated URL generates the similar-sites page.",
-      "traps": [],
-      "status": "live",
-      "lastVerifiedAt": "2026-08-18",
+      "howToPublish": "Existing domains may resolve directly. A new domain redirects to /new-site and requires a browser form plus an anti-bot question; stop there rather than answer it automatically.",
+      "traps": [
+        "2026-09-16: a fresh domain redirected to /new-site instead of generating a report and required an anti-bot question."
+      ],
+      "status": "rejected",
+      "rejectReason": "New-domain publication requires answering an anti-bot question.",
+      "lastVerifiedAt": "2026-09-16",
       "evidence": {
         "method": "anonymous-http",
         "what": "One anchor to the subject domain present in raw HTML with rel='external nofollow noopener'; no robots meta on the page.",
         "publicUrl": null
       },
-      "notes": "captcha=none confirmed by this record's own evidence (anonymous-http), not derived from submission-targets gates — 2026-09-07 audit"
+      "notes": "Historical public pages still prove the channel can render links; new-domain publication now has an interactive anti-bot gate."
     },
     {
       "id": "hypestat",

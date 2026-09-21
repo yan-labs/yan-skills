@@ -425,7 +425,7 @@ try {
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
       await sleep(1_000);
-      const now = await evalJs('JSON.stringify({url:location.href,title:document.title,len:document.body.innerText.length})');
+      const now = await evalJs('JSON.stringify({url:location.href,title:document.title,len:(document.body?.innerText || "").length})');
       const key = JSON.stringify(now);
       if (prev === key) { settled = true; break; }
       prev = key;
@@ -437,13 +437,13 @@ try {
     if (recipe.success.type === 'navigation') {
       return evalJs(`JSON.stringify({
         ok: location.href.includes(${JSON.stringify(recipe.success.urlIncludes)})
-          && document.body.innerText.includes(${JSON.stringify(recipe.success.textIncludes)}),
+          && (document.body?.innerText || '').includes(${JSON.stringify(recipe.success.textIncludes)}),
         url: location.href,
       })`);
     }
     // inline-text
     return evalJs(`JSON.stringify({
-      ok: document.body.innerText.includes(${JSON.stringify(recipe.success.textIncludes)}),
+      ok: (document.body?.innerText || '').includes(${JSON.stringify(recipe.success.textIncludes)}),
       url: location.href,
     })`);
   };
