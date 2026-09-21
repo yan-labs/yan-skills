@@ -1,0 +1,36 @@
+{
+  "$comment": "友好名字 -> 模型接入参数。这个文件本身不含任何密钥,apiKeyEnv 只是「去读哪个环境变量」的指针,真实值只放 .env(已被 .gitignore 排除)。改这个文件就能加/删/改可用模型,不用碰代码。",
+
+  "deepseek-v4-pro": {
+    "description": "DeepSeek 官方 Anthropic 兼容端点,Opus 档位映射目标。适合需要最高质量单次产出的任务(长文案定稿、复杂推理)。",
+    "baseURL": "https://api.deepseek.com/anthropic",
+    "model": "deepseek-v4-pro",
+    "apiKeyEnv": "DEEPSEEK_API_KEY",
+    "authHeader": "x-api-key"
+  },
+
+  "deepseek-v4-flash": {
+    "description": "DeepSeek 官方 Anthropic 兼容端点,Flash 档位(默认回退模型),速度快、成本低。适合调研、头脑风暴、大批量任务。",
+    "baseURL": "https://api.deepseek.com/anthropic",
+    "model": "deepseek-flash",
+    "apiKeyEnv": "DEEPSEEK_API_KEY",
+    "authHeader": "x-api-key"
+  },
+
+  "kimi": {
+    "description": "Moonshot Kimi 官方 Anthropic 兼容端点(中国站 api.moonshot.cn)。国际站把 baseURL 换成 https://api.moonshot.ai/anthropic 即可,鉴权方式不变。模型 ID 会迭代,当前列出的是官方文档示例里出现的最新旗舰型号,建议定期核对 https://platform.kimi.com/docs/api/list-models 获取当前实际可用的模型 ID。",
+    "baseURL": "https://api.moonshot.cn/anthropic",
+    "model": "kimi-k3",
+    "apiKeyEnv": "MOONSHOT_API_KEY",
+    "authHeader": "auth-token"
+  },
+
+  "gemini": {
+    "description": "警告:Google 官方目前没有提供 Anthropic 兼容端点(不像 DeepSeek/Moonshot 那样有官方 /anthropic 路径)。要接入 Gemini,你必须自己准备一个能把 Anthropic Messages 协议转换成 Gemini 请求的网关(例如自建 LiteLLM proxy、社区维护的兼容代理,或任何等价方案),把网关地址填进下面的 baseURL,把网关认的模型 ID 填进 model。在你填之前,选这个模型会直接报错退出,不会静默发到一个不存在的官方地址。",
+    "baseURL": "",
+    "model": "",
+    "apiKeyEnv": "GEMINI_GATEWAY_API_KEY",
+    "authHeader": "x-api-key",
+    "requiresGateway": true
+  }
+}

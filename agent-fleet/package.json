@@ -1,0 +1,20 @@
+{
+  "name": "agent-fleet",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "通用多模型子任务执行工具:用 Claude Agent SDK 驱动自主 Agent,给它一个任务和一个模型(Gemini/DeepSeek/Kimi 或任意 Anthropic 兼容端点),bypassPermissions 权限跑到底,支持多任务并发跑不同模型。纯本地工具,不经过任何 Kollab 基础设施。",
+  "bin": {
+    "agent-fleet": "bin/agent-fleet.mjs"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "smoke-test": "node test/smoke-test.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.278"
+  },
+  "license": "MIT"
+}

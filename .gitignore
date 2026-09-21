@@ -28,3 +28,7 @@ backlink/evidence/
 
 # platforms/ 手册各页的视觉档案(登录面板截图),不入公开仓库
 platforms/**/assets/
+
+# agent-fleet 是第一个真正依赖 npm 包(Claude Agent SDK)的工具目录,
+# node_modules 里含平台原生 claude 二进制(单个 ~200MB+),绝不入库。
+agent-fleet/node_modules/

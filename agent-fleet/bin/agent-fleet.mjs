@@ -1,0 +1,231 @@
+#!/usr/bin/env node
+// agent-fleet CLI 入口。
+//
+// 定位:通用多模型子任务执行工具。给一个任务描述 + 一个模型友好名字,用 Claude Agent SDK
+// 驱动一个 bypassPermissions 的自主 Agent(读写文件、跑 bash、多轮工具调用直到任务完成)
+// 去跑,跑完把结果打印出来。纯本地工具,不经过任何 Kollab 基础设施,模型接的是用户自己的
+// 第三方 API key。
+//
+// 子命令:
+//   run       跑单个任务,可以同时开多个进程/多个终端各自 run 不同模型实现并发
+//   run-many  从一个 JSON 文件读一批任务,内部真正并发跑完,一次性拿到全部结果
+//   list-models  列出 models.config.json 里配置了哪些模型,以及各自的密钥是否已配置
+//
+// 本文件只负责:解析参数、装配 config/env、调用 src/ 下的核心逻辑、格式化输出。
+// 不在这里写任何 SDK 调用细节——那些都在 src/run-task.mjs 里。
+
+import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join, resolve as resolvePath } from 'node:path';
+
+import { loadEnvFile } from '../src/env.mjs';
+import { loadModelsConfig, defaultConfigPath, resolveModel, ConfigError } from '../src/config.mjs';
+import { runTask } from '../src/run-task.mjs';
+import { runMany } from '../src/run-many.mjs';
+
+const PKG_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const PKG_VERSION = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8')).version;
+
+const HELP_TEXT = `agent-fleet ${PKG_VERSION} — 通用多模型子任务执行工具
+
+用法:
+  agent-fleet run --model <友好名字> --prompt "<任务描述>" [选项]
+  agent-fleet run-many --config <batch.json> [选项]
+  agent-fleet list-models
+  agent-fleet --help | --version
+
+run 选项:
+  --model <name>          必填。models.config.json 里的友好名字(如 deepseek-v4-flash)
+  --prompt <text>          必填。任务描述
+  --cwd <dir>               Agent 读写文件/跑 bash 的工作目录,默认当前目录
+  --max-turns <n>           限制最大工具调用轮数
+  --system-prompt <text>    追加的系统提示
+  --json                    输出结构化 JSON 而不是人类可读文本
+
+run-many 选项:
+  --config <path>           必填。批量任务文件,JSON 数组,每项 { model, prompt, cwd? }
+  --cwd <dir>               任务没写 cwd 时的默认工作目录
+  --json                    输出结构化 JSON 而不是人类可读文本
+
+全局选项:
+  --models-config <path>    覆盖默认的 models.config.json 路径
+
+示例:
+  agent-fleet run --model deepseek-v4-flash --prompt "帮我调研一下 XX 竞品有哪些定价策略"
+  agent-fleet run --model kimi --prompt "把 README 翻译成英文" --cwd ~/some-project --json
+  agent-fleet run-many --config batch.json
+`;
+
+/** 从 argv 里手动摘取形如 `--flag value` 和布尔开关 `--flag` 的参数,不引入额外依赖。 */
+function parseFlags(argv) {
+  const flags = {};
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (!arg.startsWith('--')) continue;
+    const key = arg.slice(2);
+    const next = argv[i + 1];
+    if (next === undefined || next.startsWith('--')) {
+      flags[key] = true; // 布尔开关,如 --json
+    } else {
+      flags[key] = next;
+      i++;
+    }
+  }
+  return flags;
+}
+
+function printResultHuman(res) {
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`模型: ${res.model}${res.resolvedModel ? ` (${res.resolvedModel})` : ''}`);
+  if (res.cwd) console.log(`工作目录: ${res.cwd}`);
+  console.log(`状态: ${res.ok ? '成功' : '失败'}`);
+  if (res.ok) {
+    console.log(`耗时: ${res.durationMs}ms | 轮数: ${res.numTurns} | 预估成本: $${res.totalCostUsd?.toFixed?.(4) ?? res.totalCostUsd}`);
+    console.log(`${'-'.repeat(60)}`);
+    console.log(res.result ?? '(没有文本结果)');
+  } else {
+    console.log(`错误: ${res.error ?? res.errors?.join('; ') ?? '未知错误'}`);
+  }
+  console.log('='.repeat(60));
+}
+
+async function cmdRun(argv) {
+  const flags = parseFlags(argv);
+  if (!flags.model || !flags.prompt) {
+    console.error('缺少必填参数。用法: agent-fleet run --model <name> --prompt "<text>" [选项]');
+    process.exitCode = 1;
+    return;
+  }
+
+  const config = loadModelsConfig(flags['models-config'] ? resolvePath(flags['models-config']) : undefined);
+  const result = await runTask({
+    friendlyModel: flags.model,
+    prompt: flags.prompt,
+    cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(),
+    config,
+    maxTurns: flags['max-turns'] ? Number(flags['max-turns']) : undefined,
+    systemPrompt: flags['system-prompt'],
+  });
+
+  if (flags.json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    printResultHuman(result);
+  }
+  process.exitCode = result.ok ? 0 : 1;
+}
+
+async function cmdRunMany(argv) {
+  const flags = parseFlags(argv);
+  if (!flags.config) {
+    console.error('缺少必填参数。用法: agent-fleet run-many --config <batch.json> [选项]');
+    process.exitCode = 1;
+    return;
+  }
+
+  const batchPath = resolvePath(flags.config);
+  if (!existsSync(batchPath)) {
+    console.error(`找不到 batch 文件: ${batchPath}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  let tasks;
+  try {
+    tasks = JSON.parse(readFileSync(batchPath, 'utf8'));
+  } catch (err) {
+    console.error(`batch 文件不是合法 JSON: ${err.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const config = loadModelsConfig(flags['models-config'] ? resolvePath(flags['models-config']) : undefined);
+  const defaultCwd = flags.cwd ? resolvePath(flags.cwd) : process.cwd();
+
+  let results;
+  try {
+    results = await runMany(tasks, { config, defaultCwd });
+  } catch (err) {
+    console.error(`batch 任务格式错误: ${err.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (flags.json) {
+    console.log(JSON.stringify(results, null, 2));
+  } else {
+    for (const res of results) printResultHuman(res);
+    const failed = results.filter((r) => !r.ok).length;
+    console.log(`\n共 ${results.length} 个任务,成功 ${results.length - failed} 个,失败 ${failed} 个。`);
+  }
+  process.exitCode = results.some((r) => !r.ok) ? 1 : 0;
+}
+
+function cmdListModels(argv) {
+  const flags = parseFlags(argv);
+  const configPath = flags['models-config'] ? resolvePath(flags['models-config']) : defaultConfigPath();
+  const config = loadModelsConfig(configPath);
+  const names = Object.keys(config);
+
+  if (names.length === 0) {
+    console.log(`${configPath} 里没有配置任何模型。`);
+    return;
+  }
+
+  console.log(`模型配置来自: ${configPath}\n`);
+  for (const name of names) {
+    const def = config[name];
+    // 只报告密钥是否存在(present/missing),绝不打印密钥本身的值——即便是本地工具,
+    // 也不应该把真实密钥回显到终端历史或日志里。
+    const keyStatus = process.env[def.apiKeyEnv] ? 'present' : 'missing';
+    const gatewayNote = def.requiresGateway && !def.baseURL ? ' [需要自备网关,baseURL 未填]' : '';
+    console.log(`- ${name}${gatewayNote}`);
+    console.log(`    model: ${def.model || '(未填)'}  baseURL: ${def.baseURL || '(未填)'}`);
+    console.log(`    apiKeyEnv: ${def.apiKeyEnv} (${keyStatus})`);
+    if (def.description) console.log(`    ${def.description}`);
+  }
+}
+
+async function main() {
+  loadEnvFile(join(PKG_ROOT, '.env'));
+
+  const [command, ...rest] = process.argv.slice(2);
+
+  if (!command || command === '--help' || command === '-h') {
+    console.log(HELP_TEXT);
+    return;
+  }
+  if (command === '--version' || command === '-v') {
+    console.log(PKG_VERSION);
+    return;
+  }
+
+  try {
+    switch (command) {
+      case 'run':
+        await cmdRun(rest);
+        break;
+      case 'run-many':
+        await cmdRunMany(rest);
+        break;
+      case 'list-models':
+        cmdListModels(rest);
+        break;
+      default:
+        console.error(`未知子命令: ${command}\n`);
+        console.log(HELP_TEXT);
+        process.exitCode = 1;
+    }
+  } catch (err) {
+    // ConfigError 的 message 已经是写给人看的可操作提示,不需要 stack trace 噪音;
+    // 其它未预见的异常保留完整 stack,方便真正的 bug 排查。
+    if (err instanceof ConfigError) {
+      console.error(`配置错误: ${err.message}`);
+    } else {
+      console.error(err);
+    }
+    process.exitCode = 1;
+  }
+}
+
+main();
