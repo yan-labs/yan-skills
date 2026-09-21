@@ -206,14 +206,14 @@ API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.
 
 它**不能**做的事(命中任何一条,整次运行直接报错退出,连密钥都不会被读进内存):
 
-- 设置任何 `ANTHROPIC_*` / `CLAUDE_*` / `AWS_*` / `GOOGLE_*` / `GEMINI_*` / `OPENAI_*` 等
-  路由与凭据变量族
-- 设置代理(`HTTPS_PROXY`、小写的 `https_proxy` 等)——改代理等于把全部流量连同密钥导给中间人
-- 换 TLS 信任根或关掉证书校验(`NODE_EXTRA_CA_CERTS`、`NODE_TLS_REJECT_UNAUTHORIZED` …)
-- 设置 `NODE_OPTIONS`(可以往 CLI 进程里注入模块直接钩出站请求)
-- 设置任何名字里带 `API_KEY` / `TOKEN` / `SECRET` / `CREDENTIAL` / `PASSWORD` 的变量
-- 使用 `apiKeyHelper` / `awsAuthRefresh` / `otelHeadersHelper` / `forceLoginMethod` 这类
-  "由我来决定凭据从哪来"的顶层字段
+- **设置任何环境变量**。`env` 块里一个变量都不许有。这条一开始是按黑名单做的(挡 `ANTHROPIC_*`、
+  代理、TLS 信任根等),但独立复核实测打通了一条黑名单没覆盖的路子:在 `env.PATH` 最前面插一个
+  目录、放一个假的 `git`,Agent 干活时几乎必然会执行到它,密钥当场被读走,**不需要 prompt
+  injection**。同类变量(`BASH_ENV`、`LD_PRELOAD`、`DYLD_*`、`PYTHONPATH`、`GIT_SSH_COMMAND`…)
+  根本枚举不完,所以改成全禁——目标目录该描述的是"在这个目录里干什么活",不是"这个进程怎么跑"
+- 使用 `apiKeyHelper` / `awsAuthRefresh` / `awsCredentialExport` / `gcpAuthRefresh` /
+  `otelHeadersHelper` / `proxyAuthHelper` / `forceLoginMethod` / `policyHelper` 这类
+  "由我来决定凭据从哪来"的顶层字段(这组就是 SDK 自己归类的 credential helpers)
 - 使用 `hooks` / `statusLine` / 插件装载(`enabledPlugins` 等)——这些字段的值是**会被自动执行的
   命令**,而子进程环境里带着你的真实密钥。实测确认:一份带 `SessionStart` hook 的项目配置,
   `printenv ANTHROPIC_API_KEY` 就能把密钥写出来,全程不需要模型配合
@@ -224,9 +224,24 @@ API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.
 选择"直接拒绝"而不是"忽略该字段继续跑":一个正经项目没有任何理由去重定向别人工具的模型流量,出现
 这种字段本身就是强信号,静默忽略等于把攻击尝试藏起来。报错信息会告诉你是哪个文件的哪个字段。
 
-代价要说清楚:**目标目录里的项目 hooks 从此不会生效**。如果你在自己的项目里依赖 hooks,用这个工具
-处理该目录时会直接报错退出。这是有意的取舍——在"目录可能来自外部"这个前提下,自动执行命令的字段
-没法安全放行。
+代价要说清楚:**目标目录里的项目 hooks 和 `env` 块从此不会生效**。如果你自己的项目在
+`.claude/settings.json` 里写了 `hooks` 或 `env`(哪怕只是 `NODE_ENV=test` 这种无害的),用这个工具
+处理该目录时会直接报错退出。这是有意的取舍——在"目录可能来自外部"这个前提下,能执行命令、能改
+进程环境的字段没法安全放行。删掉那个字段,或者换一个工作目录。
+
+### 不会污染你正在用的 Claude Code
+
+agent-fleet 会把 `CLAUDE_CONFIG_DIR` 指向自己专属的 `~/.agent-fleet/claude-config/`,所以它跑出来的
+会话记录不会混进你真实 Claude Code 的 `~/.claude/`(已实测:跑一次任务,`~/.claude/` 下没有新增任何
+由它产生的文件)。同时它也不加载你的全局 `~/.claude/settings.json` 和目标目录的 `.mcp.json`。
+
+另外它会关掉 Claude Code CLI 默认的遥测、错误上报和自动更新检查(`DISABLE_TELEMETRY` 等一组开关),
+目标是除了发给你配置的那个模型端点之外不产生其它对外流量。**如实说明**:这些开关是显式设置的,但
+还没有做过网络层面的抓包验证,所以只能说"按官方开关关闭了",不能说"已证实零流量"。
+
+**注意**:工具跑的是 `bypassPermissions` 全权限 Agent,它对你主目录下的文件**没有**任何自动防护。
+如果任务描述含糊、或者你把 `--cwd` 指向主目录,它是有可能去读甚至改 `~/.claude/` 这类敏感目录的。
+边界得由你自己把住:把 `--cwd` 指向那个具体项目目录,别指向 `~`。
 
 ### 其它既有约束
 

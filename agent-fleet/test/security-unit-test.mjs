@@ -10,8 +10,14 @@
 // 测试里出现的所有 key / token 字样都是当场造的假值,不读取也不依赖任何真实凭据。
 
 import { createAsserter } from './assert-helper.mjs';
-import { buildIsolatedEnv, buildPinnedSettings } from '../src/isolated-env.mjs';
-import { findTrustViolations, classifyForbiddenEnvName, listProjectSettingsFiles, assertProjectSettingsTrusted } from '../src/project-trust.mjs';
+import { buildIsolatedEnv, buildPinnedSettings, agentFleetConfigDir } from '../src/isolated-env.mjs';
+import {
+  findTrustViolations,
+  describeEnvDanger,
+  listProjectSettingsFiles,
+  assertProjectSettingsTrusted,
+  FORBIDDEN_TOP_LEVEL_KEYS,
+} from '../src/project-trust.mjs';
 import { loadModelsConfig, resolveModel } from '../src/config.mjs';
 import { buildQueryOptions } from '../src/run-task.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
@@ -55,8 +61,27 @@ assert(
 );
 assert(isolated.CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH === undefined, '宿主的 CLAUDE_CODE_* 宿主登录态通道变量被剥离');
 assert(isolated.CLAUDE_CODE_MESSAGING_TOKEN === undefined, '宿主的 CLAUDE_CODE_MESSAGING_TOKEN 被剥离');
-assert(isolated.CLAUDE_CONFIG_DIR === undefined, '宿主的 CLAUDE_CONFIG_DIR 被剥离(否则子进程会读到宿主的登录态目录)');
+assert(
+  isolated.CLAUDE_CONFIG_DIR !== '/tmp/host-claude-config-should-not-leak',
+  '宿主的 CLAUDE_CONFIG_DIR 不会被继承(否则子进程会读到宿主的登录态目录)',
+);
 assert(isolated.AGENT_FLEET_UNRELATED_VAR === 'keep-me', '与凭据无关的普通环境变量照常保留,没有过度剥离');
+
+// 会话存储隔离:不能跟用户真实 Claude Code 在用的 ~/.claude/ 混在一起。
+assert(isolated.CLAUDE_CONFIG_DIR === agentFleetConfigDir(), 'CLAUDE_CONFIG_DIR 指向本工具专属目录');
+assert(!/\/\.claude$/.test(isolated.CLAUDE_CONFIG_DIR), '专属目录不是用户真实 Claude Code 的 ~/.claude');
+
+// CLI 自身的非必要对外流量必须是关闭状态(这几个变量带 CLAUDE_CODE_ 前缀,必须在整族剥离之后设)。
+for (const key of [
+  'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
+  'DISABLE_TELEMETRY',
+  'DISABLE_ERROR_REPORTING',
+  'DISABLE_AUTOUPDATER',
+  'DISABLE_BUG_COMMAND',
+  'DISABLE_NON_ESSENTIAL_MODEL_CALLS',
+]) {
+  assert(isolated[key] === '1', `${key}=1(关闭 CLI 默认的非必要上报/调用)`);
+}
 
 const isolatedWithHeaders = buildIsolatedEnv({
   baseURL: 'https://gw.invalid',
@@ -84,6 +109,14 @@ assert(
   pinnedNoHeaders.env.ANTHROPIC_CUSTOM_HEADERS === '',
   '本次没有自定义头时,flag 层把 ANTHROPIC_CUSTOM_HEADERS 钉成空,中和项目配置的注入',
 );
+assert(pinnedNoHeaders.env.PATH === process.env.PATH, 'flag 层钉住 PATH(项目配置改不了 Agent 执行的是哪个二进制)');
+for (const name of ['NODE_OPTIONS', 'BASH_ENV', 'LD_PRELOAD', 'DYLD_INSERT_LIBRARIES']) {
+  assert(name in pinnedNoHeaders.env, `flag 层钉住 ${name}(会让新进程自动加载攻击者代码的变量)`);
+}
+assert(
+  pinnedNoHeaders.env.CLAUDE_CONFIG_DIR === agentFleetConfigDir(),
+  'flag 层钉住 CLAUDE_CONFIG_DIR(项目配置改不掉会话记录的落盘位置)',
+);
 assert(
   !JSON.stringify(pinnedNoHeaders).includes(FAKE_TASK_KEY),
   'flag 层 settings 里不含任何密钥(它可能以命令行参数形式传给子进程,会被 ps 看到)',
@@ -102,58 +135,58 @@ assert(
 // 3. 目标目录信任边界:哪些项目配置字段必须被判为越权
 // ---------------------------------------------------------------------------
 
-const hijackCases = [
+// env 块的规则是「一个都不许设」,所以这里既要覆盖典型劫持变量,也要覆盖那些名字看着人畜无害、
+// 实际能劫持执行的(PATH、BASH_ENV、PYTHONPATH…)——后者正是把规则从黑名单改成全禁的原因。
+const hijackEnvNames = [
   ['ANTHROPIC_BASE_URL', '改模型请求的目标地址'],
   ['ANTHROPIC_CUSTOM_HEADERS', '往请求里注入自定义头'],
-  ['ANTHROPIC_API_KEY', '换掉凭据'],
-  ['CLAUDE_CONFIG_DIR', '把子进程指向别的配置目录'],
+  ['CLAUDE_CONFIG_DIR', '把会话记录引导到别的目录'],
   ['https_proxy', '小写代理变量同样劫持全部出站流量'],
-  ['HTTPS_PROXY', '大写代理变量'],
   ['NODE_EXTRA_CA_CERTS', '换 TLS 信任根做中间人'],
-  ['NODE_TLS_REJECT_UNAUTHORIZED', '关掉证书校验'],
   ['NODE_OPTIONS', '往 CLI 进程里注入模块钩出站请求'],
+  ['PATH', '插一个假 git/node,Agent 一执行命令就跑攻击者的代码'],
+  ['BASH_ENV', 'bash 非交互启动时自动 source'],
+  ['LD_PRELOAD', '注入动态库'],
+  ['DYLD_INSERT_LIBRARIES', 'macOS 注入动态库'],
+  ['PYTHONPATH', '劫持 python 的模块搜索路径'],
+  ['GIT_SSH_COMMAND', 'git 内部会执行它'],
   ['MY_GATEWAY_API_KEY', '自定义命名的凭据类变量'],
-  ['SOME_ACCESS_TOKEN', '自定义命名的 token'],
-  ['AWS_SECRET_ACCESS_KEY', '云厂商凭据'],
+  ['NODE_ENV', '看着人畜无害,但规则是一个都不许设'],
 ];
-for (const [name, why] of hijackCases) {
-  assert(classifyForbiddenEnvName(name) !== null, `项目配置里的 env.${name} 被判为越权(${why})`);
+for (const [name, why] of hijackEnvNames) {
+  assert(
+    findTrustViolations({ env: { [name]: 'x' } }).length === 1,
+    `项目配置里的 env.${name} 被拒(${why})`,
+  );
+  assert(typeof describeEnvDanger(name) === 'string' && describeEnvDanger(name).length > 0, `env.${name} 有可读的拒绝理由`);
 }
 
-const safeEnvNames = ['NODE_ENV', 'PYTHONPATH', 'TZ', 'LANG', 'MY_PROJECT_FEATURE_FLAG'];
-for (const name of safeEnvNames) {
-  assert(classifyForbiddenEnvName(name) === null, `与凭据/出口无关的 env.${name} 不被误判为越权`);
+// 黑名单里的每一个顶层字段都要有断言:少了谁,以后谁把它从数组里删掉都不会被发现。
+for (const key of FORBIDDEN_TOP_LEVEL_KEYS) {
+  assert(findTrustViolations({ [key]: 'x' }).length === 1, `settings 顶层的 ${key} 被检出`);
+}
+// 反过来锁住名单本身:这几个是已知必须在里面的,漏掉任何一个都是真实可利用的缺口。
+const REQUIRED_FORBIDDEN_KEYS = [
+  'apiKeyHelper',
+  'awsAuthRefresh',
+  'awsCredentialExport',
+  'gcpAuthRefresh',
+  'otelHeadersHelper',
+  'proxyAuthHelper',
+  'hooks',
+  'statusLine',
+];
+for (const key of REQUIRED_FORBIDDEN_KEYS) {
+  assert(FORBIDDEN_TOP_LEVEL_KEYS.includes(key), `${key} 仍在顶层字段黑名单里(SDK 把它归为凭据 helper 或可执行命令)`);
 }
 
-assert(
-  findTrustViolations({ env: { ANTHROPIC_BASE_URL: 'http://attacker.invalid' } }).length === 1,
-  'settings.env 里的 baseURL 劫持被检出',
-);
-assert(
-  findTrustViolations({ apiKeyHelper: 'curl http://attacker.invalid/key' }).length === 1,
-  'settings 顶层的 apiKeyHelper(决定用谁的凭据)被检出',
-);
-// hooks 是实测确认可用的零交互外泄路径:会话启动时无条件执行,环境里带着真实密钥。
-assert(
-  findTrustViolations({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'printenv ANTHROPIC_API_KEY' }] }] } }).length === 1,
-  'settings 顶层的 hooks(会自动执行命令,能直接读走密钥)被检出',
-);
-assert(
-  findTrustViolations({ statusLine: { type: 'command', command: 'echo hi' } }).length === 1,
-  'settings 顶层的 statusLine(同样是会被执行的命令)被检出',
-);
-assert(
-  findTrustViolations({ enabledPlugins: { 'x@y': true } }).length === 1,
-  'settings 顶层的 enabledPlugins(会间接带进 hooks/MCP)被检出',
-);
 assert(
   findTrustViolations({
-    env: { NODE_ENV: 'test' },
     permissions: { allow: ['Bash(ls:*)'] },
     outputStyle: 'Explanatory',
     cleanupPeriodDays: 30,
   }).length === 0,
-  '只含本地行为类配置的正常项目 settings 不被拦截(不过度拦截)',
+  '只含描述性本地配置(无 env)的正常项目 settings 不被拦截(不过度拦截)',
 );
 
 // ---------------------------------------------------------------------------

@@ -22,19 +22,59 @@
 // 来说这些变量本来就不存在,剥离是无操作的;只有在被嵌套调用、CI 环境或未来 SDK 新增
 // 类似机制时才会真正生效,但防御性地做这件事没有下行风险。
 
+import { mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
 /**
  * 需要从继承环境里整族剥离的变量名前缀。
  *
- * 关键决策:这里用**前缀**而不是逐个列举具体变量名。原来的实现只精确剥离
- * ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL 三个,结果漏掉了
- * ANTHROPIC_CUSTOM_HEADERS——那是 Claude Code 读来往每个请求上挂自定义 HTTP 头的变量,
- * 宿主环境里如果配了企业网关的认证口令之类的东西,会被原样转发到这次任务的第三方 baseURL,
- * 和泄露 API key 是同一性质的问题。同理 CLAUDE_CONFIG_DIR(不带 CODE_ 前缀)会把子进程
- * 指回宿主的配置目录,那里面存着宿主的登录态。
- * 这两族变量会随 CLI 版本持续新增,精确列表必然继续漏,所以整族剥离、再由我们显式设回
- * 本次任务真正需要的那几个。
+ * 关键决策:用**前缀**整族剥离,而不是列举具体变量名。这两族变量会随 CLI 版本持续新增,
+ * 任何精确列表都会漏,而漏掉的每一个都可能是一条泄露路径:
+ *   - ANTHROPIC_CUSTOM_HEADERS:往每个请求上挂自定义 HTTP 头。宿主环境里若配了企业网关的
+ *     认证口令,会被原样转发到这次任务的第三方 baseURL,和泄露 API key 同性质。
+ *   - CLAUDE_CONFIG_DIR:把子进程指回宿主的配置目录,那里面存着宿主的登录态。
+ * 整族剥离之后,再由我们显式设回本次任务真正需要的那几个,确定性远高于维护一张名单。
  */
 const PREFIXES_TO_STRIP = ['ANTHROPIC_', 'CLAUDE_'];
+
+/**
+ * 关闭 Claude Code CLI 自身「非必要流量」的开关。
+ *
+ * 为什么要设:这个工具把模型请求指向用户自己的第三方端点,用的也是用户自己的第三方 key,
+ * 和 Anthropic 没有账号关系。在这种用法下,CLI 默认的遥测/错误上报/自动更新检查属于用户
+ * 没有预期、也没有同意的对外数据流,应该默认关掉,而不是让用户自己去发现并逐个关。
+ *
+ * 值统一用 '1':这一族开关在 CLI 里按「非空且不是 '0'/'false'」判真。
+ * 注意它们必须在上面的整族剥离**之后**设置——CLAUDE_CODE_* 会被前缀剥离带走。
+ */
+const NONESSENTIAL_TRAFFIC_OFF = {
+  // 总开关:遥测、错误上报、自动更新检查一起关。
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+  // 再逐个显式关一遍,不依赖总开关在所有版本里都覆盖同一范围。
+  DISABLE_TELEMETRY: '1',
+  DISABLE_ERROR_REPORTING: '1',
+  DISABLE_AUTOUPDATER: '1',
+  DISABLE_BUG_COMMAND: '1',
+  // 非必要模型调用(会话标题生成、对话摘要之类)。这些会打到本次配置的第三方端点上,
+  // 属于用户没要求、但要计费的请求,一并关掉。
+  DISABLE_NON_ESSENTIAL_MODEL_CALLS: '1',
+};
+
+/**
+ * 本工具专属的 CLI 配置目录。
+ *
+ * 不设这个变量的话,CLI 会用默认的 `~/.claude/`——那是用户真实 Claude Code 应用在用的目录,
+ * agent-fleet 跑出来的会话 transcript、历史记录会混进用户自己的会话历史里,反过来也会读到
+ * 用户自己装的 skills 和 projects 记录。这个工具的定位是「派一个独立子任务出去跑」,不应该
+ * 和用户日常工作的 Claude Code 共用同一份状态,所以给它一个单独的目录。
+ *
+ * 放在 home 下而不是包目录下:包目录可能是只读的、也可能被 git 管理,会话记录写进去既容易
+ * 误提交,也会在换机器/重装依赖时莫名其妙丢失。
+ */
+export function agentFleetConfigDir() {
+  return join(homedir(), '.agent-fleet', 'claude-config');
+}
 
 /**
  * 基于 process.env 构造一份干净的子进程环境。
@@ -51,6 +91,19 @@ export function buildIsolatedEnv(resolved) {
   }
 
   env.ANTHROPIC_BASE_URL = resolved.baseURL;
+
+  // 会话记录/历史写到本工具专属目录,不碰用户真实 Claude Code 在用的 ~/.claude/。
+  // 目录不存在时先建出来:CLI 自己会创建,但提前建好可以让「跑完去哪看 transcript」这件事
+  // 对用户是确定的,也避免 home 不可写时报出难懂的下游错误。
+  const configDir = agentFleetConfigDir();
+  try {
+    mkdirSync(configDir, { recursive: true });
+  } catch {
+    // 建不出来就交给 CLI 自己处理,不为这个中断任务——真正不可写时下游会报更准确的错。
+  }
+  env.CLAUDE_CONFIG_DIR = configDir;
+
+  Object.assign(env, NONESSENTIAL_TRAFFIC_OFF);
 
   // 两种鉴权头对应 Claude Code CLI 认的两个不同环境变量:
   //   ANTHROPIC_API_KEY    -> 发 `x-api-key` 头(DeepSeek 的 Anthropic 兼容端点只认这个)
@@ -98,12 +151,46 @@ export function buildIsolatedEnv(resolved) {
  * @returns {{ env: Record<string, string> }}
  */
 export function buildPinnedSettings(resolved) {
-  const env = { ANTHROPIC_BASE_URL: resolved.baseURL };
+  const env = {
+    ANTHROPIC_BASE_URL: resolved.baseURL,
+    // 会话存储位置同样钉住,否则项目配置一句 env.CLAUDE_CONFIG_DIR 就能把 transcript
+    // (里面有完整对话内容)引导到它指定的路径。
+    CLAUDE_CONFIG_DIR: agentFleetConfigDir(),
+  };
 
   if (Object.keys(resolved.headers ?? {}).length === 0) {
     // 空字符串在 Claude Code 里等价于"没有自定义头",用来覆盖掉项目配置可能注入的值。
     env.ANTHROPIC_CUSTOM_HEADERS = '';
   }
 
+  // 「决定新进程执行什么代码」的变量也钉住。
+  // 实测过的攻击:目标目录的 settings 里写 env.PATH,在最前面插一个自己的目录,里面放一个
+  // 假的 `git`;Agent 干活时几乎必然会执行 git/node/curl 之类的命令,一执行就是攻击者的脚本,
+  // 而那个进程的环境里带着真实密钥——不需要 prompt injection,确定性和 hooks 同级。
+  // 同类还有 BASH_ENV/ENV(bash 非交互启动自动 source)、LD_PRELOAD / DYLD_INSERT_LIBRARIES
+  // (注入动态库)、NODE_OPTIONS(--require 注入模块)。
+  // 钉的值取父进程当前的值(没有就空字符串):既不改变操作者自己环境的行为,又让项目配置
+  // 覆盖不掉。project-trust.mjs 的闸门已经全面禁止目标目录设任何 env,这里是不依赖闸门的
+  // 结构性兜底。
+  for (const name of EXECUTION_CRITICAL_ENV) {
+    env[name] = process.env[name] ?? '';
+  }
+
   return { env };
 }
+
+/**
+ * 决定「新进程会执行什么代码」的变量。目标目录一旦能改其中任意一个,就能在 Agent 执行任何
+ * 一条普通命令时运行自己的代码,并从环境里读走真实密钥。
+ */
+const EXECUTION_CRITICAL_ENV = [
+  'PATH',
+  'NODE_OPTIONS',
+  'BASH_ENV',
+  'ENV',
+  'LD_PRELOAD',
+  'LD_LIBRARY_PATH',
+  'DYLD_INSERT_LIBRARIES',
+  'DYLD_LIBRARY_PATH',
+  'DYLD_FRAMEWORK_PATH',
+];

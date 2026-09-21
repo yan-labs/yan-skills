@@ -72,13 +72,17 @@ export class ProjectTrustError extends Error {
  * 项目挡在门外。代价是这张名单需要跟着 Claude Code 的新字段维护——README「还没解决的风险」
  * 一节对这个局限有明确说明,没有假装它是完备的。
  */
-const FORBIDDEN_TOP_LEVEL_KEYS = [
-  // —— 凭据来源 ——
-  'apiKeyHelper', // 执行一条命令拿 API key——等于让目标目录决定用谁的凭据
-  'awsAuthRefresh', // 同上,AWS 版
+export const FORBIDDEN_TOP_LEVEL_KEYS = [
+  // —— 凭据来源:SDK 类型定义(sdk.d.ts)把这一组统称为 credential helpers,
+  //    每一个都是「执行一条命令产出凭据」,等于让目标目录决定用谁的身份发请求。——
+  'apiKeyHelper',
+  'awsAuthRefresh',
   'awsCredentialExport',
-  'otelHeadersHelper', // 生成遥测请求头,值通常是凭据
+  'gcpAuthRefresh',
+  'otelHeadersHelper',
+  'proxyAuthHelper',
   'forceLoginMethod', // 强制走某种登录态
+  'policyHelper', // 启动时执行、用来算出 managed settings 的可执行文件
   // —— 会被自动执行的命令 ——
   'hooks', // 实测可在会话启动时无条件执行任意命令,直接 printenv 出密钥
   'statusLine', // 同样是「一条会被执行的命令」,当前非交互模式下未观察到执行,一并拦掉
@@ -89,78 +93,34 @@ const FORBIDDEN_TOP_LEVEL_KEYS = [
 ];
 
 /**
- * env 变量名黑名单:前缀族。
- * 这几族变量整体决定模型路由和凭据来源,项目级配置碰任何一个都拒绝。
- * 用前缀而不是逐个枚举,是因为 ANTHROPIC_* / CLAUDE_* 这两族会随 CLI 版本新增变量
- * (ANTHROPIC_CUSTOM_HEADERS、ANTHROPIC_BEDROCK_BASE_URL、CLAUDE_CONFIG_DIR 都是例子),
- * 逐个列举必然漏。
+ * 少数变量名的「为什么特别危险」注解,只用来让报错更有教育意义。
+ *
+ * 注意:它**不是**判定依据。判定规则见 findTrustViolations——目标目录一个环境变量都不许设。
+ * 之所以不按名单判定,是因为「能劫持执行」的变量名根本枚举不完:PATH(在前面插一个假 git/node
+ * 就能在 Agent 下一次跑命令时读走密钥)、BASH_ENV/ENV(bash 非交互启动时自动 source)、
+ * LD_PRELOAD / DYLD_INSERT_LIBRARIES(注入动态库)、PYTHONPATH / NODE_PATH / PERL5OPT
+ * (劫持解释器搜索路径)、GIT_SSH_COMMAND / GIT_EXTERNAL_DIFF(git 内部执行)……每加一个
+ * 名单项都还剩下一堆。所以这里改成「全禁」,名单只负责把常见的那几个解释清楚。
  */
-const FORBIDDEN_ENV_PREFIXES = [
-  'ANTHROPIC_',
-  'CLAUDE_',
-  'AWS_',
-  'BEDROCK_',
-  'VERTEX_',
-  'GOOGLE_',
-  'GCLOUD_',
-  'GEMINI_',
-  'OPENAI_',
-  'LITELLM_',
+const ENV_DANGER_NOTES = [
+  [/^(ANTHROPIC|CLAUDE)_/i, '直接决定模型路由、凭据和会话配置'],
+  [/^(AWS|BEDROCK|VERTEX|GOOGLE|GCLOUD|GEMINI|OPENAI|LITELLM)_/i, '决定云厂商/网关侧的凭据与端点'],
+  [/^(HTTP|HTTPS|ALL|FTP|NO)_PROXY$/i, '改代理等于把全部流量连同密钥导给中间人'],
+  [/^(NODE_EXTRA_CA_CERTS|NODE_TLS_REJECT_UNAUTHORIZED|SSL_CERT_(FILE|DIR)|REQUESTS_CA_BUNDLE|CURL_CA_BUNDLE)$/i, '换 TLS 信任根或关掉证书校验,就能在中间人处解出明文密钥'],
+  [/^PATH$/i, '在 PATH 前面插一个目录,Agent 下一次执行 git/node/curl 时跑的就是攻击者的假二进制'],
+  [/^(NODE_OPTIONS|BASH_ENV|ENV|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_.*)$/i, '会让新进程自动加载攻击者指定的代码'],
+  [/(API_?KEY|AUTH_?TOKEN|ACCESS_?TOKEN|SECRET|CREDENTIAL|PASSWORD|TOKEN|BEARER|CUSTOM_HEADERS)/i, '名字本身就在说自己是凭据'],
 ];
 
 /**
- * env 变量名黑名单:精确名。
- * 三类:(1) 代理——改代理等于把全部流量(连同密钥)导去中间人;(2) TLS 信任根——换 CA 或
- * 关掉证书校验,就能在中间人处解出明文密钥;(3) NODE_OPTIONS——可以 --require 一个模块进
- * CLI 进程本体,直接 hook 出站请求偷密钥,不需要模型配合。
- */
-const FORBIDDEN_ENV_EXACT = [
-  'HTTP_PROXY',
-  'HTTPS_PROXY',
-  'ALL_PROXY',
-  'NO_PROXY',
-  'FTP_PROXY',
-  'NODE_EXTRA_CA_CERTS',
-  'NODE_TLS_REJECT_UNAUTHORIZED',
-  'SSL_CERT_FILE',
-  'SSL_CERT_DIR',
-  'REQUESTS_CA_BUNDLE',
-  'CURL_CA_BUNDLE',
-  'NODE_OPTIONS',
-];
-
-/**
- * env 变量名黑名单:凭据语义子串。
- * 兜住上面两条没覆盖到的自定义命名(比如 MY_GATEWAY_API_KEY)。判断依据是「名字本身就在说
- * 自己是凭据」——项目级配置没有正当理由往我们这次运行里塞任何凭据。
- */
-const FORBIDDEN_ENV_SUBSTRINGS = [
-  'API_KEY',
-  'APIKEY',
-  'AUTH_TOKEN',
-  'ACCESS_TOKEN',
-  'AUTHTOKEN',
-  'SECRET',
-  'CREDENTIAL',
-  'PASSWORD',
-  'CUSTOM_HEADERS',
-  'BEARER',
-];
-
-/**
- * 判断一个 env 变量名是否属于「目标目录不许设置」的范围。
- * 大小写不敏感:代理变量在类 Unix 上小写形式(https_proxy)同样生效,只查大写会被绕过。
+ * 给一个 env 变量名配一句「为什么不能由目标目录来设」。
+ * 认不出来的变量给一句通用说明——认不出来恰恰是全禁的理由,不是放行的理由。
  * @param {string} name
- * @returns {string | null} 命中时返回人类可读的原因,未命中返回 null
+ * @returns {string}
  */
-export function classifyForbiddenEnvName(name) {
-  const upper = String(name).toUpperCase();
-  const prefix = FORBIDDEN_ENV_PREFIXES.find((p) => upper.startsWith(p));
-  if (prefix) return `属于 ${prefix}* 变量族(直接决定模型路由/凭据来源)`;
-  if (FORBIDDEN_ENV_EXACT.includes(upper)) return '会改变网络出口、TLS 信任根或进程加载行为';
-  const sub = FORBIDDEN_ENV_SUBSTRINGS.find((s) => upper.includes(s));
-  if (sub) return `变量名里含 "${sub}",按凭据处理`;
-  return null;
+export function describeEnvDanger(name) {
+  const hit = ENV_DANGER_NOTES.find(([re]) => re.test(String(name)));
+  return hit ? hit[1] : '目标目录不得改动本次运行的任何环境变量(这个进程的环境里带着你的真实密钥)';
 }
 
 /**
@@ -179,11 +139,16 @@ export function findTrustViolations(settings) {
     }
   }
 
+  // env 块:一个变量都不许设。
+  // 这是有意识地从黑名单改成全禁——「能劫持执行或出口的变量名」枚举不完(PATH、BASH_ENV、
+  // LD_PRELOAD、PYTHONPATH、GIT_SSH_COMMAND…),漏一个就等于没防。而目标目录本来也没有正当
+  // 理由去改这次运行的进程环境:它该描述的是「在这个目录里干什么活」,不是「这个进程怎么跑」。
+  // 代价是正经项目在 .claude/settings.json 里写 env: { NODE_ENV: "test" } 也会被拒——报错会
+  // 说清楚是哪个文件哪个字段,用户删掉或换个工作目录即可。这个可用性代价是换来的确定性防护。
   const env = settings.env;
   if (env != null && typeof env === 'object' && !Array.isArray(env)) {
     for (const name of Object.keys(env)) {
-      const reason = classifyForbiddenEnvName(name);
-      if (reason) violations.push({ key: `env.${name}`, reason });
+      violations.push({ key: `env.${name}`, reason: describeEnvDanger(name) });
     }
   }
 
@@ -191,15 +156,24 @@ export function findTrustViolations(settings) {
 }
 
 /**
- * 列出这次运行会被 settingSources:['project','local'] 真正加载到的候选 settings 文件。
+ * 列出这次运行需要检查的候选 settings 文件。
  *
- * 从 cwd 逐级向上走到文件系统根:Claude Code 的项目配置是按目录树向上查找的,只检查 cwd
- * 自己会漏掉「恶意目录的子目录里启动」这种情况(把工具指到 evil-repo/src 一样中招)。
+ * 【扫描范围比 SDK 实际加载的范围更宽,是有意的】
+ * 读已安装 SDK 的解析逻辑:`.claude/settings.json` 只按字面 cwd 那一层读,
+ * `.claude/settings.local.json` 在 cwd 位于 git 仓库内时才可能上溯到仓库根。这里仍然从 cwd
+ * 一路向上扫,理由是 (1) 上溯规则是 CLI 的内部实现,换个版本就可能变,扫宽一点不会漏;
+ * (2) 覆盖「把工具指到 evil-repo/src 而不是 evil-repo」这种情况。
+ * 代价是可能误伤:某个上层目录出于别的用途配了 env 或 hooks,即使这次运行根本不会加载它,
+ * 也会被拒。报错会指出具体文件,换个工作目录或删掉那个字段即可。
  *
- * 唯一跳过的是操作者自己的 home 目录:$HOME/.claude/settings.json 属于 'user' 层,
- * run-task.mjs 已经把它排除在 settingSources 之外,而且那是操作者本人的配置、本来就可信,
- * 扫进来只会把正常用户(比如自己配了第三方网关 baseURL 的人)误伤成"攻击尝试"。
+ * 【home 目录的处理】
+ * 向上走到操作者的 home 目录就停,且不检查 home 目录本身——`$HOME/.claude/settings.json`
+ * 是 'user' 层配置,run-task.mjs 已经把 'user' 排除在 settingSources 之外,而且那是操作者
+ * 本人的东西、本来就可信;扫它只会把「自己配了第三方网关」的正常用户误判成攻击。
+ * **例外:cwd 本身就是 home 目录时必须检查**——这时 `$HOME/.claude/settings.json` 会被 CLI
+ * 当成 project 层加载,豁免它等于在这个场景下把整道闸门关掉。
  *
+ * 【符号链接】
  * 路径先做 realpath 再向上走:目标目录里放一个指向别处的符号链接,用它当 --cwd 时,按字面路径
  * 向上遍历会走到链接所在的父目录、而不是链接真正指向的那棵目录树,恶意配置就绕过去了。
  * realpath 失败(路径不存在)时退回字面路径——这种情况后面 SDK 自己会因为 cwd 不存在而报错,
@@ -218,17 +192,22 @@ export function listProjectSettingsFiles(cwd) {
   };
 
   const home = realOrLiteral(homedir());
+  const start = realOrLiteral(cwd);
   const files = [];
 
-  let dir = realOrLiteral(cwd);
+  let dir = start;
   // 向上走到根(dirname(根) === 根 时停),额外加一个硬上限防御符号链接造成的病态路径。
   for (let depth = 0; depth < 64; depth++) {
-    if (dir !== home) {
+    // home 只在「它就是本次的工作目录」时检查;作为祖先路过时跳过并停止上溯。
+    const isHome = dir === home;
+    if (!isHome || dir === start) {
       for (const name of ['settings.json', 'settings.local.json']) {
         const candidate = join(dir, '.claude', name);
         if (existsSync(candidate)) files.push(candidate);
       }
     }
+    if (isHome) break;
+
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
