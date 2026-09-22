@@ -286,9 +286,18 @@ agent-fleet 会把 `CLAUDE_CONFIG_DIR` 指向自己专属的 `~/.agent-fleet/cla
 会话记录不会混进你真实 Claude Code 的 `~/.claude/`(已实测:跑一次任务,`~/.claude/` 下没有新增任何
 由它产生的文件)。同时它也不加载你的全局 `~/.claude/settings.json` 和目标目录的 `.mcp.json`。
 
-另外它会关掉 Claude Code CLI 默认的遥测、错误上报和自动更新检查(`DISABLE_TELEMETRY` 等一组开关),
-目标是除了发给你配置的那个模型端点之外不产生其它对外流量。**如实说明**:这些开关是显式设置的,但
-还没有做过网络层面的抓包验证,所以只能说"按官方开关关闭了",不能说"已证实零流量"。
+另外它会关掉 Claude Code CLI 默认的遥测、错误上报、自动更新检查和 GrowthBook 远程 feature-flag
+拉取(`DISABLE_TELEMETRY`/`DISABLE_UPDATES`/`DISABLE_GROWTHBOOK`/`DO_NOT_TRACK` 等一整组开关,
+逐个对照已安装 SDK 的原生二进制核实过是真实生效的变量名,不是抄文档臆测),目标是除了发给你
+配置的那个模型端点之外不产生其它对外流量。
+
+**这一条已经做过网络层面的验证,不是只停留在"设了开关"**:跑一次真实任务(`agent-fleet run`),
+在执行期间用本机代理内核(Clash/mihomo 一类工具的 external-controller API)记录的 SNI 连接日志,
+按 OS 级别的进程路径精确反查这个 SDK 原生二进制发起的每一次连接——结果是整个任务执行期间它只
+建立了一次对外连接,目的地就是 `models.config.json` 里配的第三方 baseURL,没有任何流量打到
+`*.anthropic.com`、`*.sentry.io`、`cdn.growthbook.io` 这些 Anthropic 或其遥测供应商控制的域名。
+也就是说:只要你在 `models.config.json` 里配的是非 Claude 端点,Anthropic 的服务器不会看到这次
+调用的存在,自然也就无从"知道"你在切换或使用其它模型。
 
 **注意**:工具跑的是 `bypassPermissions` 全权限 Agent,它对你主目录下的文件**没有**任何自动防护。
 如果任务描述含糊、或者你把 `--cwd` 指向主目录,它是有可能去读甚至改 `~/.claude/` 这类敏感目录的。

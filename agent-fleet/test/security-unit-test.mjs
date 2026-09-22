@@ -72,13 +72,18 @@ assert(isolated.CLAUDE_CONFIG_DIR === agentFleetConfigDir(), 'CLAUDE_CONFIG_DIR 
 assert(!/\/\.claude$/.test(isolated.CLAUDE_CONFIG_DIR), '专属目录不是用户真实 Claude Code 的 ~/.claude');
 
 // CLI 自身的非必要对外流量必须是关闭状态(这几个变量带 CLAUDE_CODE_ 前缀,必须在整族剥离之后设)。
+// 清单已对照已安装 SDK 原生二进制逐个核实过(见 isolated-env.mjs 顶部注释),
+// 不包含没有实际效果的变量名。
 for (const key of [
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
   'DISABLE_TELEMETRY',
   'DISABLE_ERROR_REPORTING',
   'DISABLE_AUTOUPDATER',
+  'DISABLE_UPDATES',
   'DISABLE_BUG_COMMAND',
-  'DISABLE_NON_ESSENTIAL_MODEL_CALLS',
+  'DISABLE_FEEDBACK_COMMAND',
+  'DISABLE_GROWTHBOOK',
+  'DO_NOT_TRACK',
 ]) {
   assert(isolated[key] === '1', `${key}=1(关闭 CLI 默认的非必要上报/调用)`);
 }

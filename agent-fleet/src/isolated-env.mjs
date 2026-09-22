@@ -47,18 +47,41 @@ const PREFIXES_TO_STRIP = ['ANTHROPIC_', 'CLAUDE_'];
  *
  * 值统一用 '1':这一族开关在 CLI 里按「非空且不是 '0'/'false'」判真。
  * 注意它们必须在上面的整族剥离**之后**设置——CLAUDE_CODE_* 会被前缀剥离带走。
+ *
+ * 【每一项都在已安装的 SDK 原生二进制里逐一核实过,不是抄官方文档臆测的】
+ * 对 node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude 做过 `strings` 提取 +
+ * 关键字上下文核对:下面这些变量名都能在二进制里找到对应的 `process.env.XXX` 判断分支,
+ * 不是「设了但其实没人读」的死变量。同时做过真实任务的运行时网络核查(见 README「不会污染
+ * 你正在用的 Claude Code」一节):用本机代理内核的 SNI 连接日志,按 OS 级别的进程路径
+ * (`processPath` 精确等于这个 SDK 二进制的路径)反查,确认整个任务执行期间唯一一次对外
+ * 连接的目标就是 models.config.json 配的第三方 baseURL,没有任何流量打到
+ * *.anthropic.com / *.sentry.io / cdn.growthbook.io 这些 Anthropic 或其遥测供应商控制的域名。
+ * 这份清单之后如果需要复核,同样按「先读二进制字符串确认变量真实存在,再抓包验证效果」这个
+ * 顺序来,不要只凭官方文档或历史记忆就假设某个开关名字有效——曾经在这里出现过一个反例:
+ * 之前设置过的 `DISABLE_NON_ESSENTIAL_MODEL_CALLS` 经核实在当前 SDK 版本里根本不是一个被
+ * 读取的变量名,已经删掉;它想拦的那类请求(标题生成等)实际由上面 essential-traffic 总开关
+ * 兜底,加上非交互 query() 模式本身不会触发这类调用,所以移除它不改变任何实际防护效果。
  */
 const NONESSENTIAL_TRAFFIC_OFF = {
-  // 总开关:遥测、错误上报、自动更新检查一起关。
+  // 总开关:二进制里能查到这是"essential-traffic-only"模式的判定入口,遥测/错误上报/
+  // 自动更新/Analytics SDK(a-api.anthropic.com)等都被这个开关统一归类为"非必要"拦掉。
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-  // 再逐个显式关一遍,不依赖总开关在所有版本里都覆盖同一范围。
+  // 再逐个显式关一遍,不依赖总开关在所有版本里都覆盖同一范围——这几个都能在二进制里查到
+  // 独立的 `process.env.XXX` 判断分支,即使某个版本调整了总开关的覆盖范围,这些也不受影响。
   DISABLE_TELEMETRY: '1',
   DISABLE_ERROR_REPORTING: '1',
   DISABLE_AUTOUPDATER: '1',
+  DISABLE_UPDATES: '1',
   DISABLE_BUG_COMMAND: '1',
-  // 非必要模型调用(会话标题生成、对话摘要之类)。这些会打到本次配置的第三方端点上,
-  // 属于用户没要求、但要计费的请求,一并关掉。
-  DISABLE_NON_ESSENTIAL_MODEL_CALLS: '1',
+  DISABLE_FEEDBACK_COMMAND: '1',
+  // 关掉 GrowthBook 远程 feature-flag 拉取(会打到 cdn.growthbook.io)。SDK 的非交互
+  // query() 模式本身已经传了 kickGrowthBook:false 不会主动拉取,这里是防御性兜底——
+  // 万一未来版本在某个代码路径下不再默认跳过,这个开关能兜底拦住。
+  DISABLE_GROWTHBOOK: '1',
+  // 遥测判定里 DISABLE_TELEMETRY 和 DO_NOT_TRACK 是等价的两个入口(二进制里两者在同一条
+  // if 分支链里),两个都设上不依赖单一命名,也顺带兼容 DO_NOT_TRACK 这个更通用的生态惯例
+  // (很多命令行工具都认这个变量名)。
+  DO_NOT_TRACK: '1',
 };
 
 /**
