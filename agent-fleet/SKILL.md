@@ -22,10 +22,23 @@ node bin/agent-fleet.mjs list-models
 
 `<友好名字>` 来自 [`models.config.json`](./models.config.json),当前预置:`deepseek-v4-pro`、
 `deepseek-v4-flash`、`kimi`、`gemini`(Gemini 没有官方 Anthropic 兼容端点,需要用户自己填一个网关
-地址才能用,不填直接报错,不会假装能跑)。
+地址才能用,不填直接报错,不会假装能跑),以及 `kollab-gateway` 系列(走 Kollab 自己的公开 LLM
+网关,用账号自助生成的 `kollab_live_*` key,不用等第三方审批,即用即验证过):
+`kollab-gateway`(默认 `gemini-3.8-flash`)、`kollab-gateway-copy`(文案/创意,同样是
+`gemini-3.8-flash`)、`kollab-gateway-research`(调研摘要,`grok-4.6`)、`kollab-gateway-bulk`
+(批量机械任务,`gemini-3.5-flash-lite`)。
 
 **用户想同时跑多个不同模型的任务时**,优先用 `run-many` 一次性提交(内部真正并发跑完),而不是
 自己手写多次串行调用,或者对每个模型分别开一个后台 shell 进程——除非用户明确要求那种交互方式。
+
+**按任务类型选模型**:批量文案/创意 → `kollab-gateway-copy`(或有 DeepSeek key 时用
+`deepseek-v4-flash`);批量翻译/格式转换 → `kollab-gateway-bulk`(或 `deepseek-v4-flash`);
+简单调研摘要 → `kollab-gateway-research`(或有 Moonshot key 时用自带联网搜索的 `kimi`);
+高质量单次产出(长文案定稿、复杂推理)→ `deepseek-v4-pro`;**多轮工具调用容错要求高的任务不要
+派给第三方模型**,留给 Claude 自己处理(Kimi/DeepSeek/Qwen 家族已知有 tool-calling 可靠性问题,
+可能吐出裸的 tool-call 控制 token 而不是结构化 `tool_use`,造成假成功,harness 修不了)。这份
+对应关系是 agent-fleet 自己调研 + 真实验证后得出的建议,会随实际使用持续校准,不是写死的规则,
+完整版和已知模型目录见 [`README.md`](./README.md) 的「任务类型 → 推荐模型」一节。
 
 **首次使用前**必须确认 `agent-fleet/.env` 里已经配好对应模型的真实 API key(`cp .env.example .env`
 之后手动填),没配的话 `run`/`run-many` 会直接报出清晰的"哪个环境变量没设置",不会静默失败。

@@ -112,13 +112,32 @@ node bin/agent-fleet.mjs list-models
 | `deepseek-v4-flash` | DeepSeek | 同上端点,`model: "deepseek-flash"` | 官方默认回退模型,快、便宜,适合调研/头脑风暴/大批量任务 |
 | `kimi` | Moonshot(Kimi) | 官方 Anthropic 兼容端点 `https://api.moonshot.cn/anthropic`(中国站),`auth-token` 鉴权 | 国际站把 `baseURL` 换成 `https://api.moonshot.ai/anthropic` 即可,鉴权方式不变 |
 | `gemini` | Google | **没有官方端点**,`baseURL`/`model` 在配置里留空 | 见下方「已知限制」,选它会直接报错退出,不会假装能跑 |
-| `kollab-gateway` | Kollab 自己的公开 LLM 网关 | `https://test.flowus.work/api/llm`(TEST 环境),`x-api-key` 鉴权,key 是账号自助生成、随时可吊销的 `kollab_live_*` standalone key | 不占用第三方官方 key 申请流程,模型范围不限白名单(当前配的是 `claude-sonnet-4-6`,可换成 `kollab model list` 里的其它 id);费用从这把 key 绑定的 Space 额度实时扣除;**已做过真实端到端验证**(非 mock,详见下方「已知限制」和 [`../README.md`](../README.md) 的「验证情况」第 0 条);换生产环境用 `https://kollab.im/api/llm` 加一把生产环境生成的 key |
+| `kollab-gateway` | Kollab 自己的公开 LLM 网关 | `https://test.flowus.work/api/llm`(TEST 环境),`x-api-key` 鉴权,key 是账号自助生成、随时可吊销的 `kollab_live_*` standalone key | 不占用第三方官方 key 申请流程,模型范围不限白名单。默认模型是 `gemini-3.8-flash`(**故意不用** `claude-sonnet-4-6`——不然账单虽然走 Kollab 自己的 Space 额度,但底层实际还在消耗 Claude,没有省 Claude 成本的效果);费用从这把 key 绑定的 Space 额度实时扣除;**已做过真实端到端验证**(非 mock,详见下方「已知限制」和 [`../README.md`](../README.md) 的「验证情况」第 0 条);换生产环境用 `https://kollab.im/api/llm` 加一把生产环境生成的 key |
+| `kollab-gateway-copy` | 同上 | 同上,`model: "gemini-3.8-flash"` | 文案/创意用途命名别名,和默认模型相同,单独命名是为了不依赖默认值以后的调整 |
+| `kollab-gateway-research` | 同上 | 同上,`model: "grok-4.6"` | 通用调研摘要用途 |
+| `kollab-gateway-bulk` | 同上 | 同上,`model: "gemini-3.5-flash-lite"` | 批量翻译/格式转换等机械任务用途,目录里响应最快的免费档模型之一 |
 
 模型 ID 会随官方迭代变化,需要时核对:DeepSeek 见
 <https://api-docs.deepseek.com/guides/anthropic_api>,Kimi 见
-<https://platform.kimi.com/docs/api/list-models>。改 `models.config.json` 就能加/改/删可用
-模型,这个文件本身不含任何密钥,`apiKeyEnv` 只是"去读哪个环境变量"的指针,真实值永远只在
-`.env` 里(已被 `.gitignore` 排除)。
+<https://platform.kimi.com/docs/api/list-models>,Kollab 网关见
+`KOLLAB_API_URL=https://test.flowus.work kollab model list`(只读查询,随时可重跑确认
+`paidOnly` 状态)。改 `models.config.json` 就能加/改/删可用模型,这个文件本身不含任何密钥,
+`apiKeyEnv` 只是"去读哪个环境变量"的指针,真实值永远只在 `.env` 里(已被 `.gitignore` 排除)。
+
+## 任务类型 → 推荐模型(agent-fleet 自己调研 + 真实验证后得出,会持续校准)
+
+不是写死的规则,是跑过一次真实路由调研任务、再核对 `kollab model list` 完整目录后给出的建议,
+后续应该随实际使用重新校准:
+
+| 任务类型 | 推荐模型 | 理由 |
+|---|---|---|
+| 批量文案 / 创意写作 | `kollab-gateway-copy`(`gemini-3.8-flash`) | 速度快、成本低,即用免第三方审批 |
+| 批量翻译 / 格式转换 | `deepseek-v4-flash`(有 key 时)或 `kollab-gateway-bulk`(`gemini-3.5-flash-lite`) | 机械任务图快图省 |
+| 简单调研摘要 | `kimi`(有 Moonshot key 时,自带联网搜索)或 `kollab-gateway-research`(`grok-4.6`) | Kimi 官方端点能真正查资料;`kollab-gateway-research` 是免配置平替 |
+| 高质量单次产出(长文案定稿、复杂推理) | `deepseek-v4-pro`(有 key 时) | 官方 Opus 档位映射目标 |
+| 多轮工具调用容错要求高的任务 | 不建议派给第三方模型,留给 Claude | Kimi/DeepSeek/Qwen 家族已知有 tool-calling 可靠性问题,可能吐出裸的 tool-call 控制 token 而非结构化 `tool_use`,造成假成功,harness 修不了 |
+
+完整版和已知模型目录见 [`../README.md`](../README.md) 的「任务类型 → 推荐模型」一节。
 
 ## 已知限制(如实说明,不美化)
 
@@ -126,21 +145,24 @@ node bin/agent-fleet.mjs list-models
   `/anthropic` 路径。要用 Gemini,用户必须自己搭一个能把 Anthropic Messages 协议转换成
   Gemini 请求的网关(比如自建 LiteLLM proxy),把网关地址和它认的模型 ID 填进
   `models.config.json` 的 `gemini` 条目;不填的话选这个模型会直接报错退出。
-- **`kollab-gateway` 已完成真实端到端验证,`deepseek-v4-pro`/`deepseek-v4-flash`/`kimi` 这几条
-  原生第三方 key 路径仍未验证**:项目作者手头没有真实的 DeepSeek/Moonshot API key(也没有去别的
-  项目"顺手"拿),所以这三条官方端点还没跑过一次真实模型调用。`kollab-gateway` 是例外——它用的是
-  账号自助生成的 `kollab_live_*` standalone key,不需要等第三方审批,已经跑通一次真实调用
-  (`run --model kollab-gateway --prompt "回复OK两个字" --json`),返回 `"ok": true`、
-  `"result": "OK"`,带真实的 `totalCostUsd`(从该 key 绑定的 Space 额度扣除)和 `sessionId`,
-  确认请求真的经过 `POST https://test.flowus.work/api/llm/v1/messages` 拿到了模型响应,不是
-  报错也不是 mock,完整记录见 [`../README.md`](../README.md) 的「验证情况」第 0 条。除此之外
-  已经做到的验证是:(1)`--help`/`--version`/`list-models`/缺参数缺密钥等错误路径手动跑过,
-  报错清晰;(2)`npm run smoke-test` —— 自建一个模拟 Anthropic Messages 协议的本地假上游,真跑
-  一次完整的 `run` 和 `run-many`,断言请求确实发到配置的 `baseURL`、两种鉴权方式都生效、
-  `run-many` 真的并发;(3)`npm run security-test` —— 针对下方安全边界的专项回归测试,同样用
-  本地假上游,不需要真实密钥。**DeepSeek/Kimi 首次真实使用前**,建议先用 `list-models` 确认
-  密钥 present,再用一句简单 prompt(如"说一句你好")跑一次 `run --json` 验证端到端可用,而不是
-  直接扔大任务上去。
+- **`kollab-gateway` 系列四个条目已完成真实端到端验证,`deepseek-v4-pro`/`deepseek-v4-flash`/
+  `kimi` 这几条原生第三方 key 路径仍未验证**:项目作者手头没有真实的 DeepSeek/Moonshot API key
+  (也没有去别的项目"顺手"拿),所以这三条官方端点还没跑过一次真实模型调用。`kollab-gateway` 系列
+  是例外——用的是账号自助生成的 `kollab_live_*` standalone key,不需要等第三方审批,对
+  `kollab-gateway`、`kollab-gateway-copy`、`kollab-gateway-research`、`kollab-gateway-bulk`
+  各跑通一次真实调用(`run --model <名字> --prompt "回复OK两个字,不要调用任何工具" --json`),
+  四次都返回 `"ok": true`、`"result": "OK"`、`"isError": false`,分别解析到
+  `gemini-3.8-flash`(x2)、`grok-4.6`、`gemini-3.5-flash-lite`,都带真实的 `totalCostUsd`
+  (从该 key 绑定的 Space 额度扣除)和 `sessionId`,确认请求真的经过
+  `POST https://test.flowus.work/api/llm` 拿到了对应模型的响应,不是报错也不是 mock,返回内容
+  里也没有出现裸的 tool-call 控制 token,完整记录见 [`../README.md`](../README.md) 的
+  「验证情况」第 0 条。除此之外已经做到的验证是:(1)`--help`/`--version`/`list-models`/
+  缺参数缺密钥等错误路径手动跑过,报错清晰;(2)`npm run smoke-test` —— 自建一个模拟 Anthropic
+  Messages 协议的本地假上游,真跑一次完整的 `run` 和 `run-many`,断言请求确实发到配置的
+  `baseURL`、两种鉴权方式都生效、`run-many` 真的并发;(3)`npm run security-test` —— 针对下方
+  安全边界的专项回归测试,同样用本地假上游,不需要真实密钥。**DeepSeek/Kimi 首次真实使用前**,
+  建议先用 `list-models` 确认密钥 present,再用一句简单 prompt(如"说一句你好")跑一次
+  `run --json` 验证端到端可用,而不是直接扔大任务上去。
 - **`bypassPermissions` 全权限,没有沙箱**:Agent 会真的读写文件、跑 bash,不会逐步询问用户
   确认。任务描述含糊,或 `--cwd` 指向了不该碰的目录(比如用户主目录本身),它是有可能读到甚至
   改到不该动的文件的。`--cwd` 要指向具体的项目目录,不要指向 `~`。

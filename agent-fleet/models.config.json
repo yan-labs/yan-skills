@@ -35,9 +35,33 @@
   },
 
   "kollab-gateway": {
-    "description": "Kollab 自己的公开 LLM 网关(POST /api/llm,Anthropic Messages 兼容协议),用账号自助生成的 kollab_live_* standalone API key 鉴权,费用从该 key 绑定的 Space 额度实时扣除。不要求申请第三方官方 Key,是 DeepSeek/Kimi 之外的第三个即用选项,模型范围由 Kollab 侧放开、不做白名单过滤。当前填的是 TEST 环境地址;换生产环境时把 baseURL 换成 https://kollab.im/api/llm 并用一把生产环境生成的 key。",
+    "description": "Kollab 自己的公开 LLM 网关(POST /api/llm,Anthropic Messages 兼容协议),用账号自助生成的 kollab_live_* standalone API key 鉴权,费用从该 key 绑定的 Space 额度实时扣除。不要求申请第三方官方 Key,是 DeepSeek/Kimi 之外的第三个即用选项,模型范围由 Kollab 侧放开、不做白名单过滤。默认模型选的是 gemini-3.8-flash(2026-09 用 `kollab model list` 确认 paidOnly=false,不占用付费档位):故意不用 claude-sonnet-4-6,否则账单虽然走 Kollab 自己的 Space 额度,但底层实际还是在消耗 Claude,起不到「用非 Claude 模型分担任务」的效果。当前填的是 TEST 环境地址;换生产环境时把 baseURL 换成 https://kollab.im/api/llm 并用一把生产环境生成的 key。下面 kollab-gateway-* 系列条目复用同一个 baseURL/apiKeyEnv,只是按任务用途换了 model,方便直接按名字调用而不用每次手改这个文件——具体推荐见 README「任务类型 → 推荐模型」一节,后续会随实际使用持续校准,不是写死的规则。",
     "baseURL": "https://test.flowus.work/api/llm",
-    "model": "claude-sonnet-4-6",
+    "model": "gemini-3.8-flash",
+    "apiKeyEnv": "KOLLAB_LIVE_API_KEY",
+    "authHeader": "x-api-key"
+  },
+
+  "kollab-gateway-copy": {
+    "description": "Kollab 网关,文案/创意用途:批量营销文案、社媒帖子、标题党变体、创意头脑风暴等对准确性要求不高、追求速度和多样性的写作任务。模型 gemini-3.8-flash,paidOnly=false。和默认 kollab-gateway 当前指向同一个模型,单独命名是为了不依赖默认值以后可能的调整,任务里显式写 --model kollab-gateway-copy 更稳。",
+    "baseURL": "https://test.flowus.work/api/llm",
+    "model": "gemini-3.8-flash",
+    "apiKeyEnv": "KOLLAB_LIVE_API_KEY",
+    "authHeader": "x-api-key"
+  },
+
+  "kollab-gateway-research": {
+    "description": "Kollab 网关,通用调研摘要用途:整理调研材料、总结长文档、多来源信息汇总一类不需要多轮工具调用容错的任务。模型 grok-4.6,paidOnly=false。",
+    "baseURL": "https://test.flowus.work/api/llm",
+    "model": "grok-4.6",
+    "apiKeyEnv": "KOLLAB_LIVE_API_KEY",
+    "authHeader": "x-api-key"
+  },
+
+  "kollab-gateway-bulk": {
+    "description": "Kollab 网关,批量机械任务用途:大批量翻译、格式转换、结构化抽取一类模式化、对模型能力要求不高的任务,优先图快图省。模型 gemini-3.5-flash-lite,paidOnly=false,是目录里响应最快的免费档模型之一。",
+    "baseURL": "https://test.flowus.work/api/llm",
+    "model": "gemini-3.5-flash-lite",
     "apiKeyEnv": "KOLLAB_LIVE_API_KEY",
     "authHeader": "x-api-key"
   }
