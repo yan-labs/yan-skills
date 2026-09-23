@@ -64,5 +64,21 @@
     "model": "gemini-3.5-flash-lite",
     "apiKeyEnv": "KOLLAB_LIVE_API_KEY",
     "authHeader": "x-api-key"
+  },
+
+  "kollab-gateway-opus-5-5": {
+    "description": "Kollab TEST 网关的 Claude Opus 5.5，按 Space 额度计费。",
+    "baseURL": "https://test.flowus.work/api/llm",
+    "model": "claude-opus-5-5",
+    "apiKeyEnv": "KOLLAB_LIVE_API_KEY",
+    "authHeader": "x-api-key"
+  },
+
+  "kollab-gateway-gpt-6-sol": {
+    "description": "Kollab TEST 网关的 GPT-6 Sol，按 Space 额度计费。",
+    "baseURL": "https://test.flowus.work/api/llm",
+    "model": "gpt-6-sol",
+    "apiKeyEnv": "KOLLAB_LIVE_API_KEY",
+    "authHeader": "x-api-key"
   }
 }
