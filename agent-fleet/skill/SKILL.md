@@ -116,6 +116,8 @@ node bin/agent-fleet.mjs list-models
 | `kollab-gateway-copy` | 同上 | 同上,`model: "gemini-3.8-flash"` | 文案/创意用途命名别名,和默认模型相同,单独命名是为了不依赖默认值以后的调整 |
 | `kollab-gateway-research` | 同上 | 同上,`model: "grok-4.6"` | 通用调研摘要用途 |
 | `kollab-gateway-bulk` | 同上 | 同上,`model: "gemini-3.5-flash-lite"` | 批量翻译/格式转换等机械任务用途,目录里响应最快的免费档模型之一 |
+| `kollab-gateway-opus-5-5` | 同上 | 同上,`model: "claude-opus-5-5"` | TEST 付费模型,已真实调用验证 |
+| `kollab-gateway-gpt-6-sol` | 同上 | 同上,`model: "gpt-6-sol"` | TEST 付费模型,已真实调用验证 |
 
 模型 ID 会随官方迭代变化,需要时核对:DeepSeek 见
 <https://api-docs.deepseek.com/guides/anthropic_api>,Kimi 见
@@ -145,7 +147,7 @@ node bin/agent-fleet.mjs list-models
   `/anthropic` 路径。要用 Gemini,用户必须自己搭一个能把 Anthropic Messages 协议转换成
   Gemini 请求的网关(比如自建 LiteLLM proxy),把网关地址和它认的模型 ID 填进
   `models.config.json` 的 `gemini` 条目;不填的话选这个模型会直接报错退出。
-- **`kollab-gateway` 系列四个条目已完成真实端到端验证,`deepseek-v4-pro`/`deepseek-v4-flash`/
+- **`kollab-gateway` 系列基础四个条目及两个新增付费模型已完成真实端到端验证,`deepseek-v4-pro`/`deepseek-v4-flash`/
   `kimi` 这几条原生第三方 key 路径仍未验证**:项目作者手头没有真实的 DeepSeek/Moonshot API key
   (也没有去别的项目"顺手"拿),所以这三条官方端点还没跑过一次真实模型调用。`kollab-gateway` 系列
   是例外——用的是账号自助生成的 `kollab_live_*` standalone key,不需要等第三方审批,对

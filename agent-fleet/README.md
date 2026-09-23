@@ -35,6 +35,8 @@ Agent 能力去驱动它们的模型——你拿到的不是"一问一答",而�
 | `kollab-gateway-copy` | 同上 | 同上,`model: "gemini-3.8-flash"` | 文案/创意用途的命名别名,和默认模型相同,单独命名是为了不依赖默认值以后的调整 |
 | `kollab-gateway-research` | 同上 | 同上,`model: "grok-4.6"` | 通用调研摘要用途 |
 | `kollab-gateway-bulk` | 同上 | 同上,`model: "gemini-3.5-flash-lite"` | 批量翻译/格式转换等机械任务用途,目录里响应最快的免费档模型之一 |
+| `kollab-gateway-opus-5-5` | 同上 | 同上,`model: "claude-opus-5-5"` | TEST 付费模型,已真实调用验证 |
+| `kollab-gateway-gpt-6-sol` | 同上 | 同上,`model: "gpt-6-sol"` | TEST 付费模型,已真实调用验证 |
 
 **关于 Gemini 的如实说明**:查证下来,Google 官方**没有**为 Gemini 提供 Anthropic Messages 协议
 兼容端点(不像 DeepSeek/Moonshot 那样)。市面上能找到的都是社区维护的转换代理(比如把 Anthropic
@@ -175,7 +177,7 @@ API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.
 模型的端到端验证**。`kollab-gateway` 是例外——它用的是 Kollab 产品自助生成的账号 key,不需要等第三方
 审批,已经做过一次真实的端到端验证(见第 0 条)。已经做到的:
 
-0. **`kollab-gateway` 系列四个条目全部真实端到端验证(TEST 环境)**:用 `kollab api-key create`
+0. **`kollab-gateway` 系列基础四个条目全部真实端到端验证(TEST 环境)**:用 `kollab api-key create`
    生成了一把真实的 `kollab_live_*` standalone key(账号自助生成、随时可在 Kollab 里吊销/重建,
    不是 Kollab 内部基础设施或第三方供应商的密钥),写进本地 `.env`(未提交),对 `kollab-gateway`、
    `kollab-gateway-copy`、`kollab-gateway-research`、`kollab-gateway-bulk` 各跑了一次真实调用,例如:
@@ -188,6 +190,9 @@ API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.
    都带真实的 `totalCostUsd`(从该 key 绑定的 Space 额度扣除)和 `sessionId`,确认请求真的经过
    `POST https://test.flowus.work/api/llm` 拿到了对应模型的真实响应,不是报错也不是 mock,返回内容
    里也没有出现裸的 tool-call 控制 token。
+
+   新增的 `kollab-gateway-opus-5-5`、`kollab-gateway-gpt-6-sol` 也各用 TEST 网关真实调用一次，
+   均返回 `ok: true`、`result: OK`，解析到对应模型，且有对应的 Space 扣费记录。
 
 1. **代码能正常跑**:`--help`、`--version`、`list-models`、缺参数/缺密钥/未知模型等错误路径都手动
    跑过,报错信息清晰可操作。
@@ -215,9 +220,9 @@ API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.
 ## 接下来你需要做的事
 
 0. 想先跑起来、不想等第三方 key 审批:直接用 `kollab-gateway` 系列——`kollab api-key create --name <你的名字>`
-   生成一把 `kollab_live_*` key,填进 `.env` 的 `KOLLAB_LIVE_API_KEY`,四个条目(`kollab-gateway`、
+   生成一把 `kollab_live_*` key,填进 `.env` 的 `KOLLAB_LIVE_API_KEY`,基础四个条目(`kollab-gateway`、
    `kollab-gateway-copy`、`kollab-gateway-research`、`kollab-gateway-bulk`)都已经验证过真实可用
-   (见上一节第 0 条),按「任务类型 → 推荐模型」表按用途直接选对应条目名即可。
+   (见上一节第 0 条)。两个新增付费模型也已在 TEST 验证，按需显式选用。
 1. 去 DeepSeek(<https://platform.deepseek.com>)和/或 Moonshot(<https://platform.moonshot.cn>)
    生成真实 API key,填进 `.env`。
 2. 如果要用 Gemini,自己搭一个 Anthropic 兼容网关,把地址和它认的模型 ID 填进
