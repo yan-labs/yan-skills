@@ -400,7 +400,7 @@ write_panel() {
     --argjson sections "$PANEL_SECTIONS_JSON" \
     --argjson errs "$(printf '%s\n' "${panel_errors[@]:-}" | jq -R 'select(length>0)' | jq -s .)" \
     --arg frame "${FRAME_IDX:-}" \
-    '{attempted:true, ok:true, frameIndex:$frame, errors:$errs, sections:$sections}')"
+    '{attempted:true, ok:($errs | length == 0), frameIndex:$frame, errors:$errs, sections:$sections}')"
   write_partial
 }
 
@@ -771,16 +771,17 @@ for label in "${PANEL_SECTIONS[@]}"; do
   # GEO-specific: the body-length check above only catches "empty", but GEO's
   # score can look non-empty (~190 chars of just category labels) while the
   # actual score digits either haven't rendered yet or are frozen at "0 / 100"
-  # mid-animation. Poll a bounded number of times until the score settles on
-  # a non-zero reading. See geo_score_from_text() above for what this looks
-  # for and why the generic empty-check can't catch this case.
+  # mid-animation. On 2026-09-24 the live AITDK GEO skeleton persisted for
+  # over 2 minutes on one site. Poll for up to 3 minutes
+  # until the score settles on a non-zero reading. See geo_score_from_text()
+  # above for why the generic empty-check cannot catch this case.
   if [[ "$label" == "GEO" ]]; then
     geo_attempt=0
     geo_score="$(geo_score_from_text "$SECTION_TEXT")"
-    while [[ "$geo_attempt" -lt 5 && ( -z "$geo_score" || "$geo_score" == "0" ) ]]; do
+    while [[ "$geo_attempt" -lt 18 && ( -z "$geo_score" || "$geo_score" == "0" ) ]]; do
       geo_attempt=$((geo_attempt + 1))
-      warn "Section 'GEO': score not settled yet (read: '${geo_score:-<none>}') — waiting 5s and re-reading ($geo_attempt/5)"
-      sleep 5
+      warn "Section 'GEO': score not settled yet (read: '${geo_score:-<none>}') — waiting 10s and re-reading ($geo_attempt/18)"
+      sleep 10
       ensure_frame || true
       SECTION_TEXT="$(fe "$READ_JS" 2>/dev/null || true)"
       SECTION_JSON="$(parse_section_text "$SECTION_TEXT" 2>/dev/null || echo '{}')"

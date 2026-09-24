@@ -35,6 +35,7 @@ function extractFunction(src, name) {
 }
 
 const geoScoreFn = extractFunction(scriptSrc, 'geo_score_from_text');
+const writePanelFn = extractFunction(scriptSrc, 'write_panel');
 
 function runGeoScoreFromText(input) {
   const out = execFileSync('bash', ['-c', `${geoScoreFn}\ngeo_score_from_text "$TEST_INPUT"`], {
@@ -68,4 +69,17 @@ test('geo_score_from_text: a settled non-zero score is read correctly', () => {
 test('geo_score_from_text: only picks up a digit within a few lines of the marker, not an unrelated later number', () => {
   const text = ['GEO Score', 'Some unrelated label', 'Another label', 'Yet another', 'More text', 'Still more', 'Even more', '42'].join('\n');
   assert.equal(runGeoScoreFromText(text), '', 'the "42" is outside the 6-line lookahead window and must not be picked up as the score');
+});
+
+test('write_panel: an unsettled GEO score cannot be marked ok', () => {
+  const output = execFileSync('bash', ['-c', `
+    PANEL_SECTIONS_JSON='{}'
+    FRAME_IDX=0
+    panel_errors=('geo: score unsettled')
+    write_partial() { :; }
+    ${writePanelFn}
+    write_panel
+    printf '%s' "$PANEL_JSON"
+  `], { encoding: 'utf8' });
+  assert.equal(JSON.parse(output).ok, false);
 });

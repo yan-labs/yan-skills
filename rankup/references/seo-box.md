@@ -120,8 +120,8 @@ node "$RANKUP/scripts/aitdk-triage.mjs" report1.json report2.json --out '<output
   `raw` 只有五个分类名重复两遍、没有任何数字（`bodyLength` 看起来有 190 左右，不算「空」，触发不了
   上面通用的空内容重试）；有时结构齐全，但最上面的总分停在 `0 / 100`（动画还没播完）。两种情况脚本
   都不报错，此前会被原样写进报告。`aitdk-opencli.sh` 现在对 GEO 单独做了稳定性重试（`geo_score_from_text()`：
-  找 `GEO Score` 之后几行内第一个纯数字行，非空且不是 `0` 才收，最多等 5 次 × 5 秒）；仍然拿不到，
-  `aitdkPanel.errors` 里会留一条 `geo: score unsettled after retries...`，消费报告前先查这条，
+  找 `GEO Score` 之后几行内第一个纯数字行，非空且不是 `0` 才收，最多等 18 次 × 10 秒）；仍然拿不到，
+  `aitdkPanel.errors` 里会留一条 `geo: score unsettled after retries...`，且 `aitdkPanel.ok` 为 `false`，消费报告前先查这条，
   不要直接把 0 分或空分当成真实结果。
 
 判读时的规矩不变：**脚本只采集，判读归你**；`fields` 空 ≠ 这项没问题，先看 `raw`。
