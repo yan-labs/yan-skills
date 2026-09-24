@@ -288,7 +288,7 @@ window.__gf = (() => {
 
     /** 连通性自检：页面是不是登录态、额度读没读到。不再检查本地接收端。 */
     check() {
-      const quota = (document.body.innerText.match(/今日已用\s*\d+\/\d+/) || [])[0] || null
+      const quota = (document.body.innerText.match(/今日(?:赠送)?已用\s*\d+\/\d+/) || [])[0] || null
       return { 额度: quota, 已登录: !!quota, 输入框: !!$q(), 发送按钮: !!$send() }
     },
   }
