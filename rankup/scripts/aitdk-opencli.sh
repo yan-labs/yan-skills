@@ -70,7 +70,7 @@
 # a frozen "0 / 100" mid-animation — both silent (no error/warning) and both
 # would otherwise get written into the report as a false blank/near-zero
 # score. geo_score_from_text() plus the GEO-specific retry loop in the main
-# section loop poll until the score settles before accepting the read; see
+# section loop require repeated identical readings before accepting the score; see
 # the comments at both call sites for the exact symptoms this was observed
 # to produce.
 #
@@ -537,6 +537,9 @@ geo_score_from_text() {
     }
   '
 }
+geo_score_is_stable() {
+  [[ -n "$1" && "$1" != "0" && "$1" == "$2" && "$1" == "$3" ]]
+}
 # ============================================================================
 # PART B — AITDK extension panel via opencli frame-eval
 # ============================================================================
@@ -772,25 +775,30 @@ for label in "${PANEL_SECTIONS[@]}"; do
   # score can look non-empty (~190 chars of just category labels) while the
   # actual score digits either haven't rendered yet or are frozen at "0 / 100"
   # mid-animation. On 2026-09-24 the live AITDK GEO skeleton persisted for
-  # over 2 minutes on one site. Poll for up to 3 minutes
-  # until the score settles on a non-zero reading. See geo_score_from_text()
+  # over 2 minutes on one site. A new non-zero score may also be an animated
+  # intermediate (8 before 57 was observed). Poll for up to 3 minutes
+  # until three consecutive readings agree. See geo_score_from_text()
   # above for why the generic empty-check cannot catch this case.
   if [[ "$label" == "GEO" ]]; then
     geo_attempt=0
     geo_score="$(geo_score_from_text "$SECTION_TEXT")"
-    while [[ "$geo_attempt" -lt 18 && ( -z "$geo_score" || "$geo_score" == "0" ) ]]; do
+    geo_prev=""
+    geo_prev_prev=""
+    while [[ "$geo_attempt" -lt 18 ]] && ! geo_score_is_stable "$geo_score" "$geo_prev" "$geo_prev_prev"; do
       geo_attempt=$((geo_attempt + 1))
-      warn "Section 'GEO': score not settled yet (read: '${geo_score:-<none>}') — waiting 10s and re-reading ($geo_attempt/18)"
+      warn "Section 'GEO': score not stable yet (read: '${geo_score:-<none>}') — waiting 10s and re-reading ($geo_attempt/18)"
       sleep 10
       ensure_frame || true
+      geo_prev_prev="$geo_prev"
+      geo_prev="$geo_score"
       SECTION_TEXT="$(fe "$READ_JS" 2>/dev/null || true)"
       SECTION_JSON="$(parse_section_text "$SECTION_TEXT" 2>/dev/null || echo '{}')"
       BODY_LEN="$(jq -r '(.bodyLength // 0)' <<<"$SECTION_JSON" 2>/dev/null || echo 0)"
       geo_score="$(geo_score_from_text "$SECTION_TEXT")"
     done
-    if [[ -z "$geo_score" || "$geo_score" == "0" ]]; then
-      warn "Section 'GEO': score still unsettled after ${geo_attempt} extra read(s) (last: '${geo_score:-<none>}') — recording as-is; do not trust this as a real 0/blank score without checking manually"
-      panel_errors+=("geo: score unsettled after retries (last read: '${geo_score:-<none>}')")
+    if ! geo_score_is_stable "$geo_score" "$geo_prev" "$geo_prev_prev"; then
+      warn "Section 'GEO': score still unstable after ${geo_attempt} extra read(s) (last: '${geo_score:-<none>}') — recording as-is; do not trust this score without checking manually"
+      panel_errors+=("geo: score unstable after retries (last read: '${geo_score:-<none>}')")
     elif [[ "$geo_attempt" -gt 0 ]]; then
       ok "Section 'GEO': score settled at $geo_score after ${geo_attempt} extra read(s)"
     fi

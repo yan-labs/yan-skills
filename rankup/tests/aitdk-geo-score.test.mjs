@@ -35,6 +35,7 @@ function extractFunction(src, name) {
 }
 
 const geoScoreFn = extractFunction(scriptSrc, 'geo_score_from_text');
+const geoStableFn = extractFunction(scriptSrc, 'geo_score_is_stable');
 const writePanelFn = extractFunction(scriptSrc, 'write_panel');
 
 function runGeoScoreFromText(input) {
@@ -69,6 +70,20 @@ test('geo_score_from_text: a settled non-zero score is read correctly', () => {
 test('geo_score_from_text: only picks up a digit within a few lines of the marker, not an unrelated later number', () => {
   const text = ['GEO Score', 'Some unrelated label', 'Another label', 'Yet another', 'More text', 'Still more', 'Even more', '42'].join('\n');
   assert.equal(runGeoScoreFromText(text), '', 'the "42" is outside the 6-line lookahead window and must not be picked up as the score');
+});
+
+test('geo_score_is_stable: animated non-zero readings are not accepted', () => {
+  const run = (...scores) => {
+    try {
+      execFileSync('bash', ['-c', `${geoStableFn}\ngeo_score_is_stable "$1" "$2" "$3"`, '--', ...scores]);
+      return true;
+    } catch { return false; }
+  };
+  assert.equal(run('8', '0', '0'), false);
+  assert.equal(run('57', '8', '8'), false);
+  assert.equal(run('57', '57', '8'), false);
+  assert.equal(run('57', '57', '57'), true);
+  assert.equal(run('0', '0', '0'), false);
 });
 
 test('write_panel: an unsettled GEO score cannot be marked ok', () => {
