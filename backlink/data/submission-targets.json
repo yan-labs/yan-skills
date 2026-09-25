@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-12",
+  "updatedAt": "2026-09-25",
   "note": "Submission routes observed to exist. NOT placements: no row here claims a published link, a rel value, or an index entry. A row graduates into free-channels.json only when a real anchor is seen on a live page. Relevance and authority rank these, they never gate them.",
   "targets": [
     {
@@ -16598,6 +16598,32 @@
       }
     },
     {
+      "domain": "indieneed.com",
+      "route": "https://www.indieneed.com/submit",
+      "name": "Submit a product | IndieNeed",
+      "kind": "startup-launch",
+      "gate": "manual-review",
+      "gates": [
+        "open-form",
+        "manual-review"
+      ],
+      "cohort": "manual-review",
+      "payment": "optional",
+      "price": null,
+      "priceCheckedAt": null,
+      "status": "gated",
+      "sourceList": "manual verification 2026-09-25",
+      "notes": "Free $0 listing is hand-reviewed; paid one-time plans are optional and publish immediately with promotion. No published anchor has been verified.",
+      "lastProbedAt": "2026-09-25",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "The live /submit and /pricing pages state that products can launch for free after staff review, with optional paid one-time plans for immediate publication and promotion.",
+        "httpStatus": 200,
+        "finalUrl": "https://www.indieneed.com/submit",
+        "title": "Submit a product | IndieNeed"
+      }
+    },
+    {
       "domain": "indietool.io",
       "route": "https://www.indietool.io/",
       "name": "Directory of Apps &amp; Startups Built by Indie Founders | IndieTool",
@@ -18023,6 +18049,33 @@
       ]
     },
     {
+      "domain": "launchbuff.com",
+      "route": "https://launchbuff.com/submit",
+      "name": "Submit Your Product | LaunchBuff",
+      "kind": "startup-launch",
+      "gate": "reciprocal",
+      "gates": [
+        "account",
+        "email-verify",
+        "reciprocal"
+      ],
+      "cohort": "reciprocal",
+      "payment": "optional",
+      "price": null,
+      "priceCheckedAt": null,
+      "status": "gated",
+      "sourceList": "manual verification 2026-09-25",
+      "notes": "Free submission uses email magic-link sign-in and requires installing the free badge to activate the listing. The free listing link is described as nofollow; paid tiers are optional. No published anchor has been independently verified.",
+      "lastProbedAt": "2026-09-25",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "The live submit, homepage, and support content describe free submission via email sign-in, badge activation for the free listing, a nofollow free link, and optional paid dofollow upgrades.",
+        "httpStatus": 200,
+        "finalUrl": "https://launchbuff.com/submit",
+        "title": "Submit Your Product | LaunchBuff"
+      }
+    },
+    {
       "domain": "launchclash.com",
       "route": "https://launchclash.com/",
       "name": "LaunchClash",
@@ -18245,6 +18298,32 @@
           "capturedAt": "2026-09-09"
         }
       ]
+    },
+    {
+      "domain": "launchstag.com",
+      "route": "https://launchstag.com/submit",
+      "name": "Launchstag — Discover the best indie product launches",
+      "kind": "startup-launch",
+      "gate": "manual-review",
+      "gates": [
+        "open-form",
+        "manual-review"
+      ],
+      "cohort": "manual-review",
+      "payment": "none-seen",
+      "price": null,
+      "priceCheckedAt": null,
+      "status": "gated",
+      "sourceList": "manual verification 2026-09-25",
+      "notes": "Free self-service product submission enters a launch queue and is reviewed before publication. No published anchor has been verified.",
+      "lastProbedAt": "2026-09-25",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "The live /submit route and FAQ describe a free self-service product form, an assigned go-live date, and review before the scheduled listing goes live.",
+        "httpStatus": 200,
+        "finalUrl": "https://launchstag.com/submit",
+        "title": "Launchstag — Discover the best indie product launches"
+      }
     },
     {
       "domain": "launchtory.com",
@@ -22313,28 +22392,27 @@
     },
     {
       "domain": "peerpush.com",
-      "route": "https://peerpush.com/",
+      "route": "https://peerpush.com/submit",
       "name": "PeerPush - Get Found by People and AI",
       "kind": "startup-launch",
-      "gate": "personal-contact",
+      "gate": "account",
       "gates": [
-        "account",
-        "personal-contact"
+        "account"
       ],
-      "cohort": "personal-contact",
-      "payment": "required",
+      "cohort": "account",
+      "payment": "optional",
       "price": "$39 / $89 / $229 / $10 / $10 / $79",
       "priceCheckedAt": "2026-08-22",
       "status": "gated",
       "sourceList": "web.cafe bounty wlhmhdaoqg",
-      "notes": null,
-      "lastProbedAt": "2026-08-22",
+      "notes": "A $0 free submission queue is available after login. Paid plans only accelerate publication or add promotion and are optional.",
+      "lastProbedAt": "2026-09-25",
       "evidence": {
         "method": "anonymous-http",
-        "what": "reachable 200, gates observed: account + personal-contact",
+        "what": "The live /submit route redirects to account login, while the homepage and pricing page state that free submissions join a queue and paid launch or promotion plans are optional.",
         "httpStatus": 200,
-        "finalUrl": "https://peerpush.com/",
-        "title": "PeerPush - Get Found by People and AI"
+        "finalUrl": "https://peerpush.com/auth/login?redirectTo=%2Fsubmit",
+        "title": "Login | PeerPush"
       },
       "traffic": {
         "monthlyVisits": 40731,
@@ -25011,28 +25089,29 @@
     },
     {
       "domain": "sellwithboost.com",
-      "route": "https://sellwithboost.com/",
+      "route": "https://sellwithboost.com/submit",
       "name": "Discover Startups — Sell With boost",
       "kind": "startup-launch",
-      "gate": "account",
+      "gate": "reciprocal",
       "gates": [
         "account",
-        "email-verify"
+        "email-verify",
+        "reciprocal"
       ],
-      "cohort": "account",
-      "payment": "none-seen",
+      "cohort": "reciprocal",
+      "payment": "optional",
       "price": null,
       "priceCheckedAt": null,
       "status": "gated",
       "sourceList": "web.cafe bounty wlhmhdaoqg",
-      "notes": null,
-      "lastProbedAt": "2026-08-22",
+      "notes": "The $0 listing requires a dofollow SellWithBoost backlink/badge on the submitter's website. Paid plans are optional and skip the badge requirement; no purchase is needed for the free route.",
+      "lastProbedAt": "2026-09-25",
       "evidence": {
         "method": "anonymous-http",
-        "what": "reachable 200, gates observed: account + email-verify",
+        "what": "The live /submit route redirects to login; the pricing, FAQ, and badge pages state that free listings require a verified dofollow backlink badge and paid plans are optional.",
         "httpStatus": 200,
-        "finalUrl": "https://sellwithboost.com/",
-        "title": "Discover Startups — Sell With boost"
+        "finalUrl": "https://sellwithboost.com/login",
+        "title": "Sell With boost"
       },
       "_signals": {
         "forms": 23,
@@ -30118,6 +30197,32 @@
       ]
     },
     {
+      "domain": "tools.cafe",
+      "route": "https://tools.cafe/",
+      "name": "tools.cafe — The Indie Builder's Coffee Counter",
+      "kind": "product-directory",
+      "gate": "reciprocal",
+      "gates": [
+        "reciprocal",
+        "manual-review"
+      ],
+      "cohort": "reciprocal",
+      "payment": "optional",
+      "price": null,
+      "priceCheckedAt": null,
+      "status": "gated",
+      "sourceList": "manual verification 2026-09-25",
+      "notes": "Free listing requires placing the generated tools.cafe badge/backlink on the submitter's website; optional paid featured placement is available. No published anchor has been independently verified.",
+      "lastProbedAt": "2026-09-25",
+      "evidence": {
+        "method": "anonymous-http",
+        "what": "The live homepage and FAQ describe free tool submission, manual review, and a required tools.cafe badge linking back from the submitter's website.",
+        "httpStatus": 200,
+        "finalUrl": "https://tools.cafe/",
+        "title": "tools.cafe — The Indie Builder's Coffee Counter"
+      }
+    },
+    {
       "domain": "tools-ai.online",
       "route": "https://tools-ai.online/added-today",
       "kind": "ai-directory",
@@ -30829,21 +30934,22 @@
       "route": "https://twelve.tools/submit-your-tool",
       "name": "Submit your tool on twelve.tools",
       "kind": "product-directory",
-      "gate": "open-form",
+      "gate": "reciprocal",
       "gates": [
-        "open-form"
+        "open-form",
+        "reciprocal"
       ],
-      "cohort": "open",
+      "cohort": "reciprocal",
       "payment": "optional",
       "price": "Free basic listing; $25.20 one-time for featured placement (discounted from $36)",
       "priceCheckedAt": "2026-08-22",
-      "status": "usable",
+      "status": "gated",
       "sourceList": "web.cafe bounty wlhmhdaoqg",
-      "notes": "Curated tool directory serving 12 new tools daily. Free submission at /submit-your-tool, paid featured at /submit-your-tool?plan=paid ($25.20). Claims DR81 dofollow link. No login required for free tier.",
-      "lastProbedAt": "2026-08-22",
+      "notes": "Curated tool directory serving 12 new tools daily. The free submission requires a backlink to twelve.tools on the submitter's homepage or footer. Paid featured placement remains optional; no login is required for the free form.",
+      "lastProbedAt": "2026-09-25",
       "evidence": {
-        "method": "browser-dom",
-        "what": "SPA renders /submit page with pricing: free ($0) and featured ($25.20, discounted from $36). Free tier links to /submit-your-tool with open form. Homepage advertises DR81 dofollow link. No login gate on free tier.",
+        "method": "both",
+        "what": "The live submission page states that submission is free and that a backlink to twelve.tools on the submitter's homepage or footer is required; prior browser verification recorded the optional paid featured plan.",
         "httpStatus": 200,
         "finalUrl": "https://twelve.tools/submit-your-tool",
         "title": "Submit your tool on twelve.tools"
