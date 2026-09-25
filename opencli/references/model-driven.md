@@ -14,23 +14,13 @@
 
 ## JEV 是什么，不是什么
 
-TypeSafe 的 System One 决策模型。`POST https://api.typesafe.ai/v1/systemone`，
-`Authorization: Bearer $TYPESAFE_API_KEY`，模型 `jev-latest`。
-**不生成文本、不调工具、不是 OpenAI/Anthropic 兼容端点**——只对 `state` + 带类型的 questions
-返回校准概率：
+TypeSafe 的 System One 决策模型：只对已枚举好的动作集合做校准概率判断，不生成文本、
+不调工具，只能在「选一个」而不是「想怎么做」的场景里替代 agent。协议细节、`choice`/
+`noul`/`score` 三种题型、价格和 `judge` 命令用法统一见
+[`../agent-fleet/skill/SKILL.md`](../../agent-fleet/skill/SKILL.md) 的「JEV 判断模型」一节，
+这里只记录把它接成浏览器动作选择器这一具体应用的设计和实测。
 
-| 题型 | 返回 | 在浏览器循环里的用途 |
-|---|---|---|
-| `choice`（≤255 个选项） | 选中项 + 各项概率 + confidence | 下一步点哪个 ref |
-| `noul` | 是的概率 0–1 | 目标是否已达成 / 页面是否出错 / 是否登录墙 |
-| `score` | 分档加权值 | 候选结果相关度排序 |
-
-所以它**不能**替代需要生成文本或 tool calling 的 agent 模型；它只能在**已枚举好的动作集合里挑一个**。
-打字内容、表单值、截图判断、最终核对仍由 agent 或代码负责。
-
-价格：输入 $0.042 / 1M tokens，输出免费。实测一步 0.4–1.4k 输入 token，0.25–1.3 s。
-
-## 实测（2026-09-25，`scripts/jev-step-demo.mjs`）
+## 早期实测（2026-09-25，演示脚本，已被 auto 命令取代）
 
 目标「从 example.com 到 IANA 的 Root Zone Management 页」，会话 `opencli-sync-test`，`OPENCLI_WINDOW=isolated`：
 
@@ -44,18 +34,22 @@ TypeSafe 的 System One 决策模型。`POST https://api.typesafe.ai/v1/systemon
 4 次 JEV 调用共 3,876 输入 token（约 $0.00016），agent 侧只消耗启动脚本和读最终结果那一轮。
 同样的事让 agent 自己逐步 `state` → 读 → `click`，每步要把 1–3k token 的页面树读进上下文。
 
-## 怎么用
+## 怎么用（现在等价的命令）
+
+演示脚本已删除；同样的事现在用正式子命令做：
 
 ```bash
 # 密钥只从环境变量读，绝不打印、不写进命令行参数或文件
 S=my-task-$(date +%s)
-node ~/.claude/skills/opencli/scripts/jev-step-demo.mjs "$S" https://example.com "目标用一句英文写清楚" 6
+opencli browser "$S" open https://example.com
+opencli browser "$S" auto --goal "目标用一句英文写清楚" --max-steps 6
 opencli browser "$S" close
 ```
 
-脚本每步输出一行 JSON（候选数、choice、confidence、top3、done 概率、耗时、token），
-`confidence < 0.3` 自动停下交回 agent。会话名照第三节纪律起，用完 `close`；专用窗口池满时
-脚本默认 `OPENCLI_WINDOW=isolated`，不会等池。
+`auto` 每步记录一次 JEV 选择（候选数、choice、confidence、耗时、token），
+`--min-confidence` 默认 0.55，低于阈值自动停下交回人工。会话名照第三节纪律起，
+用完 `close`；专用窗口池满时默认 `OPENCLI_WINDOW=isolated`，不会等池。完整参数、
+四道安全闸门和已知限制见下方「更彻底的接法」一节。
 
 ## 什么时候用它代替 agent 逐步点
 

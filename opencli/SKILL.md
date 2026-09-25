@@ -610,8 +610,8 @@ fill/select/check 候选累计概率质量两者较大值」来缓解，但仍�
 尚未实现，见下方「已知限制与后续方案」。
 
 打字、填表值、提交决策的最终把关仍然是 agent/用户的责任——`auto` 只是把「选哪个
-按钮/填哪个字段」这一步的判断成本降到 JEV 的价位。仍在用旧的逐步点脚本原型
-（`scripts/jev-step-demo.mjs`）的场景、完整设计动机和取舍见
+按钮/填哪个字段」这一步的判断成本降到 JEV 的价位。`opencli browser <session> auto`
+的完整用法、四道安全闸门、已知限制和设计取舍见
 [`references/model-driven.md`](references/model-driven.md)。
 
 ---

@@ -66,7 +66,8 @@ dc992063:src/cli.ts` 核对过，合并前就已存在，不是这 50 个提交�
 **实测**：独立 session 名 `opencli-upgrade-check` 跑 `browser open/state/window status/close`
 打开 `https://example.com`，`state` 读到 `title: Example Domain`；`window status` 显示走的是
 `pool-1` 专用窗口（`bounds 116,57 1280x900`，不是用户当前窗口），跑完 `close` 正常释放、
-没有残留租约。`yan-skills/opencli/scripts/jev-step-demo.mjs`（`TYPESAFE_API_KEY` 走环境变量）
+没有残留租约。`yan-skills/opencli/scripts/jev-step-demo.mjs`（演示脚本，已删除，由
+`opencli browser <session> auto` 子命令取代；`TYPESAFE_API_KEY` 走环境变量）
 对 `example.com` 跑一步，JEV 直接给出 `DONE`（confidence 0.98），新版下 JEV 选步链路正常。
 
 ---
