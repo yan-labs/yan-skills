@@ -99,7 +99,7 @@ a–c 必然全空，而 d 档的 `git remote -v` 会拿当前仓库的名字拼
 
 #### 阶段 1 · 七组诊断（**先定积分预算，再派 sub agent**）
 
-派发纪律见 SKILL.md「主线只调度，sub agent 做事」：每个 prompt 自包含（站点 URL、
+派发纪律见 `discipline.md`「主 Agent 与子 Agent 分工」：每个 prompt 自包含（站点 URL、
 项目根绝对路径、要跑哪几条命令、产物写进哪个文件、判读对照哪一节）。
 
 ##### 派活之前先按积分与会话分组
