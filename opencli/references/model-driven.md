@@ -158,6 +158,49 @@ URL」不是判据**，因为一个校验失败的表单常常会静默重渲染
 字段映射，至少也是 6-10 轮工具调用的 agent token，而 `auto` 这一段总共
 只花了个位数次 JEV 调用。
 
+### 已修复：`--window dedicated`（默认窗口模式）下原生点击可能被 Chrome 静默丢弃（1.12.1）
+
+2026-09-26 升级到 1.12.0 后验收 `auto` 时发现：同样「example.com → IANA Root
+Zone Management」的导航场景，按默认参数（不传 `--window`，即
+`--window dedicated`）跑 `--max-steps 6` 会 6 步全部选中同一个正确的
+"Learn more" 链接、`executed: true`，但页面从未真正导航，耗尽步数后
+`stopped_for_human`/`max_steps` 收场。
+
+排查过程（结论：不是 `auto` 的编排 bug，是更底层的点击原语问题）：
+
+1. 去掉 `auto`，只用单条 `opencli browser <s> click <ref>`：`--window
+   dedicated` 下返回 `{"clicked":true,"click_method":"cdp","hit":"target"}`
+   （看起来完全成功），但页面 URL 没变；`--window active`/`--window isolated`
+   跑同样的 `open`→`state`→`click`→`state` 序列都能正确导航。
+2. 排除「偷偷开了新标签页」（`tab list` 确认全程只有 1 个 tab）和「单纯没有
+   OS 焦点」（`eval "document.hasFocus()"` 在 dedicated 和 isolated 下都是
+   `false`，但只有 dedicated 点击失败——两种模式在这一点上没有区别）。
+3. 关键实验：同一个卡住的 dedicated session 上，用 `eval
+   "document.querySelector('a').click()"`（纯 JS 触发，不走 CDP 原生点击）
+   反而导航成功。证明 tab/页面本身完全正常，坏的只是 `click()` 里
+   `Input.dispatchMouseEvent` 那条「CDP 原生点击」路径——它在 dedicated 模式
+   下会「CDP 调用报告成功，但输入从未真正送达渲染进程」，`active`/`isolated`
+   不受影响。
+
+根因指向 Chromium 对「窗口 `focused:false` 且刻意放到可见屏幕之外」这类
+窗口的输入分发行为——`dedicated` 模式正是刻意这样创建窗口（不抢用户焦点、
+不占屏幕），这是产品特性，不应该为了这个 bug 把窗口挪回屏内。修法落在点击
+原语这一层而不是窗口管理：`click()` 在原生点击前往页面装一个只认
+`isTrusted` 事件的探针，原生点击"成功"后轮询探针最多 180ms，如果从未观测到
+真实的 mousedown/click（判定为被丢弃），立即回退到既有的 JS `el.click()`
+路径，结果里加一个 `native_click_dropped: true` 标记供诊断；探针装不上时
+完全退化为旧行为。对 `auto` 和手工 `click` 两条路径同时生效。已在
+`src/browser/base-page.ts`/`src/browser/dom-helpers.ts` 修好并随 CLI 1.12.1
+发布，验收时连续 3 次同一场景都在 4 步内到达目标页。
+
+**这意味着**：如果你在别处看到 `browser click`/`browser auto` 报告点击
+成功但页面明显没反应，先看 `opencli --version`——低于 1.12.1 就是这个坑，
+升级即可；1.12.1 以上如果还复现，看返回里有没有 `native_click_dropped:
+true`（有的话说明探针已经接管，页面大概率是真的没反应，而不是探针本身的
+问题）。`hover`/`dblclick`/`drag`/`nativeType`/`tryClickAxRef` 走的是同一个
+`Input` 域，同样可能被丢弃，但探针目前只加在 `click()` 上，没有覆盖这几个
+——真机上如果发现 dedicated 模式下打字或悬停也没反应，按同一个探针模式扩展。
+
 ### 已知限制
 
 - **`--min-confidence` 默认阈值对「多个字段都可以先填、顺序不重要」的长表单
