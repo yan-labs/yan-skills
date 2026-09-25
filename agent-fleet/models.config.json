@@ -66,18 +66,10 @@
     "authHeader": "x-api-key"
   },
 
-  "kollab-gateway-opus-5-5": {
-    "description": "Kollab TEST 网关的 Claude Opus 5.5，按 Space 额度计费。",
+  "kollab-gateway-code": {
+    "description": "Kollab 网关,编程任务例外用途:用户 2026-09-23 定调,GLM 5.3 经真实两轮验证(简单无工具调用请求 + 多轮工具调用编程任务,均未出现裸露 tool-call 控制 token)后开例外,允许编程类任务路由到这里。模型 glm-5.3-flash(`kollab model list` 确认的精确 ID,网关目录里没有不带后缀的 glm-5.3,这是唯一对应 5.3 版本的条目),paidOnly=false。即便通过验证,一旦某次实际输出中出现裸 tool-call 控制 token(如 <tool_call>、<minimax:tool_call> 等)仍应视为那次失败,不代表这条例外永久有效,需持续观察。",
     "baseURL": "https://test.flowus.work/api/llm",
-    "model": "claude-opus-5-5",
-    "apiKeyEnv": "KOLLAB_LIVE_API_KEY",
-    "authHeader": "x-api-key"
-  },
-
-  "kollab-gateway-gpt-6-sol": {
-    "description": "Kollab TEST 网关的 GPT-6 Sol，按 Space 额度计费。",
-    "baseURL": "https://test.flowus.work/api/llm",
-    "model": "gpt-6-sol",
+    "model": "glm-5.3-flash",
     "apiKeyEnv": "KOLLAB_LIVE_API_KEY",
     "authHeader": "x-api-key"
   }

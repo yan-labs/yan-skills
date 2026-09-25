@@ -35,8 +35,7 @@ Agent 能力去驱动它们的模型——你拿到的不是"一问一答",而�
 | `kollab-gateway-copy` | 同上 | 同上,`model: "gemini-3.8-flash"` | 文案/创意用途的命名别名,和默认模型相同,单独命名是为了不依赖默认值以后的调整 |
 | `kollab-gateway-research` | 同上 | 同上,`model: "grok-4.6"` | 通用调研摘要用途 |
 | `kollab-gateway-bulk` | 同上 | 同上,`model: "gemini-3.5-flash-lite"` | 批量翻译/格式转换等机械任务用途,目录里响应最快的免费档模型之一 |
-| `kollab-gateway-opus-5-5` | 同上 | 同上,`model: "claude-opus-5-5"` | TEST 付费模型,已真实调用验证 |
-| `kollab-gateway-gpt-6-sol` | 同上 | 同上,`model: "gpt-6-sol"` | TEST 付费模型,已真实调用验证 |
+| `kollab-gateway-code` | 同上 | 同上,`model: "glm-5.3-flash"` | 编程任务例外:用户 2026-09-23 定调的例外,GLM 5.3 经两次真实验证(简单请求 + 多轮工具调用编程任务)均未出现裸 tool-call 控制 token 后开放给编程任务使用 |
 
 **关于 Gemini 的如实说明**:查证下来,Google 官方**没有**为 Gemini 提供 Anthropic Messages 协议
 兼容端点(不像 DeepSeek/Moonshot 那样)。市面上能找到的都是社区维护的转换代理(比如把 Anthropic
@@ -62,7 +61,8 @@ proxy,或任何等价方案)并把地址填进去之前,选这个模型会直接
 | 批量翻译 / 格式转换 | `deepseek-v4-flash`(需配 `DEEPSEEK_API_KEY`)或 `kollab-gateway-bulk`(`gemini-3.5-flash-lite`,即用免配置) | 官方 Flash 档更便宜;没有 DeepSeek key 时 `kollab-gateway-bulk` 是免第三方审批的平替 |
 | 简单调研摘要 | `kimi`(需配 `MOONSHOT_API_KEY`,自带联网搜索)或 `kollab-gateway-research`(`grok-4.6`,即用免配置) | Kimi 官方端点自带联网检索能力,适合真正需要查资料的调研;不想等 key 审批时用 `kollab-gateway-research` 顶上 |
 | 高质量单次产出(长文案定稿、复杂推理) | `deepseek-v4-pro`(需配 `DEEPSEEK_API_KEY`) | DeepSeek 官方 Opus 档位映射目标,适合一次成型、不想反复返工的任务 |
-| 多轮工具调用容错要求高的任务 | 不建议派给任何第三方模型,留给 Claude 自己处理 | 第三方模型(尤其 Kimi/DeepSeek/Qwen 家族)已知存在 tool-calling 可靠性问题,有时会把裸的 tool-call 控制 token 当成普通文本吐出来而不是走结构化 `tool_use`,造成"进程正常退出但其实是假成功"——这是模型生成层面的问题,agent-fleet 的 harness 补不了,只能靠不把这类任务派给它们来规避 |
+| 编程任务 | `kollab-gateway-code`(`glm-5.3-flash`) | 用户 2026-09-23 指定的编程任务例外,GLM 5.3 已通过两次真实端到端验证(见下方「验证情况」),两次均未出现裸 tool-call 控制 token |
+| Kimi/DeepSeek/Qwen 家族、多轮工具调用容错要求高的任务 | 不建议派给这几个家族的第三方模型,留给 Claude 自己处理 | 这几个家族的模型已知存在 tool-calling 可靠性问题,有时会把裸的 tool-call 控制 token 当成普通文本吐出来而不是走结构化 `tool_use`,造成"进程正常退出但其实是假成功"——这是模型生成层面的问题,agent-fleet 的 harness 补不了,只能靠不把这类任务派给它们来规避。**GLM 5.3 是用户 2026-09-23 指定的编程任务例外**(见上一行),即便开了这个例外,只要某次实际输出里出现裸 tool-call 控制 token,那一次仍然要判定失败——不能因为整体开了例外就放松这条判定标准 |
 
 **关于 Qwen**:调研建议里提过可以考虑 Qwen,但截至本次核对(2026-09,TEST 环境
 `kollab model list`),Kollab 网关目录里**没有**收录任何 Qwen 系列模型 id,所以上面没有把 Qwen
@@ -80,6 +80,8 @@ proxy,或任何等价方案)并把地址填进去之前,选这个模型会直接
 cd agent-fleet
 npm install
 ```
+
+**维护约定**：改 CLI 或 SDK 接入时先用 `npm run check-sdk` 检查当前版本；有明确兼容需求才升级依赖，并运行 `npm test` 与相关真实调用。纯文档修改无需升级 SDK 或消耗网关额度。
 
 ## 配置
 
@@ -177,7 +179,7 @@ API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.
 模型的端到端验证**。`kollab-gateway` 是例外——它用的是 Kollab 产品自助生成的账号 key,不需要等第三方
 审批,已经做过一次真实的端到端验证(见第 0 条)。已经做到的:
 
-0. **`kollab-gateway` 系列基础四个条目全部真实端到端验证(TEST 环境)**:用 `kollab api-key create`
+0. **`kollab-gateway` 系列四个条目全部真实端到端验证(TEST 环境)**:用 `kollab api-key create`
    生成了一把真实的 `kollab_live_*` standalone key(账号自助生成、随时可在 Kollab 里吊销/重建,
    不是 Kollab 内部基础设施或第三方供应商的密钥),写进本地 `.env`(未提交),对 `kollab-gateway`、
    `kollab-gateway-copy`、`kollab-gateway-research`、`kollab-gateway-bulk` 各跑了一次真实调用,例如:
@@ -191,8 +193,16 @@ API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.
    `POST https://test.flowus.work/api/llm` 拿到了对应模型的真实响应,不是报错也不是 mock,返回内容
    里也没有出现裸的 tool-call 控制 token。
 
-   新增的 `kollab-gateway-opus-5-5`、`kollab-gateway-gpt-6-sol` 也各用 TEST 网关真实调用一次，
-   均返回 `ok: true`、`result: OK`，解析到对应模型，且有对应的 Space 扣费记录。
+   **`kollab-gateway-code`(GLM 5.3,2026-09-23 追加验证)**:用户要求给编程任务开例外前,先跑了
+   两次真实验证而不是只改配置。第一次是简单无工具调用请求(`--prompt "回复OK两个字,不要调用任何
+   工具"`),返回 `"ok": true`、`"result": "OK"`,`numTurns: 1`,`totalCostUsd: 0.09276`。第二次是
+   真实的多轮工具调用编程任务(在临时目录里让它写 `add.js` 导出加法函数,再写一个跑
+   `add(2,3)===5` 断言的脚本),`numTurns: 3`,`totalCostUsd: 0.1361`,人工 `cat` 检查了生成的
+   `add.js`/`test.js` 内容合理,并且亲自用 `node test.js` 实跑一遍确认真的打印 `PASS`、退出码 0——
+   不是只看 agent-fleet 自报的 `"ok": true`。两次调用的完整输出都人工过了一遍,均未出现任何裸露的
+   tool-call 控制 token(如 `<tool_call>`、`<minimax:tool_call>`、`<|tool_calls_section_begin|>`
+   等)。**注意范围**:这只验证了 `glm-5.3-flash` 这一个模型,不代表 Kimi/DeepSeek/Qwen 家族的
+   同类风险已被排除,那几个家族仍按原结论处理。
 
 1. **代码能正常跑**:`--help`、`--version`、`list-models`、缺参数/缺密钥/未知模型等错误路径都手动
    跑过,报错信息清晰可操作。
@@ -220,9 +230,9 @@ API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.
 ## 接下来你需要做的事
 
 0. 想先跑起来、不想等第三方 key 审批:直接用 `kollab-gateway` 系列——`kollab api-key create --name <你的名字>`
-   生成一把 `kollab_live_*` key,填进 `.env` 的 `KOLLAB_LIVE_API_KEY`,基础四个条目(`kollab-gateway`、
+   生成一把 `kollab_live_*` key,填进 `.env` 的 `KOLLAB_LIVE_API_KEY`,四个条目(`kollab-gateway`、
    `kollab-gateway-copy`、`kollab-gateway-research`、`kollab-gateway-bulk`)都已经验证过真实可用
-   (见上一节第 0 条)。两个新增付费模型也已在 TEST 验证，按需显式选用。
+   (见上一节第 0 条),按「任务类型 → 推荐模型」表按用途直接选对应条目名即可。
 1. 去 DeepSeek(<https://platform.deepseek.com>)和/或 Moonshot(<https://platform.moonshot.cn>)
    生成真实 API key,填进 `.env`。
 2. 如果要用 Gemini,自己搭一个 Anthropic 兼容网关,把地址和它认的模型 ID 填进

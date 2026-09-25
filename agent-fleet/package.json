@@ -13,7 +13,8 @@
   "scripts": {
     "smoke-test": "node test/smoke-test.mjs",
     "security-test": "node test/security-unit-test.mjs && node test/security-e2e-test.mjs",
-    "test": "npm run smoke-test && npm run security-test"
+    "test": "npm run smoke-test && npm run security-test",
+    "check-sdk": "node -e \"const {execSync}=require('child_process');const pkg=require('./package.json');const cur=pkg.dependencies['@anthropic-ai/claude-agent-sdk'];const latest=execSync('npm view @anthropic-ai/claude-agent-sdk version').toString().trim();console.log('package.json 当前: '+cur+'  |  npm 最新: '+latest);\""
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.280"
