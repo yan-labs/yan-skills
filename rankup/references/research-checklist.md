@@ -61,8 +61,8 @@
 
 | 步骤 | 工具 | 命令 | 输出 |
 |---|---|---|---|
-| 2.1 关键词难度 + Top 9 盘面 | `seo-webcafe.mjs` | `kd --keyword "<词>"` | KD 分、top 9 结果的 DR / 首页内页 / 专营非专营、引用域中值 |
-| 2.2 批量词的 KD | `seo-webcafe.mjs` | `kd --batch <file>` | 同上，批量 |
+| 2.1 关键词难度 + Top10 盘面 | `webcafe-api.mjs` | `keyword_difficulty "<词>" --gl <国>` | 哥飞版 KD、判断理由、Top10 竞争盘面与链接预算 |
+| 2.2 批量词的 KD | `webcafe-api.mjs` | `bulk_keyword_difficulty --keywords <逗号分隔词表> --gl <国>` | 快照口径预筛；入选词再按 2.1 精评，两个 KD 不混用 |
 | 2.3 KGR / EKGR / KDROI 计算 | `seo-webcafe.mjs` | `kgr --volume <n> --intitle <n> --kd <n>` | 纯本地，零配额 |
 
 **判断读 [`webcafe-topics.md`](experiences/webcafe-topics.md) 一~二：低 KD 不等于能做；词龄 >30 天且竞品域名 >20 天要考虑放弃。**
@@ -227,7 +227,7 @@
 | 社交预搜索信号 | TikTok / YouTube / X | 高播放视频评论区的需求信号，领先搜索量数天 |
 | 技术社区需求 | StackOverflow / V2EX | 高票未接受答案 = 没有好工具 = 可做成产品 |
 | 博客评论监控 | Google Alerts + `site:` | 评论者措辞 = 长尾搜索查询词 |
-| 品牌截流词 | `seo-webcafe.mjs kd` | `[brand] alternative/vs/review`，KD 通常很低 |
+| 品牌截流词 | `webcafe-api.mjs keyword_ideas` / `keyword_difficulty` | `[brand] alternative/vs/review`；先看 SERP 是否真有独立站入口 |
 | AppSumo 差评 | AppSumo 公开页面 | 付费用户差评极其具体，Q&A 区有「does it support...」句式 |
 
 ---

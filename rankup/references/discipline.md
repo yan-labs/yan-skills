@@ -270,7 +270,7 @@ Skill 集合不一样，文档只保证「该用什么」；遇缺就跳过会�
 | 为算 KGR/TDK 去开网页或消耗配额 | 本地命令 `kgr` / `string` / `money` / `email` | 纯本地、零配额、支持 `--batch` |
 | 拿 `new.web.cafe` 的 HTTP 200 当「取到了」 | 看 `access` 字段 / 正文空不空 | 该站匿名不返回 401，只把正文抹成空串 |
 | 对 `kind:collect` 的悬赏只读 `answers[]` | 读 `collect.board[]` | 征集型内容不在 answers 里，会对着几百条榜单报「0 条」且不报错 |
-| 用通用 `chatbot-drive.browser.js` 问哥飞 AI | 有 Cookie 用 `seo-webcafe.mjs chat`；没有用 `gefei-ask.mjs` | 两条专用路径都封装过配额与完成判定 |
+| 用站内哥飞 AI 代做调研或审站 | 直接用 `webcafe-api.mjs` 调开放接口，Rankup 自己判读；`tools` / `me` 先查价格和余额 | 32 个接口覆盖选词、流量、SERP、页面等数据；旧聊天路径不再是默认流程 |
 | 用 Claude in Chrome / 手动 OpenCLI 操作 Similarweb、Semrush 面板 | `similarweb-query.mjs` / `semrush-overview.mjs` 等 | 脚本已存在，手操浪费上下文且不可复现 |
 | OpenCLI 会话名用通用常量如 `work` | JS 用 `defaultSession('base')`；shell 用描述性常量 | 多任务撞名 → 拿到别人的页面，零报错 |
 | 用沙箱浏览器访问需要登录的面板 | 用户的浏览器 | 沙箱没有 cookie，返回匿名态数据 |

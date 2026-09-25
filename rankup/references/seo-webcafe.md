@@ -1,8 +1,6 @@
 # seo.web.cafe（哥飞的 SEO 工具箱）接口地图
 
-哥飞做的中文 SEO 工具集合，域名 `seo.web.cafe`，每个工具是一个独立子路径（`/<tool>/`），
-多数工具页面下面挂了一个同名的小后端，路径规律是 **`/<tool>/api/<action>`**，
-不是 `/api/v1/...`（那是 `/kd/` 一个工具专属的公开 API 前缀，其余工具都没有）。
+**当前执行入口见下方「开放 API 与完整 CLI」。** 以下「接口地图」是 2026-08 的旧网页端点记录：当时多数工具挂在 `/<tool>/api/<action>`；2026-09-25 已核对新开放 API，全部 32 个工具统一走 `/api/v1/<接口>`。旧表只用于维护兼容脚本，不再作为调研调用依据。
 
 本文档 2026-08-07 用真实浏览器会话（未登录、访客身份）逐个工具点了一遍网络面板得到，
 每个工具在探索阶段只发了一次请求，没有跑循环、没有登录、没有绕过配额；随后额外用
@@ -122,7 +120,37 @@
 `influencer` 是单次议价场景不是批量工作流；`level` 是静态说明页没有算法；
 `gsc` 复刻出来和站点免费展示的没有本质区别。跑 `tools` 命令可以看到这份清单和理由。
 
-## 怎么用：一个脚本，零配置
+## 开放 API 与完整 CLI（当前入口）
+
+来源：[官方 API 目录](https://seo.web.cafe/api/)（2026-09-25 核对）。`scripts/webcafe-api.mjs` 是官方零依赖 CLI，Rankup 只增加了读取 Skill 根目录 `.env` 的 `WEBCAFE_TOKEN`。它从 `/api/v1/tools` 实时加载接口与参数，因此当前 **32 个接口（组装 16、方法论/知识库 4、原始数据 12）全部可调用**；新增接口也不必修改本地命令表。`tools` 与 `help` 不需要令牌；`me` 和实际调用需要有效令牌。API **只扣积分余额，不使用网站每日赠送额度**。每次调用看 `credits.charged` 和 `requestId`；`402 quota` 是余额不足，`429 day_cap` 是当天上限，两者不能当成数据为零。
+
+```bash
+node <rankup-skill-dir>/scripts/webcafe-api.mjs tools
+node <rankup-skill-dir>/scripts/webcafe-api.mjs help page_coach
+node <rankup-skill-dir>/scripts/webcafe-api.mjs me
+node <rankup-skill-dir>/scripts/webcafe-api.mjs page_coach https://example.com/tool --raw --out .rankup/evidence/page-coach.json
+node <rankup-skill-dir>/scripts/webcafe-api.mjs onpage_audit https://example.com/tool --keyword "target keyword" --raw --out .rankup/evidence/onpage-audit.json
+node <rankup-skill-dir>/scripts/webcafe-api.mjs usage --api
+```
+
+使用时先从 `tools` / `help <接口>` 看实时价格、参数和范围。令牌只放本机进程环境 `WEBCAFE_TOKEN` 或 Skill 根目录被 Git 忽略的 `.env`，不要放 URL 查询参数、命令参数、报告或提交。官方 CLI 的 `login` 可把令牌存到用户配置目录，但 Rankup 默认只用 `.env`。**`/api/v1/tools` 是完整开放接口目录，不等于站内 SEO Agent 的聊天 API**；目录里没有 `chat`。审站用 `page_coach` + `onpage_audit` 的结构化结果，按本地 A/B/D 证据逐条复核；需要方法论时用 `load_guide`，需要哥飞知识库原文时用 `knowledge_ask`。不要把多个接口拼成“自动 AI 审阅”后声称它和旧 Agent 等价。
+
+### 官方 Skill 的任务编排，合入 Rankup
+
+2026-09-25 检查了[官方 Skill 包](https://seo.web.cafe/api/skills/gefei-skills.zip)的 `gefei`、`gefei-keywords`、`gefei-competitor`、`gefei-domain`、`gefei-page`：它们是调用同一批接口的**工作流说明**，没有额外数据源或必须安装的运行时。Rankup 直接采用下表的顺序，由本 Skill 自己读结果和判读；CLI 只保留一份。每轮先 `tools` / `me`，按问题取 `load_guide` 的相关专题，能批量的合并调用，报告写明市场、来源、缓存/快照口径、`requestId` 和实际扣费。`keyword_ideas` / `site_keywords` / `bulk_keyword_difficulty` 是快照数据；`keyword_difficulty` 是哥飞版精评；两种 KD 不混用。全球量明确传 `gl=world`，不能把默认美国量当全球。
+
+| 任务 | 官方 Skill 的工具顺序 | Rankup 补充判据 |
+|---|---|---|
+| 选词 | `load_guide keyword` → `keyword_ideas` 拓词 → `bulk_keyword_difficulty` 预筛 → 候选 `keyword_difficulty` 精评 → 待推荐词一次 `keyword_volume` 核量 | 先做 Rankup 的词→站/站→词探索与真实 SERP 意图；批量优先，只给需要推荐的词花精评额度 |
+| 拆竞品 | `load_guide traffic` → `domain_overview` → `site_keywords`；要解释何时起量才加 `load_guide attribution` + `site_history` | 网站总访问与估算自然搜索流量分开；`site_keywords` 必须标国家，反查新词根 |
+| 域名尽调 | `load_guide domains` → `domain_availability` → `domain_timeline` → `domain_overview`；有可观测流量才加 `website_worth` | 仍核 Wayback、外链画像和品牌/SERP，不能只凭一个评分买域名 |
+| 页面优化 | 已有目标词先 `onpage_audit`，再 `page_coach`；无目标词先 `page_coach` 推断，再核实目标词后做 `onpage_audit`；需要比较前十才加 `serp_review` | 与本地逐 URL SEO、AITDK、真实页面和 PSI 对账；每条建议采纳或记拒绝理由 |
+
+其他接口按任务直接选：`translate_demand`、`search_known_sites` / `search_known_keywords` 做需求与库检索；`stripe_checkout_referrals` 看付款引荐信号；`domain_traffic` / `domain_dr` 批量比较；`search_intent` 做预分类；`brand_naming` / `bulk_domain_scan` / `domain_review` 做起名；`backlink_value` / `find_link_prospects` 做外链筛选；`adsense_audit` 做过审预检；`knowledge_ask` 只在需要哥飞的经验原文时调用。完整 32 个以 `tools` 的实时清单为准，不把本表当接口白名单。Google Trends、GSC、真实多引擎页面版式与社区讨论仍要走各自数据源，开放 API 没有这些输入。
+
+下面的 `seo-webcafe.mjs` 记录旧网页接口和本地 `kgr/string/money/email` 命令；旧网页接口可作兼容用途，新开放 API 优先走上面的官方 CLI。旧 `chat` 与 `gefei-ask.mjs` 不再是 Rankup 审阅闸门。
+
+## 旧网页接口与本地计算命令
 
 ```bash
 # 零配额普查：每个工具的请求头名 + 全部端点，什么都不消耗

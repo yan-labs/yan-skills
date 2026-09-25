@@ -71,7 +71,7 @@ npx skills add yan-labs/yan-skills -g --all
 
 ## `rankup` — 网站全生命周期总控
 
-版本 `3.16.2`。AITDK GEO 最多等待 3 分钟；分数未就绪时面板报告标记为未通过。调研新增「五个取数动作与编排」（词→词/词→问题/词→站/站→词/站→站）与探索广度闸：防止只在种子词上换后缀打转，进筛子前必须五个动作各跑一轮、词池里出现不含种子字面串的新词根。小语种调研新增开工卡与候选词三关判法：非英语市场先落五件事的开工卡，候选词过语义、搜索、SERP 三关才能进词表；新增本地竞品页面取词与可选的本地竞品库。竞品研究新增 AITDK 离线异常分流：完整报告留档，AI 默认只读待复核清单；KD 与站龄改为结合实际排名、目标页流量和任务缺口判断。SEO 扩树默认检查关键词 + AI / App 两组自然组合，分别验证搜索量与意图。需求调研覆盖 macOS、iOS、iPad 与 Web/SaaS，仅排除 Android App 交付；新增按商店/原生分发验证市场的分支，网页低量不再否决 App，公开估计与自有下载、收入、留存分级。多功能工具站采用统一的[侧栏规范](rankup/references/design-references.md#多功能工具站侧栏统一规范)，开发入口与检查清单同步加入模式验收门禁；保留现有 SEO、无障碍、分析上报和品牌图标检查。它不重复实现 Wrangler、Stripe 或趋势工具，它负责把这些能力串成一条长期可维护的工作流，并且记住你在每个项目上做过什么。小游戏站另有一条从新词监控、iframe 供给、可玩页面、广告到持续迭代的[专用链路](rankup/references/game-sites.md)。
+版本 `3.17.0`。哥飞开放 API 的 32 个工具已通过 `rankup/scripts/webcafe-api.mjs` 直接接入，官方选词/竞品/域名/页面 Skill 工作流已映射进 Rankup；调研与页面复核不再依赖站内哥飞 AI。AITDK GEO 最多等待 3 分钟；分数未就绪时面板报告标记为未通过。调研新增「五个取数动作与编排」（词→词/词→问题/词→站/站→词/站→站）与探索广度闸：防止只在种子词上换后缀打转，进筛子前必须五个动作各跑一轮、词池里出现不含种子字面串的新词根。小语种调研新增开工卡与候选词三关判法：非英语市场先落五件事的开工卡，候选词过语义、搜索、SERP 三关才能进词表；新增本地竞品页面取词与可选的本地竞品库。竞品研究新增 AITDK 离线异常分流：完整报告留档，AI 默认只读待复核清单；KD 与站龄改为结合实际排名、目标页流量和任务缺口判断。SEO 扩树默认检查关键词 + AI / App 两组自然组合，分别验证搜索量与意图。需求调研覆盖 macOS、iOS、iPad 与 Web/SaaS，仅排除 Android App 交付；新增按商店/原生分发验证市场的分支，网页低量不再否决 App，公开估计与自有下载、收入、留存分级。多功能工具站采用统一的[侧栏规范](rankup/references/design-references.md#多功能工具站侧栏统一规范)，开发入口与检查清单同步加入模式验收门禁；保留现有 SEO、无障碍、分析上报和品牌图标检查。它不重复实现 Wrangler、Stripe 或趋势工具，它负责把这些能力串成一条长期可维护的工作流，并且记住你在每个项目上做过什么。小游戏站另有一条从新词监控、iframe 供给、可玩页面、广告到持续迭代的[专用链路](rankup/references/game-sites.md)。
 
 登录态数据平台可以直接走薄 CLI，把一次探路沉淀成可续跑清单：
 
@@ -181,30 +181,16 @@ node scripts/sessions.mjs --project-root . --days 14 --new-only --dump
 
 ### 开箱即用的选词与数据能力
 
-**`scripts/seo-webcafe.mjs`** — 一个脚本打通[哥飞](https://seo.web.cafe)那套 SEO 工具箱里所有带后端的工具：
+**`rankup/scripts/webcafe-api.mjs`** — 集成[哥飞开放 API](https://seo.web.cafe/api/)的官方零依赖 CLI。接口目录实时从服务端读取，当前 32 个工具全部可直接调用：找词、拓词、站点出词、搜索量、SERP、整站流量、域名、外链、页面体检、知识库等。官方 `gefei-keywords` / `gefei-competitor` / `gefei-domain` / `gefei-page` Skill 的调用顺序已合入 [`references/seo-webcafe.md`](rankup/references/seo-webcafe.md)，由 Rankup 直接取数、判读和留证，不再依赖站内 AI review。令牌用本机 `rankup/.env` 的 `WEBCAFE_TOKEN` 或进程环境变量；`tools` / `help` 可不带令牌运行，实际接口按次扣积分余额。
 
-| 子命令 | 回答什么问题 |
-|---|---|
-| `kd` | 这个词难不难做，前九名是什么盘面 |
-| `serp` | 谷歌第一页每个结果凭什么排在那 |
-| `audit` | 这个页面 40+ 项体检，扣分扣在哪 |
-| `backlink` | 对方开的外链报价值不值 |
-| `worth` | 这个站按流量和变现方式值多少钱 |
-| `history` | 这个域名前世被谁用过 |
-| `chat` | 直接问站内的 SEO Agent |
+```bash
+node rankup/scripts/webcafe-api.mjs tools
+node rankup/scripts/webcafe-api.mjs help keyword_ideas
+node rankup/scripts/webcafe-api.mjs keyword_ideas "ai headshot" --limit 50
+node rankup/scripts/webcafe-api.mjs me
+```
 
-2026-08-24 复查把这个站的 **21 个工具全部纳入**：补上一直缺的 `translate` 需求翻译器、
-`mine` 需求挖掘机、`domain` 起名与域名核验（早期没接不是没后端，是当时配额先耗尽了）；
-把 4 个确认无后端的工具的公式复刻成**本地命令** `kgr` / `string` / `money` / `email`
-（零网络、零配额、支持 `--batch`）；另外 4 个附证据标注不做，跑 `tools` 命令可以看到理由。
-同一次复查还发现 `adsense` 已经坏了一段时间——站方把返回从 JSON 换成了 SSE，
-而脚本仍按 JSON 解析，**静默返回空且不报错**，已修。
-
-配套 **`scripts/gefei-ask.mjs`** 走另一条路：驱动**你已登录的浏览器**去问哥飞的 SEO Agent 并取回全文，
-全程不碰会话 Cookie（那枚是 HttpOnly，脚本本来也读不到）。两条路径互补不是替代——
-有 Cookie 想无人值守就用 `seo-webcafe.mjs chat`，只有登录态浏览器就用这个。
-
-**零配置可跑；配额档位以脚本打印为准**——早先写死的「匿名 10 次/日」已被真实事故推翻，不要再信文档默认值。接口地图是 2026-08-07 用真实浏览器会话逐个工具点网络面板得到的，每个工具只发了一次请求，没跑循环、没登录、没绕配额，记在 [`references/seo-webcafe.md`](rankup/references/seo-webcafe.md)。
+旧 `scripts/seo-webcafe.mjs` 保留网页接口和本地 `kgr` / `string` / `money` / `email` 计算；旧 `gefei-ask.mjs` 不再是 Rankup 默认调研或审站路径。
 
 **`scripts/webcafe-forum.mjs`**（+ `webcafe-transport.mjs` / `webcafe-rsc.mjs`）—— [哥飞社区论坛](https://new.web.cafe)全站取数，
 `get <任意站内 URL>` 一条命令取回内容，认不出的 URL 退回通用抓取。覆盖悬赏问答（含征集型的众筹榜单与提交理由）、
@@ -551,10 +537,9 @@ node backlink/scripts/health.mjs
 
 ```bash
 # rankup/.env
-SEO_WEBCAFE_TOKEN=     # 只有 kd 命令需要，wc_mcp_ 开头，去 /kd/docs 自助生成
-                       # 旧键名 KD_TOKEN= 同样识别
-SEO_WEBCAFE_COOKIE=    # 可选。给了就提高配额档位；具体档位以脚本打印为准，不要信写死的数字
-                       # chat 命令强制登录，匿名会 401
+WEBCAFE_TOKEN=         # 开放 API 全部 32 个接口共用，去 /api/ 自助生成；只扣积分余额
+SEO_WEBCAFE_TOKEN=     # 仅旧网页 kd 兼容命令需要；旧键名 KD_TOKEN= 同样识别
+SEO_WEBCAFE_COOKIE=    # 仅旧网页接口兼容路径可选，新开放 API 不用 Cookie
 
 # backlink/.env
 TOOLS_SHARE_DASHBOARD_URL=      # 你自己的数据面板入口
@@ -696,7 +681,7 @@ node scripts/link-skills.mjs --check
 能。492 条入口库、141 个付费平台、19 篇方法论、外链质量评分与外联模板，全都是纯数据和纯方法，不需要任何浏览器。只有实际驱动浏览器取数和填表才需要。
 
 **Q：不给 `rankup` 配令牌能用吗？**
-基本能。`seo-webcafe.mjs` 除 `kd` 和 `chat` 之外全部匿名可跑，配额档位以脚本打印为准。`kd` 要一个自助生成的公开 API 令牌，`chat` 要登录态。`gt.py` 完全不需要令牌。
+开放 API 的 32 个工具需要 `WEBCAFE_TOKEN` 和积分余额；`webcafe-api.mjs tools` / `help` 不需要令牌。旧网页接口部分仍可匿名使用，`gt.py` 完全不需要令牌。
 
 **Q：Skill 装了但没被触发？**
 跑 `skill-link-check`。十次里有八次是符号链接的问题。
