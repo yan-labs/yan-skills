@@ -22,6 +22,7 @@ import { loadEnvFile } from '../src/env.mjs';
 import { loadModelsConfig, defaultConfigPath, resolveModel, ConfigError } from '../src/config.mjs';
 import { runTask } from '../src/run-task.mjs';
 import { runMany } from '../src/run-many.mjs';
+import { judgeTask } from '../src/judge-task.mjs';
 
 const PKG_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const PKG_VERSION = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8')).version;
@@ -31,6 +32,7 @@ const HELP_TEXT = `agent-fleet ${PKG_VERSION} — 通用多模型子任务执行
 用法:
   agent-fleet run --model <友好名字> --prompt "<任务描述>" [选项]
   agent-fleet run-many --config <batch.json> [选项]
+  agent-fleet judge --model <友好名字> --state-file <path> --questions-file <path> [选项]
   agent-fleet list-models
   agent-fleet --help | --version
 
@@ -47,6 +49,13 @@ run-many 选项:
   --cwd <dir>               任务没写 cwd 时的默认工作目录
   --json                    输出结构化 JSON 而不是人类可读文本
 
+judge 选项(protocol: typesafe-systemone 的模型专用,如 jev——不生成文本、不支持多轮
+工具调用,给它一段 state + 类型化 questions,拿回结构化判断,不能用 run/run-many):
+  --model <name>            必填。models.config.json 里 protocol 是 typesafe-systemone 的友好名字(如 jev)
+  --state-file <path>       必填。要评估的内容,纯文本文件,或 .json 结尾时按 JSON 解析成结构化 state
+  --questions-file <path>    必填。JSON 文件:{ 问题key: { type: "noul"|"choice"|"score", instructions, criteria? } }
+  --json                    输出结构化 JSON 而不是人类可读文本
+
 全局选项:
   --models-config <path>    覆盖默认的 models.config.json 路径
 
@@ -54,6 +63,7 @@ run-many 选项:
   agent-fleet run --model deepseek-v4-flash --prompt "帮我调研一下 XX 竞品有哪些定价策略"
   agent-fleet run --model kimi --prompt "把 README 翻译成英文" --cwd ~/some-project --json
   agent-fleet run-many --config batch.json
+  agent-fleet judge --model jev --state-file ticket.txt --questions-file questions.json --json
 `;
 
 /** 从 argv 里手动摘取形如 `--flag value` 和布尔开关 `--flag` 的参数,不引入额外依赖。 */
@@ -161,6 +171,69 @@ async function cmdRunMany(argv) {
   process.exitCode = results.some((r) => !r.ok) ? 1 : 0;
 }
 
+function printJudgeResultHuman(res) {
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`模型: ${res.model}${res.resolvedModel ? ` (${res.resolvedModel})` : ''}`);
+  console.log(`状态: ${res.ok ? '成功' : '失败'}`);
+  if (res.ok) {
+    console.log(`耗时: ${res.durationMs}ms | input_tokens: ${res.usage?.input_tokens ?? '?'} | output_tokens: ${res.usage?.output_tokens ?? '?'}`);
+    console.log(`${'-'.repeat(60)}`);
+    console.log(JSON.stringify(res.answers, null, 2));
+  } else {
+    console.log(`错误: ${res.error ?? '未知错误'}`);
+  }
+  console.log('='.repeat(60));
+}
+
+async function cmdJudge(argv) {
+  const flags = parseFlags(argv);
+  if (!flags.model || !flags['state-file'] || !flags['questions-file']) {
+    console.error(
+      '缺少必填参数。用法: agent-fleet judge --model <name> --state-file <path> --questions-file <path> [选项]',
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const stateFilePath = resolvePath(flags['state-file']);
+  const questionsFilePath = resolvePath(flags['questions-file']);
+  if (!existsSync(stateFilePath)) {
+    console.error(`找不到 state 文件: ${stateFilePath}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (!existsSync(questionsFilePath)) {
+    console.error(`找不到 questions 文件: ${questionsFilePath}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const rawState = readFileSync(stateFilePath, 'utf8');
+  // state 允许是纯文本,也允许是结构化 JSON(比如一份聊天记录/记录数组)——
+  // 按文件扩展名决定怎么解析,而不是"能 parse 就当 JSON",避免一段碰巧长得像
+  // JSON 的自然语言文本被静默误解析。
+  const state = stateFilePath.endsWith('.json') ? JSON.parse(rawState) : rawState;
+
+  let questions;
+  try {
+    questions = JSON.parse(readFileSync(questionsFilePath, 'utf8'));
+  } catch (err) {
+    console.error(`questions 文件不是合法 JSON: ${err.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const config = loadModelsConfig(flags['models-config'] ? resolvePath(flags['models-config']) : undefined);
+  const result = await judgeTask({ friendlyModel: flags.model, state, questions, config });
+
+  if (flags.json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    printJudgeResultHuman(result);
+  }
+  process.exitCode = result.ok ? 0 : 1;
+}
+
 function cmdListModels(argv) {
   const flags = parseFlags(argv);
   const configPath = flags['models-config'] ? resolvePath(flags['models-config']) : defaultConfigPath();
@@ -179,7 +252,8 @@ function cmdListModels(argv) {
     // 也不应该把真实密钥回显到终端历史或日志里。
     const keyStatus = process.env[def.apiKeyEnv] ? 'present' : 'missing';
     const gatewayNote = def.requiresGateway && !def.baseURL ? ' [需要自备网关,baseURL 未填]' : '';
-    console.log(`- ${name}${gatewayNote}`);
+    const protocolNote = def.protocol === 'typesafe-systemone' ? ' [typesafe-systemone 协议,只能用 judge,不支持 run/run-many]' : '';
+    console.log(`- ${name}${gatewayNote}${protocolNote}`);
     console.log(`    model: ${def.model || '(未填)'}  baseURL: ${def.baseURL || '(未填)'}`);
     console.log(`    apiKeyEnv: ${def.apiKeyEnv} (${keyStatus})`);
     // 自定义请求头同样只报告"头名 + 指向的变量名 + 有没有值",绝不打印头值本身——
@@ -212,6 +286,9 @@ async function main() {
         break;
       case 'run-many':
         await cmdRunMany(rest);
+        break;
+      case 'judge':
+        await cmdJudge(rest);
         break;
       case 'list-models':
         cmdListModels(rest);

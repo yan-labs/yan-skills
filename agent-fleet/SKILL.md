@@ -10,11 +10,14 @@ description: 通用多模型子任务执行工具。用户想把一个任务派�
 ```bash
 cd agent-fleet
 
-# 单个任务
+# 单个任务(委派一整个自主任务:读写文件、跑 bash、多轮工具调用直到完成)
 node bin/agent-fleet.mjs run --model <友好名字> --prompt "<任务描述>" [--cwd <目录>] [--json]
 
 # 一次并发跑一批不同模型的任务
 node bin/agent-fleet.mjs run-many --config batch.json [--json]
+
+# 结构化决策(JEV/System One 专用,不生成文本、不支持多轮工具调用,不能用 run)
+node bin/agent-fleet.mjs judge --model jev --state-file <path> --questions-file <path> [--json]
 
 # 看有哪些模型可用、密钥配没配
 node bin/agent-fleet.mjs list-models
@@ -27,6 +30,16 @@ node bin/agent-fleet.mjs list-models
 `kollab-gateway`(默认 `gemini-3.8-flash`)、`kollab-gateway-copy`(文案/创意,同样是
 `gemini-3.8-flash`)、`kollab-gateway-research`(调研摘要,`grok-4.6`)、`kollab-gateway-bulk`
 (批量机械任务,`gemini-3.5-flash-lite`)。
+
+**`jev`(Typesafe JEV / System One)是完全不同的一类,不能用 `run`**:它是结构化决策 API,不生成
+文本、不支持多轮工具调用(协议自证:`POST /v1/messages` 返回 404,没有实现 Anthropic Messages
+协议),只吃一段 `state` + 类型化 `questions`(`noul`/`choice`/`score`),返回校准过的结构化答案
+(选项、概率、打分)。适合自动化流程里的判断/路由节点——分类、打分、二元判断、"多步骤 Agent 循环
+里下一步该选哪个候选"(2026-09-25 真实验证,复刻了 wy-coliney/jev-browser-use 的用法,喂
+accessibility-tree 文本 + 候选动作做 `choice`);不适合代码生成、开放式写作、总结、图片理解、
+浏览器操作本身。用专门的 `judge` 子命令调用,不要尝试 `run --model jev`(会被协议闸门直接拒绝)。
+极便宜(≈$0.042/百万 input token,output 免费)、结果高度稳定,协议上结构性不存在"裸 tool-call
+控制 token"这类失败模式。完整实测结论表见 README「JEV / `judge` 子命令」一节。
 
 **用户想同时跑多个不同模型的任务时**,优先用 `run-many` 一次性提交(内部真正并发跑完),而不是
 自己手写多次串行调用,或者对每个模型分别开一个后台 shell 进程——除非用户明确要求那种交互方式。

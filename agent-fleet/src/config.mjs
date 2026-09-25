@@ -24,7 +24,25 @@ export function defaultConfigPath() {
   return join(PKG_ROOT, 'models.config.json');
 }
 
-const VALID_AUTH_HEADERS = new Set(['x-api-key', 'auth-token']);
+const VALID_AUTH_HEADERS = new Set(['x-api-key', 'auth-token', 'bearer-raw']);
+
+/**
+ * 支持的模型协议。
+ *   - anthropic-messages(默认,不写这个字段就是它):上游实现 Anthropic Messages 协议,
+ *     能被 Claude Agent SDK 的 query() 直接驱动——`run`/`run-many` 委派一整个自主任务
+ *     给它,多轮读写文件、跑 bash、工具调用直到完成。
+ *   - typesafe-systemone:Typesafe JEV/System One 的自有协议(POST {baseURL},
+ *     body 是 { state, model, questions },不是 messages 数组)。这类模型**不生成文本、
+ *     不支持多轮工具调用**,只接受一段 state + 若干类型化 questions(noul/choice/score),
+ *     返回校准过的结构化判断——2026-09-25 用真实 API 调用验证过(见 README「JEV 验证记录」):
+ *     `POST https://api.typesafe.ai/v1/messages` 返回 404,证实它完全没有实现 Anthropic
+ *     Messages 协议,所以这类模型**不能**通过 run/run-many 委派任务,只能用 `judge` 子命令
+ *     (见 src/judge-task.mjs)按它自己的协议调用。authHeader 固定用 `bearer-raw`,表示
+ *     "judge 命令直接拼 `Authorization: Bearer <key>`",不走 isolated-env.mjs 那套
+ *     Claude-Code-CLI 专用的 x-api-key/auth-token 环境变量映射(那套映射只对 Claude Agent
+ *     SDK 的上游生效,typesafe-systemone 协议不经过 SDK,不需要也不应该套用它)。
+ */
+const VALID_PROTOCOLS = new Set(['anthropic-messages', 'typesafe-systemone']);
 
 /** RFC 7230 的 header field-name 允许字符集。用来挡住带空格/冒号/换行的畸形头名。 */
 const HEADER_NAME_RE = /^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/;
@@ -127,6 +145,22 @@ function validateEntry(name, def) {
       `models.config.json 里的 "${name}" 的 authHeader 只能是 ${[...VALID_AUTH_HEADERS].join(' / ')} 之一,当前是 "${authHeader}"。`,
     );
   }
+
+  const protocol = def.protocol ?? 'anthropic-messages';
+  if (!VALID_PROTOCOLS.has(protocol)) {
+    throw new ConfigError(
+      `models.config.json 里的 "${name}" 的 protocol 只能是 ${[...VALID_PROTOCOLS].join(' / ')} 之一,当前是 "${protocol}"。`,
+    );
+  }
+  // typesafe-systemone 协议不经过 isolated-env.mjs 的 x-api-key/auth-token 映射
+  // (那套映射是 Claude Agent SDK 专用的),强制用 bearer-raw 避免有人以为配了
+  // x-api-key/auth-token 就能拿去跑 run/run-many。
+  if (protocol === 'typesafe-systemone' && authHeader !== 'bearer-raw') {
+    throw new ConfigError(
+      `models.config.json 里的 "${name}" protocol 是 "typesafe-systemone",authHeader 必须是 "bearer-raw",当前是 "${authHeader}"。`,
+    );
+  }
+
   return {
     name,
     description: def.description ?? '',
@@ -134,6 +168,7 @@ function validateEntry(name, def) {
     model: def.model,
     apiKeyEnv: def.apiKeyEnv,
     authHeader,
+    protocol,
     headerEnvs: validateHeaderEnvs(name, def),
     requiresGateway: Boolean(def.requiresGateway),
   };

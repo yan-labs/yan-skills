@@ -36,6 +36,7 @@ Agent 能力去驱动它们的模型——你拿到的不是"一问一答",而�
 | `kollab-gateway-research` | 同上 | 同上,`model: "grok-4.6"` | 通用调研摘要用途 |
 | `kollab-gateway-bulk` | 同上 | 同上,`model: "gemini-3.5-flash-lite"` | 批量翻译/格式转换等机械任务用途,目录里响应最快的免费档模型之一 |
 | `kollab-gateway-code` | 同上 | 同上,`model: "glm-5.3-flash"` | 编程任务例外:用户 2026-09-23 定调的例外,GLM 5.3 经两次真实验证(简单请求 + 多轮工具调用编程任务)均未出现裸 tool-call 控制 token 后开放给编程任务使用 |
+| `jev` | Typesafe(JEV / System One) | `https://api.typesafe.ai/v1/systemone`,`Authorization: Bearer` 鉴权(`protocol: "typesafe-systemone"`,**不是** Anthropic Messages/OpenAI 协议) | ⚠️ **不支持 `run`/`run-many`**——它是结构化决策 API,不生成文本、不支持多轮工具调用,只能用下面「JEV / `judge` 子命令」一节的方式调用 |
 
 **关于 Gemini 的如实说明**:查证下来,Google 官方**没有**为 Gemini 提供 Anthropic Messages 协议
 兼容端点(不像 DeepSeek/Moonshot 那样)。市面上能找到的都是社区维护的转换代理(比如把 Anthropic
@@ -47,6 +48,47 @@ proxy,或任何等价方案)并把地址填进去之前,选这个模型会直接
 模型 ID 会随官方迭代变化,建议定期核对:
 - DeepSeek: <https://api-docs.deepseek.com/guides/anthropic_api>
 - Kimi: <https://platform.kimi.com/docs/api/list-models>
+
+## JEV / `judge` 子命令(结构化决策,不是对话模型)
+
+[Typesafe 的 JEV / System One](https://docs.typesafe.ai/) 是一个和上面所有条目都不同类的东西:它不
+生成回复、不写代码、不做多轮对话,官方原话:"System One models do not write replies, produce code,
+or generate explanations of their reasoning." 每次调用给它一段 `state`(文本或结构化 JSON)+ 若干
+类型化 `questions`(`noul` = 是否概率、`choice` = 多选一 + 置信度、`score` = 打分 + 置信度),它返回
+校准过的结构化答案,你的代码可以直接拿去用,不用再让一个通用 LLM"返回 JSON 但经常返回不合法 JSON"。
+
+**为什么不是 `run --model jev`**:`run`/`run-many` 靠 Claude Agent SDK 的 `query()` 驱动上游,而
+`query()` 只认 Anthropic Messages 协议(`POST {baseURL}/messages`,messages 数组、流式、tool_use)。
+2026-09-25 真实测过 `POST https://api.typesafe.ai/v1/messages` 返回 **404**,证实 JEV 完全没实现
+这个协议——不是"加个适配器就能补"的问题,是协议层面根本不兼容。所以 agent-fleet 给
+`protocol: "typesafe-systemone"` 的模型加了一道闸门:`run --model jev` 会在发请求前直接报错拒绝,
+不会静默发出一个必然失败的请求。JEV 走独立的 `judge` 子命令,直连它自己的协议(`src/judge-task.mjs`),
+不经过 Claude Agent SDK。
+
+```bash
+# state.txt:要评估的内容(纯文本,或 .json 结尾按 JSON 解析成结构化 state)
+# questions.json:{ 问题key: { type: "noul"|"choice"|"score", instructions, criteria? } }
+node bin/agent-fleet.mjs judge --model jev --state-file state.txt --questions-file questions.json --json
+```
+
+**JEV 适合做什么 / 不适合做什么(2026-09-25 用 26 次真实调用 + 只读调研 4 个第三方 skill 得出,
+证据见 `/tmp` 的 `jev-capabilities.md` 能力摸底报告,以及下面「JEV 验证记录」)**:
+
+| 任务类型 | 结论 | 依据 |
+|---|---|---|
+| 预定义分类/路由/打分/二元判断 | **适合,是它的设计目标** | 真实调用:工单文本 → 路由(billing/technical/account)+ 紧急度打分 + 是否退款请求,一次调用三问全对,`confidence` 均 ≥0.87 |
+| 多步骤 Agent 循环里的"下一步选哪个"决策节点 | **适合**,复刻了 wy-coliney/jev-browser-use(528 安装)的真实用法 | 喂一段 accessibility-tree 文本 + 候选动作(click_2/click_7/…/DONE/BLOCKED)做 `choice`,正确选出"先填邮箱框",置信度 0.92;该第三方 skill 的真实做法就是每步一次 `choice` 调用,state 用 AX 树文本而非截图 |
+| 批量文件改动前的"要不要自动应用"闸门 | **适合(它做判断,不做编辑)** | 给 3 个候选 diff 做 `choice`,正确挑出无行为变更的安全项,正确排除有逻辑改动的选项 |
+| 爬取网页后按预定义维度分类/打分 | **适合(分类/打分),不适合生成摘要文字** | 抓取一页 Wikipedia 纯文本作 state,`choice` 判断主题 + `score` 判断专业程度,均正确;但它不会输出一段自然语言摘要——那部分仍要另一个生成式模型 |
+| 代码生成、开放式写作 | **不适合,结构性不支持** | 故意用 `noul` 让它"写一首俳句",只回了个 0-1 概率而非文字;用编造的 `"type":"generate"` 直接被协议拒绝(`HTTP 400`)——协议里根本没有自由生成这个问题类型 |
+| 多轮工具调用(bash + 读写文件) | **不适合,结构性不支持** | 单次同步调用,无 messages/tool_use/会话状态;`/v1/messages` 404 证实无法接入 SDK 的多轮循环 |
+| 图片理解 | **不支持** | 真实塞一张 1x1 PNG base64 进去,`noul` 只回 0.01(答非所问),与文档"no image input"一致 |
+| 浏览器操作本身(点击/输入) | **JEV 不操作浏览器**,只能当决策层 | 见上面"下一步选哪个"一行;真正的点击/输入由宿主 LLM 或固定代码执行,JEV 只挑候选 |
+
+**已知坑(来自第三方调研,非 agent-fleet 自己踩过,但值得留意)**:JEV 按字面判断、不推断意图
+(okooo5km/jev 曾把广告误判为"含可行动信息");`noul` 的 0.5 代表"不确定"而不是"中等"
+(dbreunig/building-with-jev-skill);不要用它承担超出"单点判断"的复合任务——kerpopule/hermes-jev-skills
+真实测过用 JEV 做会话摘要,召回率反而低于什么都不做的朴素截断方案。
 
 ### 任务类型 → 推荐模型(agent-fleet 自己调研 + 真实验证后得出,会持续校准)
 
@@ -62,6 +104,7 @@ proxy,或任何等价方案)并把地址填进去之前,选这个模型会直接
 | 简单调研摘要 | `kimi`(需配 `MOONSHOT_API_KEY`,自带联网搜索)或 `kollab-gateway-research`(`grok-4.6`,即用免配置) | Kimi 官方端点自带联网检索能力,适合真正需要查资料的调研;不想等 key 审批时用 `kollab-gateway-research` 顶上 |
 | 高质量单次产出(长文案定稿、复杂推理) | `deepseek-v4-pro`(需配 `DEEPSEEK_API_KEY`) | DeepSeek 官方 Opus 档位映射目标,适合一次成型、不想反复返工的任务 |
 | 编程任务 | `kollab-gateway-code`(`glm-5.3-flash`) | 用户 2026-09-23 指定的编程任务例外,GLM 5.3 已通过两次真实端到端验证(见下方「验证情况」),两次均未出现裸 tool-call 控制 token |
+| 自动化流程里的判断/路由节点(分类、打分、二元判断、"下一步选哪个候选") | `jev`(**走 `judge` 子命令,不是 `run`**) | 结构化决策 API,不生成文本、极便宜(≈$0.042/百万 input token,output 免费)、同一输入多次调用高度稳定,没有裸 tool-call 控制 token 这类失败模式(协议本身不返回自由文本)。详见上面「JEV / `judge` 子命令」一节的实测结论表 |
 | Kimi/DeepSeek/Qwen 家族、多轮工具调用容错要求高的任务 | 不建议派给这几个家族的第三方模型,留给 Claude 自己处理 | 这几个家族的模型已知存在 tool-calling 可靠性问题,有时会把裸的 tool-call 控制 token 当成普通文本吐出来而不是走结构化 `tool_use`,造成"进程正常退出但其实是假成功"——这是模型生成层面的问题,agent-fleet 的 harness 补不了,只能靠不把这类任务派给它们来规避。**GLM 5.3 是用户 2026-09-23 指定的编程任务例外**(见上一行),即便开了这个例外,只要某次实际输出里出现裸 tool-call 控制 token,那一次仍然要判定失败——不能因为整体开了例外就放松这条判定标准 |
 
 **关于 Qwen**:调研建议里提过可以考虑 Qwen,但截至本次核对(2026-09,TEST 环境
@@ -203,6 +246,28 @@ API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.
    tool-call 控制 token(如 `<tool_call>`、`<minimax:tool_call>`、`<|tool_calls_section_begin|>`
    等)。**注意范围**:这只验证了 `glm-5.3-flash` 这一个模型,不代表 Kimi/DeepSeek/Qwen 家族的
    同类风险已被排除,那几个家族仍按原结论处理。
+
+   **`jev`(Typesafe System One,2026-09-25 接入并真实验证)**:先读了 <https://docs.typesafe.ai/>
+   全部相关页面(`introduction/quickstart`、`concepts/system-one`、`api`、`models`、
+   `introduction/coding-agents`、`agent-skill`),确认协议是自有的 `typesafe-systemone`
+   (`POST /v1/systemone`,`state` + 类型化 `questions` → `noul`/`choice`/`score` 结构化答案),
+   不是 Anthropic Messages 也不是 OpenAI 协议,且官方明确说明它"不生成回复、不写代码、不做
+   推理解释"。真实用 `TYPESAFE_API_KEY` 打了 26 次 `https://api.typesafe.ai/v1/systemone`
+   (`mktemp -d` 目录里跑,curl 直连 + 最后用 `agent-fleet judge` CLI 复测一致),覆盖:结构化
+   抽取(工单路由+打分+退款判断三问一次拿到,`confidence` 均 ≥0.87)、爬取一页真实 Wikipedia
+   文本后分类打分、复刻 wy-coliney/jev-browser-use 用法的"下一步选哪个候选"(accessibility-tree
+   文本 → `choice`,正确选出该先填的表单字段,置信度 0.92)、批量文件改动前的安全性判断(3 个
+   候选 diff 里正确挑出无行为变更的一项)、同一输入连打 20 次的稳定性(`noul` 波动 ≤0.01、`score`
+   波动 ≤0.12/满量程 3,平均延迟 1193ms)。也验证了它的边界:故意用 `noul` 让它"写一首俳句"
+   只回了个概率不是文字、编造的 `"type":"generate"` 被协议拒绝(`HTTP 400`)、塞一张真实 PNG
+   base64 进去只得到一个答非所问的低概率(印证文档"no image input")、`POST /v1/messages`
+   返回 `404`(证实无法接入 `run`/`run-many`)。26 次调用总成本约 **$0.0004**。因为协议层面
+   和 `run`/`run-many` 依赖的 Anthropic Messages 协议根本不兼容,新增了独立的 `judge` 子命令
+   (`src/judge-task.mjs`)直连它自己的协议,并在 `run`/`run-many` 里加了协议闸门——`run --model
+   jev` 会在发请求前直接报错拒绝,不会静默发出必然失败的请求(已用真实命令验证)。另外只读调研了
+   4 个第三方 JEV skill 仓库(wy-coliney/jev-browser-use、okooo5km/jev、
+   dbreunig/building-with-jev-skill、kerpopule/hermes-jev-skills),结论和用法要点见上面
+   「JEV / `judge` 子命令」一节,完整能力摸底报告见任务产出的 `jev-capabilities.md`。
 
 1. **代码能正常跑**:`--help`、`--version`、`list-models`、缺参数/缺密钥/未知模型等错误路径都手动
    跑过,报错信息清晰可操作。

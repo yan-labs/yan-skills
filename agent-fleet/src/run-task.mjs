@@ -77,6 +77,18 @@ export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, sy
     // 见 project-trust.mjs:--cwd 可能是别人发来的目录,它不得决定请求发去哪、带什么凭据。
     assertProjectSettingsTrusted(cwd);
     resolved = resolveModel(friendlyModel, config);
+    // typesafe-systemone 协议(JEV 等结构化决策 API)不实现 Anthropic Messages 协议,
+    // Claude Agent SDK 的 query() 没法驱动它——它不生成文本、不支持多轮工具调用,委派
+    // 不了一个完整任务。这里在真正发起 SDK 调用之前就短路拒绝,而不是让它带着一个
+    // 必然失败或语义不明的请求打到上游。见 src/judge-task.mjs 和 README「JEV」一节。
+    if (resolved.protocol === 'typesafe-systemone') {
+      throw new ConfigError(
+        `"${friendlyModel}" 是 typesafe-systemone 协议(结构化决策 API:给它一段 state + 类型化 ` +
+          `questions,返回 noul/choice/score 结构化答案),不生成文本、不支持多轮工具调用,不能通过 ` +
+          `run/run-many 委派完整任务。请改用: node bin/agent-fleet.mjs judge --model ${friendlyModel} ` +
+          `--state-file <path> --questions-file <path>`,
+      );
+    }
   } catch (err) {
     // 配置/密钥/目标目录信任类错误在真正发起请求之前就能判定,直接短路返回,
     // 不消耗一次 SDK 调用。message 本身已经是写给人看的可操作提示。
