@@ -71,7 +71,7 @@ npx skills add yan-labs/yan-skills -g --all
 
 ## `rankup` — 网站全生命周期总控
 
-版本 `3.17.1`。哥飞开放 API 的 32 个工具已通过 `rankup/scripts/webcafe-api.mjs` 直接接入，官方五份原始 Skill 已纳入 Rankup，选词/竞品/域名/页面工作流已接到入口；调研与页面复核不再依赖站内哥飞 AI。AITDK GEO 最多等待 3 分钟；分数未就绪时面板报告标记为未通过。调研新增「五个取数动作与编排」（词→词/词→问题/词→站/站→词/站→站）与探索广度闸：防止只在种子词上换后缀打转，进筛子前必须五个动作各跑一轮、词池里出现不含种子字面串的新词根。小语种调研新增开工卡与候选词三关判法：非英语市场先落五件事的开工卡，候选词过语义、搜索、SERP 三关才能进词表；新增本地竞品页面取词与可选的本地竞品库。竞品研究新增 AITDK 离线异常分流：完整报告留档，AI 默认只读待复核清单；KD 与站龄改为结合实际排名、目标页流量和任务缺口判断。SEO 扩树默认检查关键词 + AI / App 两组自然组合，分别验证搜索量与意图。需求调研覆盖 macOS、iOS、iPad 与 Web/SaaS，仅排除 Android App 交付；新增按商店/原生分发验证市场的分支，网页低量不再否决 App，公开估计与自有下载、收入、留存分级。多功能工具站采用统一的[侧栏规范](rankup/references/design-references.md#多功能工具站侧栏统一规范)，开发入口与检查清单同步加入模式验收门禁；保留现有 SEO、无障碍、分析上报和品牌图标检查。它不重复实现 Wrangler、Stripe 或趋势工具，它负责把这些能力串成一条长期可维护的工作流，并且记住你在每个项目上做过什么。小游戏站另有一条从新词监控、iframe 供给、可玩页面、广告到持续迭代的[专用链路](rankup/references/game-sites.md)。
+版本 `3.18.0`。Rankup 负责调研、建设、上线与增长决策；查关键词、竞品、域名、页面和哥飞经验时，按[哥飞工具箱指南](rankup/references/seo-webcafe.md)安装并加载官方 Skill 包，直接调用其工具。五个探索动作（词→词、词→问题、词→站、站→词、站→站）与市场证据闸门仍由 Rankup 执行。
 
 登录态数据平台可以直接走薄 CLI，把一次探路沉淀成可续跑清单：
 
@@ -156,7 +156,7 @@ flowchart TD
 | 3 | 关键词密度 | 声明的目标短语与实测的短语是同一个字符串 |
 | 4 | GEO / AI Agent 就绪度 | `is-agentic.mjs` 基线报告，每条 `partial`/`failed` 独立核实过 |
 | 4b | GEO 内容形状 | 内容页有带出处的 Sources 节与规格表、FAQ 是 H3、JSON-LD 带 author / datePublished / dateModified |
-| 5 | 哥飞 AI 审阅 | 每条建议有采纳/拒绝记录，拒绝必须附理由 |
+| 5 | 哥飞官方 Skill 页面复核 | 每条建议有采纳/拒绝记录，拒绝必须附理由 |
 | 6 | 性能 / Core Web Vitals | 首页、工具页、内容页三类都达标，现场数据优先于实验室数据 |
 
 **命令跑了但证据没落进 `.rankup/`，不算通过。** 口头「应该没问题」或控制台一个绿色图标都不算证据，见 [`references/lifecycle.md`](rankup/references/lifecycle.md) 段 4 C 节与 [`references/checklists.md`](rankup/references/checklists.md) 段 4。每次页面改动，这九行全套重跑，不许只重跑改到的两行。
@@ -181,16 +181,7 @@ node scripts/sessions.mjs --project-root . --days 14 --new-only --dump
 
 ### 开箱即用的选词与数据能力
 
-**`rankup/scripts/webcafe-api.mjs`** — 集成[哥飞开放 API](https://seo.web.cafe/api/)的官方零依赖 CLI。接口目录实时从服务端读取，当前 32 个工具全部可直接调用：找词、拓词、站点出词、搜索量、SERP、整站流量、域名、外链、页面体检、知识库等。官方 `gefei` / `gefei-keywords` / `gefei-competitor` / `gefei-domain` / `gefei-page` 原始 Skill 已存入 `rankup/references/upstream-gefei/`，调用顺序也已合入 [`references/seo-webcafe.md`](rankup/references/seo-webcafe.md)，由 Rankup 直接取数、判读和留证，不再依赖站内 AI review。令牌用本机 `rankup/.env` 的 `WEBCAFE_TOKEN` 或进程环境变量；`tools` / `help` 可不带令牌运行，实际接口按次扣积分余额。
-
-```bash
-node rankup/scripts/webcafe-api.mjs tools
-node rankup/scripts/webcafe-api.mjs help keyword_ideas
-node rankup/scripts/webcafe-api.mjs keyword_ideas "ai headshot" --limit 50
-node rankup/scripts/webcafe-api.mjs me
-```
-
-旧 `scripts/seo-webcafe.mjs` 保留网页接口和本地 `kgr` / `string` / `money` / `email` 计算；旧 `gefei-ask.mjs` 不再是 Rankup 默认调研或审站路径。
+**哥飞官方 Skill 包** — 在[官方 API 页面](https://seo.web.cafe/api/)安装 `gefei`、`gefei-keywords`、`gefei-competitor`、`gefei-domain`、`gefei-page`，按 [`seo-webcafe.md`](rankup/references/seo-webcafe.md)选择入口。官方包负责工具调用，Rankup 负责证据口径和项目判断。仓库不复制官方 Skill 或 CLI。
 
 **`scripts/webcafe-forum.mjs`**（+ `webcafe-transport.mjs` / `webcafe-rsc.mjs`）—— [哥飞社区论坛](https://new.web.cafe)全站取数，
 `get <任意站内 URL>` 一条命令取回内容，认不出的 URL 退回通用抓取。覆盖悬赏问答（含征集型的众筹榜单与提交理由）、
@@ -533,13 +524,10 @@ node backlink/scripts/health.mjs
 
 ## 令牌配置
 
-**令牌只放各 Skill 根目录的 `.env`，绝不入库。** 仓库 `.gitignore` 已经排除，`rankup` 的 `validate-rankup.mjs` 会做断言，构建时拦下来。
+**令牌保存在各工具的受控本机配置或进程环境，绝不入库。** 仓库 `.gitignore` 已经排除，`rankup` 的 `validate-rankup.mjs` 会做断言，构建时拦下来。
 
 ```bash
 # rankup/.env
-WEBCAFE_TOKEN=         # 开放 API 全部 32 个接口共用，去 /api/ 自助生成；只扣积分余额
-SEO_WEBCAFE_TOKEN=     # 仅旧网页 kd 兼容命令需要；旧键名 KD_TOKEN= 同样识别
-SEO_WEBCAFE_COOKIE=    # 仅旧网页接口兼容路径可选，新开放 API 不用 Cookie
 
 # backlink/.env
 TOOLS_SHARE_DASHBOARD_URL=      # 你自己的数据面板入口
@@ -556,22 +544,9 @@ SKILLSMP_API_KEY=
 
 ### rankup
 
+关键词和页面取数加载官方 `gefei` 与专用 Skill，按其 `SKILL.md` 使用工具。Rankup 的本地计算仍可用：
+
 ```bash
-# 关键词难度 + 前九名盘面
-node rankup/scripts/seo-webcafe.mjs kd --keyword "ai headshot generator"
-
-# 页面体检 / SERP 归因 / 外链估价 / 域名前世
-node rankup/scripts/seo-webcafe.mjs audit    --url https://example.com/page --keyword "your keyword"
-node rankup/scripts/seo-webcafe.mjs serp     --keyword "keyword"
-node rankup/scripts/seo-webcafe.mjs backlink --input example.com
-node rankup/scripts/seo-webcafe.mjs history  --input example.com
-
-# 需求翻译 / 需求挖掘 / 起名核验（2026-08-24 补全）
-node rankup/scripts/seo-webcafe.mjs translateSearch --query "markdown to pdf"
-node rankup/scripts/seo-webcafe.mjs mineSearch      --keyword "ai image upscaler"
-node rankup/scripts/seo-webcafe.mjs domainIntent    --text "一个 AI 图片压缩工具站"
-
-# 纯本地计算，零网络零配额，可 --batch 批量
 node rankup/scripts/seo-webcafe.mjs kgr --volume 1000 --intitle 5 --kd 20
 
 # 哥飞论坛：给个链接就取回内容（悬赏/经验/帖子/教程）
@@ -681,7 +656,7 @@ node scripts/link-skills.mjs --check
 能。492 条入口库、141 个付费平台、19 篇方法论、外链质量评分与外联模板，全都是纯数据和纯方法，不需要任何浏览器。只有实际驱动浏览器取数和填表才需要。
 
 **Q：不给 `rankup` 配令牌能用吗？**
-开放 API 的 32 个工具需要 `WEBCAFE_TOKEN` 和积分余额；`webcafe-api.mjs tools` / `help` 不需要令牌。旧网页接口部分仍可匿名使用，`gt.py` 完全不需要令牌。
+哥飞开放 API 的付费取数需要官方 Skill 配置的令牌和积分；安装、工具目录和认证方式以官方文档为准。Rankup 本地计算与 `gt.py` 不需要该令牌。
 
 **Q：Skill 装了但没被触发？**
 跑 `skill-link-check`。十次里有八次是符号链接的问题。

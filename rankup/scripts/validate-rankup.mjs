@@ -10,7 +10,7 @@ import { resolveRoots } from "./registry.mjs";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "3.17.1";
+const expectedVersion = "3.18.0";
 const requiredReferences = [
   "discipline.md",
   "monetization.md",
@@ -31,14 +31,10 @@ const requiredReferences = [
   "experiences/demand-discovery.md",
   "experiences/zero-to-one.md",
   "experiences/conversion.md",
-  "upstream-gefei/gefei/SKILL.md",
-  "upstream-gefei/gefei-keywords/SKILL.md",
-  "upstream-gefei/gefei-competitor/SKILL.md",
-  "upstream-gefei/gefei-domain/SKILL.md",
-  "upstream-gefei/gefei-page/SKILL.md",
 ];
 
 const requiredContent = {
+  "references/seo-webcafe.md": ["gefei-keywords", "gefei-competitor", "gefei-domain", "gefei-page", "knowledge_ask", "disable-model-invocation"],
   "SKILL.md": [
     "npx skills add yan-labs/yan-skills --skill rankup -g -y",
     "npx skills update rankup -g -y",
@@ -51,6 +47,8 @@ const requiredContent = {
     "## 跨项目资产登记表",
     "### `rankup init`",
     "### `rankup review`",
+    "## 哥飞官方 Skill",
+    "disable-model-invocation",
     "scripts/sessions.mjs",
     "scripts/indexnow-submit.mjs",
     "scripts/webmaster-sitemap.mjs",

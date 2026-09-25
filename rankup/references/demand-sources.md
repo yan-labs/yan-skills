@@ -730,7 +730,7 @@ node scripts/demand/word-roots.mjs expand converter \
 
 操作：
 - 从第二节收集到的竞品列表中，取每个品牌名，构造 `[brand] alternative`、`[brand] vs [你的产品]`、`[brand] review`。
-- 用 `seo-webcafe.mjs kd` 测量这些词的搜索量和难度——品牌修饰词通常 KD 很低，因为竞品自己不会做「自己的替代品」这种页面。
+- 用官方 `gefei-keywords` Skill 测量这些词的搜索量和难度——品牌修饰词通常 KD 很低，因为竞品自己不会做「自己的替代品」这种页面。
 - 做法：建 `/compare/[brand]-vs-[你的产品]` 或 `/alternative/[brand]-alternative` 页面，内容是真实的功能对比。
 
 **限制**：这是一个有争议的策略。只有在产品确实能替代竞品时才应该做，否则是误导用户。页面内容必须是真实的对比，不是纯粹的截流。
@@ -782,7 +782,7 @@ keywordtool.io 那一档仍无脚本——AI 手动做或用 `/anysearch` 补 Am
    ↓ ① 这个站什么来历：注册日期 / 站龄 / 月访问 / DR / 环比 / 核心搜索词
    scripts/demand/aitdk-lookup.mjs <域名>           # 支持 --file 批量、jsonl 续跑；只采集不筛选，阈值判断按第二节的表由 AI 做
    ↓ ② 词有没有量、难不难做
-   scripts/seo-webcafe.mjs kd --keyword <词>        # 零配置，含 top9 盘面；默认登录 100/日或 VIP 500/日
+   按官方 `gefei-keywords` Skill 调用 `keyword_difficulty`，记录目标市场与实际扣费
                                                      # （经 OpenCLI 驱动已登录 Chrome 读真实档位），
                                                      # 游客 10/日只在 OpenCLI 不可用或显式 --guest 时出现
    ↓ ③ 盘面上都有谁、我能不能做得更好
@@ -1134,7 +1134,7 @@ CDX 直查是 **41 条 200 快照，跨 2002–2010**，且能取回当年正文
 |---|---|---|
 | `GITHUB_TOKEN` / `GH_TOKEN` | `github-trending`（search/issues）、`github-skill-search` | trending 照跑；search 降到 10 次/分；**code search 直接不可用**，脚本提示改 `--mode repo` |
 | `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | `reddit-wishes` | 自动降级 RSS，能跑但慢且没有 score |
-| `SERPER_API_KEY` | `serp-query` | 报错并指路；保底改用 `seo-webcafe.mjs serp` |
+| `SERPER_API_KEY` | `serp-query` | 报错并指路；改用官方 `gefei-keywords` Skill 的 SERP 工具 |
 | `PRODUCTHUNT_TOKEN` | `boards.mjs producthunt` | 自动降级到浏览器路径（浏览器路径本来就更全） |
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | `game-newtitles --source igdb` | 清晰报错；其余 game 源不受影响 |
 | `TABAPI_KEY` | `aitdk-lookup --provider tabapi` | 默认 provider 是免费的 webcafe，不配也能跑 |

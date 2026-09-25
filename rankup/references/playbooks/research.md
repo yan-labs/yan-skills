@@ -9,19 +9,9 @@
 
 读完本文件里对应的一节，**不需要再读第二个文档就能开跑**。判读环节才回去读判据文档。
 
-### 哥飞开放 API 优先路径（2026-09-25）
+### 哥飞官方 Skill 入口
 
-以下 P1/P2/P4 中涉及哥飞工具的旧网页端点、站内 SEO Agent 与 Semrush/Similarweb 首轮取数命令，以本节为当前执行口径；下文旧命令只在开放 API 缺数据或需要独立交叉核对时使用。官方 [Skill 包](https://seo.web.cafe/api/skills/gefei-skills.zip) 的原始 `gefei-keywords`、`gefei-competitor`、`gefei-domain`、`gefei-page` 已存入 [`upstream-gefei/`](../upstream-gefei/gefei/SKILL.md)，按任务读原 Skill，Rankup 映射见 [`seo-webcafe.md`](../seo-webcafe.md)；不调用站内 AI 来代做调研。先用 `node $RANKUP/scripts/webcafe-api.mjs tools` 看全部 32 个接口和实时价格，再 `me` 看余额；`WEBCAFE_TOKEN` 由 Skill `.env` 或进程环境提供。下方的五个探索动作仍必须完成，真实 SERP 版式与社区原话仍由各自来源验证。
-
-| 调研动作 | 直接使用的开放 API | 取数判据 |
-|---|---|---|
-| 需求→词、词→词 | `translate_demand`、`keyword_ideas`（`ideas/suggestions/related` 三种 mode）、`search_known_keywords` | `keyword_ideas` 是月更快照；先扩池再精评，不能把一个种子词的低量当整个方向低量 |
-| 词→站、词→问题 | `serp`（相关搜索、PAA、前十）、`serp_review`（逐位点评） | 结构化结果不能替代 Google/Bing/本地引擎的人眼实勘与页面类型判断 |
-| 站→词、站→站 | `site_keywords`、`search_known_sites`、`domain_overview`，多个站用 `domain_traffic` / `domain_dr` 批量对比 | `site_keywords` 是按国家的快照排名词，`domain_overview` 是整站流量；不同口径分列，不跨口径相减 |
-| 量、难度、意图 | `bulk_keyword_difficulty` 海选，入选词 `keyword_difficulty` 精评，待推荐词一次 `keyword_volume` 核量；`search_intent` 按需 | 预筛 KD 与哥飞版 KD 分开；`keyword_volume` / `keyword_ideas` 标明 `gl`，全球需求用 `world`；`null`/未收录/429 不算零 |
-| 钱与域名 | `stripe_checkout_referrals`、`website_worth`、`domain_availability`、`domain_timeline`、`backlink_value` | Stripe 引荐流量只是付款信号；估值与外链报价是待核实的模型判断 |
-
-常用官方 Skill 选词顺序：`load_guide keyword` → `keyword_ideas` → `bulk_keyword_difficulty` → 3–6 个候选 `keyword_difficulty` → 待推荐词一次 `keyword_volume`；竞品：`load_guide traffic` → `domain_overview` → `site_keywords`，归因时才加 `site_history`。`load_guide` 读法与费用以实时 `help` 为准。每次保存原始结果的 `requestId`、`credits.charged`、市场和日期；一轮结束核 `usage --api`。已经在 `keyword_ideas` 拿到可信同口径搜索量的词不重复调用 `keyword_volume`，除非其值缺失、存疑或需要近 12 个月曲线。
+查关键词或竞品时先按 [`seo-webcafe.md`](../seo-webcafe.md) 检查、安装并加载官方 `gefei` 与 `gefei-keywords` / `gefei-competitor`。遇到不熟悉的规则或不知道下一步时，先读官方 `gefei` 总入口，按其方法查知识库或工具目录。Rankup 负责目标市场、五个探索动作、证据口径和最终判断；实际接口与参数听官方 Skill，不调用站内 AI 代做调研。
 
 ## 怎么用
 
@@ -54,7 +44,7 @@ BACKLINK=~/.agents/skills/backlink    # 本仓库开发时 = <repo>/backlink
 | 1 | **脚本只采集，判决由你下。** 2026-08-30 三波重构后，`revenue-site-audit` 不再出 verdict、`site-network` 不再出 strength、`keyword-value` 不再出 low/normal/high、`similarweb-query` 的 `belowFloor` 已改名 `noDataTextObserved`（观测事实，不是判决）。新脚本 `suggest.mjs` 同样不去重不打分。 | 把脚本某个字段当结论抄进报告，而那个字段现在只是「页面上写了一句话」 |
 | 2 | **看到 0 条或空表，先开 `manifest.json`。** 落点 `.rankup/evidence/demand/<脚本>-<时间戳>/`。`sources` 里有任何一条非 `ok`，这次运行就不能当「真没需求」的证据；全 `ok` 且 `rawCount:0` 才允许读成真空态。`suggest.mjs` 里失败引擎是 `null` 不是 `[]`，就是为了让这两种情况长得不一样。 | 429 / CAPTCHA / 改版 / 超时全都产出 0 条，被写成「这个方向没人做」 |
 | 3 | **一个配额工具只许有一个采集器。** Semrush / Similarweb 会话名固定（`semrush-nav` / `similarweb-nav`），**不要传 `--session`**；因此**同一时刻只能有一个 sub agent 在跑面板**。零配额源可以随便并行。 | 三个 agent 同时开 Similarweb → 触发上限，三个都拿不到数，且不报错 |
-| 4 | **哥飞开放 API 直接取数，Rankup 自己判读。** 选词和竞品调研按上面的官方 Skill 顺序使用 `webcafe-api.mjs`，搜索量用 `keyword_ideas` / `keyword_volume` 的 Google Ads 口径；不要调用 `gefei-ask.mjs` 或旧 `chat` 让站内 AI 代查。 | 只用 Semrush 单一来源，或把站内 AI 转述当原始数据 |
+| 4 | **哥飞开放 API 直接取数，Rankup 自己判读。** 选词和竞品调研加载官方 `gefei-keywords` / `gefei-competitor`，按官方方法调用工具，搜索量用 `keyword_ideas` / `keyword_volume` 的 Google Ads 口径；不让站内 AI 代查。 | 只用 Semrush 单一来源，或把站内 AI 转述当原始数据 |
 
 ---
 
@@ -69,11 +59,11 @@ BACKLINK=~/.agents/skills/backlink    # 本仓库开发时 = <repo>/backlink
 
 | 动作 | 回答什么 | 用哪些现成脚本/通道 | 配额档 | 产出 |
 |---|---|---|---|---|
-| **词→词** | 这个说法还有哪些近义/变体/上下位表达 | `webcafe-api.mjs keyword_ideas`（`ideas/suggestions/related`）· `search_known_keywords`；三引擎下拉和 Trends 补新词 | API 按 `tools` 实时报价；下拉/Trends 零配额 | 更多候选词与各自快照口径数据 |
-| **词→问题** | 用户不知道产品名时怎么描述需求 | `webcafe-api.mjs serp` 的 PAA/relatedSearches · `translate_demand`；社区原话用 `/agent-reach` | API 按实时报价；社区另算 | 问题句清单，回灌词池 |
-| **词→站** | 这个词现在被谁占着、以什么页面类型 | Google/Bing/目标市场引擎人眼实勘 · `webcafe-api.mjs serp` / `serp_review` | 人眼零配额，API 按实时报价 | 前十域名清单 + 页面类型 |
-| **站→词** | 这个站在打哪些词、怎么称呼这个需求 | `webcafe-api.mjs site_keywords` · `domain_overview`；sitemap slug 词频只作补充 | API 按实时报价，sitemap 零配额 | 新词根（很可能不含原种子字面串） |
-| **站→站** | 还有哪些站在做同一件事 | `webcafe-api.mjs search_known_sites` · `domain_overview`，SERP 共现域名 | API 按实时报价，共现域名零配额 | 新站清单，回「站→词」 |
+| **词→词** | 这个说法还有哪些近义/变体/上下位表达 | 官方 Skill 调用 `keyword_ideas`（`ideas/suggestions/related`）· `search_known_keywords`；三引擎下拉和 Trends 补新词 | API 按 `tools` 实时报价；下拉/Trends 零配额 | 更多候选词与各自快照口径数据 |
+| **词→问题** | 用户不知道产品名时怎么描述需求 | 官方 Skill 调用 `serp` 的 PAA/relatedSearches · `translate_demand`；社区原话用 `/agent-reach` | API 按实时报价；社区另算 | 问题句清单，回灌词池 |
+| **词→站** | 这个词现在被谁占着、以什么页面类型 | Google/Bing/目标市场引擎人眼实勘 · 官方 Skill 调用 `serp` / `serp_review` | 人眼零配额，API 按实时报价 | 前十域名清单 + 页面类型 |
+| **站→词** | 这个站在打哪些词、怎么称呼这个需求 | 官方 Skill 调用 `site_keywords` · `domain_overview`；sitemap slug 词频只作补充 | API 按实时报价，sitemap 零配额 | 新词根（很可能不含原种子字面串） |
+| **站→站** | 还有哪些站在做同一件事 | 官方 Skill 调用 `search_known_sites` · `domain_overview`，SERP 共现域名 | API 按实时报价，共现域名零配额 | 新站清单，回「站→词」 |
 
 脚本能力据实标注，不存在的没有写进上表：**Semrush 没有独立的「关键词 → 排名域名列表」报表**，
 词→站只能靠 SERP 通道（`serp-query.mjs` / `seo-webcafe.mjs serp` / 人眼），不冒称有等效面板报表；
@@ -140,10 +130,9 @@ BACKLINK=~/.agents/skills/backlink    # 本仓库开发时 = <repo>/backlink
 grep -i "<词根>" .rankup/rejected.md .rankup/decisions.md .rankup/keywords.md 2>/dev/null
 ls .rankup/research/ 2>/dev/null | grep -i "<词根>"     # 同词根有旧报告先读结论，再决定重跑哪几步
 
-# ① seo.web.cafe 档位（脚本会自动把配额打在第一行；档位以脚本打印为准，不写死）
-# `kd`/`serp`/`audit`/`money` 等命令默认经 OpenCLI 驱动本机已登录的 Chrome 跑登录/VIP 档，
-# 游客 10/日只在 OpenCLI 不可用或显式 --guest 时出现——出现了就是降级，别当成默认额度规划
-node $RANKUP/scripts/webcafe-api.mjs tools && node $RANKUP/scripts/webcafe-api.mjs me
+# ① 哥飞官方 Skill 与 API 状态：只在本轮需要其工具时检查
+node <已安装的gefei目录>/scripts/webcafe.mjs tools
+node <已安装的gefei目录>/scripts/webcafe.mjs me
 
 # ② 有哪些钥匙（决定哪些脚本今天能跑）
 cut -d= -f1 $RANKUP/.env 2>/dev/null; env | grep -oE 'SERPER_API_KEY|GITHUB_TOKEN|GH_TOKEN|PRODUCTHUNT_TOKEN|REDDIT_CLIENT_ID|IGDB_CLIENT_ID|TABAPI_KEY'
@@ -159,14 +148,11 @@ node $BACKLINK/scripts/tools-share-node.mjs list --tool similarweb
 调研结束时，本轮 pass 掉的每个词/方向都要进 `rejected.md`（对象 / 类型 / 日期 / 一句理由 / 复活条件 / 证据链接），
 只写「不做」不写理由的不算——下一轮的自己就是那个会重新捡起来的人。
 
-**为什么是第一个动作**：2026-08-22 真实事故——整场调研按「匿名 10 次/日」规划、省着用、
-少测 4 个词、报告写成「配额耗尽无法验证」，账号其实是 VIP 500/日、当天只用了 66 次。
-
 **钥匙缺失时的降级路线（照抄，不要现想）**：
 
 | 缺的钥匙 | 谁受影响 | 换成什么 |
 |---|---|---|
-| `SERPER_API_KEY` | 旧 `demand/serp-query.mjs` 不可用 | 默认直接用 `webcafe-api.mjs serp`；盘面仍须人眼实勘 |
+| `SERPER_API_KEY` | 旧 `demand/serp-query.mjs` 不可用 | 加载官方 `gefei-keywords` 并调用 `serp`；盘面仍须人眼实勘 |
 | `GITHUB_TOKEN` | `github-skill-search --mode code/recent` 不可用 | `--mode repo`（无 token 可跑）；`github-trending --source trending` 不受影响 |
 | `PRODUCTHUNT_TOKEN` | 无 | `boards.mjs producthunt` 自动降级浏览器路径，**浏览器路径本来就更全** |
 | `REDDIT_CLIENT_ID` | `reddit-wishes` 没有 score | 自动降级 RSS，能跑但慢（`--delay` 别低于 6000）；本机 Chrome 登录了 Reddit 时 auto 链会先走 opencli，全字段 |
@@ -404,7 +390,7 @@ Semrush / Similarweb / seo.web.cafe 这些面板给的月量，是**过去 28–
 | **a · 项目已有词表** | 在一个项目根里 | `test -f .rankup/keywords.md && head -80 .rankup/keywords.md` | 标「做」的那些词，直接就是词根；同时看到口径与日期 | 文件不存在 / 全是 ⬜ → b |
 | **b · 项目定位** | `.rankup/` 存在 | `head -60 .rankup/PROJECT.md`；再 `head -40 .rankup/INDEX.md` | 定位与目标用户里的名词短语就是第一版词根 | `.rankup/` 不存在 → c |
 | **c · 站点自己在打什么词**（**主力档**，和 [`site-review.md`](site-review.md) D1 同一招） | 手上有站点地址；**没有就先去 [`site-review.md` 阶段 0.0](site-review.md#阶段-00--站点地址从哪来先取址再体检)取址** | `node $RANKUP/scripts/seo-audit.mjs --sitemap <sitemap> --json > /tmp/k/audit.json`（**没有 `--out`**，用重定向）<br>`jq -r '.[].overview.title.text // empty' /tmp/k/audit.json \| sort \| uniq -c \| sort -rn \| head -30`<br>`jq -r '.[].headings[]? \| select(.level==1) \| .text' /tmp/k/audit.json \| sort \| uniq -c \| sort -rn \| head -30`<br>再 `node $RANKUP/scripts/seo-audit.mjs --sitemap <sitemap> --density-only`（全站聚合的 1/2/3-gram） | 全站 title/h1 里反复出现的名词短语 + 高频 2/3-gram = 站点**实际在打**的词 | 没有 sitemap 时改逐页：`node $RANKUP/scripts/seo-audit.mjs <url1> <url2> … --json`。全站抓不动 → d |
-| **d · 从域名反查**（只有一个域名时） | 手上有域名 | `node $RANKUP/scripts/demand/sitemap-diff.mjs --domain <域名> --all --slug-words --top-words 40`（零配额）<br>`node $RANKUP/scripts/seo-webcafe.mjs mineSeed --input <站点URL>`（**不计配额**）<br>还不够再 `node $RANKUP/scripts/demand/aitdk-lookup.mjs <域名>`（**每域 1 配额**，出「核心搜索词」） | slug 词频里的词族 + 域名画像给的核心搜索词 | 全部空 → 先按 [铁律二](#三条贯穿全部流水线的铁律)开 manifest 分辨「采集失败」还是「站真的没内容」，再 e |
+| **d · 从域名反查**（只有一个域名时） | 手上有域名 | `node $RANKUP/scripts/demand/sitemap-diff.mjs --domain <域名> --all --slug-words --top-words 40`（零配额）<br>官方 `gefei-competitor` Skill 的 `site_keywords` / `search_known_sites`<br>还不够再 `node $RANKUP/scripts/demand/aitdk-lookup.mjs <域名>`（**每域 1 配额**，出「核心搜索词」） | slug 词频里的词族 + 域名画像给的核心搜索词 | 全部空 → 先按 [铁律二](#三条贯穿全部流水线的铁律)开 manifest 分辨「采集失败」还是「站真的没内容」，再 e |
 | **e · 转 P1 自造词根** | 什么都没有 | 直接跑 [P1 的第一小时子集](#第一小时最小可执行子集面对-24-个脚本不要发呆先跑这-6-个) 1a–1f，从榜单候选域名里挑 3–5 个同赛道站，再回本表 d 档对它们做 slug 词频 | 从真实需求信号里长出来的词根 | 这一档**不会失败**——1a/1e/1f 几乎不依赖任何前提 |
 | **f · 只剩这一档才问** | 上面五档全落空 | 发一句话，**同一条消息里阶段 0 和 e 档已经在跑**，不等回答：「给我一个词根或者一个网址就行；没有的话我按 `<c/d/e 档里最像的那个方向>` 先跑一轮。」 | 一个词根，或者用户默认你的猜测 | 用户不回 → 按你自己反推出的方向跑下去，**不许停在这里等** |
 
@@ -441,7 +427,7 @@ Semrush / Similarweb / seo.web.cafe 这些面板给的月量，是**过去 28–
    `/deep-research`、`opencli producthunt/github search` 等。
 2. 对定位到的每个站点，跑与阶段 0.5 c/d 档同款的零配额取词：
    `node $RANKUP/scripts/demand/sitemap-diff.mjs --domain <站点> --all --slug-words --top-words 40`、
-   `node $RANKUP/scripts/seo-webcafe.mjs mineSeed --input <站点URL>`（不计配额）；
+   官方 `gefei-competitor` Skill 的 `site_keywords` / `search_known_sites`；
    有面板配额时再补 `similarweb-keywords.mjs --tab relatedKeywords/questions --seed-file <站点词种子>`、
    `semrush-report.mjs --report organic-positions --domain <站点> --db <db>`。
 3. 把取到的词并入词池，与猜测词一起作为阶段 2 扩树的起点——**猜测词不再是唯一起点，只是词池的一部分**，
@@ -534,13 +520,13 @@ Semrush / Similarweb / seo.web.cafe 这些面板给的月量，是**过去 28–
 | 阶段 | 并行/串行 | 跑什么 | 拿到什么 | 卡住了怎么办 |
 |---|---|---|---|---|
 | **0 · 档位 + 定国家与语种** | 串行，主线 | [阶段 0](#阶段-0-开工前-30-秒每条流水线都以它开头) 之后紧接着：<br>`python3 $RANKUP/scripts/gt.py region "<词根>" --time 12m --top 15`<br>对每个 over-index 的国家：`python3 $RANKUP/scripts/gt.py compare "<本地语词>" "<英语词>" --geo <国>`<br>把词根翻成该国语种（agent 自己翻，不用脚本） | 一张 `(gl, hl, db)` 三元组清单：**逐国查，每个国家一组**；每国一个「用本地语还是英语搜」的结论；每国一个本地语词根 | **市场是全球，不默认 us。** `--db` / `--gl` / `--hl` 三个参数后面每一步都要带，漏了会默默落到错误市场（`semrush-keyword` 不传 `--db` 落 `jp`）。region 空 → 词太冷或太新，先跑阶段 5 看社区，再定国家。判据 [`trends.md`](../trends.md) W1「印尼用户搜英语 remove background 压过本地语」 |
-| **1 · 亲眼看 SERP**（取数前，意图核验第一遍） | 并行 | 目标词在 Google、Bing、目标市场本地引擎的真实页面逐个看；结构化结果用 `webcafe-api.mjs serp "<词>" --gl <国>`，需要逐位点评才加 `serp_review` | 各引擎七样观察 + 前十页面类型；API 原始结果与请求号 | 结构化 SERP 看不到完整版式和 AI 答案，不能代替人眼；失败/空值先核错误码 |
-| **2 · 扩树**（最多两层） | 串行编排，独立零配额源可并行 | `webcafe-api.mjs keyword_ideas "<词根>" --mode ideas --gl <国>`，需要长尾再用 `suggestions`、相关词用 `related`；对前十专门站用 `site_keywords <域名> --gl <国>` 反查，补 `search_known_sites` 与三引擎下拉 | 种子词之外的新词根 + L1/L2 候选词，标注快照量、CPC 与市场 | `keyword_ideas` 的快照词不等于真实意图；非英语词仍过语义/搜索/SERP 三关；站→词不能省 |
+| **1 · 亲眼看 SERP**（取数前，意图核验第一遍） | 并行 | 目标词在 Google、Bing、目标市场本地引擎的真实页面逐个看；结构化结果通过官方 Skill 调用 `serp "<词>" --gl <国>`，需要逐位点评才加 `serp_review` | 各引擎七样观察 + 前十页面类型；API 原始结果与请求号 | 结构化 SERP 看不到完整版式和 AI 答案，不能代替人眼；失败/空值先核错误码 |
+| **2 · 扩树**（最多两层） | 串行编排，独立零配额源可并行 | 官方 Skill 调用 `keyword_ideas "<词根>" --mode ideas --gl <国>`，需要长尾再用 `suggestions`、相关词用 `related`；对前十专门站用 `site_keywords <域名> --gl <国>` 反查，补 `search_known_sites` 与三引擎下拉 | 种子词之外的新词根 + L1/L2 候选词，标注快照量、CPC 与市场 | `keyword_ideas` 的快照词不等于真实意图；非英语词仍过语义/搜索/SERP 三关；站→词不能省 |
 | **3 · 取量 / KD / CPC** | 按预算串行 | 先用 `keyword_ideas` 的同市场月量/CPC，词池大时用 `bulk_keyword_difficulty --keywords ... --gl <国>` 预筛；3–6 个入选词用 `keyword_difficulty "<词>" --gl <国>` 精评；待推荐词的量缺失/存疑或需要 12 月曲线时，一次 `keyword_volume --keywords ... --gl <国或world>`；决定生死时再用 `gt.py` 锚点法复核 | 月量、CPC、哥飞版 KD、Top10 盘面、趋势；各自来源/国家/快照日期/请求号 | 预筛 KD 与哥飞版 KD 不同；`gl=world` 才是全球，`null`/未收录/429 不是零；批量调用优先，避免重复付费；Trends 是相对值，交叉验证时要校准锚点 |
 | **4 · 筛子** | 串行，主线判读，**不跑脚本** | 对阶段 3 的表逐行套两条（**本 playbook 裁定，来自用户硬规则**）：<br>① **月量太低且 CPC 低 → 直接否**：默认阈值 **月量 < 500 且 CPC 低于同批中位数**；做「精品工具页 + 关键词域名」时按 [`demand-discovery.md`](../experiences/demand-discovery.md) 二·规模化心得 2 放到「几千到一万出头就值得上」，做大站另换一套——**阈值写进报告第一节，改了要写为什么**<br>② **竞争复核**：KD 仅用于安排复核顺序；按上文「关键词竞争与竞品页面证据」检查前 10–20 结果、新产品上线证据、目标 URL 非品牌自然量及具体任务/SEO 缺陷，分别给出支持、反证和未知，不能仅按 KD 分档淘汰 | 存活叶子清单 + 每片叶子的档位；**存活叶子决定第二层扩不扩** | 全部叶子被筛掉 → 不是「这棵树死了」，先看阶段 3 的 manifest 与 `noData` 比例；面板 0 量的词**必须**经阶段 5 再判（28 天盲区）。导航类意图（品牌词）直接去掉——导航词抢不走 |
 | **5 · 社区验证（必做，不许跳）** | **并行 G**（零配额，与阶段 3 同时开） | **先问一句要不要借浏览器**：Reddit / X / 小红书的采集后端是 OpenCLI，会在用户的 Chrome 里开标签页；用户没点头就只跑 HN、下拉、YouTube、B 站、V2EX、GitHub 与 Jina 读公开页这些纯 HTTP 通道，报告里写明跳过了哪个平台（判据 [`discipline.md`](../discipline.md) 五·5）。<br>**派 sub agent 跑这一步时，把本行「跑什么」整块原样贴进它的 prompt，并要求它产出四平台各一行状态**（2026-09-02 实盘：主线只写了「community demand signals」，子代理自己发挥，只跑了 Reddit 和 HN，X / YouTube / B 站一条没跑，报告里也没人发现）。<br>**Reddit 两个窗口对照**（脚本内部走 `opencli reddit search --site-session persistent`：整批复用一个 reddit.com 标签页，不再每次调用新开标签页导航首页；用户看到「一直刷新首页、从没搜索」是 v1.8.7-yan.3 及更早的行为；yan.4 起 `reddit search` 直接导航到这次查询的搜索结果页，标签页 URL 就是查询本身，搜索仍是页内 fetch）：<br>`node $RANKUP/scripts/demand/reddit-wishes.mjs --topic "<词根>" --time week --limit 40 --json --out /tmp/k/reddit-week.json`<br>`node $RANKUP/scripts/demand/reddit-wishes.mjs --topic "<词根>" --time month --limit 100 --json --out /tmp/k/reddit-month.json`<br>`node $RANKUP/scripts/demand/hn-signals.mjs --mode ask --q "<词根>" --days 14 --json`<br>**X / YouTube / B 站 / 小红书**走 `/agent-reach` 的命令组（下面四条 2026-09-03 在本机实跑通过；先 `agent-reach doctor --json` 看每个平台的 `active_backend`，doctor 说的优先）：<br>X：`opencli twitter search "<词根>" --limit 50 -f yaml --site-session persistent`（doctor 报 OpenCLI 后端时；`twitter search` 需要 twitter-cli 配好 cookie，没配会报 `not_authenticated`）<br>Reddit 补位（`reddit-wishes` 只抓许愿句式）：`opencli reddit search "<词根>" --limit 50 -f yaml --site-session persistent`<br>YouTube：`yt-dlp --dateafter now-14days --no-download --print "%(upload_date)s | %(title)s | %(view_count)s | %(webpage_url)s" "ytsearch30:<词根>"`（**不要加 `--flat-playlist`**，flat 模式拿不到 upload_date 全是 NA；`ytsearchdate` 前缀本版 yt-dlp 不支持；30 条要 1–2 分钟，空输出 = 前 30 条相关结果里没有 14 天内的，不是命令坏了）<br>B 站：`bili search "<词根>" --type video -n 50`（无需登录；B 站不要用 yt-dlp）<br>小红书 / V2EX：`opencli xiaohongshu search "<词根>" -f yaml`、`curl -s https://www.v2ex.com/api/topics/hot.json`<br>**搜索侧的短时信号**：`python3 $RANKUP/scripts/gt.py compare "<词根>" --time 1d`（24 小时、8 分钟一点）与 `--time 7d --raw`（7 天小时级），必要时 `related "<词根>" --time 1d` 看同期 rising 词；**新词单独查**，与大词同框会被归一化压成 0（2026-09-03 实跑：openclaw 与 chatgpt 同框全程 0，单独查 60 上下）。<br>没有登录态又不想开浏览器时，`/tuner` 的 social 端点是 API 替代；泛网页讨论用 `/anysearch` 的 `batch_search`；`/deep-research` 只做背景不出条数。按词根（含本地语词根）搜近 14 天的帖子/视频，逐条记 `平台 \| 日期 \| 标题 \| 互动数 \| 链接`，再取近 30 天做基线 | **四平台各一行**（Reddit / X / YouTube / B 站；做中文市场再加小红书）：`平台 \| 状态(ok/failed/skipped+原因) \| 近 14 天条数 / 日均 \| 前 30 天条数 / 日均`；以及最高互动的 3 条原话。**缺一行就是没做完**，不许只交 Reddit | **口径**：近 14 天有帖 **且** 14 天日均明显高于 30 天日均（≥2 倍）→ **新起话题**，面板 0 量不构成否决；14 天有帖但与 30 天持平 → 存量需求，以面板量为准；14 天无帖 → 先开 manifest（Reddit RSS 429 是常态），全 `ok` 才记「社区无讨论」。`/agent-reach` **只取原话不出数字**——条数由你数，写进报告时带链接。**只跑面板不跑这一步的报告不许下结论** |
 | **6 · 意图核验**（与 [`lifecycle.md`](../lifecycle.md) 段 1 · 1.2 同名，独立成行） | 串行，主线判读，**不跑脚本** | 把三样东西并排：阶段 1 的**页面类型列**、阶段 5 的**原话**、阶段 3 的**意图标签**。问一句：**用户搜这个词时到底要什么？和我以为的一样吗？** | 一行结论：`意图核验：<词> 真实意图=<X>（SERP 前十 <n> 条是<页面类型>），我原以为=<Y>，一致/撞词` | **撞词案例（用户原话）**：以为「宠物诊断」是「测你内心是哪种动物」的娱乐测试，SERP 前十全是**给宠物看病**的兽医内容——两个意思共用一个串，面板月量全归了兽医意图，娱乐那个意思的真实搜索量极低。撞词时**把两个意思拆开各自估量**：拿阶段 2 的联想串看哪个意思占多数、拿阶段 5 的原话看社区在聊哪个；估不出就写「撞词，娱乐意图量未验证」，不许把总量当自己那个意思的量。医院案例见 lifecycle 6.2：量对、意图错，页面白建 |
-| **7 · 折成钱**（不能跳过） | 串行 | `webcafe-api.mjs domain_overview <竞品域名>` 看总访问/渠道，`site_keywords <竞品域名> --gl <国>` 看排名词；按需 `stripe_checkout_referrals` 查付款引荐信号，`website_worth` 仅作估值参照；`seo-webcafe.mjs money` 本地零配额折算 | 同类站整站流量与模型上界并排、收入区间及口径差 | `site_keywords` 的估算自然流量不是整站访问；估值模型不是收入实证，无法观察就标未知 |
+| **7 · 折成钱**（不能跳过） | 串行 | 官方 Skill 调用 `domain_overview <竞品域名>` 看总访问/渠道，`site_keywords <竞品域名> --gl <国>` 看排名词；按需 `stripe_checkout_referrals` 查付款引荐信号，`website_worth` 仅作估值参照；`seo-webcafe.mjs money` 本地零配额折算 | 同类站整站流量与模型上界并排、收入区间及口径差 | `site_keywords` 的估算自然流量不是整站访问；估值模型不是收入实证，无法观察就标未知 |
 | **7' · 趋势形状**（与 7 并行，不同工具） | 并行 | `python3 $RANKUP/scripts/gt.py compare "<词根>" "<参照词>" --geo <国> --time 5y`；`python3 $RANKUP/scripts/gt.py related "<词根>" --geo <国>` | 季节尖峰 / 长期衰退 / rising 飙升词（回填到树里） | 全组连坐，见 P1 阶段 6 |
 | **8 · 收敛** | 串行，主线 | `/keyword-research` **只用第 4 相（意图分类）和第 7 相（聚簇）**，喂给它阶段 3 实测的量/KD/CPC | 意图标签 + pillar/cluster 骨架 | **严禁跑它的第 5 相 Score**：那个 skill 没有数据源，difficulty 与 volume 是编的。rankup 出数字，它只出分类骨架 |
 
@@ -551,11 +537,11 @@ Semrush / Similarweb / seo.web.cafe 这些面板给的月量，是**过去 28–
 | 0 国家与语种 | [`trends.md`](../trends.md) W1 全部五步；[`demand-sources.md`](../demand-sources.md) 九·五「词根库全是英文，这是整个社群共同的盲区」 |
 | 1 页面类型与盘面 | [`demand-sources.md`](../demand-sources.md) 一·五「SERP 盘面怎么读」：domainMatch 是启发式；精确域名命中多 → 成熟小生态，难度分往往低估；首页多 → 新站难插入，内页多 → 有缝。四类直接否的形状（[`demand-discovery.md`](../experiences/demand-discovery.md) 二·SOP 第 6 步）：搜索目标不可替代 / 引擎自己出答案 / 季节尖峰 / 对抗性工具。**首页全是新闻影视赛事成人 → 需求真实但不是工具需求，否**。低 DR 分叉：②·五「<6 个月低流量什么都不说明；9–18 个月高流量最强信号」 |
 | 2 扩树 | [`demand-sources.md`](../demand-sources.md) 九·五「候选串 ≠ 关键词」；九·六「漏掉的三类构词」（泛型入口词 / 问句 / 拼写变体）与 4 条操作规则；九·七「跨平台自动补全」（Amazon 有而 Google 没有的常是高购买意图词）；九·六末「品牌截流词 KD 通常很低」 |
-| 3 量 | [`demand-sources.md`](../demand-sources.md) ②·六·四（模型流量何时高估）；[`seo-webcafe.md`](../seo-webcafe.md)「月搜量必须配捕获率一起看」「零必须复查」；**Trends 锚点交叉验证怎么选锚、怎么折算、什么情况下降权 Semrush 数字**见 [`trends.md`](../trends.md)「〇·六」 |
+| 3 量 | [`demand-sources.md`](../demand-sources.md) ②·六·四（模型流量何时高估）；[`seo-webcafe.md`](../seo-webcafe.md)的空值与零值纪律；**Trends 锚点交叉验证怎么选锚、怎么折算、什么情况下降权 Semrush 数字**见 [`trends.md`](../trends.md)「〇·六」 |
 | 4 筛子 | 本 playbook 阶段 4 与「关键词竞争与竞品页面证据」为当前裁定，KD 不作硬闸；以下历史经验中的 KD/站龄阈值只作线索：[`experiences/webcafe-topics.md`](../experiences/webcafe-topics.md) 一~二「低 KD 不等于能做；词龄 >30 天且竞品域名 >20 天要考虑放弃」；[`demand-discovery.md`](../experiences/demand-discovery.md) 二·SOP 第 3 步「排除 NSFW；KD<30；导航类去掉」 |
 | 5 社区验证 | 本 playbook 阶段 5 那条口径（14 天 vs 30 天日均）；[`demand-sources.md`](../demand-sources.md) 八「用户的原话」+ 28 天盲区那段；[`demand-discovery.md`](../experiences/demand-discovery.md) 四·3 许愿句式 |
 | 6 意图核验 | [`lifecycle.md`](../lifecycle.md) 段 1 · 1.2「必须独立于搜索量做」；本 playbook 的宠物诊断撞词案例 |
-| 7 钱 | [`demand-sources.md`](../demand-sources.md) 十·五 + [`demand-discovery.md`](../experiences/demand-discovery.md) 八·第六条：全绿指标下同类站真实流量几百–八千/月 = **$20–100/月**；搜索量→流量→收入两次折损各一个数量级。CPC 的 U 型：八「CPC 怎么读」。本地数值：[`seo-webcafe.md`](../seo-webcafe.md)「本地命令数值判读指引」 |
+| 7 钱 | [`demand-sources.md`](../demand-sources.md) 十·五 + [`demand-discovery.md`](../experiences/demand-discovery.md) 八·第六条：全绿指标下同类站真实流量几百–八千/月 = **$20–100/月**；搜索量→流量→收入两次折损各一个数量级。CPC 的 U 型：八「CPC 怎么读」。本地数值：[`seo-webcafe.md`](../seo-webcafe.md)（仅作工具入口） |
 | 7' 趋势 | [`trends.md`](../trends.md) 〇「必须双锚」+ 〇·五「全组连坐」 |
 
 ### 省配额
@@ -628,7 +614,7 @@ Semrush / Similarweb / seo.web.cafe 这些面板给的月量，是**过去 28–
 | **2 · 域名画像** | 并行 F | `node $RANKUP/scripts/demand/aitdk-lookup.mjs <域名>` | 注册日期 / 站龄 / 月访问 / 流量结构 / DR / 环比 / 核心搜索词 | `✗ HTTP 429/403` = 被挡，不是没数据 |
 | **3 · 站群反查** | 并行 F | `node $RANKUP/scripts/demand/site-network.mjs --domain <域名> --confirm --max 25 --json --out net.json` | 同一主体运营的其它站 + 共同指纹 + 回访状态 | 脚本**只记事实不裁定强弱**。`revisit=fetch_failed` = 这次没看到，不是不共享指纹。**「无共同指纹」是站群的常态**（各站独立 GA4 / 埋点进 GTM 容器 / 服务端埋点），空结果读成「这条路没找到」 |
 | **4 · 广告与供给侧** | 并行 F | `node $RANKUP/scripts/demand/ads-transparency.mjs creatives --domain <域名> --region US`<br>`node $RANKUP/scripts/demand/sitemap-diff.mjs --domain <域名> --all --slug-words --top-words 40` | 他在不在持续买流量（持续投放 = ROI > 1）；他用几页吃了多少词 | ads-transparency 不需要 token 不需要登录。**广告数值不准，趋势与量级对**（50K 真值 40K–60K），**不进任何财务测算** |
-| **5 · 竞品真实流量** | 串行 | `webcafe-api.mjs domain_overview <域名>` 读整站访问/渠道/地区/DR，`site_keywords <域名> --gl <目标国>` 读排名词与页面；多站批量用 `domain_traffic` / `domain_dr`；需要独立面板对账才补 Similarweb/Semrush | 总访问、渠道、国家、排名词与落地页；每项标口径 | `site_keywords` 快照的估算自然流量不能当总访问；两家数字差异先核国家和渠道口径 |
+| **5 · 竞品真实流量** | 串行 | 官方 Skill 调用 `domain_overview <域名>` 读整站访问/渠道/地区/DR，`site_keywords <域名> --gl <目标国>` 读排名词与页面；多站批量用 `domain_traffic` / `domain_dr`；需要独立面板对账才补 Similarweb/Semrush | 总访问、渠道、国家、排名词与落地页；每项标口径 | `site_keywords` 快照的估算自然流量不能当总访问；两家数字差异先核国家和渠道口径 |
 | **6 · 薄编排复核**（帖子声称数字时） | 串行，在 5 之后 | `node $RANKUP/scripts/demand/revenue-site-audit.mjs --domain <域名> --source-url <帖子链接> --claimed-visits <n> --claimed-organic-share <pct> --claimed-mrr <n> --keyword <主词> --db <目标国> --out audit.json` | 各源原始对照数据 + 倍差事实，**不含 verdict** | 它顺序调用现有 AITDK / Similarweb 两张报表 / Semrush / sitemap / KD 脚本。`--from <目录>` 可离线重整已保存的原始文件（**不重跑不再花配额**）。原始文件全保留在输出的 `rawFilesDir` |
 | **7 · 定性背景**（可选，判断「他为什么能起来」） | 并行，与 5/6 无冲突 | `/deep-research` 或 `/agent-reach`：查这个品牌/产品在 Reddit / X / 小红书 / 播客里的讨论<br>`node $RANKUP/scripts/webcafe-forum.mjs chat-search "<品牌或赛道>"` | 叙事与打法（社群里有没有人拆过它） | **这一步只出定性叙事，不出任何数字**。哥飞社区那条**优先于问 AI**：`chat-search` 拿的是群聊归档原文，不经模型转述、零 AI 额度。**匿名不报错，只把正文抹成空串** |
 | 8 | 串行 | 他排的头部词当**词根**进 [P2](#p2--词根调研这个词能不能做扩成树)，看这棵树自己能不能进 | 立项 / 否决 | — |

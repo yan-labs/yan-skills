@@ -436,7 +436,7 @@ grep -oiE '(gtag|googletagmanager|clarity\.ms|cloudflareinsights|plausible|umami
 区间最宽，只筛明显异常）。仓里另有两把口径不同的尺——`seo-webcafe.mjs string`
 的 30–60 / 70–160（按近似展示宽度计长）与 Ahrefs 的 110–160——三者的对照与
 「说超长时必须点名是哪把尺」的规矩，见
-[`seo-webcafe.md`](seo-webcafe.md) 「本地命令数值判读指引」的
+[`seo-webcafe.md`](seo-webcafe.md) （仅作工具入口）的
 「`string` 的判读：三套 TDK 长度口径，别混着引」小节。
 
 密度（unigrams/bigrams/trigrams）没有「正确值」：它是给判读者看「这页在向搜索引擎

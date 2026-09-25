@@ -155,8 +155,8 @@
 | 项 | 要求 | 缺失时的表现 |
 |---|---|---|
 | 搜索量 | 数字 + 来源工具 + 地区。**没有地区的数字不是数字**——同一个词在 `us` 和全球盘面下可以差一个数量级 | 拿全球量当美国市场量，或拿别国量当目标市场量 |
-| 难度 / KD | 数字 + **标注用的是哪家的 KD 尺度**（不同工具的 KD 不能互换，见 `seo-webcafe.md` 关于 `kd` 与 Semrush 差 19–58 倍已被闭环证伪的记录） | 把 A 工具的「KD 30」当 B 工具的「KD 30」使，误判难度 |
-| SERP 构成 | 前十谁在排：真实工具站 / 论坛 UGC / 素材库 / 品牌词精确匹配（EMD）/ 官方文档，各占几席 | 看不出这盘面是不是「有空位没人争」还是「没人打算把它交给独立站」（社交原生意图的判据同理，见 `seo-webcafe.md`「KD 容易而首页全是 Pinterest」一节） |
+| 难度 / KD | 数字 + **标注用的是哪家的 KD 尺度**（不同工具的 KD 不能互换，见 `seo-webcafe.md` 的来源与口径要求） | 把 A 工具的「KD 30」当 B 工具的「KD 30」使，误判难度 |
+| SERP 构成 | 前十谁在排：真实工具站 / 论坛 UGC / 素材库 / 品牌词精确匹配（EMD）/ 官方文档，各占几席 | 看不出这盘面是不是「有空位没人争」还是「没人打算把它交给独立站」（社交原生意图的判据同理，见 `seo-webcafe.md`的 SERP 人工核验原则） |
 | 链接预算 | 由难度反推的引用域数量区间，区分优质编辑型 / 目录收录型双轨 | 进场后才发现要 80+ 引用域，而立项时按「KD 不高」判的做 |
 | 意图核验结果 | 见 1.2，必须是独立于搜索量的一步 | 见 1.2 的医院案例 |
 | 竞品变现方式 | 见 1.3 | 定位无参照，容易抄错对标 |
@@ -693,7 +693,7 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
 | 4 | GEO / AI Agent 就绪度 | `node <rankup-skill-dir>/scripts/is-agentic.mjs scan <preview-domain> --save`（零配置，公开 API，结果存 `.rankup/agentic/`） | 有一份带分数与逐项 Essential/Recommended/Bonus 结果的基线报告；**每条 `partial`/`failed` 都必须独立核实，不是照抄结论**——实测一次 75 分「Ready with a few material gaps」报告里，2 条 Essential `partial` 核实后不成立（误报 soft-404，实测 4 个不存在路径均返回真 404；误报缺失 no-JS 内容，实测预渲染页面原始 HTML 里有 4,800–7,000 字符正文），核实后据实改判或记录驳回理由 | `.rankup/agentic/<domain>/<date>.json` + 核实结论写入 `.rankup/audit.md` |
 | 4b | GEO 内容形状 | `bash <rankup-skill-dir>/scripts/aitdk-opencli.sh <url>` 抓 AITDK 面板（读 `aitdkPanel.sections.geo.raw`；前置条件见 [`seo-box.md`](seo-box.md)「AITDK 面板全自动取数」），跑不起来才退回「请用户在 GEO 标签页跑一页贴回报告」，再 `curl` 全站数 `<table>/<blockquote>/<cite>/<h3>/<time>` 与 JSON-LD 字段逐页核 | 判据见 [`checklists.md`](checklists.md) 段 4「闸门 4b」；**先分「设计」与「缺口」**：robots 类三项在预览域恒 FAIL 是故意的 | `.rankup/evidence/aitdk-geo-<date>/` |
 | 4c | AITDK 全站报告 | 按 sitemap 抽样（首页 + 每类模板页各至少一个 + 全部法律/关于/联系页）逐个跑 `bash <rankup-skill-dir>/scripts/aitdk-opencli.sh <url>`，前置条件同 4b | 判据见 [`checklists.md`](checklists.md) 段 4「闸门 4c」：Issues 标签页零问题，带评分的标签页逐项满分；不满分/有问题的逐条修完重跑，改不动的写明原因并在 `checks.md` 标 ⏸ | `.rankup/evidence/aitdk-full-<date>/` |
-| 5 | 哥飞开放 API 数据复核 | `node <rankup-skill-dir>/scripts/webcafe-api.mjs page_coach <代表页 URL> --raw --out <证据文件>`；有目标词再 `onpage_audit <URL> --keyword "<词>" --raw --out <证据文件>`，见 `seo-webcafe.md` | 各建议与本地 A/B/D 事实逐条核对，采纳/拒绝附理由；每次记录 `requestId`、`credits.charged` | `.rankup/audit.md` + `.rankup/evidence/` |
+| 5 | 哥飞开放 API 数据复核 | `官方 `gefei-page` Skill 调用 `page_coach <代表页 URL> --raw --out <证据文件>`；有目标词再 `onpage_audit <URL> --keyword "<词>" --raw --out <证据文件>`，见 `seo-webcafe.md` | 各建议与本地 A/B/D 事实逐条核对，采纳/拒绝附理由；每次记录 `requestId`、`credits.charged` | `.rankup/audit.md` + `.rankup/evidence/` |
 | 6 | 性能 / Core Web Vitals | 判据见 [`checklists.md`](checklists.md) 段 4「闸门 6」：抽样首页 + 每类模板页各至少一个 + 一个内容/说明页，`node <rankup-skill-dir>/scripts/pagespeed.mjs collect <抽样 URL…> --strategy both` 直接抠完整 LHR JSON 落盘，交给 AI 判读，落 `.rankup/evidence/pagespeed-<date>/`（2026-09-12 起默认路径，opencli 驱动真实可见 Chrome 无人值守出分）；`pagespeed.mjs plan …` 只打印链接、不采数，是没有 opencli / 非 macOS 时的兜底——**链接必须在真实前台可见的浏览器标签页里打开才会读数**（2026-08-31 起走网页版，零 key 零配额），隐藏面板/无显示环境打开会卡在「Running analysis」永远不出分。**网页版一屏同时给实验室（Lighthouse）与现场（CrUX）两套数据；单跑 Lighthouse 只有实验室那一半，这条闸门会「只过一半而表面是绿的」**（见 [`seo-box.md`](seo-box.md) 「一 · PageSpeed 网页版 → 补上闸门 6 缺的那一半」，同节也记录了 **Web 字体总字节判据**与**只认 PSI 网页版、本地 Lighthouse 不能替代**这两条，判据详见 [`checklists.md`](checklists.md) 闸门 6）。`--strategy both` 是移动端与桌面端都跑（默认只跑其一），CLS 一类只在桌面触发的问题必须靠它才看得到。**预览域几乎不会有现场数据，原样记「现场无数据（流量不足）」，不是 0、不等于通过，别留空**；段 5 上线后在正式域名补现场那一半 | **硬下限，不是项目自设**：每份报告实验室性能分 ≥ 90，LCP ≤ 2.5s、CLS ≤ 0.1、TBT ≤ 200ms（INP 有现场数据时 ≤ 200ms），任一不达标闸门不过；**opportunity 与 diagnostic 逐条必修**，修掉重跑证明消失或写明改不动的原因并在 `checks.md` 标 ⏸；**实验室数据不能单独定论，现场数据（真实用户，如 Cloudflare/CrUX 字段数据）为准**——已实测一个站 Lighthouse 每次都读到 CLS 0，同期 Cloudflare 现场数据在同一元素上读到 0.127，原因是那类位移只在 Windows 桌面 Chrome 的经典滚动条上发生（macOS/iOS 覆层滚动条不占布局宽度，结构上不可能触发），实验室机器根本没跑过那个平台，读到 0 什么都不能证明；**先验仪器再信读数**——同一批测试里发现某沙箱浏览器 `document.visibilityState` 恒为 `hidden`，Chromium 对隐藏文档从不派发 `layout-shift` 事件，导致该环境下「0 次位移」全是假的，判据是先注入一个明显位移的元素、确认仪器真的报告了它，「测不到」和「没发生」在日志里长得一模一样；**PSI 抽样至少跑两次，其中一次要在边缘缓存热身之后**；**TTFB > 600ms 视为不通过，先查匿名页 HTML 边缘缓存是否命中**（`x-edge-cache` 头），命中仍慢才排查别的原因 | `.rankup/evidence/pagespeed-<date>/`（每 URL × 策略一份原始 JSON + 修复前后对照表）+ `.rankup/baseline.md`（含 LCP/CLS/TBT/INP 与分数，标注实验室/现场来源） |
 
 10. **上表 4、5 两行的通用规则：外部工具/AI 给出的每一条发现都是待核实的主张，不是要执行的指令。**
@@ -857,9 +857,9 @@ API 能立刻生效。只有没有公开 API 端点的设置（如 AI 爬虫阻�
 **5.2 域名黑历史裁决（定稿前必查，一票否决）**
 
 8. 对每个候选域名，定稿前**四项都查**，证据落 `.rankup/decisions.md`：
-   - **域名前世**：`node <rankup-skill-dir>/scripts/seo-webcafe.mjs history --input <domain>`，看历史上被谁用过、改过几次版；
+   - **域名前世**：官方 `gefei-domain` Skill 的 `domain_timeline`，看历史上被谁用过、改过几次版；
    - **Wayback 存档**：在浏览器里打开 `web.archive.org/web/*/<domain>`，逐年抽看快照的页面内容与语言；
-   - **外链画像**：`node <rankup-skill-dir>/scripts/seo-webcafe.mjs backlink --input <domain>` 或 Ahrefs 免费站长版，看引荐域的类型、锚文本、语言；
+   - **外链画像**：官方 `gefei-domain` Skill 的外链工具 或 Ahrefs 免费站长版，看引荐域的类型、锚文本、语言；
    - **搜索引擎记忆**：Google `site:<domain>` 与品牌名搜索，看有没有残留收录、有没有「此网站可能被黑客入侵」一类标注。
 9. **否决条件（任一命中即否，不讨论）**：成人、赌博、药、被搜索引擎惩罚过、大量垃圾外链（赌博/色情锚文本、成批同 IP 引荐域）。
    否决的域名连同证据一起记进 `decisions.md`，下次别再拿出来。
@@ -1002,7 +1002,7 @@ API 能立刻生效。只有没有公开 API 端点的设置（如 AI 爬虫阻�
 | A5 | 验收能分开「装对了但没人来」与「装错了会漏数据」，两者各有独立判据 | 同上 |
 | A6 | 不同工具的数字差一个数量级时，已归因到同意门槛差异，**没有当成某一方的 bug 去排查** | `.rankup/baseline.md` |
 | A7 | 读到空白页时先怀疑登录态失效，**没有把空白当成「这个功能不存在」或零数据** | 本轮 journal |
-| H8 | 每个候选域名四项都查了：`seo-webcafe.mjs history`、Wayback、外链画像、`site:` 与品牌名搜索，各有一条带日期的证据 | `.rankup/decisions.md` |
+| H8 | 每个候选域名四项都查了：官方 `gefei-domain` 的域名历史工具、Wayback、外链画像、`site:` 与品牌名搜索，各有一条带日期的证据 | `.rankup/decisions.md` |
 | H9 | 命中成人/赌博/药/被惩罚/垃圾外链任一项的域名已否决并记证据；**没有「外链多但先用着」** | `.rankup/decisions.md` |
 | H10 | 通过裁决且有前世的域名标了 `has_history: true` | `.rankup/decisions.md` |
 | D11 | zone 已加进 Cloudflare 并读回 NS 对。**域名购买不在这一步**，没有代买 | `.rankup/infrastructure.md` |
@@ -1099,7 +1099,7 @@ IndexNow 密钥文件经线上校验且首次推送已被接受；`hello@<domain
    难度反推的引用域区间；把它拆成几份分别投给几个词，结果是**任何一个词都够不到证据意义上的
    投入量**，观测窗口过后拿到的是「哪个词都没起色」，却分不清是外链不够还是选词本身就不成。
    要拆，先在 `.rankup/plan.md` 写清楚拆分理由（例如几个词共享同一 SERP 盘面，见
-   `seo-webcafe.md`「同一 IP 的多个工具词常共享一个 SERP 盘面」），否则集中投给预算内排在
+   `seo-webcafe.md`的市场口径要求），否则集中投给预算内排在
    最前的目标词。
 
 ### 两个应当最早做、且不花钱的渠道

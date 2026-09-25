@@ -93,7 +93,7 @@ a–c 必然全空，而 d 档的 `git remote -v` 会拿当前仓库的名字拼
 | 0.1 项目记忆 | 串行 | `node <rankup>/scripts/review.mjs --project-root . --json` | 缺失文件、陈旧记录、生命周期检查点待补清单 | **`.rankup/` 不存在时脚本只打印「未找到 `.rankup/`，先运行 `rankup init`」就退出**，不出任何检查点——这不是错误，是新项目的正常返回，走下方「新项目分支」建完最小骨架再回来跑一次 |
 | 0.2 站在不在线 | 串行 | `curl -sIL -A 'Mozilla/5.0' <site> \| grep -v 'Connection established' \| grep -iE '^(HTTP/\|location:)'` | 首页状态码 + 跳转链（阶段 3 闸门要的那条） | 连不上 / DNS 没解析 → 走下方「站还没上线分支」。**必须滤掉 `Connection established`**，否则走代理时零跳首页会被读成两跳（见阶段 0.0 末尾） |
 | 0.3 有没有 sitemap | 串行 | `curl -s <site>/sitemap.xml \| head -20`；再 `curl -s <site>/robots.txt` | `<sitemap>` 的真实地址；robots 有没有误挡 | 404 → A 组改成「逐个已知页面」模式：`seo-audit.mjs <url1> <url2> …`，并把「缺 sitemap」记成必修项 |
-| 0.4 开放 API 预算 | 串行 | `node <rankup>/scripts/webcafe-api.mjs tools`、`… me` | 32 个工具的实时价格与可用积分，按本轮调用数写预算表 | `me` 401 是令牌无效，402 是余额不足，429 是当日上限；不当成数据为零，其余零积分检查继续 |
+| 0.4 开放 API 预算 | 串行 | `node <已安装的gefei目录>/scripts/webcafe.mjs tools`、`… me` | 工具目录的实时价格与可用积分，按本轮调用数写预算表 | `me` 401 是令牌无效，402 是余额不足，429 是当日上限；不当成数据为零，其余零积分检查继续 |
 | 0.5 性能取数路子 | 串行 | `node <rankup>/scripts/pagespeed.mjs plan <首页> --strategy both` | B 组要开的 pagespeed.web.dev 链接 + 读数清单 | **不再需要任何 key**（2026-08-31 起走网页版，零配额）。网页版跑分只在 Chrome 标签页真的可见时才渲染得完（实测后台标签页一直停在「Running analysis」，伪造 visibilityState 无效）。`collect` 默认前台驱动（open 带 `--window foreground` + 后台 activate 循环），2026-09-12 实测无人值守可以直接跑，B 组照跑；仍卡 `tab-hidden` 才标 ⏸ 并写「需要用户本人打开这几个链接读数，或加 `--no-foreground` 人工看着跑」，**不要把跑不出来记成「性能没问题」** |
 | 0.6 登录态 | 串行 | `opencli doctor` | A6 与 D/E/F 组里走浏览器的那几条能不能用 | 红 → 这几条标 ⏸ 并写清卡在哪；其余组照跑，**不要因此取消整场体检** |
 
@@ -104,10 +104,10 @@ a–c 必然全空，而 d 档的 `git remote -v` 会拿当前仓库的名字拼
 
 ##### 派活之前先按积分与会话分组
 
-阶段 0.4 先跑 `webcafe-api.mjs tools` / `me`，列出本轮拟用接口、每项实时价格、代表页与关键词数量，定好本轮积分预算。开放 API 只扣积分余额，不用网站每日赠送额度；`402 quota`、`429 day_cap` 与接口失败都不能读作零数据。所有调用保留 `--raw --out` 的原始响应，记录 `requestId` 与 `credits.charged`，末尾用 `usage --api` 对账。
+阶段 0.4 先用官方 CLI 查 `tools` / `me`，列出本轮拟用接口、每项实时价格、代表页与关键词数量，定好本轮积分预算。开放 API 只扣积分余额，不用网站每日赠送额度；`402 quota`、`429 day_cap` 与接口失败都不能读作零数据。所有调用保留 `--json --out` 的原始响应，记录 `requestId` 与 `credits.charged`，末尾用 `usage --api` 对账。
 
 - **零积分区**：本地 `seo-audit.mjs`、`is-agentic.mjs`、`seo-webcafe.mjs` 的 `kgr/string/money/email`、公开 SERP 的人眼实勘、GSC/PSI 的现有路径，可并行。
-- **哥飞开放 API 区**：D1/D4/E/F 需要的 `keyword_ideas`、`site_keywords`、`keyword_difficulty`、`domain_overview`、`page_coach`、`onpage_audit` 等按预算顺序调用；相同问题合并批量，不让多个执行者同时重复扣费。官方 Skill 的选词/竞品/域名/页面顺序见 [`../seo-webcafe.md`](../seo-webcafe.md)。
+- **哥飞开放 API 区**：D1/D4/E/F 需要的 `keyword_ideas`、`site_keywords`、`keyword_difficulty`、`domain_overview`、`page_coach`、`onpage_audit` 等按预算顺序调用；相同问题合并批量，不让多个执行者同时重复扣费。官方 Skill 的选词/竞品/域名/页面方法见 [`../seo-webcafe.md`](../seo-webcafe.md)。
 - **独立面板区**：Ahrefs、Semrush、Similarweb 只有当前问题确实需要独立交叉验证或开放 API 没有数据时才跑；各自固定会话内串行。AITDK 仍是独立会话，按抽样 URL 串行。
 
 E 组依赖 A/B/D 的事实，先完成这些取数再综合判读。开放 API 目录没有旧站内 Agent 的聊天接口，E 组直接比较工具返回的结构化证据。
@@ -173,33 +173,33 @@ E 组依赖 A/B/D 的事实，先完成这些取数再综合判读。开放 API 
 
 | 阶段 | 并行/串行 | 跑什么 | 拿到什么 | 卡住了怎么办 |
 |---|---|---|---|---|
-| D1 现有词表体检 | 串行 | 读 `.rankup/keywords.md`，对「做」的词先查已有原始证据；缺哥飞版精评时调 `webcafe-api.mjs keyword_difficulty "<词>" --gl <cc> --raw --out <证据文件>` | KD、Top10 盘面与请求号，逐词补齐六项证据 | `keywords.md` 不存在 → 从 A1 的 title/h1 与 A2 的高频词反推实际目标词 |
-| D2 量与全球口径 | 串行 | `webcafe-api.mjs keyword_ideas` 已给出的同市场量先复用；待推荐词量缺失/存疑或需 12 月曲线时一次 `keyword_volume --keywords <词表> --gl <国或world>` | 月量、CPC 与国家/全球口径 | `gl=world` 才是全球；`keyword_volume` 全球可能加价，先看实时 `tools` |
+| D1 现有词表体检 | 串行 | 读 `.rankup/keywords.md`，对「做」的词先查已有原始证据；缺哥飞版精评时通过官方 Skill 调用 `keyword_difficulty "<词>" --gl <cc> --json --out <证据文件>` | KD、Top10 盘面与请求号，逐词补齐六项证据 | `keywords.md` 不存在 → 从 A1 的 title/h1 与 A2 的高频词反推实际目标词 |
+| D2 量与全球口径 | 串行 | 官方 `keyword_ideas` 已给出的同市场量先复用；待推荐词量缺失/存疑或需 12 月曲线时一次 `keyword_volume --keywords <词表> --gl <国或world>` | 月量、CPC 与国家/全球口径 | `gl=world` 才是全球；`keyword_volume` 全球可能加价，先看实时 `tools` |
 | D3 趋势 | 并行 | `python3 <rankup>/scripts/gt.py compare "<词1>" "<词2>" --geo <cc> --time 12m`；方向不明时 `gt.py related "<词>"` | 曲线是涨是跌、相关飙升词（长尾种子的第一来源） | 空曲线**不等于**冷门；脚本会把「没取到」和「没需求」如实标成不可分辨，去 `.rankup/evidence/gt-browser-<ts>/` 看证据 |
-| D4 长尾扩展 | 串行编排 | `webcafe-api.mjs keyword_ideas "<种子>" --gl <cc>` 拓词；对 SERP 专门站用 `site_keywords <域名> --gl <cc>` 反查新词根；三引擎联想、Trends 与社区原话补充 | 长尾候选池、快照量与新词根 | 种子后缀扩不动时按 `research.md` 五个动作切换到站→词/站→站；未拿到不当零 |
+| D4 长尾扩展 | 串行编排 | 官方 Skill 调用 `keyword_ideas "<种子>" --gl <cc>` 拓词；对 SERP 专门站用 `site_keywords <域名> --gl <cc>` 反查新词根；三引擎联想、Trends 与社区原话补充 | 长尾候选池、快照量与新词根 | 种子后缀扩不动时按 `research.md` 五个动作切换到站→词/站→站；未拿到不当零 |
 | D5 长尾怎么分组、怎么排 | 串行（拿到词之后） | 加载 `keyword-research` Skill，按它的 8 个 phase 走 Classify（意图四分类）→ Score（`Opportunity = Volume × Intent Value / Difficulty`）→ GEO-Check → Cluster（pillar + cluster） | 意图标签、优先级排序、主题簇、内容日历 | 这个 Skill **自己不带数据源**（它的 Data Sources 一节写明「没有工具就问用户要种子词」）。**数据全部由 D1–D4 供给它**，不要让它去问用户；缺了这一步，rankup 只有一堆孤词，没有簇 |
-| D6 竞品词库差集 | 串行 | `webcafe-api.mjs site_keywords <竞品域名> --gl <国> --limit 50`，3–5 个同赛道站与自己的词池做差集；需要独立来源才补 Semrush | 自己漏掉的词根与页面 | `site_keywords` 是月更快照、按国家，空结果先核接口状态 |
+| D6 竞品词库差集 | 串行 | 官方 Skill 调用 `site_keywords <竞品域名> --gl <国> --limit 50`，3–5 个同赛道站与自己的词池做差集；需要独立来源才补 Semrush | 自己漏掉的词根与页面 | `site_keywords` 是月更快照、按国家，空结果先核接口状态 |
 | D7 首页实勘 | 串行 | 目标词在 Google + Bing（做非英语市场再加本地引擎）各搜一遍，无痕窗口、显式指定地区与语言，每个引擎记七样 | 版式、SERP 特性占屏、AI 答案引用了谁、有没有独立站空位 | 二手 SERP 接口（`serp-query.mjs` / `seo-webcafe.mjs serp`）看不到版式与 AI 答案，**不能代替这一步**；公开结果不需要登录态，这是少数可用沙箱浏览器的场景 |
 
 **E 组 · 哥飞开放 API 独立复核**
 
 | 阶段 | 并行/串行 | 跑什么 | 拿到什么 | 卡住了怎么办 |
 |---|---|---|---|---|
-| E1 查价格与余额 | 串行 | `node <rankup>/scripts/webcafe-api.mjs tools`、`… me`，查 `page_coach` / `onpage_audit` 当前价格 | 本轮接口预算 | `me` 401 → 凭据无效，标 ⏸；`402 quota` → 余额不足，不能当作网站无问题 |
-| E2 页面军师 | 串行 | `node <rankup>/scripts/webcafe-api.mjs page_coach <代表性页面 URL> --raw --out <证据文件>` | 页面推断词、排名与 P0/P1/P2 建议，含 `requestId` / `credits.charged` | 接口失败保存错误码和请求号，不把空结果当通过 |
-| E3 On Page 体检 | 串行 | `node <rankup>/scripts/webcafe-api.mjs onpage_audit <同页 URL> --keyword "<该页目标词>" --raw --out <证据文件>` | 40+ 项结果，与 A1 对照 | 按预算对首页与每类模板各取代表页；每次看实时价格 |
+| E1 查价格与余额 | 串行 | `node <已安装的gefei目录>/scripts/webcafe.mjs tools`、`… me`，查 `page_coach` / `onpage_audit` 当前价格 | 本轮接口预算 | `me` 401 → 凭据无效，标 ⏸；`402 quota` → 余额不足，不能当作网站无问题 |
+| E2 页面军师 | 串行 | 官方 `gefei-page` Skill 调用 `page_coach <代表性页面 URL> --json --out <证据文件>` | 页面推断词、排名与 P0/P1/P2 建议，含 `requestId` / `credits.charged` | 接口失败保存错误码和请求号，不把空结果当通过 |
+| E3 On Page 体检 | 串行 | 官方 `gefei-page` Skill 调用 `onpage_audit <同页 URL> --keyword "<该页目标词>" --json --out <证据文件>` | 页面检查结果，与 A1 对照 | 按预算对首页与每类模板各取代表页；每次看实时价格 |
 | E4 综合判读 | 串行 | 对照 A/B/D 的真实读数（TDK、目标词、SERP、现场性能），逐条核实 E2/E3 建议；必要时单独调用 `serp_review`，不默认调用 | `.rankup/audit.md` 每条采纳/拒绝及理由 | API 目录没有站内聊天 Agent；不能把 E2/E3 冒充旧 Agent 的自动综合审阅 |
 
 **F 组 · 市场规模与潜在市场**（回答「未来市场规模多大」）
 
 | 阶段 | 并行/串行 | 跑什么 | 拿到什么 | 卡住了怎么办 |
 |---|---|---|---|---|
-| F1 同类站整站流量 | 串行 | `webcafe-api.mjs domain_overview <竞品域名>`，多站比较用 `domain_traffic` | 总访问、渠道、地区与近月走势 | 与 `site_keywords` 的估算自然搜索流量分开，不混口径 |
-| F2 自然流量口径 | 串行 | `webcafe-api.mjs site_keywords <竞品域名> --gl <国>`；要解释起量时间再加 `site_history` | 排名词、估算自然流量与落地页 | 快照估算不等于实测整站流量；必要时用 Semrush 独立核对 |
+| F1 同类站整站流量 | 串行 | 官方 Skill 调用 `domain_overview <竞品域名>`，多站比较用 `domain_traffic` | 总访问、渠道、地区与近月走势 | 与 `site_keywords` 的估算自然搜索流量分开，不混口径 |
+| F2 自然流量口径 | 串行 | 官方 Skill 调用 `site_keywords <竞品域名> --gl <国>`；要解释起量时间再加 `site_history` | 排名词、估算自然流量与落地页 | 快照估算不等于实测整站流量；必要时用 Semrush 独立核对 |
 | F3 折成钱 | 串行 | `node <rankup>/scripts/seo-webcafe.mjs money --income <目标月收入> --kws <词数> --rankpos 3 --rpm <行业 RPM>` | 需要多少 UV、多少日搜索量、多少外链投入、ROI | 纯本地计算，零网络零配额，可放开跑多组参数做区间 |
 | F4 钱的信号 | 并行 | `node <rankup>/scripts/demand/stripe-referring.mjs`、`demand/payment-referrers.mjs`、`demand/site-network.mjs`、`demand/aitdk-lookup.mjs` | 谁在这个赛道真收到钱、同一批人还做了哪些站、域名画像 | 空结果**先核 manifest 的 sources 状态**：429 / CAPTCHA / 超时都会产出 0 条，采集失败 ≠ 没市场 |
-| F5 邻接市场 | 串行 | `gt.py region "<核心词>" --top 20`；同一需求的搜索说法用 `webcafe-api.mjs translate_demand "<英文需求描述>"` | 哪些国家在搜、相邻搜索表达 | Trends 是相对值；翻译结果仍需目标语言三关核验 |
-| F6 估值对照 | 串行 | `webcafe-api.mjs website_worth <竞品域名> --raw --out <证据文件>` | 第三方估值，作为 F3 折算的旁证 | 计积分，以 `tools` 的实时价格为准；模型估值不是真实成交价 |
+| F5 邻接市场 | 串行 | `gt.py region "<核心词>" --top 20`；同一需求的搜索说法通过官方 Skill 调用 `translate_demand "<英文需求描述>"` | 哪些国家在搜、相邻搜索表达 | Trends 是相对值；翻译结果仍需目标语言三关核验 |
+| F6 估值对照 | 串行 | 官方 Skill 调用 `website_worth <竞品域名> --json --out <证据文件>` | 第三方估值，作为 F3 折算的旁证 | 计积分，以 `tools` 的实时价格为准；模型估值不是真实成交价 |
 
 **G 组 · 接入清单与项目记忆**（原来的 `rankup review` 九步，现在降级为其中一组）
 
@@ -250,7 +250,7 @@ E 组依赖 A/B/D 的事实，先完成这些取数再综合判读。开放 API 
 
 ### 5. 省积分
 
-先 `webcafe-api.mjs tools` 看实时价格、`me` 看 API 可用余额。优先批量接口：`domain_traffic`、`domain_dr`、`bulk_keyword_difficulty`、`keyword_volume`；同一批词只查一次。快照里已有可信的同口径月量时不重复买 `keyword_volume`。`load_guide` 按任务只取相关专题，`site_history`、`knowledge_ask` 等较贵接口仅在问题需要时用。每次保存原始 `requestId` 和 `credits.charged`，用 `usage --api` 对账。站内每日赠送额度不适用于开放 API。
+先用官方 CLI 查 `tools` 看实时价格、`me` 看 API 可用余额。优先批量接口：`domain_traffic`、`domain_dr`、`bulk_keyword_difficulty`、`keyword_volume`；同一批词只查一次。快照里已有可信的同口径月量时不重复买 `keyword_volume`。`load_guide` 按任务只取相关专题，`site_history`、`knowledge_ask` 等较贵接口仅在问题需要时用。每次保存原始 `requestId` 和 `credits.charged`，用 `usage --api` 对账。站内每日赠送额度不适用于开放 API。
 
 Semrush / Similarweb / Ahrefs 的独立浏览器面板仍是不同来源：确需交叉验证时各自固定会话串行，不传 `--session`。页面版式、AI 答案、目标国本地引擎和社区原话不由哥飞开放 API 覆盖，按各自来源验证。
 

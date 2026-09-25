@@ -106,10 +106,10 @@ SKILL.md 段 6 与取数纪律只一行指回本文件，改脚本入口时只�
 
 | 能力 | 一句话能干什么 | 入口 | 典型触发说法 |
 |---|---|---|---|
-| 关键词难度 + Top10 盘面 | 哥飞版 KD、进入前十的链接预算、竞争页画像 | `scripts/webcafe-api.mjs keyword_difficulty` | 「这个词难不难做」 |
-| SERP 排名归因 | 原始搜索结果与逐位点评分开取 | `scripts/webcafe-api.mjs serp` / `serp_review` | 「为什么是他排第一」 |
+| 关键词难度 + Top10 盘面 | 哥飞版 KD、进入前十的链接预算、竞争页画像 | 官方 Skill 调用 `keyword_difficulty` | 「这个词难不难做」 |
+| SERP 排名归因 | 原始搜索结果与逐位点评分开取 | 官方 Skill 调用 `serp` / `serp_review` | 「为什么是他排第一」 |
 | 本地零配额计算 | `kgr` / `string`（TDK 长度）/ `money`（收入目标拆解）/ `email`，支持 `--batch`，**只出数值不出评级** | `scripts/seo-webcafe.mjs kgr\|string\|money\|email` | 「算下 KGR」「TDK 超长没」 |
-| 需求翻译 / 拓词 / 起名核域名 | `translate_demand`、`keyword_ideas`、`brand_naming`、`domain_availability` | `scripts/webcafe-api.mjs` 对应子命令 | 「帮我想个站名」「这词换成英文怎么搜」 |
+| 需求翻译 / 拓词 / 起名核域名 | `translate_demand`、`keyword_ideas`、`brand_naming`、`domain_availability` | 按官方 `gefei` Skill 选择工具 | 「帮我想个站名」「这词换成英文怎么搜」 |
 | Google Trends | 热度对比、地区分布、相关飙升词、每日热搜；含 1h/4h/1d 短时窗口（小时级曲线，验证刚出现的新词）；2026-09-09 切到新版 Explore UI（`trends.google.com/explore`）路由，零 venv；旧版（`/trends/explore` + pytrends）归档在 `scripts/archive/gt-v1/`，不算独立能力入口 | `scripts/gt.py`（取数层 `scripts/gt-browser.mjs`） | 「XX 和 YY 哪个更火」「今天在搜什么」 |
 | 搜索量 / KD / CPC（Semrush） | 分国家量与 KD，**外加全球合计 `globalVolume`**；同国家最多 100 词 `--bulk --db <cc>`（**bulk 下 `globalVolume`/`byCountry` 恒 null**） | `backlink/scripts/semrush-keyword.mjs` | 「这词一个月多少量」 |
 | **词根批量扩词（Similarweb）** | 一个种子词扩出整页关键词，四个 tab：`phraseMatch` / `relatedKeywords`（量最大）/ `trending` / `questions`。这是 `demand-discovery.md` 那条「1,309 词根 → 97,681 词」流水线的**入口**（2026-08-28 落地） | `backlink/scripts/similarweb-keywords.mjs` | 「帮我扩词」「我只有一个词根」 |
@@ -176,7 +176,7 @@ SKILL.md 段 6 与取数纪律只一行指回本文件，改脚本入口时只�
 
 | 能力 | 一句话能干什么 | 入口 | 典型触发说法 |
 |---|---|---|---|
-| 页面体检（第三方） | 开放 API 的页面军师、On Page 体检、外链估价、网站估值、域名历史、AdSense 预检 | `scripts/webcafe-api.mjs page_coach\|onpage_audit\|backlink_value\|website_worth\|domain_timeline\|adsense_audit` | 「帮我看看这个页面」 |
+| 页面体检（第三方） | 开放 API 的页面军师、On Page 体检、外链估价、网站估值、域名历史、AdSense 预检 | 官方 `gefei-page` / `gefei-domain` Skill，按当前工具目录调用 | 「帮我看看这个页面」 |
 | 自有站爬虫报告 | 读 Ahrefs Site Audit 已有抓取结果：`projects` 看健康分，`report <id> <报告>` 取**脚本已接的 15 个**分类报告之一（`routes` 列全清单）| `scripts/ahrefs-site-audit.mjs` | 「全站有多少内链失效」 |
 | AITDK 面板全自动取数 | 一条命令抓 AITDK 扩展面板 15 个标签页（Overview/Traffic/Backlinks/Adsense/Issues/GEO/SERP/Density/Headings/Images/Links/Social/Hreflangs/Structured/Whois）+ 页面 HTML/robots/sitemap/whois，并检测 `example.com` 占位域名泄漏 | `scripts/aitdk-opencli.sh <url>`，前置条件与输出形状见 [`seo-box.md`](seo-box.md)「AITDK 面板全自动取数」 | 「跑一下 AITDK」「GEO 标签页那半截」 |
 | 重定向链 | 裸域/www 几跳、旧 URL 是 301 还是 302（302/307 不传权重） | `curl -sIL`，判据 [`experiences/webcafe-topics.md`](experiences/webcafe-topics.md) 五 | 「跳转对不对」 |
@@ -213,7 +213,7 @@ rankup 只判「什么时候发、发多少」（SKILL.md 段 6 一行指回这�
 |---|---|---|---|
 | 论坛全站取数 | new.web.cafe：`get <任意站内 URL>` 万能入口、悬赏问答（含 `collect` 征集榜）、经验 91 条 / 帖子 722 条 / 教程 40 个、站内搜索 | `scripts/webcafe-forum.mjs` | 「论坛里搜一下」 |
 | 微信群归档搜索 | 14 个群的原文，**就是哥飞.ai 的知识库**，零 AI 额度 | `scripts/webcafe-forum.mjs chat-search "词"` | 「群里怎么说的」 |
-| 直接使用哥飞开放 API 工具箱 | 32 个接口，官方 CLI 从服务端实时读取目录；选词/竞品/域名/页面按官方 Skill 工作流编排，Rankup 自己判读 | `scripts/webcafe-api.mjs tools` 与 [`seo-webcafe.md`](seo-webcafe.md) | 「查词、拓词、拆竞品、审页面、查域名」 |
+| 直接使用哥飞开放 API 工具箱 | 实时工具目录，官方 CLI 从服务端实时读取目录；选词/竞品/域名/页面按官方 Skill 工作流编排，Rankup 自己判读 | [`seo-webcafe.md`](seo-webcafe.md) 指向官方 Skill | 「查词、拓词、拆竞品、审页面、查域名」 |
 | 取数注意 | **匿名不报错**：返回 200 但把正文抹成空串、票数归零 | [`references/webcafe-forum.md`](webcafe-forum.md) 第一节 | 拿到空正文时 |
 | 裁定集：挖需求阶段 | 还没定方向时的判断口径 | [`experiences/demand-discovery.md`](experiences/demand-discovery.md) | 「方向怎么选」 |
 | 裁定集：0→1 | 优先级、「1」的定义、虚荣指标、止损线、新站上线执行清单 | [`experiences/zero-to-one.md`](experiences/zero-to-one.md) | 「先做哪个」「什么时候放弃」 |

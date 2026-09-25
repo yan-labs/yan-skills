@@ -139,7 +139,7 @@
 | 地区分布 / "哪个国家搜得多" | `region` | opencli 驱动新版 Explore UI |
 | 相关词 / 飙升查询 / "大家搜 XX 时还搜什么" | `related` | opencli 驱动新版 Explore UI |
 | 今日热搜 / "美国现在在搜什么" | `hot` | opencli |
-| 关键词难度 / SERP 盘面 / "这个词能排上去吗" | `seo-webcafe.mjs kd` | Web.Cafe KD API |
+| 关键词难度 / SERP 盘面 / "这个词能排上去吗" | 官方 `gefei-keywords` Skill | Web.Cafe KD API |
 
 ### 取数路由：新版 Explore UI（2026-09-09 切版）与旧版归档
 
@@ -207,59 +207,7 @@ python3 $GT close
 
 ### KD 难度估算
 
-KD **不再有独立脚本**。合并时发现 `gt/scripts/kd.py` 与 `scripts/seo-webcafe.mjs`
-打的是同一个端点（`https://seo.web.cafe/kd/api/v1/kd`）、用的是同一种令牌
-（`wc_mcp_` 开头，`gt` 那边叫 `KD_TOKEN`，这边叫 `SEO_WEBCAFE_TOKEN`），
-只是两套实现、两个变量名。删掉重复的那份，KD 统一走：
-
-```bash
-node scripts/seo-webcafe.mjs kd --keyword "ai photo editor"
-node scripts/seo-webcafe.mjs kd --keyword "remove background" --gl JP
-```
-
-令牌两种给法，`export SEO_WEBCAFE_TOKEN=...`，或写进本 Skill 目录的 `.env`
-（`KD_TOKEN=` 亦可，两个键名都认）。`.env` 兜底是合并时特意加的：
-`gt` 那边只要装一次 `.env` 就一直能用，若合并后只认环境变量，等于要求每次 export，
-是无声的体验倒退。
-
-**KD 不走 MCP。** `seo.web.cafe` 有 `/kd/mcp` 端点，但它与 HTTP API 同额度、同数据，
-多一层连接只多一个故障点。完整契约（参数、额度、错误码、下结论该看哪些字段）见
-[`seo-webcafe.md`](seo-webcafe.md) 的「`/kd/` 是完全独立的另一套认证」一节。
-
-> **2026-08-16 记录**：从 `gt/.env` 带过来的旧令牌已失效（`curl` 直打同一端点
-> 同样 401 `code: auth`，与合并无关），站主当天在 https://seo.web.cafe/kd/docs
-> 重新生成并换入 `rankup/.env`，实测通过：
-> `ai photo editor --gl us` → KD 60.5 困难 · 月搜 103500 · 引用域中值 130。
-> 以后再遇到 401 `code: auth`，先怀疑令牌过期，不要怀疑脚本。
-
-**KD 输出包含：**
-- **难度分** (0-100) + 中文等级（极易/容易/中等/困难/极难）
-- **月搜索量**（绝对值，非 Trends 的相对值）
-- **品牌词/通用词** 自动识别
-- **判断原因**（每条信号的加减分明细，中文）
-- **链接预算**（进入前十需要多少引用域，质量型/目录型双轨）
-- **前十盘面**（逐个站点的 DR、流量、年龄、是否专门经营、主力词命中）
-- **新站信号**（< 18 个月的新域名已排进前十 = 赛道对新站友好）
-- **上升期信号**（trend ratio ≥ 1 = 快速增长中）
-
-**KDROI 不在 `kd` 的输出里。** `kd` 分支不产出该字段——KDROI 由本地命令
-`seo-webcafe.mjs kgr` 算（纯本地、零配额，输出 `kdroi.requiredDomains` /
-`invest` / `yearRevenueCap` / `roiPct`），把 `kd` 拿到的难度分喂给 `kgr` 才有。
-公式与外链阶梯定价、以及 `roiPct` 的档位参照，**只在**
-[`seo-webcafe.md`](seo-webcafe.md) 「本地命令数值判读指引」一节，此处不复述阈值。
-
-**KD 关键字段怎么读（脚本只出数值，档位是判读参照不是判决）：**
-- `score` 只回答「能不能打」，不回答「值不值得打」——后半个问题要看需求真实性、
-  终局流量、变现路径和交付速度，见
-  [`experiences/webcafe-topics.md`](experiences/webcafe-topics.md) 「一·一、判据不是一个数，是五件事」。
-- 看盘面而不是看分数：`details` 的域名构成才是判据。低 KD 但前十一半是社交站 =
-  没人来争而不是有空位，见 [`seo-webcafe.md`](seo-webcafe.md)
-  「KD『容易』而首页全是 Pinterest / Instagram」一节。
-- `score` 高低配合**新站信号**（< 18 个月新域名已排进前十）一起读：新站信号在，
-  说明赛道结构上对新站开放，分数偏高也未必是禁区。
-- `linkBudget.quality.mid` = 优质外链中值，这是外链建设的靶子
-- `details` 里 `dedicated=true` 密度高 = 正面争夺的词（不是大站顺路排的）
-- `keywordTrend.ratio ≥ 1` = 有站正在靠这个词快速增长，时机窗口在
+趋势筛出的候选词加载官方 `gefei-keywords` Skill，按其当前工具方法查询目标市场的难度、量和 SERP。记录市场、日期、工具名与原始结果；全球量须单独核实。具体接口和认证以官方 Skill 为准，见 [`seo-webcafe.md`](seo-webcafe.md)。
 
 ### KD 模型方法论（解读分数时参考）
 
@@ -311,7 +259,7 @@ node scripts/seo-webcafe.mjs kd --keyword "remove background" --gl JP
 2. **趋势健康度**：对每个候选国 `compare <词> --geo <国> --time 5y` → 只留上升或平稳的市场，衰退的淘汰；顺便记录季节性。
 3. **语言决策**：同一国家内 `compare "本地语词" "英语词" --geo <国>` → 哪个赢就做哪种语言的内容。不要想当然——实测中印尼用户搜 "remove background"（英语）反而压过 "hapus background"（本地语）。**同一语言分布在多个国家时**（西班牙语的墨西哥与西班牙、葡萄牙语的巴西与葡萄牙……），每个国家各自跑一遍 `--geo`，不要把同语言的多个国家合并成一组结论——两地用户不是同一批人。
 4. **挖本地搜法**：`related <词> --geo <国>` → rising 词往往是当地真实长尾，回填候选词表。挖出来的 rising 词同样是候选而非定论，写进 `.rankup/keywords.md` 前要按 [`playbooks/research.md`「小语种候选词三关与本地竞品取词」](playbooks/research.md#小语种候选词三关与本地竞品取词)过一遍语义 → 搜索 → SERP 三关。
-5. **竞争侧收口**：对幸存的候选词 `seo-webcafe.mjs kd --keyword <词> --gl <国>` → 查难度分 + 搜索量 + SERP 盘面。重点看：
+5. **竞争侧收口**：对幸存的候选词加载官方 `gefei-keywords` Skill，按目标国查难度 → 查难度分 + 搜索量 + SERP 盘面。重点看：
    - `score` < 40 且 `keywordVolume` > 1000 = 高价值蓝海
    - 有新站信号（< 18 个月新域名排进前十）= 赛道对新站友好
    - `linkBudget.quality.mid` 决定外链建设预算
@@ -335,7 +283,7 @@ node scripts/seo-webcafe.mjs kd --keyword "remove background" --gl JP
 
 **第三步：用 KD 验证难度（收敛竞争侧）。**
 
-对通过趋势筛选的词逐个 `seo-webcafe.mjs kd --keyword <词>`（注意每分钟 ≤10 次限流，间隔 ≥6 秒）：
+对通过趋势筛选的词逐个加载官方 `gefei-keywords` Skill 查难度：
 
 1. `score` > 70 且无新站信号的词先降权——但别只看这个数，翻 `details` 的域名构成
    确认是「老站围死」还是「社交原生意图」，两者对新站的含义不同。
@@ -352,7 +300,7 @@ node scripts/seo-webcafe.mjs kd --keyword "remove background" --gl JP
 
 建议列不是套阈值算出来的，是判读出来的。三个输入各自的口径：
 
-- **KDROI 的档位参照**见 [`seo-webcafe.md`](seo-webcafe.md)「本地命令数值判读指引」
+- **KDROI 的档位参照**见 [`seo-webcafe.md`](seo-webcafe.md)（仅作工具入口）
   的 `roiPct` 那几行——**注意那里的口径比直觉严**，不要照着「>100% 就是高回报」下结论。
 - **KD 分数**只答「能不能打」，且要配 `details` 域名构成与新站信号一起读（见上文
   「KD 关键字段怎么读」）。
@@ -372,7 +320,7 @@ node scripts/seo-webcafe.mjs kd --keyword "remove background" --gl JP
 
 - `related` 的 **rising 列表是最强信号源**：+several-thousand-% 的词 = 正在起飞的需求。
 - 疑似新词 `compare <新词> <类目老词> --time 12m` → 判断是昙花一现还是持续爬坡（连续 3 个月以上抬升才算数）。
-- 对确认上升的词 `seo-webcafe.mjs kd --keyword <词>` → 如果 `keywordTrend.ratio ≥ 1` 且 `score` < 50，这是最佳时机窗口。
+- 对确认上升的词用官方 `gefei-keywords` Skill 查难度 → 如果 `keywordTrend.ratio ≥ 1` 且 `score` < 50，这是最佳时机窗口。
 - `hot` 只用于时效性话题，不作为选词依据。
 
 ## 输出处理
@@ -412,7 +360,7 @@ python3 $GT compare "<新词>" --geo JP --time 1d   # 按国家看
    `compare chatgpt openclaw --time 7d` 里 openclaw 全程是 0——不是没人搜，是被 chatgpt 压扁了；
    单独 `compare openclaw --time 1d` 立刻看到 60 上下的曲线。要比规模用 `region` 或分别查再看绝对趋势形状。
 2. **`now` 区间的 100 只是「这几小时里的峰值」，不代表量大。** 一个日搜 50 次的词在 4h 窗口里也能画出漂亮的 100。
-   短时窗口回答的是「有没有在起来、什么时候起来的」；量的问题回到面板与 `seo-webcafe.mjs kd`。
+   短时窗口回答的是「有没有在起来、什么时候起来的」；量的问题回到面板与官方 `gefei-keywords` Skill。
 3. **全 0 先看证据目录再下结论。** `gt-browser` 每次都落 `.rankup/evidence/gt-browser-<ts>/`（JSON + 截图 + manifest）；
    consent 弹窗、限流插页、未登录都会给一条全 0 的曲线，与「真没人搜」在接口上同形。
 4. **别连着打。** 同一分钟内跑 5 条查询，第 5 条 `compare chatgpt --time 1h` 回了 `multiline_429`（Trends 接口限流）。批量时每条之间隔 10 秒以上，撞 429 等一分钟再来，不要换关键词硬试。

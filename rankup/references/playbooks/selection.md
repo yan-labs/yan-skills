@@ -279,12 +279,10 @@ B 站 / 小红书评论区全部在它的覆盖范围内。
 ### 脚本
 
 - `demand/keyword-value.mjs`（本地计算 CPC / 同批中位数比值，不联网）
-- `gefei-ask.mjs`（问 CPC + 意图，走 OpenCLI 驱动已登录 Chrome 问哥飞 SEO Agent，Google Ads Keyword
-  Planner 级精度，2026-09-04 实测；本机未配置 `SEO_WEBCAFE_COOKIE`，统一用这条路径，不用需要该
-  Cookie 的 `seo-webcafe.mjs chat`）
+- 官方 `gefei-keywords` Skill（按当前官方方法查询 CPC、意图与目标市场量）
 - `demand/stripe-referring.mjs`（不计配额，查谁的流量走到了收银台）
 - `demand/freelance-demand.mjs`（freelancer 子源零依赖，直接看真实成交订单/竞标）
-- `demand/serp-query.mjs`（**本机缺 `SERPER_API_KEY` 跑不了**，用 `seo-webcafe.mjs serp` 替代，计 1 配额）
+- `demand/serp-query.mjs`（**本机缺 `SERPER_API_KEY` 跑不了**，用官方 `gefei-keywords` Skill 的 SERP 工具替代，按实时价格计积分）
 
 ### 淘汰话术
 
@@ -726,7 +724,7 @@ scan gplay 时不显式加 `--ranking`，gplay 侧的工厂识别、以及"跨�
 | Key | 它本来是什么 | 免费替代路径（实测可用） |
 |---|---|---|
 | `REDDIT_CLIENT_ID` | Reddit 官方 OAuth API 的替代通道 | 不需要配：Reddit 走 `agent-reach` 路由到的 OpenCLI 登录态即可，见 §3 速查表（**实测**，2026-09-12） |
-| `SERPER_API_KEY` | 付费 SERP 抓取 API 的替代通道 | `opencli google search "<query>" --lang <lang> --limit 10 -f json`（本项目实战验证过）；也可用 `seo-webcafe.mjs serp`（计 1 配额） |
+| `SERPER_API_KEY` | 付费 SERP 抓取 API 的替代通道 | `opencli google search "<query>" --lang <lang> --limit 10 -f json`（本项目实战验证过）；也可用 官方 `gefei-keywords` Skill 的 SERP 工具（按实时报价） |
 | `GITHUB_TOKEN` | 提高 GitHub API 限流上限的替代通道 | `gh` CLI 本机已登录，直接可用；想要更高限流一行 `gh auth token` 就能取得，不需要单独去 GitHub 后台申请 |
 | `TABAPI_KEY` | 官方数据源的付费替代通道 | 脚本默认 `--provider webcafe`，免费可用，吃共享配额而非硬失败 |
 | `PRODUCTHUNT_TOKEN` | ProductHunt 官方 GraphQL API 的替代通道 | 脚本默认 provider 免费可用，自动降级浏览器路径，数据更全，不算硬失败 |
@@ -750,7 +748,7 @@ scan gplay 时不显式加 `--ranking`，gplay 侧的工厂识别、以及"跨�
 | 0 硬约束 | 串行，主线判读 | 对照约束清单逐条核对 | 通过/出局 + 命中条款 | 出局直接停，不进闸门 1 |
 | 1 使用频次 | 串行，主线判读 | 判断需求天然触发频率 | 通过/出局 | 拿不准就找 2–3 条真实使用场景佐证，不开配额工具 |
 | 2 痛点证据 | 并行（零配额） | 先 `agent-reach doctor --json` 选路由，按 backend 用 `opencli reddit/xiaohongshu` / `twitter-cli` / `yt-dlp` / `bili-cli` 跑固定搜索词矩阵；`hn-signals.mjs`（HN 专用）+ `reddit-wishes.mjs`（补充/批量场景）兜底 | 独立抱怨来源计数 + 笨办法记录 | <3 个独立来源直接杀，不许"再搜一轮凑数" |
-| 3 付费信号 | 串行（零配额为主） | `keyword-value.mjs` / `gefei-ask.mjs` / `stripe-referring.mjs` / `freelance-demand.mjs` | Web核CPC/购买意图；App核买方/经营证据 | 不用网页CPC否决App；价格/IAP不等成交 |
+| 3 付费信号 | 串行（零配额为主） | `keyword-value.mjs` / 官方 `gefei-keywords` / `stripe-referring.mjs` / `freelance-demand.mjs` | Web核CPC/购买意图；App核买方/经营证据 | 不用网页CPC否决App；价格/IAP不等成交 |
 | 4 护城河 | 串行，主线判读 | 人工判断"AI 工厂两周能否复制" + `aitdk-lookup.mjs` 查同类产品画像 | 护城河类型判定 | 只有"UI 更好""更懂用户"这类理由 = 无护城河，杀 |
 | 5 获客可行性 | 串行（优先零配额，必要时单次面板） | founder 操盘史搜索 + `site-network.mjs` + `ads-transparency.mjs`，拿不准再 `similarweb-query.mjs --report channels` | 头部产品流量渠道构成 | 按交付平台验证获客；缺商店/原生分发证据记待验证，不用网页占比否决App |
 | 6 量化验证 | 串行 · 转入 research.md | Web完整走 `research.md` P2；App走该文件App市场验证分支 | GO / NO-GO / 待定 三态结论 | 两条路径互证失败 → 只能停在"待定"，不许强行定档 |
@@ -761,7 +759,7 @@ scan gplay 时不显式加 `--ranking`，gplay 侧的工厂识别、以及"跨�
 |---|---|
 | 零配额，放开跑 | 候选生成器全部（producthunt/igdb/github 分支除外）、闸门 0/1（人工）、闸门 2（`agent-reach` 路由的 CLI 命令 + 全部脚本）、闸门 3 除 `serp-query.mjs` 外全部、闸门 4 的 webcafe 分支 |
 | 需要真实 Chrome 但不计配额 | `boards.mjs` 的 toolify/taaft 分支、`agent-reach` 路由到 OpenCLI 的 Reddit/小红书 登录态分支（含 `reddit-wishes.mjs` 的 opencli 分支） |
-| 吃共享配额（单次确认） | 闸门 3 的 `seo-webcafe.mjs serp`、闸门 4/5 视需要打开的 `aitdk-lookup.mjs`/面板查询 |
+| 吃共享配额（单次确认） | 闸门 3 的官方 SERP 工具、闸门 4/5 视需要打开的 `aitdk-lookup.mjs`/面板查询 |
 | 面板配额（真正的大头） | 只在闸门 6，规模按 `research.md` P2 阶段 0 定死 |
 
 ### 收尾

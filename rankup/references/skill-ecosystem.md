@@ -19,7 +19,7 @@
 
 | 用户大概会这么说 | 谁来干 |
 |---|---|
-| 「这个词能不能做」「这词多少量」「难不难」 | **rankup 自己**（`seo-webcafe.mjs kd` + `backlink/scripts/semrush-keyword.mjs`）。不要叫 keyword-research，它不带取数 |
+| 「这个词能不能做」「这词多少量」「难不难」 | **rankup 自己**（官方 `gefei-keywords` Skill + `backlink/scripts/semrush-keyword.mjs`）。不要叫 keyword-research，它不带取数 |
 | 「帮我挖一批长尾词」→ 已经**有**几十上百个词，要分组排序 | **`/keyword-research`**。rankup 取数，它做意图分层与簇排序 |
 | 「帮我挖一批长尾词」→ 手上**只有**一个词根 | **rankup 自己**（`demand/word-roots.mjs` 扩形态 → `demand/serp-query.mjs --expand` 拿 relatedSearches/PAA → 再交给 keyword-research 分层） |
 | 「怎么被 AI 引用」「AEO/GEO 怎么做」→ 问的是**为什么、值不值** | **rankup 自己**（[`seo-growth.md`](seo-growth.md) 三-B：Google 官方指南、Information Gain、Preferred Sources） |
@@ -44,7 +44,7 @@
 |---|---|
 | **它能干什么** | 按搜索量、难度、意图、簇给关键词排优先级。带四份判读参考：`keyword-intent-taxonomy.md`（意图分类法）、`keyword-prioritization-framework.md`（优先级框架）、`topic-cluster-templates.md`（簇模板）、`example-report.md` |
 | **关键事实** | 它的 description 原文是「from provided or connected data」——**它自己不联网、不带任何取数脚本**，`references/` 之外只有一个 SKILL.md |
-| **与 rankup 的分工** | **零冲突，是纯补充。** rankup 负责把数拿到：`seo-webcafe.mjs kd`（KD + top9 盘面 + linkBudget）、`backlink/scripts/semrush-keyword.mjs`（分国家量/KD/CPC + globalVolume，`--bulk` 一次 100 词）、`demand/serp-query.mjs`（SERP + relatedSearches + PAA）、`demand/word-roots.mjs`（词根扩形态）、`demand/keyword-value.mjs`（CPC 折算）。**这些都只出数值，不出分组。** 一旦词表超过二三十条、需要按意图切成 informational/commercial/transactional 并聚成内容簇，rankup 没有任何文档写这件事 |
+| **与 rankup 的分工** | **零冲突，是纯补充。** rankup 负责把数拿到：官方 `gefei-keywords` Skill（KD + top9 盘面 + linkBudget）、`backlink/scripts/semrush-keyword.mjs`（分国家量/KD/CPC + globalVolume，`--bulk` 一次 100 词）、`demand/serp-query.mjs`（SERP + relatedSearches + PAA）、`demand/word-roots.mjs`（词根扩形态）、`demand/keyword-value.mjs`（CPC 折算）。**这些都只出数值，不出分组。** 一旦词表超过二三十条、需要按意图切成 informational/commercial/transactional 并聚成内容簇，rankup 没有任何文档写这件事 |
 | **什么时候加载** | 手上**已经有**一张词表（≥20 条，带 volume/kd），要决定先写哪几篇、怎么组内链簇 |
 | **什么时候不要加载** | 只想知道单个词难不难（用 `kd`）；还没有词表（先用 rankup 取数）；只要 CPC 折算（用 `keyword-value.mjs`） |
 | **取舍理由** | 接。rankup 的选词链条到「拿到数值」为止就断了，[`trends.md`](trends.md) W2 第四步那张决策表是**单词维度**的，没有簇维度。这是真缺口 |
@@ -64,7 +64,7 @@
 | | |
 |---|---|
 | **它能干什么** | `references/schema-templates.md`（JSON-LD 模板库）、`platform-algorithms.md`、`geo-research.md`；另有 `scripts/`：`seo_audit.py`、`keyword_research.py`、`related_keywords.py`、`backlinks.py`、`domain_overview.py`、`competitor_gap.py`、`autocomplete_ideas.py`、`dataforseo_api.py` |
-| **和 rankup 正面重叠的部分** | 它的脚本几乎每一个都在 rankup 已有能力的正下方，且更弱：`seo_audit.py` 只做单页 title/meta/H1/robots/sitemap/加载时间，rankup 的 `seo-audit.mjs` 是全站 sitemap 遍历 + canonical/lang/OGP/结构化数据/alt/hreflang + 1/2/3-gram 密度（含日文 `Intl.Segmenter`）+ `--fix-report`；`keyword_research.py` / `domain_overview.py` / `backlinks.py` 走 DataForSEO **付费** API，rankup 有 `seo-webcafe.mjs kd`（匿名 10/日免费）、`semrush-keyword.mjs`、`semrush-overview.mjs` 和整个 `/backlink` |
+| **和 rankup 正面重叠的部分** | 它的脚本几乎每一个都在 rankup 已有能力的正下方，且更弱：`seo_audit.py` 只做单页 title/meta/H1/robots/sitemap/加载时间，rankup 的 `seo-audit.mjs` 是全站 sitemap 遍历 + canonical/lang/OGP/结构化数据/alt/hreflang + 1/2/3-gram 密度（含日文 `Intl.Segmenter`）+ `--fix-report`；`keyword_research.py` / `domain_overview.py` / `backlinks.py` 走 DataForSEO **付费** API，rankup 有 官方 `gefei-keywords` Skill（按 API 实时价格扣积分）、`semrush-keyword.mjs`、`semrush-overview.mjs` 和整个 `/backlink` |
 | **唯一值得取的** | **JSON-LD schema 模板库。** rankup 全仓只有「检测有没有结构化数据」（`seo-audit.mjs`），没有一处「该写哪种 schema、字段怎么填」 |
 | **什么时候加载** | 要给页面加结构化数据、需要现成 JSON-LD 模板时 |
 | **什么时候不要加载** | 任何取数、审计、关键词、外链场景——**用 rankup 自己的，别开它的脚本**，那会同时浪费上下文和 DataForSEO 额度 |
