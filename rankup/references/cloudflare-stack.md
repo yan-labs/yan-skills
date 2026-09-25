@@ -246,6 +246,16 @@ zone 尚不存在，所以 zone-scoped 的 token 建不了它——这是官方�
 5. 等 zone 变为 active；
 6. 用 Cloudflare 提供的 DS 记录重新启用 DNSSEC。
 
+Spaceship 注册的域名可用官方 API 操作，免去逐站手改 NS：
+`scripts/spaceship-api.mjs get <domain>` 只读核对；
+`scripts/spaceship-api.mjs set-ns <domain> <Cloudflare NS1> <Cloudflare NS2>` 整体替换并跳过已一致的配置。
+先按上面步骤关闭旧 DNSSEC、确认注册局 DS 已消失，再执行 `set-ns`。
+脚本从 macOS 钥匙串读取 `rankup.spaceship.api-key` 与 `rankup.spaceship.api-secret`
+（账户名 `kcsx`），不会把凭据放到命令参数、项目文件或日志里。
+通用官方端点可用 `scripts/spaceship-api.mjs request GET /domains/<domain>`；
+写入请求的 JSON 从标准输入读取，其他操作的路径与参数按[Spaceship 官方 API](https://docs.spaceship.dev/)核对。
+Spaceship 另有[官方远程 MCP](https://www.spaceship.com/en-GB/knowledgebase/spaceship-mcp/)（`https://mcp.spaceship.com/mcp`，OAuth 授权，含 `domain_set_nameservers`）；目前官方仅验证 Claude 客户端，其他 MCP 客户端需实际连接验收。
+
 **NS 对是按 zone 分配的**，加站点之后才知道是哪一对，无法预先告知或猜测；
 换一个域名就是另一对，不可套用上一个项目的值。
 
