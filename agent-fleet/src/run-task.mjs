@@ -10,6 +10,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { resolveModel, ConfigError } from './config.mjs';
 import { buildIsolatedEnv, buildPinnedSettings } from './isolated-env.mjs';
 import { assertProjectSettingsTrusted, ProjectTrustError } from './project-trust.mjs';
+import { createProgress } from './progress.mjs';
 
 /**
  * 组装一次 query() 调用的 options。
@@ -67,9 +68,28 @@ export function buildQueryOptions({ resolved, cwd, maxTurns, systemPrompt }) {
  * @param {string} [params.systemPrompt] 可选,追加的系统提示
  * @returns {Promise<object>} 见文件底部的返回形状说明
  */
-export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, systemPrompt }) {
+export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, systemPrompt, progress }) {
   const startedAt = Date.now();
 
+  // 进度输出对象:调用方(bin 的 run、run-many)注入,各自决定 quiet 和 label;以库方式
+  // 直接调用且没传时,退化成一个只写日志文件、不打扰 stderr 的静默进度——日志文件这一层
+  // 永远存在,tail 永远有料。整个函数体包在 try/finally 里,任何一条返回路径(包括配置
+  // 错误的短路 return)都会 stop 掉 60 秒心跳定时器,不会把 CLI 进程吊住不退出。
+  // 内部函数只拿到 log(line) 写入函数;stop 由这一层负责,内部不用关心生命周期。
+  const output = progress ?? createProgress({ quiet: true, label: friendlyModel });
+  try {
+    return await runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, systemPrompt, startedAt, log: output.log });
+  } catch (err) {
+    // 未预见的异常:同样补一行 done error 再抛,保住"日志必有 done 行收尾"的不变量,
+    // 否则 tail --follow 会对这份日志永远等下去。
+    output.log(`done error ${oneLine(err?.message ?? String(err), 160)}`);
+    throw err;
+  } finally {
+    output.stop();
+  }
+}
+
+async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, systemPrompt, startedAt, log }) {
   let resolved;
   try {
     // 顺序是有意的:先过目标目录的信任闸门,再解析模型(后者会把真实密钥读进内存)。
@@ -93,6 +113,9 @@ export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, sy
     // 配置/密钥/目标目录信任类错误在真正发起请求之前就能判定,直接短路返回,
     // 不消耗一次 SDK 调用。message 本身已经是写给人看的可操作提示。
     if (err instanceof ConfigError || err instanceof ProjectTrustError) {
+      // 这类错误发生在真正发起请求之前;也补一行 done error,保证"每份日志都以 done 行
+      // 收尾"的不变量成立——tail --follow 靠这一行判断停止。
+      log(`done error ${oneLine(err.message, 160)}`);
       return { ok: false, model: friendlyModel, prompt, cwd, error: err.message, durationMs: Date.now() - startedAt };
     }
     throw err;
@@ -103,13 +126,18 @@ export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, sy
   let finalResult = null;
   try {
     for await (const message of query({ prompt, options })) {
-      // 只关心最终的 result 消息;中间的 assistant/tool_use/tool_result 消息本工具
-      // 不做流式展示(定位是"派出去、跑完拿结果"的批处理工具,不是交互式对话)。
+      // 进度行:assistant 文本一行、tool_use 一行(截断),让人实时看到子任务跑到哪了。
+      logSdkMessage(log, message);
+      // 最终结果仍然只认 result 消息。
       if (message.type === 'result') {
         finalResult = message;
       }
     }
   } catch (err) {
+    // 上游 402(额度用尽)单独识别:这是"立即停止、不要重试"的失败,调用方按退出码 2 处理。
+    const fatal402 = looksLikeFatal402(err.message);
+    if (fatal402) log('ERROR 402');
+    log(`done error cost=? ${oneLine(err.message, 160)}`);
     return {
       ok: false,
       model: friendlyModel,
@@ -118,6 +146,7 @@ export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, sy
       prompt,
       cwd,
       error: `调用 Claude Agent SDK 失败: ${err.message}`,
+      fatal402,
       durationMs: Date.now() - startedAt,
     };
   }
@@ -125,6 +154,7 @@ export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, sy
   if (!finalResult) {
     // 正常完成的 query() 一定会产出恰好一条 result 消息;走到这里说明进程中途被杀、
     // 上游连接异常断开,或者上游根本没有实现完整的 Anthropic Messages 协议。
+    log('done error cost=? (SDK 没有产出 result 消息)');
     return {
       ok: false,
       model: friendlyModel,
@@ -133,8 +163,20 @@ export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, sy
       prompt,
       cwd,
       error: 'SDK 没有产出 result 消息,任务没有跑完就结束了(可能是进程被中断,或上游端点没有正确实现流式 Anthropic Messages 协议)。',
+      fatal402: false,
       durationMs: Date.now() - startedAt,
     };
+  }
+
+  // 收尾行:done ok / done error + 成本。这是 tail --follow 的停止信号。
+  const joinedErrors = (finalResult.errors ?? []).join('; ');
+  const errorText = joinedErrors || (typeof finalResult.result === 'string' ? finalResult.result : '');
+  const fatal402 = looksLikeFatal402(errorText);
+  if (finalResult.is_error) {
+    if (fatal402) log('ERROR 402');
+    log(`done error cost=${fmtCost(finalResult.total_cost_usd)}${errorText ? ` ${oneLine(errorText, 160)}` : ''}`);
+  } else {
+    log(`done ok cost=${fmtCost(finalResult.total_cost_usd)}`);
   }
 
   return {
@@ -155,7 +197,47 @@ export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, sy
     totalCostUsd: finalResult.total_cost_usd,
     sessionId: finalResult.session_id,
     errors: finalResult.errors ?? [],
+    // 只在失败分支有意义:上游 402/额度用尽,bin 据此以退出码 2 结束。
+    ...(finalResult.is_error ? { fatal402 } : {}),
   };
+}
+
+/**
+ * 把一条 SDK 消息里值得看的内容落一行进度:
+ * - assistant 的每个 text 块:一行,截前 120 字;
+ * - assistant 的每个 tool_use 块:一行,`tool=<名字> <参数摘要前 80 字>`。
+ * user(tool_result)/system/stream_event 等其它消息不打——噪音大,对"跑到哪了"没有增量信息。
+ */
+function logSdkMessage(log, message) {
+  if (message.type !== 'assistant') return;
+  const content = message.message?.content ?? message.content;
+  if (!Array.isArray(content)) return;
+  for (const block of content) {
+    if (block?.type === 'text' && block.text) {
+      log(oneLine(block.text, 120));
+    } else if (block?.type === 'tool_use') {
+      log(`tool=${block.name ?? '?'} ${oneLine(JSON.stringify(block.input ?? {}), 80)}`);
+    }
+  }
+}
+
+/** 压成单行并截断——进度行是给人扫一眼的,不承载完整内容(完整结果走 stdout/JSON)。 */
+function oneLine(text, max) {
+  return String(text ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+function fmtCost(cost) {
+  return typeof cost === 'number' && Number.isFinite(cost) ? `$${cost.toFixed(4)}` : '?';
+}
+
+/** 上游网关返回 402(额度/credit budget 用尽)时是"立即停止、不要重试"的失败。 */
+function looksLikeFatal402(text) {
+  if (!text) return false;
+  const s = String(text);
+  return /\b402\b/.test(s) || s.toLowerCase().includes('credit budget');
 }
 
 /*

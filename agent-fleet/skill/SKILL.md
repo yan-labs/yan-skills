@@ -105,6 +105,15 @@ node bin/agent-fleet.mjs run-many --config batch.json [--json]
 内部用 `Promise.allSettled` 真正并发执行,每个任务独立成败,一个失败不影响其它任务,最后按
 原始顺序把每个任务各自的结果一起返回。
 
+### 执行进度与 `tail`（0.3.0 起）
+
+`run`/`run-many` 执行时会把进度逐行实时打到 stderr（assistant 文本、每次工具调用、结束时的 `done ok/error` 与费用），同时写入 `~/.agent-fleet/runs/<时间>-<模型>.log`；超过 60 秒没有新消息会打印 `still waiting…`；遇到 402 额度错误立即报错并以退出码 2 退出。`--quiet` 只关闭 stderr 输出，日志照写。
+
+```bash
+node bin/agent-fleet.mjs tail            # 看最新一次运行的日志
+node bin/agent-fleet.mjs tail --follow   # 持续跟随，直到出现 done 行
+```
+
 ## JEV 判断模型：`judge` 子命令
 
 [Typesafe 的 JEV / System One](https://docs.typesafe.ai/) 是专门的决策模型：只做判断，不生成文本（官方明确说明："System One models do not write replies, produce code, or generate explanations of their reasoning."）。

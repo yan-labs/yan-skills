@@ -9,6 +9,8 @@
 // 子命令:
 //   run       跑单个任务,可以同时开多个进程/多个终端各自 run 不同模型实现并发
 //   run-many  从一个 JSON 文件读一批任务,内部真正并发跑完,一次性拿到全部结果
+//   judge     JEV(typesafe-systemone 协议)模型专用的结构化判断
+//   tail      查看 ~/.agent-fleet/runs 下最近一次运行的进度日志
 //   list-models  列出 models.config.json 里配置了哪些模型,以及各自的密钥是否已配置
 //
 // 本文件只负责:解析参数、装配 config/env、调用 src/ 下的核心逻辑、格式化输出。
@@ -23,6 +25,8 @@ import { loadModelsConfig, defaultConfigPath, resolveModel, ConfigError } from '
 import { runTask } from '../src/run-task.mjs';
 import { runMany } from '../src/run-many.mjs';
 import { judgeTask } from '../src/judge-task.mjs';
+import { createProgress } from '../src/progress.mjs';
+import { tailLatestLog } from '../src/tail-log.mjs';
 
 const PKG_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const PKG_VERSION = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8')).version;
@@ -33,6 +37,7 @@ const HELP_TEXT = `agent-fleet ${PKG_VERSION} — 通用多模型子任务执行
   agent-fleet run --model <友好名字> --prompt "<任务描述>" [选项]
   agent-fleet run-many --config <batch.json> [选项]
   agent-fleet judge --model <友好名字> --state-file <path> --questions-file <path> [选项]
+  agent-fleet tail [--follow]
   agent-fleet list-models
   agent-fleet --help | --version
 
@@ -43,11 +48,17 @@ run 选项:
   --max-turns <n>           限制最大工具调用轮数
   --system-prompt <text>    追加的系统提示
   --json                    输出结构化 JSON 而不是人类可读文本
+  --quiet                   进度不输出到 stderr,只写入日志文件
+                            (~/.agent-fleet/runs/<ISO时间>-<模型名>.log,可用 tail 查看)
 
 run-many 选项:
   --config <path>           必填。批量任务文件,JSON 数组,每项 { model, prompt, cwd? }
   --cwd <dir>               任务没写 cwd 时的默认工作目录
   --json                    输出结构化 JSON 而不是人类可读文本
+  --quiet                   同 run;每个任务的日志 label 是「#序号-模型名」
+
+tail 选项:
+  --follow                  打印最新日志后持续跟随新增内容,直到出现 done ok / done error 行
 
 judge 选项(protocol: typesafe-systemone 的模型专用,如 jev——不生成文本、不支持多轮
 工具调用,给它一段 state + 类型化 questions,拿回结构化判断,不能用 run/run-many):
@@ -64,6 +75,7 @@ judge 选项(protocol: typesafe-systemone 的模型专用,如 jev——不生成
   agent-fleet run --model kimi --prompt "把 README 翻译成英文" --cwd ~/some-project --json
   agent-fleet run-many --config batch.json
   agent-fleet judge --model jev --state-file ticket.txt --questions-file questions.json --json
+  agent-fleet tail --follow
 `;
 
 /** 从 argv 里手动摘取形如 `--flag value` 和布尔开关 `--flag` 的参数,不引入额外依赖。 */
@@ -108,6 +120,9 @@ async function cmdRun(argv) {
   }
 
   const config = loadModelsConfig(flags['models-config'] ? resolvePath(flags['models-config']) : undefined);
+  // 进度行实时打到 stderr,并同步写进 ~/.agent-fleet/runs/<ISO时间>-<模型名>.log(tail 的
+  // 数据源);--quiet 时 stderr 静音,文件照写。日志文件路径在启动时已由进度对象打到 stderr。
+  const progress = createProgress({ quiet: Boolean(flags.quiet), label: String(flags.model) });
   const result = await runTask({
     friendlyModel: flags.model,
     prompt: flags.prompt,
@@ -115,6 +130,7 @@ async function cmdRun(argv) {
     config,
     maxTurns: flags['max-turns'] ? Number(flags['max-turns']) : undefined,
     systemPrompt: flags['system-prompt'],
+    progress,
   });
 
   if (flags.json) {
@@ -122,7 +138,8 @@ async function cmdRun(argv) {
   } else {
     printResultHuman(result);
   }
-  process.exitCode = result.ok ? 0 : 1;
+  // 退出码:成功 0;失败 1;失败且是上游 402/credit budget 用尽(不重试、立即停)2。
+  process.exitCode = result.ok ? 0 : result.fatal402 ? 2 : 1;
 }
 
 async function cmdRunMany(argv) {
@@ -154,7 +171,7 @@ async function cmdRunMany(argv) {
 
   let results;
   try {
-    results = await runMany(tasks, { config, defaultCwd });
+    results = await runMany(tasks, { config, defaultCwd, quiet: Boolean(flags.quiet) });
   } catch (err) {
     console.error(`batch 任务格式错误: ${err.message}`);
     process.exitCode = 1;
@@ -234,6 +251,16 @@ async function cmdJudge(argv) {
   process.exitCode = result.ok ? 0 : 1;
 }
 
+/** tail 子命令:打印 ~/.agent-fleet/runs 下最新一次运行的进度日志;--follow 持续跟随到 done 行。 */
+async function cmdTail(argv) {
+  const flags = parseFlags(argv);
+  const outcome = await tailLatestLog({ follow: Boolean(flags.follow) });
+  if (!outcome.ok) {
+    console.error(outcome.error);
+    process.exitCode = 1;
+  }
+}
+
 function cmdListModels(argv) {
   const flags = parseFlags(argv);
   const configPath = flags['models-config'] ? resolvePath(flags['models-config']) : defaultConfigPath();
@@ -289,6 +316,9 @@ async function main() {
         break;
       case 'judge':
         await cmdJudge(rest);
+        break;
+      case 'tail':
+        await cmdTail(rest);
         break;
       case 'list-models':
         cmdListModels(rest);

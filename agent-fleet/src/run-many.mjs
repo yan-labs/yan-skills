@@ -9,6 +9,7 @@
 // 被 bin/agent-fleet.mjs 的 `run-many` 子命令调用。
 
 import { runTask } from './run-task.mjs';
+import { createProgress } from './progress.mjs';
 
 /**
  * 校验一份 batch 任务数组的形状,提前把明显错误的条目挡在真正发起 SDK 调用之前。
@@ -38,13 +39,14 @@ function validateBatch(tasks) {
  * @param {object} options
  * @param {object} options.config    已加载的 models.config.json
  * @param {string} options.defaultCwd 任务没指定 cwd 时的默认工作目录
+ * @param {boolean} [options.quiet]  true 时不把进度打到 stderr,日志文件照写
  * @returns {Promise<Array<object>>} 与输入数组一一对应、顺序不变的结果数组
  */
-export async function runMany(tasks, { config, defaultCwd }) {
+export async function runMany(tasks, { config, defaultCwd, quiet = false }) {
   validateBatch(tasks);
 
   const settled = await Promise.allSettled(
-    tasks.map((task) =>
+    tasks.map((task, index) =>
       runTask({
         friendlyModel: task.model,
         prompt: task.prompt,
@@ -52,6 +54,9 @@ export async function runMany(tasks, { config, defaultCwd }) {
         config,
         maxTurns: task.maxTurns,
         systemPrompt: task.systemPrompt,
+        // label 用「#序号-模型名」:并发时每个任务各写各的日志文件,tail/人工翻找都好认。
+        // runTask 的 finally 会 stop 掉各自的心跳定时器,不会泄漏。
+        progress: createProgress({ quiet, label: `#${index + 1}-${task.model}` }),
       }),
     ),
   );
