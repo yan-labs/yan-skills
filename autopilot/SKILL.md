@@ -44,7 +44,16 @@ description: 当用户明确说“autopilot”“自己搞定”“直接跑到�
 
 只在多个子任务真正独立、可以清楚划分文件或资源，且委派能减少总耗时时使用子 Agent。每个 brief 写清目标、输入、归属文件、禁止触碰的范围、验收标准与输出语言。读任务可并行；共享工作树保持一个写入负责人，提交、推送和发布由一个落地负责人串行处理。子 Agent 的“完成”声明须由主代理用实际结果复核。并发和归属细节见 [`references/concurrency-and-landing.md`](references/concurrency-and-landing.md)。
 
-模型档位是运行时配置，不在 Skill 里断言本机当前模型、环境变量或某个版本的表现。按任务风险与实际评测选择可用模型和 effort；Claude Opus 5.5 可从 `medium` 开始，`xhigh`/`max` 只在有质量收益时使用。调低思考量优先调 effort，不靠要求模型“少想”。若项目已提供 `executor-*`，使用前核实其当前 frontmatter 和平台是否支持。第三方模型派工按 `agent-fleet` 的信任边界执行，不能因成本低省掉必要核验。依据：[Claude Opus 5.5 官方指南](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5)。
+模型档位是运行时配置，不在 Skill 里断言本机当前模型、环境变量或某个版本的表现。按任务风险与实际评测选择可用模型和 effort；Claude Opus 5.5 可从 `medium` 开始，`xhigh`/`max` 只在有质量收益时使用，调低思考量优先调 effort，不靠要求模型“少想”。**Haiku 档位与 `executor-haiku` 已停用**：机械、照单执行的子任务（翻译、跑固定命令、调 API、格式转换）改派第三方模型（如 `/agent-fleet` 的 GLM），派单方自己核验产物，不再另派 checker；连续报错才临时改用 Claude 的 `executor-sonnet` 并说明原因。自动化流程里的判断节点（分类、路由、是非判断、打分、结果成败判定）优先用结构化决策模型（如 Typesafe JEV，走 `agent-fleet judge`），不是让 Claude 读完一堆材料再判断；它不生成文本、按字面判断不推断意图，置信度低时转回 Claude 或人工。
+
+编程类任务（写脚本、加功能、修 bug、补测试）先按下表归类再派单，拿不准按常规开发处理：
+
+| 归类 | 例子 | 派给谁 |
+|---|---|---|
+| 常规开发——比较好实现、没那么复杂 | 写脚本；开发非核心/常规功能；接一整条 API 调用链路（请求、解析、落盘、错误处理）；给 CLI 加子命令或参数；修 bug；补测试 | 第三方模型（如 `/agent-fleet` 的 GLM） |
+| 明显偏重——需要设计判断或后果不可逆 | 3D 模型相关开发、游戏动画与玩法；建站的设计与视觉交互；复杂脚手架或多模块架构；深度架构重构；不可逆或安全敏感的改动 | Claude 高档 subagent（`executor-sonnet` 起步，风险更高再上 `executor-opus`/`executor-fable`） |
+
+第三方模型派工按 `agent-fleet` 的信任边界执行，产出由派单方自己核验，不能因成本低省掉必要核验；连续两次不合格才升级到 Claude 高档 subagent。若项目已提供 `executor-*`，使用前核实其当前 frontmatter 和平台是否支持。依据：[Claude Opus 5.5 官方指南](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5)。
 
 ## 交付
 
