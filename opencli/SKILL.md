@@ -2,7 +2,7 @@
 name: opencli
 description: 用 OpenCLI 驱动用户本机那个真实的、已登录的 Chrome，或调用它的 160+ 站点 adapter。任何需要登录态的页面操作都从这里开始——读登录后的后台、抓没有 API 的表格、填表提交、跑一个站点命令、把页面数据取回来。也覆盖会话命名与租约纪律（"我的标签页被别人抢了"）、批量取数与落盘、adapter 的编写与自修复、opencli doctor 排障。用户提到 opencli、浏览器自动化、用我的浏览器、驱动 Chrome、登录态、抓后台数据、抓表格、导出报表、填表、自动点击、截图、adapter、doctor 报错、session 撞名、标签页被抢、tab 泄漏，或说"打开这个页面看看""帮我登录后台查一下""这个站没有 API"时，务必使用本 Skill。也在需要判断"这件事该不该开浏览器"时使用——本 Skill 第零节就是那张判断表（要不要登录态、有没有现成脚本或 adapter、配额站能不能动手、什么时候该转给 agent-reach 或业务 Skill）。只要动作会落在浏览器上，先读这里再动手。
 metadata:
-  version: "1.6.0"
+  version: "1.7.0"
 ---
 
 # OpenCLI
@@ -567,19 +567,51 @@ opencli browser "$S" batch --commands '[
 返回 `{cmd, index, ok, result?, error?}` 数组；默认遇错继续，`--stop-on-error` 改为中止。
 **条件逻辑**（每一步决定下一步）用顺序调用，不要硬塞进 batch。
 
-### 多层导航交给 JEV 挑，agent 只给目标（省 token）
+### 多层导航、甚至整张表单交给 JEV 挑，agent 不用逐步参与（省 token）
 
 上游 OpenCLI **没有**内置模型驱动浏览器的功能（2026-09-25 核对并已合并上游）。
-要让便宜模型替 agent 逐步点，用 TypeSafe 的 JEV 当动作选择器：每步把 `state` 里的可点元素
-作为 choice 选项交给 JEV，它挑 ref，脚本 `click`，直到 JEV 判定达成。实测 3 跳导航 4 次调用
-约 3.9k 输入 token（约 $0.00016），agent 不用把每页的元素树读进上下文。
+我们 fork 在 `feat/jev-auto` 分支（2026-09-26，CLI 1.12.0，尚未合入 `fork/main`）加了原生子命令：
 
 ```bash
-node ~/.claude/skills/opencli/scripts/jev-step-demo.mjs "$S" <起始URL> "<英文目标>" 6   # 读 TYPESAFE_API_KEY，不打印
+opencli browser "$S" auto --goal "<目标>" \
+  [--data payload.json] [--max-steps 20] [--min-confidence 0.55] \
+  [--allow-submit] [--confirm-terms] [--dry-run] [--json]
 ```
 
-JEV 只会「在列好的选项里挑」，不写字、不看图、不是 OpenAI/Anthropic 兼容端点。
-打字、填表、不可逆动作和最终核对仍由 agent 做。何时用、限制与后续接法见
+给一个目标，每步由 TypeSafe 的 JEV 从当前页面的可点元素 + 待填表单字段里选一个动作
+（choice 题型），OpenCLI 执行，循环直到 JEV 判定 DONE、置信度跌破阈值、步数耗尽或
+安全闸门触发——全程不需要 agent 逐步参与。`--data` 给一个 JSON 文件，JEV 负责判断
+「这个表单字段该填 data 里的哪个 key」（语义匹配，key 名不需要和字段名一致），
+但值只能来自这个文件，没匹配到就跳过、不编造。
+
+**安全闸门（默认全部生效，未经显式选项不能绕过）**：
+
+| 闸门 | 默认行为 | 放行方式 |
+|---|---|---|
+| 提交/支付/发送/删除/确认/创建账号类关键词 + `type=submit` | 从候选菜单剔除，剩下的都执行完就停在 `awaiting_submit` | `--allow-submit` |
+| terms/consent/隐私政策复选框 | 整组排除出候选（不是「没匹配就不勾」，是不出现） | `--confirm-terms` |
+| CAPTCHA/Turnstile 检测 | 每步零成本 DOM 探针命中即停（`captcha_detected`），不解验证码 | 没有旁路，人工处理 |
+| 登录墙检测（`input[type=password]` / `form[action*=login]`） | 命中即停（`login_wall_detected`），不建账号不输密码 | 没有旁路，人工处理 |
+| `--allow-submit` 点击命中后的提交结果 | 正反双证据校验（表单是否还在、是否回显了原值、confirmation 文案是否在表单之外），只有双证据判定 `submitted` 才报 `completed`，否则 `submit_unverified` 交人工复核 | 无——JEV 的 noul 判断只作辅助展示，不参与这个分类 |
+
+实测（2026-09-26，会话 `jev-auto-test`）：example.com → IANA Root Zone Management
+页 4 步全自动完成（4 次 JEV 调用，4010 输入 token，~5.5s）；httpbin.org/forms/post
+真实填表+提交，`custname`/`custtel`/`custemail` 等六个字段用故意不同名的 data key
+（`name`→`custname` 之类）全部语义匹配正确，不带 `--allow-submit` 时正确停在
+「已填好待提交」，带 `--allow-submit` 提交后页面回显核对一致。CAPTCHA/登录墙/
+terms 三道闸在本地测试页与真实站点均按预期拦截。
+
+**已知限制**：`--min-confidence` 的默认阈值对「多个字段都可以先填、顺序不重要」
+的长表单偏严——JEV 对着 5-6 个同样合法的候选时，概率会打散到 0.25~0.35，没有
+一个单选能过 0.55；`auto` 已经改成「取 JEV 自身 confidence 和候选里所有
+fill/select/check 候选累计概率质量两者较大值」来缓解，但仍可能需要按同一个
+`--data` 重跑几次（幂等，不会重复填已经正确的字段）才能填完一张字段很多的表单。
+文件上传、非原生 `<select>`（Radix/shadcn 一类自定义下拉）、字段映射结果落盘复用
+尚未实现，见下方「已知限制与后续方案」。
+
+打字、填表值、提交决策的最终把关仍然是 agent/用户的责任——`auto` 只是把「选哪个
+按钮/填哪个字段」这一步的判断成本降到 JEV 的价位。仍在用旧的逐步点脚本原型
+（`scripts/jev-step-demo.mjs`）的场景、完整设计动机和取舍见
 [`references/model-driven.md`](references/model-driven.md)。
 
 ---
