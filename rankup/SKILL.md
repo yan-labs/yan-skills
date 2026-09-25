@@ -2,7 +2,7 @@
 name: rankup
 description: 管理网站和原生 App 的需求验证、立项、开发、上线及增长。用户明确提到 rankup，或任务涉及选词、SERP、SEO/GEO、索引、搜索平台、流量、网站体检、建站和增长时使用。先定位项目与具体问题，再按七段生命周期加载对应参考文件；单纯写文案、做设计或问通用开发问题，不因关键词碰巧出现就强制启动完整流程。
 metadata:
-  version: "3.19.0"
+  version: "3.20.0"
 ---
 
 # Rankup 3.0
@@ -176,7 +176,7 @@ Day-1 清单里最容易漏、也最贵的三条单列在这里，其余见 `lif
 | 硬规则 | 为什么 |
 |---|---|
 | **部署一律走 Cloudflare 原生 Git 集成**（Pages「Git 存储库连接」/ Worker Workers Builds），push `main` 自动构建部署；**不写 GitHub Actions 部署 workflow**；本地 `wrangler deploy` 只作应急兜底。模板与坑见 [`cloudflare-stack.md`](references/cloudflare-stack.md) §9 | GitHub Actions 免费额度用完就断，Cloudflare 构建额度对站点几乎用不完 |
-| 分两批：**批 A 域名无关**（GA4、Clarity、CF Web Analytics）在预览域接好并验证 → **域名定稿** → 绑域名并部署验证（**索引开关随之翻开，不等批 B**）→ **批 B 域名相关**（GSC、Bing、Yandex、Naver、IndexNow、Ahrefs WA + Site Audit、Email Routing）→ 首页请求编入索引 | 批 A 不依赖域名，先做省一轮；批 B 换域名就作废，所以放在定稿之后。**正式域名不再靠 `noindex`/`Disallow: /` 拖到批 B 接完才放开**——曾有项目这样做，Google 抓到过屏蔽状态的 robots.txt，放开后 GSC 仍长期报「已编入索引，尽管遭到 robots.txt 屏蔽」，理由与替代方案见 `lifecycle.md` 段 5.4 第 22 条 |
+| 分两批：**批 A 域名无关**（GA4、Clarity、CF Web Analytics）在预览域接好并验证 → **域名定稿** → 绑域名并部署验证（**索引开关随之翻开，不等批 B**）→ **批 B 域名相关**（GSC、Bing、Yandex、Naver、IndexNow、Ahrefs WA + Site Audit、Email Routing）→ 提交 sitemap（默认不逐 URL 请求编入索引，需要催收录见 `search-platforms.md` 的可选脚本） | 批 A 不依赖域名，先做省一轮；批 B 换域名就作废，所以放在定稿之后。**正式域名不再靠 `noindex`/`Disallow: /` 拖到批 B 接完才放开**——曾有项目这样做，Google 抓到过屏蔽状态的 robots.txt，放开后 GSC 仍长期报「已编入索引，尽管遭到 robots.txt 屏蔽」，理由与替代方案见 `lifecycle.md` 段 5.4 第 22 条 |
 | 域名定稿前过**黑历史裁决闸门**：官方 `gefei-domain` Skill、Wayback、外链画像、`site:` 搜索；成人 / 赌博 / 被惩罚一律否 | 带惩罚的域名做什么都起不来，换域名比救域名便宜 |
 | **一个不漏**，清单要有「其他能带流量的平台」兜底行 | 有站 80% 流量来自 Bing，有站几乎全部来自韩国 |
 | IndexNow 排在站长工具前面 | 它一样账号都不欠，先推了再慢慢验证所有权 |

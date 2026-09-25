@@ -5,3 +5,4 @@ This file is an archived AITDK extraction script that relied on Chrome's `--remo
 It has been superseded by `scripts/aitdk-opencli.sh`, which uses the opencli extension's `frames` + `eval --frame` approach and does not require special Chrome startup.
 
 Retained for reference only.
+

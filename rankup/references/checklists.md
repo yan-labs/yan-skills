@@ -208,7 +208,7 @@ Web组件、Cloudflare和后续URL/SEO检查仅适用Web面；原生App按lifecy
 ## 段 5 · 上线与接入
 
 说明见 [`lifecycle.md`](lifecycle.md) 段 5（5.1 批 A / 5.2 黑历史裁决 / 5.3 域名定稿与绑定 / 5.4 部署验证（含放开索引）/ 5.5 批 B / 5.6 复核索引已放开）、[`cloudflare-stack.md`](cloudflare-stack.md) §8.5、[`search-platforms.md`](search-platforms.md)、[`analytics-platforms.md`](analytics-platforms.md)。
-顺序固定：批 A（预览域）→ 黑历史裁决 → 绑域名 → 部署验证（索引开关随之翻开，不等批 B）→ 批 B → 复核索引已放开 → 首页请求编入索引。**一个不漏**——有站 80% 流量来自 Bing，有站英语市场做得好流量却几乎全部来自韩国。
+顺序固定：批 A（预览域）→ 黑历史裁决 → 绑域名 → 部署验证（索引开关随之翻开，不等批 B）→ 批 B → 复核索引已放开 → 提交 sitemap（默认不逐 URL 请求编入索引，需要催收录时可选 `gsc-request-indexing.mjs`）。**一个不漏**——有站 80% 流量来自 Bing，有站英语市场做得好流量却几乎全部来自韩国。
 **正式域名不再靠 `noindex` / `Disallow: /` 拖到批 B 接完才放开**：曾有项目这样做，Google 抓到过屏蔽状态的 robots.txt，放开后 GSC 仍长期报「已编入索引，尽管遭到 robots.txt 屏蔽」，理由与替代方案见 [`lifecycle.md`](lifecycle.md) 段 5.4 第 22 条。
 
 | 检查项 | 客观通过条件 | 证据落点 | 怎么做 | 复查 |
@@ -234,7 +234,7 @@ Web组件、Cloudflare和后续URL/SEO检查仅适用Web面；原生App按lifecy
 | **Cloudflare AI 爬虫阻止已关闭** | `curl <site>/robots.txt` 无 `# Cloudflare Managed Content` 段；CF dashboard 两个开关都已关（① Security → Bots → "阻止 AI 训练自动程序" → 不阻止；② Security → Bots → "管理您的 robots.txt" → 禁用）。**新建 zone 默认开启**，不关会阻止 AI 搜索引擎爬虫 | `.rankup/integrations.md` | [`cloudflare-stack.md`](cloudflare-stack.md) §8.7 | 一次 |
 | **索引已放开并复核** | 索引开关应在部署验证阶段（5.4 第 22 条）就已翻开，这里只是复核不是第一次翻；正式首页与代表内页按 D1 完成 SSR / 水合 / 真实 SPA 导航一致性复核，索引开关为开，无冲突 noindex、robots 无误挡；preview 仍封锁；段 4 闸门 1、2、4 的设计项转绿 | D1 三阶段证据 + robots/响应头进 `.rankup/audit.md` | [`lifecycle.md`](lifecycle.md) 段 5.6 第 27–28 条，判据复用 D1 | 放开索引 / 动了索引配置或 head |
 | **占位专项复查（硬性红线，放开索引前必过）** | 段 4 的占位专项已在**本域名**（正式域名，不是预览域）线上重跑一遍，零命中；**上一轮在预览域跑过的结果不采信**，域名换了、内容可能也动过 | grep 输出（逐 URL）+ 人工抽查记录进 `.rankup/audit.md` | 正则与人工抽查范围同段 4 闸门；域名定稿绑定后立即重跑，不等放开索引前才想起来 | 一次 |
-| **首页已请求编入索引** | GSC 与 Bing 各一条提交记录；域名 `has_history: true` 时这是放开索引后的**第一件事** | `.rankup/integrations.md` | GSC 网址检查 → 请求编入索引；Bing URL 提交 | 一次 |
+| **索引放开后已重新提交 sitemap** | GSC 与 Bing 各一条提交记录（快照日期在索引放开之后）；域名 `has_history: true` 时这是放开索引后的**第一件事**；收录进度默认看 sitemap 报告与覆盖率，**默认不逐 URL/首页走 GSC「请求编入索引」**（域名有前世、急需覆盖旧记忆时可选 `gsc-request-indexing.mjs` 加速，见 `search-platforms.md`） | `.rankup/integrations.md` | `webmaster-sitemap.mjs gsc submit` / `bing submit` | 一次 |
 | 索引推送焊进出荷命令 | 项目自己的 ship 命令末段带索引推送，**脚本在项目仓库内而不是指向 Skill 目录** | 项目仓库 | 见 [`search-platforms.md`](search-platforms.md)「挂进发布流程」。这是静默收尾动作：漏了不会有任何东西变红 | 动了 URL |
 
 ## 段 6 · 外链
