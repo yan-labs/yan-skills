@@ -11,7 +11,7 @@
 
 ### 哥飞开放 API 优先路径（2026-09-25）
 
-以下 P1/P2/P4 中涉及哥飞工具的旧网页端点、站内 SEO Agent 与 Semrush/Similarweb 首轮取数命令，以本节为当前执行口径；下文旧命令只在开放 API 缺数据或需要独立交叉核对时使用。官方 [Skill 包](https://seo.web.cafe/api/skills/gefei-skills.zip) 的 `gefei-keywords`、`gefei-competitor`、`gefei-domain`、`gefei-page` 已核对并映射到 [`seo-webcafe.md`](../seo-webcafe.md)；不调用站内 AI 来代做调研。先用 `node $RANKUP/scripts/webcafe-api.mjs tools` 看全部 32 个接口和实时价格，再 `me` 看余额；`WEBCAFE_TOKEN` 由 Skill `.env` 或进程环境提供。下方的五个探索动作仍必须完成，真实 SERP 版式与社区原话仍由各自来源验证。
+以下 P1/P2/P4 中涉及哥飞工具的旧网页端点、站内 SEO Agent 与 Semrush/Similarweb 首轮取数命令，以本节为当前执行口径；下文旧命令只在开放 API 缺数据或需要独立交叉核对时使用。官方 [Skill 包](https://seo.web.cafe/api/skills/gefei-skills.zip) 的原始 `gefei-keywords`、`gefei-competitor`、`gefei-domain`、`gefei-page` 已存入 [`upstream-gefei/`](../upstream-gefei/gefei/SKILL.md)，按任务读原 Skill，Rankup 映射见 [`seo-webcafe.md`](../seo-webcafe.md)；不调用站内 AI 来代做调研。先用 `node $RANKUP/scripts/webcafe-api.mjs tools` 看全部 32 个接口和实时价格，再 `me` 看余额；`WEBCAFE_TOKEN` 由 Skill `.env` 或进程环境提供。下方的五个探索动作仍必须完成，真实 SERP 版式与社区原话仍由各自来源验证。
 
 | 调研动作 | 直接使用的开放 API | 取数判据 |
 |---|---|---|

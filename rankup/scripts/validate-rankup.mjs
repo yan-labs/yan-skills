@@ -10,7 +10,7 @@ import { resolveRoots } from "./registry.mjs";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "3.17.0";
+const expectedVersion = "3.17.1";
 const requiredReferences = [
   "discipline.md",
   "monetization.md",
@@ -31,6 +31,11 @@ const requiredReferences = [
   "experiences/demand-discovery.md",
   "experiences/zero-to-one.md",
   "experiences/conversion.md",
+  "upstream-gefei/gefei/SKILL.md",
+  "upstream-gefei/gefei-keywords/SKILL.md",
+  "upstream-gefei/gefei-competitor/SKILL.md",
+  "upstream-gefei/gefei-domain/SKILL.md",
+  "upstream-gefei/gefei-page/SKILL.md",
 ];
 
 const requiredContent = {

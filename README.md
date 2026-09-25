@@ -71,7 +71,7 @@ npx skills add yan-labs/yan-skills -g --all
 
 ## `rankup` — 网站全生命周期总控
 
-版本 `3.17.0`。哥飞开放 API 的 32 个工具已通过 `rankup/scripts/webcafe-api.mjs` 直接接入，官方选词/竞品/域名/页面 Skill 工作流已映射进 Rankup；调研与页面复核不再依赖站内哥飞 AI。AITDK GEO 最多等待 3 分钟；分数未就绪时面板报告标记为未通过。调研新增「五个取数动作与编排」（词→词/词→问题/词→站/站→词/站→站）与探索广度闸：防止只在种子词上换后缀打转，进筛子前必须五个动作各跑一轮、词池里出现不含种子字面串的新词根。小语种调研新增开工卡与候选词三关判法：非英语市场先落五件事的开工卡，候选词过语义、搜索、SERP 三关才能进词表；新增本地竞品页面取词与可选的本地竞品库。竞品研究新增 AITDK 离线异常分流：完整报告留档，AI 默认只读待复核清单；KD 与站龄改为结合实际排名、目标页流量和任务缺口判断。SEO 扩树默认检查关键词 + AI / App 两组自然组合，分别验证搜索量与意图。需求调研覆盖 macOS、iOS、iPad 与 Web/SaaS，仅排除 Android App 交付；新增按商店/原生分发验证市场的分支，网页低量不再否决 App，公开估计与自有下载、收入、留存分级。多功能工具站采用统一的[侧栏规范](rankup/references/design-references.md#多功能工具站侧栏统一规范)，开发入口与检查清单同步加入模式验收门禁；保留现有 SEO、无障碍、分析上报和品牌图标检查。它不重复实现 Wrangler、Stripe 或趋势工具，它负责把这些能力串成一条长期可维护的工作流，并且记住你在每个项目上做过什么。小游戏站另有一条从新词监控、iframe 供给、可玩页面、广告到持续迭代的[专用链路](rankup/references/game-sites.md)。
+版本 `3.17.1`。哥飞开放 API 的 32 个工具已通过 `rankup/scripts/webcafe-api.mjs` 直接接入，官方五份原始 Skill 已纳入 Rankup，选词/竞品/域名/页面工作流已接到入口；调研与页面复核不再依赖站内哥飞 AI。AITDK GEO 最多等待 3 分钟；分数未就绪时面板报告标记为未通过。调研新增「五个取数动作与编排」（词→词/词→问题/词→站/站→词/站→站）与探索广度闸：防止只在种子词上换后缀打转，进筛子前必须五个动作各跑一轮、词池里出现不含种子字面串的新词根。小语种调研新增开工卡与候选词三关判法：非英语市场先落五件事的开工卡，候选词过语义、搜索、SERP 三关才能进词表；新增本地竞品页面取词与可选的本地竞品库。竞品研究新增 AITDK 离线异常分流：完整报告留档，AI 默认只读待复核清单；KD 与站龄改为结合实际排名、目标页流量和任务缺口判断。SEO 扩树默认检查关键词 + AI / App 两组自然组合，分别验证搜索量与意图。需求调研覆盖 macOS、iOS、iPad 与 Web/SaaS，仅排除 Android App 交付；新增按商店/原生分发验证市场的分支，网页低量不再否决 App，公开估计与自有下载、收入、留存分级。多功能工具站采用统一的[侧栏规范](rankup/references/design-references.md#多功能工具站侧栏统一规范)，开发入口与检查清单同步加入模式验收门禁；保留现有 SEO、无障碍、分析上报和品牌图标检查。它不重复实现 Wrangler、Stripe 或趋势工具，它负责把这些能力串成一条长期可维护的工作流，并且记住你在每个项目上做过什么。小游戏站另有一条从新词监控、iframe 供给、可玩页面、广告到持续迭代的[专用链路](rankup/references/game-sites.md)。
 
 登录态数据平台可以直接走薄 CLI，把一次探路沉淀成可续跑清单：
 
@@ -181,7 +181,7 @@ node scripts/sessions.mjs --project-root . --days 14 --new-only --dump
 
 ### 开箱即用的选词与数据能力
 
-**`rankup/scripts/webcafe-api.mjs`** — 集成[哥飞开放 API](https://seo.web.cafe/api/)的官方零依赖 CLI。接口目录实时从服务端读取，当前 32 个工具全部可直接调用：找词、拓词、站点出词、搜索量、SERP、整站流量、域名、外链、页面体检、知识库等。官方 `gefei-keywords` / `gefei-competitor` / `gefei-domain` / `gefei-page` Skill 的调用顺序已合入 [`references/seo-webcafe.md`](rankup/references/seo-webcafe.md)，由 Rankup 直接取数、判读和留证，不再依赖站内 AI review。令牌用本机 `rankup/.env` 的 `WEBCAFE_TOKEN` 或进程环境变量；`tools` / `help` 可不带令牌运行，实际接口按次扣积分余额。
+**`rankup/scripts/webcafe-api.mjs`** — 集成[哥飞开放 API](https://seo.web.cafe/api/)的官方零依赖 CLI。接口目录实时从服务端读取，当前 32 个工具全部可直接调用：找词、拓词、站点出词、搜索量、SERP、整站流量、域名、外链、页面体检、知识库等。官方 `gefei` / `gefei-keywords` / `gefei-competitor` / `gefei-domain` / `gefei-page` 原始 Skill 已存入 `rankup/references/upstream-gefei/`，调用顺序也已合入 [`references/seo-webcafe.md`](rankup/references/seo-webcafe.md)，由 Rankup 直接取数、判读和留证，不再依赖站内 AI review。令牌用本机 `rankup/.env` 的 `WEBCAFE_TOKEN` 或进程环境变量；`tools` / `help` 可不带令牌运行，实际接口按次扣积分余额。
 
 ```bash
 node rankup/scripts/webcafe-api.mjs tools

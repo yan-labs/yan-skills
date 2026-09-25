@@ -137,7 +137,7 @@ node <rankup-skill-dir>/scripts/webcafe-api.mjs usage --api
 
 ### 官方 Skill 的任务编排，合入 Rankup
 
-2026-09-25 检查了[官方 Skill 包](https://seo.web.cafe/api/skills/gefei-skills.zip)的 `gefei`、`gefei-keywords`、`gefei-competitor`、`gefei-domain`、`gefei-page`：它们是调用同一批接口的**工作流说明**，没有额外数据源或必须安装的运行时。Rankup 直接采用下表的顺序，由本 Skill 自己读结果和判读；CLI 只保留一份。每轮先 `tools` / `me`，按问题取 `load_guide` 的相关专题，能批量的合并调用，报告写明市场、来源、缓存/快照口径、`requestId` 和实际扣费。`keyword_ideas` / `site_keywords` / `bulk_keyword_difficulty` 是快照数据；`keyword_difficulty` 是哥飞版精评；两种 KD 不混用。全球量明确传 `gl=world`，不能把默认美国量当全球。
+2026-09-25 下载了[官方 Skill 包](https://seo.web.cafe/api/skills/gefei-skills.zip)，五份原始 `SKILL.md` 存于 [`upstream-gefei/`](upstream-gefei/gefei/SKILL.md) 对应子目录，未改写原文。它们是调用同一批接口的**工作流说明**，没有额外数据源；包内重复的 CLI 由 Rankup 已接入的同一官方 CLI `scripts/webcafe-api.mjs` 承担。执行时先读对应原始 Skill，再按下表及 Rankup 闸门判读；原文的 `~/.claude/skills/gefei/scripts/webcafe.mjs` 替换为 Rankup CLI。每轮先 `tools` / `me`，按问题取 `load_guide` 的相关专题，能批量的合并调用，报告写明市场、来源、缓存/快照口径、`requestId` 和实际扣费。`keyword_ideas` / `site_keywords` / `bulk_keyword_difficulty` 是快照数据；`keyword_difficulty` 是哥飞版精评；两种 KD 不混用。全球量明确传 `gl=world`，不能把默认美国量当全球。
 
 | 任务 | 官方 Skill 的工具顺序 | Rankup 补充判据 |
 |---|---|---|
