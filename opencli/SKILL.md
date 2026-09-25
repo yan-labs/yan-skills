@@ -2,7 +2,7 @@
 name: opencli
 description: 用 OpenCLI 驱动用户本机那个真实的、已登录的 Chrome，或调用它的 160+ 站点 adapter。任何需要登录态的页面操作都从这里开始——读登录后的后台、抓没有 API 的表格、填表提交、跑一个站点命令、把页面数据取回来。也覆盖会话命名与租约纪律（"我的标签页被别人抢了"）、批量取数与落盘、adapter 的编写与自修复、opencli doctor 排障。用户提到 opencli、浏览器自动化、用我的浏览器、驱动 Chrome、登录态、抓后台数据、抓表格、导出报表、填表、自动点击、截图、adapter、doctor 报错、session 撞名、标签页被抢、tab 泄漏，或说"打开这个页面看看""帮我登录后台查一下""这个站没有 API"时，务必使用本 Skill。也在需要判断"这件事该不该开浏览器"时使用——本 Skill 第零节就是那张判断表（要不要登录态、有没有现成脚本或 adapter、配额站能不能动手、什么时候该转给 agent-reach 或业务 Skill）。只要动作会落在浏览器上，先读这里再动手。
 metadata:
-  version: "1.5.0"
+  version: "1.6.0"
 ---
 
 # OpenCLI
@@ -566,6 +566,21 @@ opencli browser "$S" batch --commands '[
 
 返回 `{cmd, index, ok, result?, error?}` 数组；默认遇错继续，`--stop-on-error` 改为中止。
 **条件逻辑**（每一步决定下一步）用顺序调用，不要硬塞进 batch。
+
+### 多层导航交给 JEV 挑，agent 只给目标（省 token）
+
+上游 OpenCLI **没有**内置模型驱动浏览器的功能（2026-09-25 核对并已合并上游）。
+要让便宜模型替 agent 逐步点，用 TypeSafe 的 JEV 当动作选择器：每步把 `state` 里的可点元素
+作为 choice 选项交给 JEV，它挑 ref，脚本 `click`，直到 JEV 判定达成。实测 3 跳导航 4 次调用
+约 3.9k 输入 token（约 $0.00016），agent 不用把每页的元素树读进上下文。
+
+```bash
+node ~/.claude/skills/opencli/scripts/jev-step-demo.mjs "$S" <起始URL> "<英文目标>" 6   # 读 TYPESAFE_API_KEY，不打印
+```
+
+JEV 只会「在列好的选项里挑」，不写字、不看图、不是 OpenAI/Anthropic 兼容端点。
+打字、填表、不可逆动作和最终核对仍由 agent 做。何时用、限制与后续接法见
+[`references/model-driven.md`](references/model-driven.md)。
 
 ---
 

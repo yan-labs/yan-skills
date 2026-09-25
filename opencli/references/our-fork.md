@@ -12,6 +12,17 @@
 
 上游是 `jackwener/opencli`，我们的 fork 是 `yan-labs/OpenCLI`。
 
+## 上游同步记录
+
+| 日期 | 上游范围 | fork 版本 | 取舍 |
+|---|---|---|---|
+| 2026-09-25 | v1.8.8 之后 50 个提交（到 `24136945`），合并提交 `931b0cb9`，已推 `fork/main` | CLI 1.11.0 / 扩展 1.3.0 | 保留专用窗口、窗口池、TTL 回收、关窗命令、`daemon logs`；随上游移除 `opencli external`（CLI hub）与站点 sitemap；新增 `OPENCLI_SITE_SESSION`、gmail/dribbble 等 adapter |
+
+上游这批提交**没有**内置模型驱动浏览器的能力；让便宜模型替 agent 点浏览器的做法见
+[`model-driven.md`](model-driven.md)。本机装的是源码 link（`/Users/kcsx/Project/kcsx/macmini/opencli`
+工作树），1.11.0 要在该工作树切到新 `main`、`npm run build` + 扩展 `npm run build`、
+在没有别的会话时 `opencli daemon restart` 并 reload 扩展后才生效；`opencli doctor` 看到 v1.11.0 / v1.3.0 才算装上。
+
 ---
 
 ## 装哪一个
