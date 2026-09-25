@@ -108,7 +108,7 @@ a–c 必然全空，而 d 档的 `git remote -v` 会拿当前仓库的名字拼
 
 - **零积分区**：本地 `seo-audit.mjs`、`is-agentic.mjs`、`seo-webcafe.mjs` 的 `kgr/string/money/email`、公开 SERP 的人眼实勘、GSC/PSI 的现有路径，可并行。
 - **哥飞开放 API 区**：D1/D4/E/F 需要的 `keyword_ideas`、`site_keywords`、`keyword_difficulty`、`domain_overview`、`page_coach`、`onpage_audit` 等按预算顺序调用；相同问题合并批量，不让多个执行者同时重复扣费。官方 Skill 的选词/竞品/域名/页面方法见 [`../seo-webcafe.md`](../seo-webcafe.md)。
-- **独立面板区**：Ahrefs、Semrush、Similarweb 只有当前问题确实需要独立交叉验证或开放 API 没有数据时才跑；各自固定会话内串行。AITDK 仍是独立会话，按抽样 URL 串行。
+- **独立面板区**：Ahrefs、Semrush、Similarweb 只有当前问题确实需要独立交叉验证或开放 API 没有数据时才跑；各自固定会话内串行。AITDK 仍是独立会话，用 `scripts/aitdk-batch.sh` 一次提交整批抽样 URL——单屏机器上会按真实窗口容量自动降并发、安全串行（不抢用户焦点，2026-09-25 实测），有多显示器时同一条命令无需改动就能真并发，见 [`../seo-box.md`](../seo-box.md)「窗口模式：dedicated 默认、真并发的边界」。
 
 E 组依赖 A/B/D 的事实，先完成这些取数再综合判读。开放 API 目录没有旧站内 Agent 的聊天接口，E 组直接比较工具返回的结构化证据。
 
@@ -121,7 +121,7 @@ E 组依赖 A/B/D 的事实，先完成这些取数再综合判读。开放 API 
 | A3 重定向 | 并行 | 对裸域/www/http/https 四种入口各跑 `curl -sIL -A 'Mozilla/5.0' <入口> \| grep -v 'Connection established' \| grep -iE '^(HTTP/\|location:)'` | 每个入口几跳、每跳是 301 还是 302（滤掉代理那行之后，**剩下几行 `HTTP/` 就是几跳**） | 302/307 出现即记必修（判据 [`../experiences/webcafe-topics.md`](../experiences/webcafe-topics.md) 五）。**忘了 `grep -v 'Connection established'` 会凭空多算一跳**：`HTTP/1.1 200 Connection established` 是 HTTPS 代理隧道的应答，不是目标站的响应，一个零跳首页会被读成 200→200 两跳并误记必修 |
 | A4 全站第二双眼睛 | 串行（`ahrefs-nav`） | `node <rankup>/scripts/ahrefs-site-audit.mjs projects` → `node <rankup>/scripts/ahrefs-site-audit.mjs report <id> links`、`… redirects`、`… html-tags`、`… indexability`、`… localization` | 全站内链失效、全站重定向链、TDK、可索引性、hreflang | 站没在 Ahrefs 里验证过所有权 → 这一条标 ⏸（免费 AWT 档只能看自己的站），A1–A3 已经能过闸门 2。会话名固定 `ahrefs-nav`，**不要传 `--session`** |
 | A5 占位专项（硬性红线） | 串行，与 A1 同批产出 | 输入：sitemap URL 列表 + 源码目录。检测：A1 的 `seo-audit.mjs --json` 已内置 `PLACEHOLDER_*` 系列 issue code（正则见 [`../discipline.md`](../discipline.md) 十四），逐页读 `issues` 过滤出 `PLACEHOLDER_` 前缀即可；源码目录另跑一遍同一批正则 `grep -rn`（排除依赖与构建产物） | 输出：逐 URL 命中清单（URL、code、命中次数），零命中才算过；命中的立即处置（换真实内容或删区块），不进「待办」 | `.rankup/audit.md`「占位专项」一节，逐 URL 记录 |
-| A6 AITDK 全站报告（第三双眼睛） | 串行（组内，逐 URL 跑），用独立 opencli session，不占 `semrush-nav`/`similarweb-nav`/`ahrefs-nav`，可与其他独立取数同时开跑 | 按 sitemap 抽样（首页 + 每类模板页各至少一个 + 全部法律/关于/联系页）逐个跑 `bash <rankup>/scripts/aitdk-opencli.sh <url>`，前置条件见 [`../seo-box.md`](../seo-box.md)「AITDK 面板全自动取数」 | 每个 URL 一份 `aitdkPanel` 报告：Issues 标签页问题清单 + 带评分标签页的未满分清单 | 前置条件不满足（未登录/opencli 非仓库构建）→ 标 ⏸ 并写清卡在哪，不要因此跳过；Issues 与评分先核对实际页面；真实缺陷修复，建议项按影响排序，判据 [`../checklists.md`](../checklists.md) 段 4「闸门 4c」 |
+| A6 AITDK 全站报告（第三双眼睛） | 一次提交整批抽样 URL（组内自动按真实窗口容量并发/串行），用独立 opencli session，不占 `semrush-nav`/`similarweb-nav`/`ahrefs-nav`，可与其他独立取数同时开跑 | 按 sitemap 抽样（首页 + 每类模板页各至少一个 + 全部法律/关于/联系页），`bash <rankup>/scripts/aitdk-batch.sh <url1> <url2> …`，前置条件见 [`../seo-box.md`](../seo-box.md)「AITDK 面板全自动取数」 | 每个 URL 一份 `aitdkPanel` 报告 + 一份 `manifest.json`：Issues 标签页问题清单 + 带评分标签页的未满分清单 | 前置条件不满足（未登录/opencli 非仓库构建）→ 标 ⏸ 并写清卡在哪，不要因此跳过；Issues 与评分先核对实际页面；真实缺陷修复，建议项按影响排序，判据 [`../checklists.md`](../checklists.md) 段 4「闸门 4c」 |
 
 **A1 的 JSON 长什么样（不看这段必然读错）**
 

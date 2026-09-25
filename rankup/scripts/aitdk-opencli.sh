@@ -75,12 +75,58 @@
 # to produce.
 #
 # Usage:
-#   aitdk-opencli.sh <url> [session-name] [output-file] [--skip-panel]
+#   aitdk-opencli.sh <url> [session-name] [output-file] [options]
 #
 #   url            website to audit (required)
-#   session-name   opencli browser session name (default: aitdk)
+#   session-name   opencli browser session name (default: auto-generated from a hash of
+#                  the URL + wall-clock time — NOT a fixed literal, so two concurrent
+#                  calls that don't pass one never collide on the same tab; see the
+#                  "session naming" note below for why this isn't `$$`)
 #   output-file    where to write the JSON (default: ./aitdk-report-<domain>-<ts>.json)
-#   --skip-panel   skip Part B (AITDK extension panel) entirely, Part A only
+#
+# Options:
+#   --skip-panel          skip Part B (AITDK extension panel) entirely, Part A only
+#   --window <mode>       dedicated (default) | foreground — see "window modes" below
+#   --slot <name>         pin this run to a named OpenCLI dedicated window slot
+#                         (`^[A-Za-z0-9_.-]{1,40}$`). Omit it for a one-off call — the
+#                         session then borrows an idle window from OpenCLI's own pool
+#                         and hands it back when done. Pass one when several calls need
+#                         to share the SAME window across a sequence (this is what
+#                         aitdk-batch.sh does for each of its N workers — one slot per
+#                         worker, reused across that worker's whole URL queue, so the
+#                         window is created once and tiled once, not per URL).
+#   --window-bounds <x,y,w,h>
+#                         explicit placement for --window dedicated, passed straight to
+#                         OpenCLI (`--window-bounds` docs in the opencli Skill). Only
+#                         needed for manual multi-window tiling; aitdk-batch.sh computes
+#                         and passes this per worker so N concurrent windows never
+#                         overlap on a single display. A solo call normally omits it and
+#                         lets OpenCLI's own pool auto-place a full-size window.
+#
+# ---------------------------------------------------------------------------
+# Window modes — why this changed from a hardcoded `--window foreground`
+# ---------------------------------------------------------------------------
+# Until 2026-09-25 this script always passed `--window foreground`, which raises the
+# user's actual Chrome window to the OS foreground and steals their active tab — this
+# is exactly the "四条最常被违反的" #3 red line in rankup's discipline.md (foreground
+# is reserved for the rare case a human must click through a CAPTCHA). It was done
+# anyway because a BACKGROUNDED tab's cross-origin iframes are throttled hard enough
+# that opencli's `eval --frame` can no longer address the AITDK panel iframe at all.
+#
+# The fix is OpenCLI's `--window dedicated` mode (extension >= 1.2.0 / CLI >= 1.10.0):
+# a window OpenCLI owns, created with `focused:false` (never steals OS focus), whose
+# session tab is kept `active` *within that window* before every command (so
+# `document.visibilityState` reads `visible`) without ever calling
+# `chrome.windows.update({focused:true})`. Per discipline.md 十九, Chromium's render
+# throttling is actually driven by physical occlusion, not OS focus — a dedicated
+# window that isn't covered by another window renders and stays addressable exactly
+# like a foreground one, without moving the user's own window or stealing their tab.
+# Running several dedicated windows at once (one per concurrent URL) only works
+# because OpenCLI's dynamic layout keeps them tiled non-overlapping; see
+# aitdk-batch.sh for how the tile bounds are computed. --window foreground remains as
+# an explicit fallback (`--window foreground`) for a machine whose OpenCLI/extension
+# is too old to support `dedicated` (`opencli browser <s> window status -f json` ->
+# `capabilities` must include `"dedicated-window"`).
 #
 set -euo pipefail
 
@@ -103,17 +149,60 @@ set -euo pipefail
 OPENCLI_BIN="${OPENCLI_BIN:-node /Users/kcsx/Project/kcsx/opencli/dist/src/main.js}"
 
 # ---------- args ----------
-URL="${1:-}"
-SESSION="${2:-aitdk}"
-OUTFILE="${3:-}"
+# Order-independent flag parsing (positionals collected separately) so
+# aitdk-batch.sh can append --window/--slot/--window-bounds after the three
+# positional args without disturbing them.
 SKIP_PANEL=0
-for a in "$@"; do
-  [[ "$a" == "--skip-panel" ]] && SKIP_PANEL=1
+WINDOW_MODE="dedicated"
+SLOT=""
+WINDOW_BOUNDS=""
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --skip-panel) SKIP_PANEL=1; shift ;;
+    --window) WINDOW_MODE="${2:-}"; shift 2 ;;
+    --slot) SLOT="${2:-}"; shift 2 ;;
+    --window-bounds) WINDOW_BOUNDS="${2:-}"; shift 2 ;;
+    -h|--help)
+      echo "Usage: $(basename "$0") <url> [session-name] [output-file] [--skip-panel] [--window dedicated|foreground] [--slot <name>] [--window-bounds x,y,w,h]" >&2
+      exit 0 ;;
+    --) shift; while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done ;;
+    -*) echo "Unknown option: $1 (see --help)" >&2; exit 1 ;;
+    *) POSITIONAL+=("$1"); shift ;;
+  esac
 done
+URL="${POSITIONAL[0]:-}"
+SESSION="${POSITIONAL[1]:-}"
+OUTFILE="${POSITIONAL[2]:-}"
+# Remember whether the caller gave an explicit output path — `$3` used to answer this
+# directly, but it's no longer valid once the flag-parsing loop above has shifted the
+# positionals away. Preserves the original "no explicit path -> also cat to stdout"
+# behavior for interactive/manual use; aitdk-batch.sh always passes an explicit path.
+OUTFILE_GIVEN=0
+[[ -n "$OUTFILE" ]] && OUTFILE_GIVEN=1
 
 if [[ -z "$URL" ]]; then
-  echo "Usage: $(basename "$0") <url> [session-name] [output-file] [--skip-panel]" >&2
+  echo "Usage: $(basename "$0") <url> [session-name] [output-file] [--skip-panel] [--window dedicated|foreground] [--slot <name>] [--window-bounds x,y,w,h]" >&2
   exit 1
+fi
+
+if [[ "$WINDOW_MODE" != "dedicated" && "$WINDOW_MODE" != "foreground" ]]; then
+  echo "--window must be 'dedicated' or 'foreground' (got: $WINDOW_MODE)" >&2
+  exit 1
+fi
+if [[ -n "$SLOT" && ! "$SLOT" =~ ^[A-Za-z0-9_.-]{1,40}$ ]]; then
+  echo "--slot must match ^[A-Za-z0-9_.-]{1,40}\$ (got: $SLOT)" >&2
+  exit 1
+fi
+
+# session-name: NOT a fixed literal and NOT `$$` (Claude Code's Bash tool gives `$$` a
+# different value per call within the same invocation — see opencli Skill session-laws:
+# "不要硬编码通用会话名，也不要在 Bash tool 里用 $$"). Hash the URL + wall-clock time so
+# two concurrent solo calls without an explicit session-name never share a tab.
+if [[ -z "$SESSION" ]]; then
+  _urlhash="$(printf '%s' "$URL" | shasum -a 256 2>/dev/null | cut -c1-10)"
+  [[ -z "$_urlhash" ]] && _urlhash="$(date +%s%N 2>/dev/null || date +%s)"
+  SESSION="aitdk-${_urlhash}-$(date -u +%Y%m%dT%H%M%SZ)"
 fi
 
 # ---------- color output (fall back to plain text when not a tty) ----------
@@ -132,6 +221,32 @@ if ! $OPENCLI_BIN browser --help >/dev/null 2>&1; then
   err "opencli not runnable via OPENCLI_BIN=\"$OPENCLI_BIN\""
   exit 1
 fi
+
+# ---------- window mode + guaranteed cleanup ----------
+# Exported once, for the life of this process, so every subsequent
+# `$OPENCLI_BIN browser "$SESSION" ...` call (there are ~20 call sites below) inherits it
+# without having to thread --window/--window-slot/--window-bounds through each one.
+export OPENCLI_WINDOW="$WINDOW_MODE"
+if [[ "$WINDOW_MODE" == "dedicated" ]]; then
+  [[ -n "$SLOT" ]] && export OPENCLI_WINDOW_SLOT="$SLOT"
+  [[ -n "$WINDOW_BOUNDS" ]] && export OPENCLI_WINDOW_BOUNDS="$WINDOW_BOUNDS"
+else
+  unset OPENCLI_WINDOW_SLOT OPENCLI_WINDOW_BOUNDS 2>/dev/null || true
+fi
+
+# Release this session's tab lease on every exit path (success, `exit N`, an error under
+# `set -e`, or Ctrl-C) — not just the two hand-written `close` calls the script used to
+# rely on, which is how --skip-panel runs used to leak a tab lease (no close call on that
+# path at all). Does NOT touch the dedicated window itself when --slot was given: a
+# named slot is meant to be reused across several calls (aitdk-batch.sh keeps one slot
+# per worker across that worker's whole URL queue), so only the caller that owns the
+# whole sequence (the batch script) closes the window, once, after its last job.
+cleanup() {
+  local rc=$?
+  $OPENCLI_BIN browser "$SESSION" close >/dev/null 2>&1 || true
+  exit $rc
+}
+trap cleanup EXIT
 
 HAVE_JQ=1
 command -v jq >/dev/null 2>&1 || HAVE_JQ=0
@@ -157,12 +272,13 @@ if [[ -z "$OUTFILE" ]]; then
 fi
 
 # ---------- 1. open the URL ----------
-log "Opening $URL (session: $SESSION)"
-# --window foreground: a backgrounded/hidden tab gets its cross-origin iframes
-# throttled, and opencli then cannot address the AITDK panel frame at all
-# (`eval --frame` silently falls back to the main page). Raising the tab makes
-# the panel frame a real, addressable OOPIF target.
-$OPENCLI_BIN browser "$SESSION" open "$URL" --window foreground >/dev/null
+log "Opening $URL (session: $SESSION, window: $WINDOW_MODE${SLOT:+, slot: $SLOT})"
+# Window mode comes from OPENCLI_WINDOW (exported above) — no --window flag here. A
+# plain backgrounded/hidden tab gets its cross-origin iframes throttled hard enough
+# that opencli can no longer address the AITDK panel frame at all (`eval --frame`
+# silently falls back to the main page); dedicated mode keeps the tab visible without
+# raising the window, see the "window modes" comment near the top of this file.
+$OPENCLI_BIN browser "$SESSION" open "$URL" >/dev/null
 
 # ---------- 2. let the page settle ----------
 sleep 6
@@ -547,7 +663,7 @@ geo_score_is_stable() {
 if [[ "$SKIP_PANEL" -eq 1 ]]; then
   warn "--skip-panel set (or jq/python3 missing) — skipping AITDK panel extraction"
   echo "$OUTFILE"
-  if [[ -z "${3:-}" ]]; then cat "$OUTFILE"; fi
+  if [[ "$OUTFILE_GIVEN" != "1" ]]; then cat "$OUTFILE"; fi
   exit 0
 fi
 
@@ -571,7 +687,8 @@ panel_fail() {
   write_partial
   err "Part B aborted: $1"
   close_panel || true
-  oc close >/dev/null 2>&1 || true
+  # Session close is handled by the `cleanup` EXIT trap registered near the top —
+  # do not duplicate it here.
   echo "$OUTFILE"
   exit 0
 }
@@ -821,9 +938,8 @@ ok "Part B complete: $captured/${#PANEL_SECTIONS[@]} sections with content, ${#p
 # with the panel already restored produces an iframe opencli cannot address.
 close_panel || warn "could not close the AITDK panel before exiting"
 
-# ---------- close the session, leave no tab lease ----------
-oc close >/dev/null 2>&1 || warn "opencli browser $SESSION close failed"
+# Session close is handled by the `cleanup` EXIT trap registered near the top.
 
 # ---------- final output ----------
 echo "$OUTFILE"
-if [[ -z "${3:-}" ]]; then cat "$OUTFILE"; fi
+if [[ "$OUTFILE_GIVEN" != "1" ]]; then cat "$OUTFILE"; fi
