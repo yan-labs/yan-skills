@@ -27,6 +27,7 @@ import { runMany } from '../src/run-many.mjs';
 import { judgeTask } from '../src/judge-task.mjs';
 import { createProgress } from '../src/progress.mjs';
 import { tailLatestLog } from '../src/tail-log.mjs';
+import { DEFAULT_BRIEF_LINES, renderManyOutput, renderRunOutput } from '../src/brief.mjs';
 
 const PKG_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const PKG_VERSION = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8')).version;
@@ -47,15 +48,20 @@ run 选项:
   --cwd <dir>               Agent 读写文件/跑 bash 的工作目录,默认当前目录
   --max-turns <n>           限制最大工具调用轮数
   --system-prompt <text>    追加的系统提示
-  --json                    输出结构化 JSON 而不是人类可读文本
+  --json                    stdout 只输出一个合法 JSON(默认是简报对象);进度一律走 stderr
   --quiet                   进度不输出到 stderr,只写入日志文件
                             (~/.agent-fleet/runs/<ISO时间>-<模型名>.log,可用 tail 查看)
+  --full                    恢复旧版完整最终回复到 stdout(默认把全文写进 .result.md,stdout 只给简报)
+  --brief-lines <n>         简报里最终回复预览行数,默认 3
+  --expect-changes          声明任务需要改文件;零改动时 verdict=suspect
+  --judge                   进程内调 JEV,问「最终回复是否满足任务要求」;无 TYPESAFE_API_KEY 则跳过
 
 run-many 选项:
   --config <path>           必填。批量任务文件,JSON 数组,每项 { model, prompt, cwd? }
   --cwd <dir>               任务没写 cwd 时的默认工作目录
-  --json                    输出结构化 JSON 而不是人类可读文本
+  --json                    stdout 只输出一个合法 JSON 数组;进度一律走 stderr
   --quiet                   同 run;每个任务的日志 label 是「#序号-模型名」
+  --full / --brief-lines / --expect-changes / --judge  同 run;简报每任务一段
 
 tail 选项:
   --follow                  打印最新日志后持续跟随新增内容,直到出现 done ok / done error 行
@@ -96,19 +102,16 @@ function parseFlags(argv) {
   return flags;
 }
 
-function printResultHuman(res) {
-  console.log(`\n${'='.repeat(60)}`);
-  console.log(`模型: ${res.model}${res.resolvedModel ? ` (${res.resolvedModel})` : ''}`);
-  if (res.cwd) console.log(`工作目录: ${res.cwd}`);
-  console.log(`状态: ${res.ok ? '成功' : '失败'}`);
-  if (res.ok) {
-    console.log(`耗时: ${res.durationMs}ms | 轮数: ${res.numTurns} | 预估成本: $${res.totalCostUsd?.toFixed?.(4) ?? res.totalCostUsd}`);
-    console.log(`${'-'.repeat(60)}`);
-    console.log(res.result ?? '(没有文本结果)');
-  } else {
-    console.log(`错误: ${res.error ?? res.errors?.join('; ') ?? '未知错误'}`);
-  }
-  console.log('='.repeat(60));
+function outputOptions(flags, config) {
+  const n = flags['brief-lines'] === undefined ? DEFAULT_BRIEF_LINES : Number(flags['brief-lines']);
+  return {
+    json: Boolean(flags.json),
+    full: Boolean(flags.full),
+    briefLines: Number.isFinite(n) && n >= 0 ? n : DEFAULT_BRIEF_LINES,
+    expectChanges: Boolean(flags['expect-changes']),
+    judge: Boolean(flags.judge),
+    config,
+  };
 }
 
 async function cmdRun(argv) {
@@ -133,11 +136,7 @@ async function cmdRun(argv) {
     progress,
   });
 
-  if (flags.json) {
-    console.log(JSON.stringify(result, null, 2));
-  } else {
-    printResultHuman(result);
-  }
+  process.stdout.write(await renderRunOutput(result, outputOptions(flags, config)));
   // 退出码:成功 0;失败 1;失败且是上游 402/credit budget 用尽(不重试、立即停)2。
   process.exitCode = result.ok ? 0 : result.fatal402 ? 2 : 1;
 }
@@ -178,13 +177,7 @@ async function cmdRunMany(argv) {
     return;
   }
 
-  if (flags.json) {
-    console.log(JSON.stringify(results, null, 2));
-  } else {
-    for (const res of results) printResultHuman(res);
-    const failed = results.filter((r) => !r.ok).length;
-    console.log(`\n共 ${results.length} 个任务,成功 ${results.length - failed} 个,失败 ${failed} 个。`);
-  }
+  process.stdout.write(await renderManyOutput(results, outputOptions(flags, config)));
   process.exitCode = results.some((r) => !r.ok) ? 1 : 0;
 }
 

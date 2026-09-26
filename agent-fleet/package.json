@@ -1,6 +1,6 @@
 {
   "name": "agent-fleet",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "通用多模型子任务执行工具:用 Claude Agent SDK 驱动自主 Agent,给它一个任务和一个模型(Gemini/DeepSeek/Kimi 或任意 Anthropic 兼容端点),bypassPermissions 权限跑到底,支持多任务并发跑不同模型。纯本地工具,不经过任何 Kollab 基础设施。",
@@ -13,7 +13,8 @@
   "scripts": {
     "smoke-test": "node test/smoke-test.mjs",
     "security-test": "node test/security-unit-test.mjs && node test/security-e2e-test.mjs",
-    "test": "npm run smoke-test && npm run security-test",
+    "unit-test": "node test/verdict-test.mjs",
+    "test": "npm run unit-test && npm run smoke-test && npm run security-test",
     "check-sdk": "node -e \"const {execSync}=require('child_process');const pkg=require('./package.json');const cur=pkg.dependencies['@anthropic-ai/claude-agent-sdk'];const latest=execSync('npm view @anthropic-ai/claude-agent-sdk version').toString().trim();console.log('package.json 当前: '+cur+'  |  npm 最新: '+latest);\""
   },
   "dependencies": {

@@ -11,6 +11,7 @@ import { resolveModel, ConfigError } from './config.mjs';
 import { buildIsolatedEnv, buildPinnedSettings } from './isolated-env.mjs';
 import { assertProjectSettingsTrusted, ProjectTrustError } from './project-trust.mjs';
 import { createProgress } from './progress.mjs';
+import { snapshotGit, inspectGit, attachArtifacts } from './brief.mjs';
 
 /**
  * 默认追加给每个任务的执行者系统提示。
@@ -107,8 +108,10 @@ export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, sy
   // 错误的短路 return)都会 stop 掉 60 秒心跳定时器,不会把 CLI 进程吊住不退出。
   // 内部函数只拿到 log(line) 写入函数;stop 由这一层负责,内部不用关心生命周期。
   const output = progress ?? createProgress({ quiet: true, label: friendlyModel });
+  const gitBefore = snapshotGit(cwd);
   try {
-    return await runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, systemPrompt, startedAt, log: output.log });
+    const inner = await runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, systemPrompt, startedAt, log: output.log });
+    return attachArtifacts(inner, output.logPath, inspectGit(cwd, gitBefore));
   } catch (err) {
     // 未预见的异常:同样补一行 done error 再抛,保住"日志必有 done 行收尾"的不变量,
     // 否则 tail --follow 会对这份日志永远等下去。

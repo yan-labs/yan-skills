@@ -49,9 +49,9 @@
     "subagentModel": "glm-5.3-flash"
   },
   "kollab-gateway-research": {
-    "description": "Kollab 网关,通用调研摘要与常规编程用途。模型 grok-4.7,paidOnly=false。",
+    "description": "Kollab 网关,通用调研摘要与常规编程用途。模型 grok-4.6,paidOnly=false。",
     "baseURL": "https://kollab.im/api/llm",
-    "model": "grok-4.7",
+    "model": "grok-4.6",
     "apiKeyEnv": "KOLLAB_PROD_API_KEY",
     "authHeader": "x-api-key",
     "subagentModel": "glm-5.3-flash"

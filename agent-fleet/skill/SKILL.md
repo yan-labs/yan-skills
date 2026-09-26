@@ -83,7 +83,11 @@ node bin/agent-fleet.mjs run \
 | `--cwd <dir>` | 否 | Agent 读写文件/跑 bash 的工作目录,默认当前目录;**被当作不可信输入**,见下方安全边界 |
 | `--max-turns <n>` | 否 | 限制最大工具调用轮数,避免任务跑飞 |
 | `--system-prompt <text>` | 否 | 追加的系统提示,叠加在默认执行者提示之后(见下方「已知限制」的子 agent 模型映射说明),不是替换 |
-| `--json` | 否 | 输出结构化 JSON(`ok`/`result`/`numTurns`/`totalCostUsd`/`sessionId` 等字段) |
+| `--json` | 否 | stdout 只输出一个合法 JSON;默认是简报,加 `--full` 才是完整 result |
+| `--full` | 否 | 恢复旧版完整输出;默认全文写进 `~/.agent-fleet/runs/<run-id>.result.md` |
+| `--brief-lines <n>` | 否 | 简报预览行数,默认 3 |
+| `--expect-changes` | 否 | 声明任务需要改文件;零改动时 verdict=suspect |
+| `--judge` | 否 | 进程内调 JEV 判断最终回复是否满足任务要求 |
 | `--models-config <path>` | 否 | 临时换一份配置文件,默认用包目录下的 `models.config.json` |
 
 想同时跑多个不同模型的任务,最简单的办法是开多个终端(或 `&` 丢后台)各自 `run` 一次——每次
@@ -174,7 +178,7 @@ node bin/agent-fleet.mjs list-models
 | `gemini` | Google | **没有官方端点**,`baseURL`/`model` 在配置里留空 | 见下方「已知限制」,选它会直接报错退出,不会假装能跑 |
 | `kollab-gateway` | Kollab 自己的公开 LLM 网关 | 线上网关 `https://kollab.im/api/llm`,`x-api-key` 鉴权,key 的环境变量为 `KOLLAB_PROD_API_KEY` | 不占用第三方官方 key 申请流程,模型范围不限白名单。默认模型是 `gemini-3.8-flash`(**故意不用** `claude-sonnet-4-6`——不然账单虽然走 Kollab 自己的 Space 额度,但底层实际还在消耗 Claude,没有省 Claude 成本的效果);费用从这把 key 绑定的 Space 额度实时扣除;测试环境 `test.flowus.work` 的 key 曾经触发 402 会话额度上限，已于 2026-09-26 改用线上环境并实测通过;**已做过真实端到端验证**(非 mock,详见下方「已知限制」和 [`../README.md`](../README.md) 的「验证情况」) |
 | `kollab-gateway-copy` | 同上 | 同上,`model: "gemini-3.8-flash"` | 文案/创意/调研用途命名别名,和默认模型相同,单独命名是为了不依赖默认值以后的调整 |
-| `kollab-gateway-research` | 同上 | 同上,`model: "grok-4.7"` | 通用调研摘要/较宽松尺度用途 |
+| `kollab-gateway-research` | 同上 | 同上,`model: "grok-4.6"` | 通用调研摘要/较宽松尺度用途 |
 | `kollab-gateway-bulk` | 同上 | 同上,`model: "gemini-3.5-flash-lite"` | 批量格式转换等机械任务用途,目录里响应最快的免费档模型之一 |
 | `jev` | Typesafe(JEV / System One) | `https://api.typesafe.ai/v1/systemone`,`Authorization: Bearer` 鉴权(`protocol: "typesafe-systemone"`,key 环境变量 `TYPESAFE_API_KEY`) | ⚠️ **不支持 `run`/`run-many`**：Typesafe System One 结构化决策模型，只做判断不生成文本，只能通过 `judge` 子命令调用。极便宜、结果稳定、无裸 tool-call 失败模式 |
 

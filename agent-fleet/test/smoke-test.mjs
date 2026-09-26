@@ -80,6 +80,7 @@ async function main() {
         '--max-turns',
         '4',
         '--json',
+        '--full',
       ],
       { ...process.env, MOCK_API_KEY: FAKE_API_KEY },
     );
@@ -125,6 +126,7 @@ async function main() {
   // 真的会并发跑完并各自拿到结果;(2) authHeader: "x-api-key" 和 "auth-token" 两种
   // 鉴权风格分别对应 x-api-key 头和 Authorization: Bearer 头,互不串味。
   await runManyPhase(assert);
+  await briefJsonQuietPhase(assert);
 
   console.log(`\n${'='.repeat(60)}`);
   if (failures.length === 0) {
@@ -179,7 +181,7 @@ async function runManyPhase(assert) {
 
   try {
     const { code, stdout } = await runCli(
-      ['run-many', '--config', batchPath, '--cwd', scratchCwd, '--models-config', configPath, '--json'],
+      ['run-many', '--config', batchPath, '--cwd', scratchCwd, '--models-config', configPath, '--json', '--full'],
       { ...process.env, MOCK_API_KEY_A: 'fake-key-a', MOCK_API_KEY_B: 'fake-key-b' },
     );
 
@@ -200,6 +202,42 @@ async function runManyPhase(assert) {
     const usedAuthTokenHeader = messagesRequests.some((r) => r.headers['authorization'] === 'Bearer fake-key-b');
     assert(usedApiKeyHeader, 'run-many 里 authHeader:"x-api-key" 的任务确实用 x-api-key 头带了对应密钥');
     assert(usedAuthTokenHeader, 'run-many 里 authHeader:"auth-token" 的任务确实用 Authorization: Bearer 头带了对应密钥');
+  } finally {
+    await server.close();
+    rmSync(scratchCwd, { recursive: true, force: true });
+  }
+}
+
+async function briefJsonQuietPhase(assert) {
+  const server = await startMockAnthropicServer();
+  const scratchCwd = mkdtempSync(join(tmpdir(), 'agent-fleet-smoke-brief-'));
+  const configPath = join(scratchCwd, 'mock-models.config.json');
+  const batchPath = join(scratchCwd, 'batch.json');
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      mock: { baseURL: server.baseURL, model: 'mock-model', apiKeyEnv: 'MOCK_API_KEY', authHeader: 'x-api-key' },
+    }),
+  );
+  writeFileSync(batchPath, JSON.stringify([{ model: 'mock', prompt: 'brief json quiet' }]));
+  try {
+    const { code, stdout, stderr } = await runCli(
+      ['run-many', '--config', batchPath, '--cwd', scratchCwd, '--models-config', configPath, '--json', '--quiet'],
+      { ...process.env, MOCK_API_KEY: FAKE_API_KEY },
+    );
+    let parsed = null;
+    try {
+      parsed = JSON.parse(stdout);
+    } catch (err) {
+      assert(false, `run-many --json --quiet stdout 不是单个合法 JSON: ${err.message}`);
+      return;
+    }
+    assert(code === 0, `run-many --json --quiet 退出码 0(实际: ${code})`);
+    assert(Array.isArray(parsed) && parsed.length === 1, 'run-many --json 简报是数组');
+    assert(parsed[0]?.verdict === 'ok', `简报 verdict=ok(实际: ${parsed[0]?.verdict})`);
+    assert(typeof parsed[0]?.resultPath === 'string' && parsed[0].resultPath.endsWith('.result.md'), '简报含结果文件路径');
+    assert(stderr.trim() === '', `--quiet 时 stderr 为空(实际长度 ${stderr.length})`);
+    assert(!stdout.trimStart().startsWith('[agent-fleet'), '进度不出现在 stdout');
   } finally {
     await server.close();
     rmSync(scratchCwd, { recursive: true, force: true });
