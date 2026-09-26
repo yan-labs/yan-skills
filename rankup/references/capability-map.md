@@ -166,6 +166,7 @@ SKILL.md 段 6 与取数纪律只一行指回本文件，改脚本入口时只�
 | 能力 | 一句话能干什么 | 入口 | 典型触发说法 |
 |---|---|---|---|
 | 索引主动推送 | 把 URL 推给 IndexNow（Bing/Yandex/Seznam/Naver 共用；Google 不参与）；默认从线上 sitemap 取 | `scripts/indexnow-submit.mjs` | 「新页面怎么快点被收」 |
+| 上线后站点核验 | 上线后一条命令核验 URL 的状态码、title、H1、canonical、robots、JSON-LD、sitemap、og:image，支持 --contains/--not-contains/--json，FAIL 退出码 1 | `scripts/verify-live.mjs` | 「核验线上页面」「检查上线 URL」 |
 | sitemap 读/提交 | GSC、Bing Webmaster **与 Yandex** 三个平台的 `status` / `submit`，驱动已登录浏览器（脚本白名单就是这三个） | `scripts/webmaster-sitemap.mjs gsc\|bing\|yandex` | 「提交下 sitemap」 |
 | 批量移除 URL | GSC「暂时移除网址」批量提交（GSC 没有公开移除 API） | `scripts/gsc-remove-urls.mjs` | 「把废弃页面从谷歌撤下来」 |
 | 批量请求编入索引（可选加速） | 默认流程之外的可选工具：逐个 URL 走 GSC「网址检查」搜索框，未收录的点「请求编入索引」，受每日配额限制、自动断点续跑。**不要让 agent 手工逐页点击，一条命令跑完** | `scripts/gsc-request-indexing.mjs` | 「批量请求收录」「把 sitemap 里的页面都提交一下索引」「催一下收录」 |

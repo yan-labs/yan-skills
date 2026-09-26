@@ -587,3 +587,14 @@ REST/静态 DOM、不再等待页面渲染解决，比“想办法保住前台�
 改仓库源码不会反映到全局命令上）；**浏览器扩展代码打包后仍停在旧版本**，需要用户手动在
 扩展管理页点重新加载才会生效——源码变了不代表运行时变了。这两点是排查“改了为什么没用”
 时该第一时间检查的。
+
+---
+
+## 二十、省 token 工作流
+
+1. **上线/改版验收优先命令化**：优先 `node scripts/verify-live.mjs <url...>`，只读 PASS/FAIL 简表，不让主线程自己 curl/grep。
+2. **阶段收尾及时换乘**：阶段收尾时建议主线程开新会话，靠项目 `.rankup/` 接续。
+3. **排查与重活派便宜模型**：不让主线程亲自翻日志排查，派便宜模型（agent-fleet：写代码 Grok `kollab-gateway-research`，写作/翻译/校对 Gemini `kollab-gateway-copy`，判断 JEV judge），只读它的简报。
+4. **后台任务善用自动通知**：后台任务完成会自动通知，不要轮询进度；子 agent 用 Monitor 等待时写明退出条件和超时。
+5. **循环与精确取数防 rtk 篡改**：rtk 会把 `for … done` / `while read` 循环改坏（报 parse error near done），循环或精确取数命令前加 `RTK_DISABLED=1`。
+
