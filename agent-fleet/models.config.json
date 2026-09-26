@@ -1,25 +1,28 @@
 {
-  "$comment": "友好名字 -> 模型接入参数。这个文件本身不含任何密钥,apiKeyEnv 只是「去读哪个环境变量」的指针,真实值只放 .env(已被 .gitignore 排除)。改这个文件就能加/删/改可用模型,不用碰代码。如果你的网关还要求额外的认证请求头,用 headerEnvs: { \"头名\": \"环境变量名\" } 声明——同样只写变量名指针,禁止写字面量头值(头值通常本身就是凭据),详见 README 的「自定义请求头」一节。这个文件和 .env 是「请求发去哪、带什么凭据」的唯一真相源;--cwd 目标目录里的项目配置无权改动这几项,试图改会被直接拒绝运行。",
+  "$comment": "友好名字 -> 模型接入参数。这个文件本身不含任何密钥,apiKeyEnv 只是「去读哪个环境变量」的指针,真实值只放 .env(已被 .gitignore 排除)。改这个文件就能加/删/改可用模型,不用碰代码。如果你的网关还要求额外的认证请求头,用 headerEnvs: { \"头名\": \"环境变量名\" } 声明——同样只写变量名指针,禁止写字面量头值(头值通常本身就是凭据),详见 README 的「自定义请求头」一节。这个文件和 .env 是「请求发去哪、带什么凭据」的唯一真相源;--cwd 目标目录里的项目配置无权改动这几项,试图改会被直接拒绝运行。可选字段 subagentModel:子 agent(Agent/Task 工具派出去的)实际应该发给同一个 baseURL/apiKey 的模型 ID,不设就是子 agent 原样继承主 model 字符串——2026-09-26 发现主 model 是网关自己的模型 ID 时,子 agent 一旦被前台同步调用会触发 Claude Code 本地的 unrecognized_model 判定并 SIGKILL 掉整个进程,详见 README「子 agent 模型映射」一节和 src/config.mjs 里 subagentModel 的字段注释。",
   "deepseek-v4-pro": {
     "description": "DeepSeek 官方 Anthropic 兼容端点,Opus 档位映射目标。适合需要最高质量单次产出的任务(长文案定稿、复杂推理)。",
     "baseURL": "https://api.deepseek.com/anthropic",
     "model": "deepseek-v4-pro",
     "apiKeyEnv": "DEEPSEEK_API_KEY",
-    "authHeader": "x-api-key"
+    "authHeader": "x-api-key",
+    "subagentModel": "deepseek-v4-pro"
   },
   "deepseek-v4-flash": {
     "description": "DeepSeek 官方 Anthropic 兼容端点,Flash 档位(默认回退模型),速度快、成本低。适合调研、头脑风暴、大批量任务。",
     "baseURL": "https://api.deepseek.com/anthropic",
     "model": "deepseek-flash",
     "apiKeyEnv": "DEEPSEEK_API_KEY",
-    "authHeader": "x-api-key"
+    "authHeader": "x-api-key",
+    "subagentModel": "deepseek-flash"
   },
   "kimi": {
     "description": "Moonshot Kimi 官方 Anthropic 兼容端点(中国站 api.moonshot.cn)。国际站把 baseURL 换成 https://api.moonshot.ai/anthropic 即可,鉴权方式不变。模型 ID 会迭代,当前列出的是官方文档示例里出现的最新旗舰型号,建议定期核对 https://platform.kimi.com/docs/api/list-models 获取当前实际可用的模型 ID。",
     "baseURL": "https://api.moonshot.cn/anthropic",
     "model": "kimi-k3",
     "apiKeyEnv": "MOONSHOT_API_KEY",
-    "authHeader": "auth-token"
+    "authHeader": "auth-token",
+    "subagentModel": "kimi-k3"
   },
   "gemini": {
     "description": "警告:Google 官方目前没有提供 Anthropic 兼容端点(不像 DeepSeek/Moonshot 那样有官方 /anthropic 路径)。要接入 Gemini,你必须自己准备一个能把 Anthropic Messages 协议转换成 Gemini 请求的网关(例如自建 LiteLLM proxy、社区维护的兼容代理,或任何等价方案),把网关地址填进下面的 baseURL,把网关认的模型 ID 填进 model。在你填之前,选这个模型会直接报错退出,不会静默发到一个不存在的官方地址。",
@@ -34,35 +37,40 @@
     "baseURL": "https://kollab.im/api/llm",
     "model": "gemini-3.8-flash",
     "apiKeyEnv": "KOLLAB_PROD_API_KEY",
-    "authHeader": "x-api-key"
+    "authHeader": "x-api-key",
+    "subagentModel": "glm-5.3-flash"
   },
   "kollab-gateway-copy": {
     "description": "Kollab 网关,文案/创意用途:批量营销文案、社媒帖子、标题党变体、创意头脑风暴等对准确性要求不高、追求速度和多样性的写作任务。模型 gemini-3.8-flash,paidOnly=false。和默认 kollab-gateway 当前指向同一个模型,单独命名是为了不依赖默认值以后可能的调整,任务里显式写 --model kollab-gateway-copy 更稳。",
     "baseURL": "https://kollab.im/api/llm",
     "model": "gemini-3.8-flash",
     "apiKeyEnv": "KOLLAB_PROD_API_KEY",
-    "authHeader": "x-api-key"
+    "authHeader": "x-api-key",
+    "subagentModel": "glm-5.3-flash"
   },
   "kollab-gateway-research": {
     "description": "Kollab 网关,通用调研摘要用途:整理调研材料、总结长文档、多来源信息汇总一类不需要多轮工具调用容错的任务。模型 grok-4.6,paidOnly=false。",
     "baseURL": "https://kollab.im/api/llm",
     "model": "grok-4.6",
     "apiKeyEnv": "KOLLAB_PROD_API_KEY",
-    "authHeader": "x-api-key"
+    "authHeader": "x-api-key",
+    "subagentModel": "glm-5.3-flash"
   },
   "kollab-gateway-bulk": {
     "description": "Kollab 网关,批量机械任务用途:大批量翻译、格式转换、结构化抽取一类模式化、对模型能力要求不高的任务,优先图快图省。模型 gemini-3.5-flash-lite,paidOnly=false,是目录里响应最快的免费档模型之一。",
     "baseURL": "https://kollab.im/api/llm",
     "model": "gemini-3.5-flash-lite",
     "apiKeyEnv": "KOLLAB_PROD_API_KEY",
-    "authHeader": "x-api-key"
+    "authHeader": "x-api-key",
+    "subagentModel": "glm-5.3-flash"
   },
   "kollab-gateway-code": {
     "description": "Kollab 网关,编程任务例外用途:用户 2026-09-23 定调,GLM 5.3 经真实两轮验证(简单无工具调用请求 + 多轮工具调用编程任务,均未出现裸露 tool-call 控制 token)后开例外,允许编程类任务路由到这里。模型 glm-5.3-flash(`kollab model list` 确认的精确 ID,网关目录里没有不带后缀的 glm-5.3,这是唯一对应 5.3 版本的条目),paidOnly=false。即便通过验证,一旦某次实际输出中出现裸 tool-call 控制 token(如 <tool_call>、<minimax:tool_call> 等)仍应视为那次失败,不代表这条例外永久有效,需持续观察。",
     "baseURL": "https://kollab.im/api/llm",
     "model": "glm-5.3-flash",
     "apiKeyEnv": "KOLLAB_PROD_API_KEY",
-    "authHeader": "x-api-key"
+    "authHeader": "x-api-key",
+    "subagentModel": "glm-5.3-flash"
   },
   "jev": {
     "description": "Typesafe 的 JEV / System One 结构化决策 API(文档 https://docs.typesafe.ai/,2026-09-25 核实)。protocol 是 typesafe-systemone,不是 Anthropic Messages 也不是 OpenAI 协议——每次调用传一段 state(文本/JSON)+ 若干类型化 questions(noul=是否概率、choice=多选一+置信度、score=打分),返回校准过的结构化答案,官方原话:'System One models do not write replies, produce code, or generate explanations of their reasoning.' 真实测过 POST https://api.typesafe.ai/v1/messages 返回 404,证实它没有实现 Anthropic Messages 协议,所以**不支持** run/run-many(委派不了完整任务),只能用 `judge` 子命令按它自己的协议调用。只吃纯文本/结构化数据,不支持图片(真实测试:塞一张 1x1 PNG 的 base64 进去,noul 只返回 0.01,和文档'no image input'的说明一致)。真实验证(26 次调用,总成本约 $0.0004,见 README「JEV 验证记录」):结构化抽取/工单路由打分、爬取网页文本后分类打分、浏览器下一步动作选择(choice,复刻 wy-coliney/jev-browser-use 的用法)均正确出结果;同一输入连打 20 次高度稳定(noul 波动 0.01,score 波动 0.12/满量程3);'写一句俳句'之类的生成型请求会被降级成一个 0-1 概率而不是真的生成文本,进一步印证它结构性不会生成内容。适合:预定义分类/路由/打分/二元判断这类离散决策(尤其是多步骤 Agent 循环里的判断节点,替代'让通用 LLM 读完再判断');不适合:代码生成、开放式写作、总结、多轮工具调用、图片/浏览器操作本身(那些要交给另一个生成式模型或固定代码,JEV 只做决策层)。",

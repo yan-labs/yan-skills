@@ -283,6 +283,9 @@ function cmdListModels(argv) {
     console.log(`- ${name}${gatewayNote}${protocolNote}`);
     console.log(`    model: ${def.model || '(未填)'}  baseURL: ${def.baseURL || '(未填)'}`);
     console.log(`    apiKeyEnv: ${def.apiKeyEnv} (${keyStatus})`);
+    // subagentModel 不是密钥,只是一个模型 ID 字符串,照常打印——用户需要知道 Agent/Task 工具
+    // 派出去的子 agent 实际会用哪个模型(见 README「子 agent 模型映射」一节)。
+    console.log(`    subagentModel: ${def.subagentModel ?? '(未配置,子 agent 原样继承主 model)'}`);
     // 自定义请求头同样只报告"头名 + 指向的变量名 + 有没有值",绝不打印头值本身——
     // 这类头的值往往就是网关认证口令,和 API key 同级。
     for (const [headerName, envName] of Object.entries(def.headerEnvs ?? {})) {

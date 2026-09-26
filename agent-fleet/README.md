@@ -190,7 +190,8 @@ agent-fleet run-many --config batch.json [--json]
 ### 常用选项
 
 - `--max-turns <n>`:限制最大工具调用轮数,避免任务跑飞
-- `--system-prompt <text>`:追加系统提示
+- `--system-prompt <text>`:追加系统提示。会接在下面「默认执行者系统提示」之后,两者都保留,
+  不是二选一(见「子 agent 模型映射」一节下方的说明)
 - `--models-config <path>`:临时换一份配置文件(默认用包目录下的 `models.config.json`)
 - `--json`:输出结构化 JSON(`ok`、`result`、`numTurns`、`totalCostUsd`、`sessionId` 等字段),方便被
   其他程序/脚本解析
@@ -215,6 +216,62 @@ API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.
 - `headerEnvs` 的值必须是环境变量名;头值里带换行符会被拒绝(防请求头注入)。
 - 不允许自定义 `x-api-key` / `Authorization` 等由 `authHeader` 负责的头。
 - `list-models` 只显示头名和 present/missing,**从不打印头值**。
+
+### 子 agent 模型映射(0.4.0 起,修复 2026-09-26 的 unrecognized_model 崩溃)
+
+**问题**:被 agent-fleet 驱动的第三方模型自己也会用 Claude Code 的 Agent/Task 工具派子 agent。
+这个工具默认让子 agent"继承主循环的 model 字符串"——当主循环 model 是网关自己的模型 ID(比如
+`gemini-3.8-flash`)而不是 Claude 官方模型名时,子 agent 一旦被(前台同步)调用,Claude Code
+本地的模型名校验会判定这个字符串"unrecognized",触发
+`[claude-code:unrecognized_model] {"model":"gemini-3.8-flash","query_source":"sdk"}`,
+严重时整个进程被 SIGKILL、父任务一起失败(2026-09-26 用 kollab-gateway-copy 真实复现过,
+`~/.agent-fleet/runs/2026-09-26T01-50-12-213Z-kollab-gateway-copy.log`)。实测下来触发条件不算
+稳定必现(同一个模型换一次 prompt/任务节奏就可能不触发),但只要出现就是整个任务失败,值得
+从根上堵掉。
+
+**根因定位**:用 `strings` 反汇编已安装的 SDK 原生二进制
+(`node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude`)确认,`unrecognized_model`
+是 Claude Code **本地**的模型名校验产生的(函数 `oZ()`,标签 `query_source`),不是网关或
+Anthropic 服务端返回的错误——本地维护一份"识别出来的模型形状"分类,网关自己的模型 ID 天然不
+在这个分类里。同一份二进制里核实到 Claude Code 官方就支持给子 agent 单独配一个模型:
+
+- `CLAUDE_CODE_SUBAGENT_MODEL`:子 agent 默认应该用哪个模型(可以是 `sonnet`/`opus`/`haiku`/
+  `fable` 这类档位别名,也可以是完整模型 ID,或 `inherit` 继承主循环——不设就是 `inherit`,
+  即修复前的行为)。SDK 的 `AgentDefinition.model` 字段文档("if omitted, uses the default
+  subagent model when one is configured, else the main model")说的就是这个变量。
+- `ANTHROPIC_DEFAULT_SONNET_MODEL`(以及 `_OPUS_MODEL`/`_HAIKU_MODEL`/`_FABLE_MODEL`):把
+  `sonnet`/`opus`/`haiku`/`fable` 这几个档位别名解析到的真实模型 ID 重新指向别处——这是
+  Claude Code 给第三方模型提供商准备的官方机制,不是绕过校验的手法。
+
+**落地方式**:`models.config.json` 里每个模型条目可以加一个可选字段 `subagentModel`(子
+agent 实际应该发给同一个 baseURL/apiKey 的模型 ID,可以和主模型相同,也可以是同网关下更便宜/
+更可靠的模型)。配了这个字段后,`src/isolated-env.mjs` 会在子进程环境和 flag 层 settings 里
+同时设置:
+
+```
+CLAUDE_CODE_SUBAGENT_MODEL=sonnet
+ANTHROPIC_DEFAULT_SONNET_MODEL=<subagentModel 的值>
+```
+
+固定用 `sonnet` 这个别名(不是按任务档位选 haiku/opus/fable)是因为这里的"档位"在网关侧没有
+实际含义——一个 `models.config.json` 条目本来就只对应一个具体第三方模型。这样 Claude Code
+本地看到的是一个自己认识的档位别名(不会触发 unrecognized_model),而真正发给网关的请求体里
+`model` 字段是 `subagentModel` 配置的那个网关模型 ID。当前 `kollab-gateway*` 系列的
+`subagentModel` 默认指向 `glm-5.3-flash`(2026-09-23 已验证的、tool-calling 可靠的编程档位模型
+——子 agent 的典型工作正是读写文件、跑 bash 这类需要可靠工具调用的活,而不是随便选一个"更便宜"
+但没验证过工具调用可靠性的模型)。没配 `subagentModel` 的模型条目行为不变(子 agent 原样继承
+主 model 字符串)。
+
+这两个变量同样受「目标工作目录不能改动本次运行的任何环境变量」那条闸门保护(见下面「安全边界」
+一节)——`--cwd` 目录没有办法通过自己的 `.claude/settings.json` 把子 agent 的模型改到别处去。
+
+**默认执行者系统提示**:每次 `run`/`run-many` 都会用 SDK 的
+`systemPrompt: { type: 'preset', preset: 'claude_code', append: '...' }` 写法追加一段默认提示
+(见 `src/run-task.mjs` 的 `DEFAULT_EXECUTOR_SYSTEM_PROMPT`):你是执行者,要直接动手完成任务、
+不能只转发或转述;禁止用 Bash 反过来调用 agent-fleet 自己(会造成递归嵌套);可以用 Agent 工具
+拆子任务但必须自己验证并汇总结果;不允许杀死不是自己启动的进程。用 `preset+append` 而不是替换,
+是为了保留 Claude Code 自带的默认系统提示(工具定义等)——`--system-prompt` 传入的文本接在这段
+默认提示之后,两者都保留,不是二选一。
 
 ## 验证情况(如实说明)
 
@@ -269,6 +326,26 @@ API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.
    dbreunig/building-with-jev-skill、kerpopule/hermes-jev-skills),结论和用法要点见上面
    「JEV / `judge` 子命令」一节,完整能力摸底报告见任务产出的 `jev-capabilities.md`。
 
+   **子 agent 模型映射(2026-09-26,修复 unrecognized_model 崩溃)**:先在历史日志里确认过真实
+   崩溃(`~/.agent-fleet/runs/2026-09-26T01-50-12-213Z-kollab-gateway-copy.log`:`tool=Agent`
+   前台同步调用后,`[claude-code:unrecognized_model] {"model":"gemini-3.8-flash",
+   "query_source":"sdk"}`,随后整个进程被 SIGKILL)。修复前用同样"派前台子 agent、子 agent 自己
+   跑多轮 Bash/Read 工具调用"的任务节奏对 `kollab-gateway-code`/`kollab-gateway-copy` 各重跑了
+   几次,**没能在修复前的多次尝试里重新触发这个崩溃**——如实记录:这说明触发条件不是每次必现,
+   而是和具体任务节奏/上游响应有关,不能拿"这次没崩"当作"问题不存在"的证据。改用直接读已安装 SDK
+   原生二进制字符串常量定位根因(`oZ()`/`gee()`/`tO()` 三个函数,细节见上面「子 agent 模型映射」
+   一节),给 `models.config.json` 加 `subagentModel` 字段、在 `src/isolated-env.mjs` 里落地
+   `CLAUDE_CODE_SUBAGENT_MODEL`+`ANTHROPIC_DEFAULT_SONNET_MODEL` 之后,分别对
+   `kollab-gateway-code`(`glm-5.3-flash`)和 `kollab-gateway-copy`(`gemini-3.8-flash`)各做了
+   一次真实调用(前台同步 Agent、子 agent 自己跑 Bash 写文件→Read→Bash 校验字节数,和崩溃时的
+   工具调用模式一致),两次都拿到 `"ok": true`、`numTurns: 2`,日志里能看到完整的
+   `tool=Agent`→`tool=Bash`→`tool=Read`→`tool=Bash`→`done ok` 序列,过程中直接 `ps` 查看真实
+   spawn 出来的原生 CLI 子进程命令行,确认 `--settings` 参数里确实带着
+   `"CLAUDE_CODE_SUBAGENT_MODEL":"sonnet"` 和 `"ANTHROPIC_DEFAULT_SONNET_MODEL":"glm-5.3-flash"`
+   ——这是比"这次没崩"更直接的证据:映射确实落到了发给 Claude Code 的真实参数里,不依赖崩溃是否
+   复现。另外补了单元测试(`test/security-unit-test.mjs` 第 7 节)锁定这两个变量的赋值逻辑和
+   flag 层钉定,补了 `test/smoke-test.mjs` 的真实请求体断言(见下面第 2 条)。
+
 1. **代码能正常跑**:`--help`、`--version`、`list-models`、缺参数/缺密钥/未知模型等错误路径都手动
    跑过,报错信息清晰可操作。
 2. **本地假上游端到端验证**(`test/smoke-test.mjs`,`npm run smoke-test`):自己起了一个模拟 Anthropic
@@ -278,6 +355,8 @@ API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.
    - `x-api-key` 和 `Authorization: Bearer` 两种鉴权风格都按配置正确生效
    - `bypassPermissions` 权限模式下,SDK 真的跑完了一整个 `query()` 循环并产出最终 `result`
    - `run-many` 里两个不同模型的任务确实并发跑完,各自拿到正确的结果
+   - (2026-09-26 追加)真实发出的请求体 `system` 字段里包含默认追加的执行者系统提示,确认
+     `preset+append` 没有被替换或丢失
 
    这条验证**不需要任何真实密钥**,`npm run smoke-test` 随时可以重跑。
 
@@ -287,6 +366,8 @@ API Key 完全一致:`models.config.json` 里只写**指针**,真实值只放 `.
    密钥"来判定,而不是断言代码里有没有某一行。覆盖:宿主凭据泄露场景、目标目录劫持 `baseURL`、
    目标目录注入自定义头、恶意配置藏在祖先目录、绕过前置闸门时结构性兜底是否还在,外加两条
    正向用例(正常项目目录不被误拦、合法自定义头仍然能用)。同样**不需要任何真实密钥**。
+   (2026-09-26 追加)`subagentModel` 的赋值逻辑、flag 层钉定,以及目标目录仍然拦不住这两个
+   新变量,也补进了单元测试第 7 节。
 
    跑全部验证:`npm test`。
 

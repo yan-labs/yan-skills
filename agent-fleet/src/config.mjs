@@ -146,6 +146,33 @@ function validateEntry(name, def) {
     );
   }
 
+  // subagentModel(可选):子 agent 实际应该发给同一个 baseURL/apiKey 的模型 ID。
+  //
+  // 【为什么需要这个字段 —— 真实复现过的崩溃】
+  // Claude Agent SDK 的 Agent/Task 工具默认让子 agent"继承主循环的 model 字符串"。当主循环
+  // model 是网关自己的模型 ID(比如 "gemini-3.8-flash")而不是 Claude 官方模型名时,子 agent
+  // 一旦被(前台同步)调用,Claude Code 本地的模型名校验会判定这个字符串"unrecognized",
+  // 2026-09-26 用 kollab-gateway-copy 真实跑出过 `[claude-code:unrecognized_model]
+  // {"model":"gemini-3.8-flash","query_source":"sdk"}` 之后整个进程被 SIGKILL、父任务一起
+  // 失败(日志: ~/.agent-fleet/runs/2026-09-26T01-50-12-213Z-kollab-gateway-copy.log)。
+  // 这个字段就是"子 agent 应该实际用哪个模型 ID"——同一个网关、同一把 key,只是 model
+  // 字段可能换一个(可以和主模型相同,也可以是同网关下更便宜/更可靠的模型)。
+  //
+  // 【怎么落地 —— 不是绕过校验,是用 Claude Code 自己支持的映射机制】
+  // isolated-env.mjs 会把这个值通过两个 Claude Code CLI 原生支持的环境变量落地:
+  // CLAUDE_CODE_SUBAGENT_MODEL=sonnet(让子 agent 走一个本地认识的档位别名,不再原样
+  // 继承那个网关模型 ID)+ ANTHROPIC_DEFAULT_SONNET_MODEL=<这里的值>(把"sonnet"这个别名
+  // 解析到网关真实认的模型 ID)。这两个变量名和用途是从已安装的 SDK 原生二进制
+  // (node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude)反汇编字符串常量核实出来的,
+  // 不是凭记忆猜的环境变量名。不设这个字段就是当前行为(子 agent 原样继承主 model 字符串)。
+  let subagentModel;
+  if ('subagentModel' in def) {
+    if (typeof def.subagentModel !== 'string' || def.subagentModel.length === 0) {
+      throw new ConfigError(`models.config.json 里的 "${name}" 的 subagentModel 必须是非空字符串(子 agent 实际要发给上游的模型 ID)。`);
+    }
+    subagentModel = def.subagentModel;
+  }
+
   const protocol = def.protocol ?? 'anthropic-messages';
   if (!VALID_PROTOCOLS.has(protocol)) {
     throw new ConfigError(
@@ -171,6 +198,7 @@ function validateEntry(name, def) {
     protocol,
     headerEnvs: validateHeaderEnvs(name, def),
     requiresGateway: Boolean(def.requiresGateway),
+    ...(subagentModel ? { subagentModel } : {}),
   };
 }
 

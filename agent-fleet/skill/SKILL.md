@@ -80,7 +80,7 @@ node bin/agent-fleet.mjs run \
 | `--prompt <text>` | 是 | 任务描述 |
 | `--cwd <dir>` | 否 | Agent 读写文件/跑 bash 的工作目录,默认当前目录;**被当作不可信输入**,见下方安全边界 |
 | `--max-turns <n>` | 否 | 限制最大工具调用轮数,避免任务跑飞 |
-| `--system-prompt <text>` | 否 | 追加的系统提示 |
+| `--system-prompt <text>` | 否 | 追加的系统提示,叠加在默认执行者提示之后(见下方「已知限制」的子 agent 模型映射说明),不是替换 |
 | `--json` | 否 | 输出结构化 JSON(`ok`/`result`/`numTurns`/`totalCostUsd`/`sessionId` 等字段) |
 | `--models-config <path>` | 否 | 临时换一份配置文件,默认用包目录下的 `models.config.json` |
 
@@ -225,8 +225,20 @@ node bin/agent-fleet.mjs list-models
 - **`bypassPermissions` 全权限,没有沙箱**:Agent 会真的读写文件、跑 bash,不会逐步询问用户
   确认。任务描述含糊,或 `--cwd` 指向了不该碰的目录(比如用户主目录本身),它是有可能读到甚至
   改到不该动的文件的。`--cwd` 要指向具体的项目目录,不要指向 `~`。
+- **子 agent 模型映射(2026-09-26 修复,触发条件不稳定必现)**:被驱动的第三方模型自己调用
+  Agent/Task 工具派子 agent 时,如果子 agent 原样继承主循环那个网关模型 ID(比如
+  `gemini-3.8-flash`),Claude Code 本地会判定这个模型名 unrecognized,曾经真实触发过整个进程
+  SIGKILL(`~/.agent-fleet/runs/2026-09-26T01-50-12-213Z-kollab-gateway-copy.log`)。修复前多次
+  用同样的任务节奏重跑并**没能每次都复现**,说明这不是必现 bug,但一旦出现就是整个任务失败。
+  现在 `models.config.json` 每条模型可选配 `subagentModel`(子 agent 实际该用的模型 ID),
+  `kollab-gateway*` 系列默认都指向已验证 tool-calling 可靠的 `glm-5.3-flash`;落地方式是 Claude
+  Code 官方支持的 `CLAUDE_CODE_SUBAGENT_MODEL`+`ANTHROPIC_DEFAULT_SONNET_MODEL` 环境变量组合
+  (不是绕过校验的手法),细节和真实调用证据见 [`../README.md`](../README.md)「子 agent 模型
+  映射」和「验证情况」两节。同一次改动还给 `run`/`run-many` 加了默认的执行者系统提示(用
+  `preset+append` 叠加,`--system-prompt` 传入的文本不会被顶掉),明确禁止用 Bash 反过来调用
+  agent-fleet 自己、要求自己验证并汇总子 agent 结果。
 
-## 安全边界:`--cwd` 目标目录当作不可信输入处理
+## 安全边界:`--cwd` 目标工作目录当作不可信输入处理
 
 `--cwd` 指向的目标工作目录被当作**不可信输入**,原因是这个工具的典型用法就是"拿去处理一个
 可能来自外部的项目文件夹"(别人发的仓库、下载的模板)。代码里的处理方式(读自

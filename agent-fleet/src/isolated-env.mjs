@@ -39,6 +39,18 @@ import { join } from 'node:path';
 const PREFIXES_TO_STRIP = ['ANTHROPIC_', 'CLAUDE_'];
 
 /**
+ * 子 agent 模型映射用的固定档位别名。
+ *
+ * 【为什么固定用 "sonnet",而不是按任务档位选 haiku/opus/fable】
+ * 这几个别名在 Claude Code 本地只是"哪个官方模型族"的分类标签,网关这边每个 models.config.json
+ * 条目本来就只对应一个具体第三方模型,没有"同一个网关模型再分 haiku/sonnet/opus 档位"这回事——
+ * 所以固定用一个别名、靠 ANTHROPIC_DEFAULT_SONNET_MODEL 指向 subagentModel 的真实值即可,
+ * 没必要引入没有实际意义的档位区分。见 config.mjs 的 subagentModel 字段注释。
+ */
+const SUBAGENT_MODEL_ALIAS = 'sonnet';
+const SUBAGENT_MODEL_ALIAS_ENV = 'ANTHROPIC_DEFAULT_SONNET_MODEL';
+
+/**
  * 关闭 Claude Code CLI 自身「非必要流量」的开关。
  *
  * 为什么要设:这个工具把模型请求指向用户自己的第三方端点,用的也是用户自己的第三方 key,
@@ -101,7 +113,7 @@ export function agentFleetConfigDir() {
 
 /**
  * 基于 process.env 构造一份干净的子进程环境。
- * @param {{ baseURL: string, apiKey: string, authHeader: 'x-api-key' | 'auth-token', headers?: Record<string,string> }} resolved
+ * @param {{ baseURL: string, apiKey: string, authHeader: 'x-api-key' | 'auth-token', headers?: Record<string,string>, subagentModel?: string }} resolved
  * @returns {Record<string, string>}
  */
 export function buildIsolatedEnv(resolved) {
@@ -147,6 +159,14 @@ export function buildIsolatedEnv(resolved) {
     env.ANTHROPIC_CUSTOM_HEADERS = headerLines.join('\n');
   }
 
+  // 子 agent 模型映射:见 config.mjs 的 subagentModel 字段注释和顶部真实崩溃复现记录。
+  // 只在模型配置显式声明了 subagentModel 时才设这两个变量,没配的模型行为不变(子 agent
+  // 仍然原样继承主 model 字符串,和修复前一样)。
+  if (resolved.subagentModel) {
+    env.CLAUDE_CODE_SUBAGENT_MODEL = SUBAGENT_MODEL_ALIAS;
+    env[SUBAGENT_MODEL_ALIAS_ENV] = resolved.subagentModel;
+  }
+
   return env;
 }
 
@@ -170,7 +190,7 @@ export function buildIsolatedEnv(resolved) {
  * 同理 ANTHROPIC_CUSTOM_HEADERS 只在本模型**没有**配置自定义头时才钉成空字符串(纯粹为了
  * 中和注入);本模型确实配了头时不钉,避免把可能是凭据的头值写进 flag 层。
  *
- * @param {{ baseURL: string, headers?: Record<string,string> }} resolved
+ * @param {{ baseURL: string, headers?: Record<string,string>, subagentModel?: string }} resolved
  * @returns {{ env: Record<string, string> }}
  */
 export function buildPinnedSettings(resolved) {
@@ -184,6 +204,15 @@ export function buildPinnedSettings(resolved) {
   if (Object.keys(resolved.headers ?? {}).length === 0) {
     // 空字符串在 Claude Code 里等价于"没有自定义头",用来覆盖掉项目配置可能注入的值。
     env.ANTHROPIC_CUSTOM_HEADERS = '';
+  }
+
+  // 子 agent 模型映射同样钉进 flag 层:project-trust.mjs 的闸门已经把目标目录 settings 里
+  // 任何 env.* 字段整体拒绝(含这两个变量名,见其 ENV_DANGER_NOTES 对 ANTHROPIC_/CLAUDE_ 前缀
+  // 的说明),这里是不依赖那道闸门的结构性兜底——万一闸门将来出现没预料到的写法,路由/子 agent
+  // 模型这几项仍然钉死在我们配置的值上,和 buildIsolatedEnv 保持一致。
+  if (resolved.subagentModel) {
+    env.CLAUDE_CODE_SUBAGENT_MODEL = SUBAGENT_MODEL_ALIAS;
+    env[SUBAGENT_MODEL_ALIAS_ENV] = resolved.subagentModel;
   }
 
   // 「决定新进程执行什么代码」的变量也钉住。

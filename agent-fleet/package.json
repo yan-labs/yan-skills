@@ -1,6 +1,6 @@
 {
   "name": "agent-fleet",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "通用多模型子任务执行工具:用 Claude Agent SDK 驱动自主 Agent,给它一个任务和一个模型(Gemini/DeepSeek/Kimi 或任意 Anthropic 兼容端点),bypassPermissions 权限跑到底,支持多任务并发跑不同模型。纯本地工具,不经过任何 Kollab 基础设施。",

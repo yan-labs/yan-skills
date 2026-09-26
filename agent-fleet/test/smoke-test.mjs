@@ -109,6 +109,12 @@ async function main() {
       const first = messagesRequests[0];
       assert(first.headers['x-api-key'] === FAKE_API_KEY, 'CLI 用 x-api-key 头发送了 apiKeyEnv 里配置的密钥,而不是官方 ANTHROPIC_API_KEY');
       assert(first.body?.stream === true, '请求体里 stream === true(确认走的是流式协议路径)');
+      // 默认执行者系统提示用 preset+append 叠加(见 src/run-task.mjs 的 DEFAULT_EXECUTOR_SYSTEM_PROMPT),
+      // 这里用真实发出的请求体确认它确实被发到了上游,而不是只在单元测试里断言函数返回值。
+      assert(
+        JSON.stringify(first.body?.system ?? '').includes('agent-fleet 自己'),
+        '真实请求的 system 字段里包含默认追加的执行者系统提示(preset+append 生效,没有被替换或丢失)',
+      );
     }
   } finally {
     await server.close();

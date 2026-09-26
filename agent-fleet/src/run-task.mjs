@@ -13,6 +13,30 @@ import { assertProjectSettingsTrusted, ProjectTrustError } from './project-trust
 import { createProgress } from './progress.mjs';
 
 /**
+ * 默认追加给每个任务的执行者系统提示。
+ *
+ * 【为什么需要这个 —— 真实发生过的问题】
+ * 用户全局的 ~/.claude/CLAUDE.md 要求"主线程必须把具体工作派给 subagent",而这个工具驱动的
+ * 恰恰是第三方模型(GLM/Gemini/...)在扮演 Claude Code 的主循环。第三方模型读到宿主环境里那份
+ * 全局规则后,会把 agent-fleet 交给它的任务原样再转派一层——包括荒谬地用 Bash 工具反过来调用
+ * agent-fleet 自己(2026-09-26 实测发生过),或者只回一句"已经在跑了/等结果"就结束当轮。
+ * 这段默认提示就是直接把"你现在是执行者"这条边界钉在系统提示里,不依赖每次调用方都记得写。
+ *
+ * 【怎么叠加,而不是替换 —— 见 sdk.d.ts 对 systemPrompt 的说明】
+ * `{ type: 'preset', preset: 'claude_code', append: '...' }` 是 Claude Agent SDK 官方支持的写法:
+ * 保留 Claude Code 默认的工具系统提示(工具定义、环境信息等),只在后面追加文本,不会把整个
+ * 系统提示替换掉。调用方通过 --system-prompt / task.systemPrompt 传入的自定义文本会接在这段
+ * 默认文本之后,两者都保留,不是二选一。
+ */
+export const DEFAULT_EXECUTOR_SYSTEM_PROMPT =
+  '你是执行者,拿到任务要直接动手完成,不是把任务转述或转发给别人就结束。' +
+  '禁止用 Bash 工具调用 agent-fleet 自己(bin/agent-fleet.mjs、npx agent-fleet 或等价命令),' +
+  '那会造成递归嵌套。可以用 Agent 工具把边界清晰的子任务拆给子 agent 并行处理,' +
+  '但你必须自己读懂并验证子 agent 的结果,最终给出真正完成任务的回复,' +
+  '不允许原样转发子 agent 的输出、也不允许只回"已启动/等结果"就结束当轮。' +
+  '任何时候都不允许杀死、停止或干预不是你自己这次任务启动的进程。';
+
+/**
  * 组装一次 query() 调用的 options。
  *
  * 单独抽出来并导出,不是为了复用(只有一个调用方),而是为了让安全回归测试能够直接断言
@@ -52,7 +76,13 @@ export function buildQueryOptions({ resolved, cwd, maxTurns, systemPrompt }) {
     // mcpServers,所以关掉它不损失任何现有能力。
     strictMcpConfig: true,
     ...(maxTurns ? { maxTurns } : {}),
-    ...(systemPrompt ? { systemPrompt } : {}),
+    // 见上方 DEFAULT_EXECUTOR_SYSTEM_PROMPT 的注释:用 preset+append 叠加,不替换 Claude Code
+    // 自己的默认系统提示(工具定义等)。调用方传入的 systemPrompt 接在默认文本之后,两者共存。
+    systemPrompt: {
+      type: 'preset',
+      preset: 'claude_code',
+      append: systemPrompt ? `${DEFAULT_EXECUTOR_SYSTEM_PROMPT}\n\n${systemPrompt}` : DEFAULT_EXECUTOR_SYSTEM_PROMPT,
+    },
   };
 }
 
