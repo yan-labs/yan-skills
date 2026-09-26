@@ -9,10 +9,12 @@
  *
  *   # 为指定域名创建新项目，返回 project ID
  *   node <rankup-skill-dir>/scripts/clarity-setup.mjs create --site example.com --name example
+ *   node <rankup-skill-dir>/scripts/clarity-setup.mjs create --site example.com --industry Other
  *
  * 标志：
  *   --site <域名>     要追踪的域名（不带协议，例如 example.com）
  *   --name <名称>     项目显示名，默认取 --site 的二级域名
+ *   --industry <行业> 网站行业下拉（必填，不选提交按钮会禁用）。默认 Other
  *   --session <名>    opencli 会话名（默认 clarity-setup-<每对话唯一后缀>，不用 pid）
  *   --keep-session    完成后不关闭会话
  *
@@ -54,6 +56,7 @@ if (argv.length === 0 || argv[0] === "-h" || argv[0] === "--help") { usage(); pr
 const action = argv[0]
 let site = null
 let name = null
+let industry = "Other"
 // 会话名：描述性 + 每对话唯一后缀，不用 pid（Bash tool 里每次调用都是新进程）。
 let session = `clarity-setup-${sessionSuffix()}`
 let keepSession = false
@@ -62,6 +65,7 @@ for (let i = 1; i < argv.length; i++) {
   const a = argv[i]
   if (a === "--site" && argv[i + 1]) { site = argv[++i]; continue }
   if (a === "--name" && argv[i + 1]) { name = argv[++i]; continue }
+  if (a === "--industry" && argv[i + 1]) { industry = argv[++i]; continue }
   if (a === "--session" && argv[i + 1]) { session = argv[++i]; continue }
   if (a === "--keep-session") { keepSession = true; continue }
   if (a === "-h" || a === "--help") { usage(); process.exit(0) }
@@ -71,7 +75,8 @@ for (let i = 1; i < argv.length; i++) {
 function usage() {
   console.log(`用法:
   node clarity-setup.mjs status
-  node clarity-setup.mjs create --site <域名> [--name <项目名>]`)
+  node clarity-setup.mjs create --site <域名> [--name <项目名>] [--industry <行业>]
+  行业下拉必填（不选提交按钮禁用）。默认 Other，也可用 Entertainment / 其他 等实际选项文字。`)
 }
 
 if (!["status", "create"].includes(action)) { usage(); process.exit(1) }
@@ -144,6 +149,71 @@ function stampAndClick(js, label) {
   scene(`clicked-${label.replace(/[^\w一-鿿-]/g, "_")}`)
 }
 
+/** 网站行业下拉是必填项，不选提交按钮一直禁用。兼容 native <select> 和 Fluent combobox。 */
+function selectIndustry(wanted) {
+  const wantLit = JSON.stringify(wanted)
+  const found = evalJs(`
+    const want = ${wantLit};
+    const norm = s => String(s || "").trim().toLowerCase();
+    const wantN = norm(want);
+    const isIndustryText = t => /行业|industry|categor(y|ies)|类别/.test(norm(t));
+    const controls = [...document.querySelectorAll('select,[role="combobox"],button[aria-haspopup="listbox"],button[aria-haspopup="true"],input[role="combobox"],[class*="Dropdown"],[class*="dropdown"]')];
+    let el = controls.find(c => isIndustryText([c.getAttribute("aria-label"), c.getAttribute("placeholder"), c.getAttribute("name"), c.id, c.textContent].join(" ")));
+    if (!el) {
+      const lab = [...document.querySelectorAll("label,[class*=label],[class*=Label],span,div,p")].find(n => {
+        const t = (n.textContent || "").trim();
+        return t.length > 0 && t.length < 80 && isIndustryText(t);
+      });
+      if (lab) {
+        const forId = lab.getAttribute("for");
+        if (forId) el = document.getElementById(forId);
+        if (!el) {
+          const root = lab.closest("div,fieldset,li,section,form") || lab.parentElement;
+          el = root?.querySelector('select,[role="combobox"],button[aria-haspopup],input,[class*="Dropdown"],[class*="dropdown"]');
+        }
+      }
+    }
+    if (!el) throw new Error("找不到行业下拉");
+    if (el.tagName === "SELECT") {
+      const opts = [...el.options];
+      const hit = opts.find(o => norm(o.text) === wantN)
+        || opts.find(o => { const t = norm(o.text); return t && (t.includes(wantN) || wantN.includes(t)); })
+        || opts.find(o => /^(other|其他|entertainment|娱乐)$/i.test(o.text.trim()));
+      if (!hit) throw new Error("行业下拉里没有匹配项: " + want);
+      el.value = hit.value;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      return "select:" + hit.text;
+    }
+    el.setAttribute("data-rankup-field", "industry");
+    return "open";
+  `)
+  if (String(found).startsWith("select:")) {
+    scene("industry-selected", { industry: wanted, via: found })
+    return
+  }
+  stampAndClick(`document.querySelector('[data-rankup-field="industry"]')`, "行业下拉")
+  settle(800)
+  evalJs(`
+    const want = ${wantLit};
+    const norm = s => String(s || "").trim().toLowerCase();
+    const wantN = norm(want);
+    const opts = [...document.querySelectorAll('[role="option"],[role="listbox"] [role="option"],li[role="option"],li,div[class*="option"],button[class*="option"]')];
+    const visible = opts.filter(o => o.getAttribute("role") === "option" || o.offsetParent !== null);
+    const textOf = o => (o.getAttribute("aria-label") || o.textContent || "").replace(/\\s+/g, " ").trim();
+    const hit = visible.find(o => norm(textOf(o)) === wantN)
+      || visible.find(o => { const t = norm(textOf(o)); return t && t.length < 80 && (t.includes(wantN) || wantN.includes(t)); })
+      || visible.find(o => /^(other|其他|entertainment|娱乐)$/i.test(textOf(o)));
+    if (!hit) throw new Error("打开行业下拉后没有匹配项: " + want + " options=" + visible.slice(0, 16).map(textOf).join("|"));
+    hit.setAttribute("data-rankup-target", "1");
+    return textOf(hit);
+  `)
+  cli('click "[data-rankup-target=\\"1\\"]"')
+  evalJs(`document.querySelector('[data-rankup-target]')?.removeAttribute('data-rankup-target')`)
+  scene("industry-selected", { industry: wanted })
+  settle(400)
+}
+
 // ── status：列出所有项目 ──────────────────────────────────
 async function doStatus() {
   open("https://clarity.microsoft.com/projects")
@@ -192,7 +262,8 @@ async function doCreate() {
   cli(`fill '[data-rankup-field=url]' 'https://${site.replace(/'/g, "'\\''")}'`)
   settle(500)
 
-  // 选择网站类别（如果有下拉框的话跳过，不是必填项）
+  // 网站行业下拉是必填项；不选则提交按钮保持 disabled。
+  selectIndustry(industry)
 
   // 点击 "Add" / "添加" 按钮
   stampAndClick(

@@ -188,6 +188,8 @@ node <rankup-skill-dir>/scripts/clarity-setup.mjs status
 
 # 创建新项目并拿到追踪 ID
 node <rankup-skill-dir>/scripts/clarity-setup.mjs create --site example.com --name mysite
+# 行业下拉必填（不选提交按钮禁用）；默认 Other，可用 --industry 覆盖，例如 Entertainment
+node <rankup-skill-dir>/scripts/clarity-setup.mjs create --site example.com --name mysite --industry Other
 ```
 
 
