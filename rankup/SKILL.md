@@ -2,7 +2,7 @@
 name: rankup
 description: 管理网站和原生 App 的需求验证、立项、开发、上线及增长。用户明确提到 rankup，或任务涉及选词、SERP、SEO/GEO、索引、搜索平台、流量、网站体检、建站和增长时使用。先定位项目与具体问题，再按七段生命周期加载对应参考文件；单纯写文案、做设计或问通用开发问题，不因关键词碰巧出现就强制启动完整流程。
 metadata:
-  version: "3.21.0"
+  version: "3.21.1"
 ---
 
 # Rankup 3.0
@@ -48,6 +48,7 @@ metadata:
 | 「怎么被 AI 引用」「llms.txt」「对 AI 代理友好吗」「AEO/GEO」 | 4 | [`seo-growth.md`](references/seo-growth.md) 三-B |
 | 「AI 会不会推荐我们」「GEO 反推」「试试 AI 搜这个词会推荐谁」 | 4 | `seo-growth.md` 三-B GEO 反推测试 |
 | 「帮我生成 logo / 配图 / 封面 / 海报」「要张 og 图」「画个吉祥物」 | 3–4 | `/imagegen`：图片必须真实生成，不允许占位图 |
+| 「建站当天做图标」「生成一整套网站图标」「favicon 怎么做」「标准图标集」 | 3–4 | `scripts/make-favicons.mjs --src <logo.png> --out <public目录>`：由一张 ≥512×512 品牌源图生成标准图标全集（`favicon.ico`/48/96/192/180/512） |
 | 「做个好看的页面」「有没有什么好的设计参考」「Hero 怎么设计」「找个组件参考」「landing page 怎么排」「有什么动画效果」「页面设计灵感」 | 3 | 先浏览 [`design-references.md`](references/design-references.md) 收录站的相关分类，选 2–3 个案例参考后再实现；基础控件仍走 shadcn 组件库红线 |
 | 「写一下这页的文案」「这稿子 AI 味太重」「帮我改稿」「语言结构理顺一点」「怎么写才会被 AI 引用」 | 4 | 中文：`/write`（先确认它的五个附属 Skill 都在，缺的用 `find-skills` 装齐；装不上才退到 `/human-writing` 起稿 → `/shuorenhua` 去 AI 味，见 [`skill-ecosystem.md`](references/skill-ecosystem.md)）；内容形状按 `/ai-seo` 的 content-patterns；JSON-LD 只取 `/seo-geo` 的模板 |
 | 「文案怎么写才有人点」「定价页怎么排」「用户为什么不买」「还有什么渠道能推」 | 7 | `/marketing-psychology`（锚定、社会认同、损失厌恶等用在页面与定价上）+ `/marketing-ideas`（渠道清单）；判据仍以 [`conversion.md`](references/experiences/conversion.md) 为准 |

@@ -637,15 +637,17 @@ AdSense/Ezoic，直接说明他赚谁的钱、怎么收。命令与信号清单�
    判据：把它放进一排系统图标里，还认得出它是个标记吗？
 3. **生成模型可以出概念，但不要直接用它的位图做图标**：位图在小尺寸糊边，
    且其色值往往是量化出来的、与色板不精确一致。**取其概念，重画为矢量。**
-4. **整套一次做齐**，缺一个就会在某个终端上露出默认图标：
-   `favicon.svg`（现代浏览器首选）、`favicon.ico`（含 16/32/48 多尺寸，`sizes` 声明须与实际内嵌尺寸一致）、
-   `icon-192.png`、`icon-512.png`、`icon-maskable-512.png`（内容缩到约 80% 留安全区，
-   四周补品牌底色，否则 Android 圆形裁切会切掉主体）、`apple-touch-icon.png`（180）。
+4. **标准图标集整套一次做齐**（全部由同一张正方形品牌 logo 源图通过 `scripts/make-favicons.mjs` 生成，源图 ≥512×512，缺一个就会在某个终端上露出默认图标）：
+   - `favicon.ico`：内含 16、32、48 多尺寸，head 声明 `sizes="48x48"` 作为兜底回退。
+   - `favicon-48.png`、`favicon-96.png`、`favicon-192.png`（Google 要求 48 的倍数，在 head 声明对应 `sizes` 与 `type="image/png"`）。
+   - `apple-touch-icon.png`：180×180，head 声明 `rel="apple-touch-icon"`。
+   - `icon-512.png`：512×512；`manifest.json` 的 icons 列 192 与 512（若原有 maskable 图标如 `icon-maskable-512.png` 则保留）。
+   - head 里完整声明：`<link rel="icon" href="/favicon.ico" sizes="48x48">`、48/96/192 三个 `<link rel="icon" type="image/png" sizes=... href=...>`、`<link rel="apple-touch-icon" href="/apple-touch-icon.png">`、`<link rel="manifest" href="/manifest.json">`。不要再引用与品牌 logo 不一致的 SVG。
 5. **`manifest.json` 必须逐个引用，且引用的文件必须真实存在**。
    脚手架自带的 manifest 常常指向不存在的 `logo192.png`／`logo512.png`，
    并留着框架自己的名字——它是 Android 添加到主屏时用户看到的东西。
 5a. **图标专项：不能只换 SVG，或只检查文件存在 / HTTP 200。**
-    - 清除静态目录、构建产物中的框架默认图标及旧引用；逐项核对首页与各模板的 **SSR HTML 与浏览器水合后 DOM** 中所有 `rel="icon"`、`shortcut icon`、`apple-touch-icon`（含其变体），manifest 的全部 `icons`，以及即使未声明也会被访问的根 `/favicon.ico`。一个入口残留默认图标，整项不通过。
+    - 落实标准图标集：必须包含由同一张品牌 logo 源图生成的 `favicon.ico`（内含 16/32/48）、`favicon-48.png`、`favicon-96.png`、`favicon-192.png`、`apple-touch-icon.png`（180×180）、`icon-512.png`（512×512）。清除静态目录、构建产物中的框架默认图标及旧引用；逐项核对首页与各模板的 **SSR HTML 与浏览器水合后 DOM** 中所有 `rel="icon"`、`shortcut icon`、`apple-touch-icon`（含其变体），manifest 的全部 `icons`，以及即使未声明也会被访问的根 `/favicon.ico`。不要再引用与 logo 不一致的旧 SVG。一个入口残留默认图标，整项不通过。
     - 对上述去重后的 URL **逐个 GET 并解码实际图片**：必须为 200、非空、可解码的真图，不能是路由回退的 HTML；响应 `Content-Type`、head/manifest 声明的 `type` / `sizes` 必须与文件格式及真实尺寸相符；ICO 逐层核对尺寸。每张图都亲眼查看，允许按尺寸简化，但必须属于同一品牌，不能仍是脚手架图案。**改名不等于换图，标签页显示正确不等于所有入口正确。**
     - 搜索图标使用方形图片与稳定 URL，除 SVG 外保留 Google 支持的 ICO/PNG 回退；建议补 `favicon-96x96.png` 并在首页 head 声明。Google 当前要求至少 8×8，建议大于 48×48；不把页面图片的 WebP 规则套到 favicon 上。格式与抓取规则以 [Google Search Central 的 favicon 文档](https://developers.google.com/search/docs/appearance/favicon-in-search) 为准（2026-09-14 核验，规则变更时复查）。
     - 预览域保留设计中的索引封锁；上线后在正式域名重跑实图核验，放开索引时确认首页不阻止 Googlebot、图标不阻止 Googlebot-Image（含 robots 与访问控制）。**技术检查通过不等于 Google 搜索结果已更新**：重新抓取可能需几天至几周，满足条件也不保证展示；需要刷新时按 `search-platforms.md` 请求重新抓取首页，搜索显示状态另记。
