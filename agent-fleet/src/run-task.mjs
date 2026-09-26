@@ -90,7 +90,7 @@ export function buildQueryOptions({ resolved, cwd, maxTurns, systemPrompt }) {
  * 执行一个子任务。
  *
  * @param {object} params
- * @param {string} params.friendlyModel  models.config.json 里的友好名字,如 "deepseek-v4-flash"
+ * @param {string} params.friendlyModel  models.config.json 里的友好名字,如 "deepseek-v4.1-flash"
  * @param {string} params.prompt         任务描述
  * @param {string} params.cwd            Agent 的工作目录(读写文件、跑 bash 的作用域)
  * @param {object} params.config         已加载的 models.config.json(见 config.mjs)
@@ -154,10 +154,12 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
   const options = buildQueryOptions({ resolved, cwd, maxTurns, systemPrompt });
 
   let finalResult = null;
+  let fallbackAssistant = { messageId: null, text: '' };
   try {
     for await (const message of query({ prompt, options })) {
       // 进度行:assistant 文本一行、tool_use 一行(截断),让人实时看到子任务跑到哪了。
       logSdkMessage(log, message);
+      fallbackAssistant = collectFallbackAssistantText(fallbackAssistant, message);
       // 最终结果仍然只认 result 消息。
       if (message.type === 'result') {
         finalResult = message;
@@ -218,7 +220,9 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
     cwd,
     // 只有 success 分支才有最终文本;error 分支(error_during_execution/error_max_turns/...)
     // 没有 result 字段,把 errors 数组透出去让调用方知道具体败在哪。
-    result: finalResult.subtype === 'success' ? finalResult.result : null,
+    result: finalResult.subtype === 'success'
+      ? resolveSuccessfulResult(finalResult.result, fallbackAssistant.text)
+      : null,
     isError: finalResult.is_error,
     subtype: finalResult.subtype,
     stopReason: finalResult.stop_reason ?? null,
@@ -251,6 +255,32 @@ function logSdkMessage(log, message) {
   }
 }
 
+/**
+ * 聚合同一条主 Agent assistant 消息的流式文本块，作为空 success result 的候选回退。
+ * 新消息会先清空旧候选，子 Agent 消息不参与，避免把工具调用前的过程说明或子任务输出当最终结果。
+ */
+export function collectFallbackAssistantText(current, message) {
+  if (message.type !== 'assistant' || message.parent_tool_use_id) return current;
+  const messageId = message.message?.id;
+  const content = message.message?.content ?? message.content;
+  if (!messageId || !Array.isArray(content)) return current;
+  const text = content
+    .filter((block) => block?.type === 'text' && block.text)
+    .map((block) => block.text)
+    .join('\n')
+    .trim();
+  if (current.messageId !== messageId) return { messageId, text };
+  return text ? { messageId, text: [current.text, text].filter(Boolean).join('\n') } : current;
+}
+
+/**
+ * 部分 Anthropic 兼容模型会把完整文本放在 assistant 消息里，却给 SDK 的成功 result 留空。
+ * CLI 在这种情况下回退到最后一条 assistant 文本，避免把已完成的任务报告成空结果。
+ */
+export function resolveSuccessfulResult(result, lastAssistantText) {
+  return typeof result === 'string' && result.trim() ? result : lastAssistantText;
+}
+
 /** 压成单行并截断——进度行是给人扫一眼的,不承载完整内容(完整结果走 stdout/JSON)。 */
 function oneLine(text, max) {
   return String(text ?? '')
@@ -274,7 +304,7 @@ function looksLikeFatal402(text) {
  * 返回形状(成功时):
  * {
  *   ok: true,
- *   model: "deepseek-v4-flash",       友好名字
+ *   model: "deepseek-v4.1-flash",     友好名字
  *   resolvedModel: "deepseek-flash",  实际发给上游的 model 字段
  *   baseURL: "https://api.deepseek.com/anthropic",
  *   prompt, cwd,

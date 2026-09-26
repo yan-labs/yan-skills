@@ -48,6 +48,8 @@ node bin/agent-fleet.mjs list-models   # 检查每个模型的密钥是 present 
 
 对于 Claude Opus 5.5，官方建议从 `medium` effort 和真实评测开始，长任务用明确完成条件与进展记录；这些建议不自动证明第三方模型具有同等工具调用可靠性。参见 [Claude 官方提示指南](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5)。
 
+给第三方模型写 `--prompt` 时，开头必须先声明身份和边界：**"你就是执行者，直接动手完成任务；不要探索或调用 agent-fleet 本身，也不要把任务转发给别的 agent"**。这条经验来自一次真实事故——某次编码任务被派下去后，模型没有写代码，而是转去研究怎么调用 agent-fleet、试图把任务再转发给别的 agent，最后空闲超时、毫无产出。写 brief 时把这句话放在 prompt 最前面，能显著降低这类"没有真正执行、只是在探索或转发"的失败模式。
+
 ## 核心命令(可直接照抄执行)
 
 ### `run` —— 跑单个任务
@@ -61,7 +63,7 @@ node bin/agent-fleet.mjs run --model <友好名字> --prompt "<任务描述>" [-
 ```bash
 # 用 DeepSeek Flash 做一次调研/头脑风暴
 node bin/agent-fleet.mjs run \
-  --model deepseek-v4-flash \
+  --model deepseek-v4.1-flash \
   --prompt "帮我调研一下 XX 竞品有哪些定价策略,写一份简短总结"
 
 # 用 Kimi 在指定项目目录里干活,输出结构化 JSON 方便脚本解析
@@ -76,7 +78,7 @@ node bin/agent-fleet.mjs run \
 
 | 参数 | 必填 | 说明 |
 |---|---|---|
-| `--model <name>` | 是 | `models.config.json` 里的友好名字,如 `deepseek-v4-flash` |
+| `--model <name>` | 是 | `models.config.json` 里的友好名字,如 `deepseek-v4.1-flash` |
 | `--prompt <text>` | 是 | 任务描述 |
 | `--cwd <dir>` | 否 | Agent 读写文件/跑 bash 的工作目录,默认当前目录;**被当作不可信输入**,见下方安全边界 |
 | `--max-turns <n>` | 否 | 限制最大工具调用轮数,避免任务跑飞 |
@@ -98,7 +100,7 @@ node bin/agent-fleet.mjs run-many --config batch.json [--json]
 ```json
 [
   { "model": "gemini", "prompt": "写一段产品介绍文案" },
-  { "model": "deepseek-v4-flash", "prompt": "调研一下同类产品的定价策略" }
+  { "model": "deepseek-v4.1-flash", "prompt": "调研一下同类产品的定价策略" }
 ]
 ```
 
@@ -167,14 +169,13 @@ node bin/agent-fleet.mjs list-models
 | 友好名字 | 上游 | 接入方式 | 说明 |
 |---|---|---|---|
 | `deepseek-v4-pro` | DeepSeek | 官方 Anthropic 兼容端点 `https://api.deepseek.com/anthropic`,`x-api-key` 鉴权 | Opus 档位映射目标,适合需要最高质量单次产出的任务 |
-| `deepseek-v4-flash` | DeepSeek | 同上端点,`model: "deepseek-flash"` | 官方默认回退模型,快、便宜,适合调研/头脑风暴/大批量任务 |
+| `deepseek-v4.1-flash` | DeepSeek | 同上端点,`model: "deepseek-flash"` | 官方 V4.1 Flash 稳定别名,快、便宜,适合调研/头脑风暴/大批量任务 |
 | `kimi` | Moonshot(Kimi) | 官方 Anthropic 兼容端点 `https://api.moonshot.cn/anthropic`(中国站),`auth-token` 鉴权 | 国际站把 `baseURL` 换成 `https://api.moonshot.ai/anthropic` 即可,鉴权方式不变 |
 | `gemini` | Google | **没有官方端点**,`baseURL`/`model` 在配置里留空 | 见下方「已知限制」,选它会直接报错退出,不会假装能跑 |
 | `kollab-gateway` | Kollab 自己的公开 LLM 网关 | 线上网关 `https://kollab.im/api/llm`,`x-api-key` 鉴权,key 的环境变量为 `KOLLAB_PROD_API_KEY` | 不占用第三方官方 key 申请流程,模型范围不限白名单。默认模型是 `gemini-3.8-flash`(**故意不用** `claude-sonnet-4-6`——不然账单虽然走 Kollab 自己的 Space 额度,但底层实际还在消耗 Claude,没有省 Claude 成本的效果);费用从这把 key 绑定的 Space 额度实时扣除;测试环境 `test.flowus.work` 的 key 曾经触发 402 会话额度上限，已于 2026-09-26 改用线上环境并实测通过;**已做过真实端到端验证**(非 mock,详见下方「已知限制」和 [`../README.md`](../README.md) 的「验证情况」) |
 | `kollab-gateway-copy` | 同上 | 同上,`model: "gemini-3.8-flash"` | 文案/创意/调研用途命名别名,和默认模型相同,单独命名是为了不依赖默认值以后的调整 |
-| `kollab-gateway-research` | 同上 | 同上,`model: "grok-4.6"` | 通用调研摘要/较宽松尺度用途 |
+| `kollab-gateway-research` | 同上 | 同上,`model: "grok-4.7"` | 通用调研摘要/较宽松尺度用途 |
 | `kollab-gateway-bulk` | 同上 | 同上,`model: "gemini-3.5-flash-lite"` | 批量格式转换等机械任务用途,目录里响应最快的免费档模型之一 |
-| `kollab-gateway-code` | 同上 | 同上,`model: "glm-5.3-flash"` | 常规开发编程任务:GLM 5.3 经两次真实验证(简单请求 + 多轮工具调用编程任务)均未出现裸 tool-call 控制 token 后开放给编程任务使用 |
 | `jev` | Typesafe(JEV / System One) | `https://api.typesafe.ai/v1/systemone`,`Authorization: Bearer` 鉴权(`protocol: "typesafe-systemone"`,key 环境变量 `TYPESAFE_API_KEY`) | ⚠️ **不支持 `run`/`run-many`**：Typesafe System One 结构化决策模型，只做判断不生成文本，只能通过 `judge` 子命令调用。极便宜、结果稳定、无裸 tool-call 失败模式 |
 
 模型 ID 会随官方迭代变化,需要时核对:DeepSeek 见
@@ -190,13 +191,13 @@ node bin/agent-fleet.mjs list-models
 
 | 任务类型 | 推荐模型 | 理由 / 说明 |
 |---|---|---|
-| 常规开发（写脚本、非核心功能、API 调用链路、CLI 子命令、修 bug、补测试） | `kollab-gateway-code`（GLM） | GLM 5.3 经多次真实验证（简单请求与多轮工具调用编程任务）均未出现裸 tool-call 控制 token，适合绝大多数常规编程改动 |
+| 常规开发（写脚本、非核心功能、API 调用链路、CLI 子命令、修 bug、补测试） | `kollab-gateway-research`（Grok） | 2026-09-26 起编程任务默认路由到这里，产出由派单方自己核验，不合格才升级 Claude |
 | 搜索、调研、核实、写文档、写报告、翻译、母语校验 | `kollab-gateway-copy`（Gemini） | 响应迅速、文笔流畅，即用免第三方审批。长报告换 `gemini-3.1-pro`，需要时在 `models.config.json` 里新增对应条目 |
-| 题材擦边、尺度偏大、需要不那么保守的调研、报告或代码 | `kollab-gateway-research`（Grok） | Grok 风格相对开放。**注明**：这只是按模型风格分派，违法、有害的任务换哪个模型都不做 |
+| 题材擦边、尺度偏大、需要不那么保守的调研、报告或代码 | `kollab-gateway-research`（Grok） | Grok 风格相对开放，和编程任务共用同一条目。**注明**：这只是按模型风格分派，违法、有害的任务换哪个模型都不做 |
 | 判断节点 | `jev`（`judge`） | 结构化决策专精，只做判断不生成文本，调用极快极省且结果高度稳定，无裸 tool-call 问题；置信度低于约 0.55 时交回 Claude |
 | 批量格式转换 | `kollab-gateway-bulk`（`gemini-3.5-flash-lite`） | 机械任务优先图快图省，目录里响应最快的免费档模型之一 |
 | 明显偏重的开发（3D、游戏、建站设计、复杂架构、高风险改动） | 不派 agent-fleet，交给 Claude 高档模型 | 超出普通轻量模型工具调用与复杂工程架构能力边界，需保持最高质量与严谨度 |
-| Kimi/DeepSeek/Qwen 家族、多轮工具调用容错要求高的任务 | 不建议派给这几个家族的第三方模型,留给 Claude 自己处理 | 这几个家族已知有 tool-calling 可靠性问题,可能吐出裸的 tool-call 控制 token 而非结构化 `tool_use`,造成假成功,harness 修不了。**GLM 5.3 是编程任务例外**(见上一行),但即便开了例外,只要某次实际输出里出现裸 tool-call 控制 token,那一次仍判定失败,不能因为整体开了例外就放松这条判定标准 |
+| Kimi/DeepSeek/Qwen 家族、多轮工具调用容错要求高的任务 | 不建议派给这几个家族的第三方模型,留给 Claude 自己处理 | 这几个家族已知有 tool-calling 可靠性问题,可能吐出裸的 tool-call 控制 token 而非结构化 `tool_use`,造成假成功,harness 修不了。任何第三方模型只要某次实际输出里出现裸 tool-call 控制 token,那一次就判定失败,不能因为整体路由到它就放松这条判定标准 |
 
 完整版和已知模型目录见 [`../README.md`](../README.md) 的「任务类型 → 推荐模型」一节。
 
@@ -206,14 +207,14 @@ node bin/agent-fleet.mjs list-models
   `/anthropic` 路径。要用 Gemini,用户必须自己搭一个能把 Anthropic Messages 协议转换成
   Gemini 请求的网关(比如自建 LiteLLM proxy),把网关地址和它认的模型 ID 填进
   `models.config.json` 的 `gemini` 条目;不填的话选这个模型会直接报错退出。
-- **`kollab-gateway` 系列与 `jev` 已完成真实端到端验证,`deepseek-v4-pro`/`deepseek-v4-flash`/
+- **`kollab-gateway` 系列与 `jev` 已完成真实端到端验证,`deepseek-v4-pro`/`deepseek-v4.1-flash`/
   `kimi` 这几条原生第三方 key 路径仍未验证**:项目作者手头没有真实的 DeepSeek/Moonshot API key
   (也没有去别的项目"顺手"拿),所以这三条官方端点还没跑过一次真实模型调用。`kollab-gateway` 系列与
   `jev` 是例外——线上网关已于 2026-09-26 实测，四个 kollab 模型和 jev 都返回 ok。此前测试环境
   `test.flowus.work` 的 key 曾经触发 402 会话额度上限，已于 2026-09-26 改用线上网关
   `https://kollab.im/api/llm`（环境变量 `KOLLAB_PROD_API_KEY`），对 `kollab-gateway`、
-  `kollab-gateway-copy`、`kollab-gateway-research`、`kollab-gateway-bulk`（以及编程例外
-  `kollab-gateway-code`）均跑通真实调用，返回 `"ok": true`、`"isError": false`，确认请求经过线上网关拿到
+  `kollab-gateway-copy`、`kollab-gateway-research`、`kollab-gateway-bulk` 均跑通真实调用，返回
+  `"ok": true`、`"isError": false`，确认请求经过线上网关拿到
   真实响应，返回内容未出现裸 tool-call 控制 token；`jev` 也通过 `judge` 子命令实测验证全部通过。完整记录见
   [`../README.md`](../README.md) 的「验证情况」。除此之外已经做到的验证是:(1)`--help`/`--version`/`list-models`/
   缺参数缺密钥等错误路径手动跑过,报错清晰;(2)`npm run smoke-test` —— 自建一个模拟 Anthropic

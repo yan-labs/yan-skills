@@ -42,7 +42,7 @@ const HELP_TEXT = `agent-fleet ${PKG_VERSION} — 通用多模型子任务执行
   agent-fleet --help | --version
 
 run 选项:
-  --model <name>          必填。models.config.json 里的友好名字(如 deepseek-v4-flash)
+  --model <name>          必填。models.config.json 里的友好名字(如 deepseek-v4.1-flash)
   --prompt <text>          必填。任务描述
   --cwd <dir>               Agent 读写文件/跑 bash 的工作目录,默认当前目录
   --max-turns <n>           限制最大工具调用轮数
@@ -71,7 +71,7 @@ judge 选项(protocol: typesafe-systemone 的模型专用,如 jev——不生成
   --models-config <path>    覆盖默认的 models.config.json 路径
 
 示例:
-  agent-fleet run --model deepseek-v4-flash --prompt "帮我调研一下 XX 竞品有哪些定价策略"
+  agent-fleet run --model deepseek-v4.1-flash --prompt "帮我调研一下 XX 竞品有哪些定价策略"
   agent-fleet run --model kimi --prompt "把 README 翻译成英文" --cwd ~/some-project --json
   agent-fleet run-many --config batch.json
   agent-fleet judge --model jev --state-file ticket.txt --questions-file questions.json --json

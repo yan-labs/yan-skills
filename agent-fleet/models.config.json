@@ -8,8 +8,8 @@
     "authHeader": "x-api-key",
     "subagentModel": "deepseek-v4-pro"
   },
-  "deepseek-v4-flash": {
-    "description": "DeepSeek 官方 Anthropic 兼容端点,Flash 档位(默认回退模型),速度快、成本低。适合调研、头脑风暴、大批量任务。",
+  "deepseek-v4.1-flash": {
+    "description": "DeepSeek 官方 Anthropic 兼容端点,V4.1 Flash 档位,速度快、成本低。适合调研、头脑风暴、大批量任务。官方兼容端点仍使用稳定模型 ID deepseek-flash。",
     "baseURL": "https://api.deepseek.com/anthropic",
     "model": "deepseek-flash",
     "apiKeyEnv": "DEEPSEEK_API_KEY",
@@ -49,9 +49,9 @@
     "subagentModel": "glm-5.3-flash"
   },
   "kollab-gateway-research": {
-    "description": "Kollab 网关,通用调研摘要用途:整理调研材料、总结长文档、多来源信息汇总一类不需要多轮工具调用容错的任务。模型 grok-4.6,paidOnly=false。",
+    "description": "Kollab 网关,通用调研摘要与常规编程用途。模型 grok-4.7,paidOnly=false。",
     "baseURL": "https://kollab.im/api/llm",
-    "model": "grok-4.6",
+    "model": "grok-4.7",
     "apiKeyEnv": "KOLLAB_PROD_API_KEY",
     "authHeader": "x-api-key",
     "subagentModel": "glm-5.3-flash"

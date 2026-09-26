@@ -19,7 +19,12 @@ import {
   FORBIDDEN_TOP_LEVEL_KEYS,
 } from '../src/project-trust.mjs';
 import { loadModelsConfig, resolveModel } from '../src/config.mjs';
-import { buildQueryOptions, DEFAULT_EXECUTOR_SYSTEM_PROMPT } from '../src/run-task.mjs';
+import {
+  buildQueryOptions,
+  collectFallbackAssistantText,
+  DEFAULT_EXECUTOR_SYSTEM_PROMPT,
+  resolveSuccessfulResult,
+} from '../src/run-task.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -379,5 +384,26 @@ assert(
   optsWithCustomPrompt.systemPrompt?.append === `${DEFAULT_EXECUTOR_SYSTEM_PROMPT}\n\n额外:优先用中文回复。`,
   '传了自定义 systemPrompt 时,默认执行者提示和调用方的自定义文本都保留(叠加,不是二选一)',
 );
+
+// 7f. 部分兼容网关的成功 result 为空，但主 Agent assistant 消息已携带完整文本。
+// SDK 会把同一消息的 content block 分开发出；新消息和子 Agent 输出不能污染最终候选。
+let fallback = { messageId: null, text: '' };
+fallback = collectFallbackAssistantText(fallback, {
+  type: 'assistant', parent_tool_use_id: null, message: { id: 'msg-1', content: [{ type: 'text', text: '第一段' }] },
+});
+fallback = collectFallbackAssistantText(fallback, {
+  type: 'assistant', parent_tool_use_id: null, message: { id: 'msg-1', content: [{ type: 'text', text: '第二段' }] },
+});
+assert(fallback.text === '第一段\n第二段', '同一主 Agent 消息的多个文本块按顺序完整聚合');
+fallback = collectFallbackAssistantText(fallback, {
+  type: 'assistant', parent_tool_use_id: 'tool-parent', message: { id: 'sub-msg', content: [{ type: 'text', text: '子 Agent 输出' }] },
+});
+assert(fallback.text === '第一段\n第二段', '子 Agent assistant 文本不覆盖主 Agent 回退候选');
+fallback = collectFallbackAssistantText(fallback, {
+  type: 'assistant', parent_tool_use_id: null, message: { id: 'msg-2', content: [{ type: 'tool_use', name: 'Bash', input: {} }] },
+});
+assert(fallback.text === '', '新一轮只有工具调用时清空上一轮过程文本');
+assert(resolveSuccessfulResult('SDK 结果', 'assistant 结果') === 'SDK 结果', '非空 SDK result 保持原值');
+assert(resolveSuccessfulResult(' ', 'assistant 结果') === 'assistant 结果', '空白 SDK result 回退到最后一条 assistant 文本');
 
 finish();
