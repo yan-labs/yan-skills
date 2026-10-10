@@ -12,6 +12,12 @@ mkdirSync(runs);
 const stub = join(scratch, 'runner');
 writeFileSync(stub, `#!/bin/sh
 out=
+if [ "$1" = 'app-server' ]; then
+  exec node -e 'require("node:readline").createInterface({input:process.stdin}).on("line", line => {
+    const request = JSON.parse(line);
+    if (request.id !== undefined) console.log(JSON.stringify({id:request.id,result:{}}));
+  });'
+fi
 if [ -n "$FLEET_TEST_ARGS" ]; then printf '%s\\n' "$@" > "$FLEET_TEST_ARGS"; fi
 if [ -n "$FLEET_TEST_SESSION" ]; then printf '{"type":"thread.started","thread_id":"%s"}\\n' "$FLEET_TEST_SESSION"; fi
 while [ "$#" -gt 0 ]; do

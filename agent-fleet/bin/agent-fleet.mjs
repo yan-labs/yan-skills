@@ -32,7 +32,7 @@ import { buildBrief, DEFAULT_BRIEF_LINES, renderManyOutput, renderRunOutput, fai
 import { collectStatus, deliverSay, formatStatusHuman, requestStop } from '../src/control.mjs';
 import { readPidRecord, resolveRunId, isPidAlive, patchPidRecord, runIdFromLogPath } from '../src/pid.mjs';
 import { shortRunOptions, splitShortArgs, resolveBrief, geminiBlocked } from '../src/shortcuts.mjs';
-import { runCode } from '../src/code-runner.mjs';
+import { runCode, launchArchiveSweep } from '../src/code-runner.mjs';
 import { runGrok } from '../src/grok-runner.mjs';
 import { launchDetached, readState, resolveDetached, supervise, waitDetached } from '../src/detach.mjs';
 import { runMedia } from '../src/media.mjs';
@@ -538,6 +538,8 @@ async function main() {
 
   try {
     if (command === '__supervise') { await supervise(fileURLToPath(import.meta.url)); return; }
+    if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many', 'judge'].includes(command)
+      && !process.env.FLEET_DETACHED_RUN_ID && !rest.includes('--help')) launchArchiveSweep();
     if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many'].includes(command)
       && !process.env.FLEET_DETACHED_RUN_ID && !rest.includes('--attach')) {
       const { flags, positionals } = splitShortArgs(rest);

@@ -63,6 +63,8 @@ Claude Code 派单写法与误加 `&` 后的补救见 [Skill 顶部「派单前�
 
 状态保存在 `~/.agent-fleet/runs/<runId>.json`，原子更新监督/执行 PID、每30秒心跳、结果/日志路径及简报。PID死亡或心跳超过90秒判为 abnormal；若最后心跳早于启动+10分钟，提示可能重启/强制休眠中断及 `fleet resume <id>`。`wait` 每两秒只读状态与 PID，终态立即返回简报；超时只结束等待，任务继续。`wait` / `tail` 支持短名、唯一runId前缀，`latest` 指当前目录最近任务（包括终态）；stop/say/resume 的 latest 保持当前目录最近存活任务规则。
 
+Codex app-server 任务运行中仍显示在 Codex APP，结束后自动归档本任务线程；归档失败只记降级。历史保留，fleet 续跑前取消归档，结束后再归档。
+
 网关与 Grok 任务支持 say/resume；Codex 默认用独立 stdio app-server 支持同轮 `turn/steer`，失败尝试 SIGINT 后 `codex exec resume`；启动/握手失败退回原 exec，没有可续跑会话时明确提示 `--restart`。`fleet-go amend --say` 同样生效，异常中断可用 threadId/sessionId `fleet resume`，沿用 cwd、low/review、name/report；简报记录 steer/resume 次数与降级。只读沙箱无法等价时保持 read-only exec。steer 接受不等于立即执行，也不能撤销已完成写入，详见 [中途插话](skill/references/codex-coding.md#中途插话)。macOS 沿用系统 caffeinate 防空闲睡眠；机器重启、合盖强制休眠仍会中断或暂停，不提供重启恢复。监督器被 SIGKILL 时标 abnormal，可用完整runId stop 清理存活执行器。
 
 ## Kollab 文字模型与多模态
@@ -565,3 +567,5 @@ agent-fleet 会把 `CLAUDE_CONFIG_DIR` 指向自己专属的 `~/.agent-fleet/cla
 `fleet-go new fix-card --to gpt --auth local --goal "修复窄屏卡片溢出" --write /path/to/project --body task.md` 按产品自动拼标准块、lint、写 brief 并前台执行 fleet；也支持 heredoc 正文。`--dry-run` 只打印，`--no-launch` 只落盘。块在 `skill/templates/blocks/`，可直接编辑；paid 必须传 `--budget`，生产目标与回滚条件写在独有正文。
 
 修订用 `fleet-go amend fix-card "补充要求"`；优先 `--say`，不支持插话则保留修订并提示，确需重来才用 `--restart`（先 stop 并核验残留）。`fleet-go lint brief.md` 检查格式与启动禁令；`fleet-go status` 给运行摘要。brief 和用于恢复命令的 `.brief.json` 放在 `~/.agent-reports/<日期>/`，同名拒绝覆盖。启动仍用工具 `run_in_background:true`，脚本不后台化。需要 Python 3，无新增 npm 依赖。
+
+补扫漏归档线程：`node bin/fleet-archive-sweep.mjs [--dry-run] [--json] [--min-idle-minutes 10]`。派单前及 Codex 完成后运行；派单入口也会后台补扫（不等待、失败不阻断），`FLEET_NO_ARCHIVE_SWEEP=1` 可关闭自动扫描。

@@ -29,6 +29,7 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 `fleet team` / `fleet-go team` 一屏检查五产品能力、顺位参考和可用性，只显示登录/凭据存在状态，不显示密钥或 token。
 
 > **派单前必读**
+> 每次用 `/agent-fleet` 派单前、每次 Codex 任务完成后，主线程先跑 `node ~/Project/kcsx/macmini/yan-skills/agent-fleet/bin/fleet-archive-sweep.mjs`，定期扫掉漏归档线程。只归档 `originator=agent_fleet` 且已结束、闲置至少 10 分钟的线程；可 `--dry-run`，可用 `thread/unarchive` 回滚。运行中的任务仍出现在 Codex APP，结束后归档。
 > ⓪ **默认用 `fleet-go new` 派单**（见下「快速派单」）：只写任务独有的正文，归类行、REPORT 行、授权覆盖、已知坑、验收、逐字规则句由它自动补全。不要再手写整份 brief、也不要用 python 拼接旧 brief；手写 brief + `fleet code` 只留给需要完全自定义的少数情形。
 > ① 唯一正确写法：一条 Bash 调用，命令只含 `fleet-go new ...` 、`fleet-go relaunch <name>` 或 `fleet <子命令> brief.md ...`，工具参数 `run_in_background: true`（可重定向到输出文件）。
 > ② 命令中一律禁止：末尾 `&`、`(... &)`、`> /dev/null 2>&1 &`、`nohup`、`setsid`、`disown`、`... & sleep`、`fleet ... && 别的命令 &`。
@@ -85,6 +86,7 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 | `fleet web start/say/close/list`；兼容 `fleet web "问题" [--followup "追问" ...] [--close]` | 网页版 ChatGPT，少量串行问答 |
 | `fleet bulk brief.md` | Gemini 批量处理 |
 | `fleet gpt brief.md` | 托管 GPT 任务 |
+| `node ~/Project/kcsx/macmini/yan-skills/agent-fleet/bin/fleet-archive-sweep.mjs [--dry-run]` | 派单前及 Codex 完成后补扫归档 |
 | `fleet code brief.md [--low] [--cwd dir]` | 本机 Codex GPT-6.1 Sol：默认入口 |
 | `fleet code brief.md --review` | 本机 Codex 只读审查 |
 | `fleet haiku\|sonnet\|opus\|fable brief.md` | Claude 官方端点直连，走订阅附赠的每月 API 额度（`ANTHROPIC_CREDIT_API_KEY`），**不占 Claude App 用量**；Claude 侧任务优先走这里 |

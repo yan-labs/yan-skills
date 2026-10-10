@@ -24,6 +24,8 @@ fleet resume <异常中断的任务> "继续完成剩余工作"
 
 `FLEET_CODEX_BACKEND` 可取 `app-server`（默认优先模式，失败时仍可降级）或 `exec`（直接使用原执行器）；例如 `FLEET_CODEX_BACKEND=exec fleet code brief.md`。只读 review 和 resume 沿用 exec。
 
+运行中的 app-server 任务仍会显示在 Codex APP；任务终态及异常退出清理时仅归档该任务的 threadId，保留历史。归档失败只记降级，不改变 verdict。Codex 0.162.0 的归档线程不能直接 resume；fleet 会先取消归档、续跑结束后再归档。
+
 每个 `fleet code` 任务优先启动独立 `codex app-server`，仅用 stdio，不共享服务或开放端口。`say` 在同一 thread/当前 turn 上调用 `turn/steer`；初始化期间先排队。简报保存 threadId、执行模式、steer/resume 次数与降级记录。`resume` 根据 threadId/sessionId 开新 run，沿用 cwd、low/review、name/report。
 
 app-server 启动或握手失败时退回原 `codex exec`；已有会话的 steer 被拒时，先 SIGINT 并等待当前执行结束，再 `codex exec resume` 同一会话（新一轮）。没有可续跑会话或续跑不可用时，明确提示改用 `fleet-go amend --restart`。exec 兜底始终保留；只读 `--review` 如不能等价使用 app-server，则退回原 read-only exec，不放宽沙箱。
@@ -55,3 +57,5 @@ steer 被接受不等于立即执行，插话无法撤销已经完成的文件�
 2026-09-27，本机 Codex CLI 0.157.1：`gpt-6-sol` 的 medium/low 编码及 medium 只读审查曾通过独立样例验证。历史结果只说明当时账号可用；当前以实际运行和测试为准。
 
 2026-09-30，本机默认模型改为 `gpt-6.1-sol`。Codex CLI 0.158.0 调用它会被服务端以「not supported when using Codex with a ChatGPT account」拒绝；0.159.0 的 low 只读样例通过。所以本机 Codex 必须 ≥ 0.159.0（Homebrew 安装的用 `brew upgrade --cask codex` 升级，升级前先确认没有别的 Codex 任务在跑）。旧版本调用会失败；fleet 只上报事实，由派用者判断后续执行者。
+
+补扫漏归档线程：`node ~/Project/kcsx/macmini/yan-skills/agent-fleet/bin/fleet-archive-sweep.mjs [--dry-run] [--json] [--min-idle-minutes 10]`。派单前及 Codex 完成后运行；派单入口也会后台补扫（不等待、失败不阻断），`FLEET_NO_ARCHIVE_SWEEP=1` 可关闭自动扫描。

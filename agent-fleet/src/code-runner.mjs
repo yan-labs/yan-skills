@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 import { snapshotGit, inspectGit, attachArtifacts, redactEvidence } from './brief.mjs';
@@ -16,6 +17,54 @@ export function reviewPrompt() {
   const match = source.match(/## 可直接使用的 review 提示词\s+```text\n([\s\S]*?)\n```/);
   if (!match) throw new Error('找不到 codex-coding.md 中的 review 提示词');
   return match[1];
+}
+
+export function launchArchiveSweep({ env = process.env, spawnChild = spawn,
+  script = fileURLToPath(new URL('../bin/fleet-archive-sweep.mjs', import.meta.url)) } = {}) {
+  if (env.FLEET_NO_ARCHIVE_SWEEP === '1') return;
+  try {
+    const child = spawnChild(process.execPath, [script, '--quiet'], { detached: true, stdio: 'ignore', env });
+    child.on('error', () => {});
+    child.unref();
+  } catch {}
+}
+
+async function threadLifecycle(codexBin, method, threadId) {
+  const child = spawn(codexBin, ['app-server', '--stdio'], { stdio: ['pipe', 'pipe', 'ignore'] });
+  const lines = createInterface({ input: child.stdout });
+  const pending = new Map();
+  let counter = 0;
+  const rejectPending = error => {
+    for (const request of pending.values()) request.reject(error);
+    pending.clear();
+  };
+  child.on('error', rejectPending);
+  child.on('close', () => rejectPending(new Error('app-server closed')));
+  child.stdin.on('error', rejectPending);
+  lines.on('line', line => {
+    let event;
+    try { event = JSON.parse(line); } catch { return; }
+    const request = pending.get(event.id);
+    if (!request) return;
+    pending.delete(event.id);
+    if (event.error) request.reject(new Error(event.error.message));
+    else request.resolve(event.result);
+  });
+  const request = (method, params) => new Promise((resolve, reject) => {
+    const id = ++counter;
+    pending.set(id, { resolve, reject });
+    child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+  });
+  const timer = setTimeout(() => rejectPending(new Error(`${method} timeout`)), 15000);
+  try {
+    await request('initialize', { clientInfo: { name: 'agent_fleet', version: '0.7.0' } });
+    child.stdin.write('{"method":"initialized"}\n');
+    await request(method, { threadId });
+  } finally {
+    clearTimeout(timer);
+    lines.close();
+    child.kill('SIGKILL');
+  }
 }
 
 export async function runCode({ prompt, cwd = process.cwd(), low = false, review = false, resume, resumedFrom,
@@ -85,6 +134,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
     }
     captureChildren();
     const descendants = activeDescendants;
+    if (metadata.backend === 'codex-app-server') await archive();
     if (!alreadyExited) child.kill('SIGINT');
     let timer;
     await Promise.race([closed, new Promise(resolve => { timer = setTimeout(resolve, 10000); })]);
@@ -131,6 +181,21 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
     if (entry.type === 'stop') { stopping = true; void interrupt(); }
     else { offsetQueue.push(entry.text); schedule(); }
   });
+  let archived = false, archivePending, ownsAppThread = Boolean(resume);
+  const archive = () => {
+    if (!metadata.threadId || archived) return Promise.resolve();
+    return archivePending ||= (async () => {
+      try {
+        if (metadata.backend === 'codex-app-server' && activeChild?.exitCode === null && activeChild?.signalCode === null)
+          await rpc('thread/archive', { threadId: metadata.threadId });
+        else await threadLifecycle(codexBin, 'thread/archive', metadata.threadId);
+        archived = true;
+        record();
+      } catch (error) {
+        fallback(`thread/archive failed: ${error.message}`);
+      } finally { archivePending = null; }
+    })();
+  };
   let outcome;
   try {
     if (!stopping && !review && !resume && process.env.FLEET_CODEX_BACKEND !== 'exec') {
@@ -181,7 +246,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
         await rpc('initialize', { clientInfo: { name: 'agent_fleet', version: '0.7.0' }, capabilities: { experimentalApi: true } });
         child.stdin.write('{"method":"initialized"}\n');
         const response = await rpc('thread/start', { cwd: workdir, model: 'gpt-6.1-sol', sandbox: 'danger-full-access', approvalPolicy: 'never' });
-        metadata.threadId = metadata.sessionId = response.thread.id; record();
+        metadata.threadId = metadata.sessionId = response.thread.id; ownsAppThread = true; record();
         const turn = await rpc('turn/start', { threadId: metadata.threadId, input: textInput(fullPrompt), effort: low ? 'low' : 'medium' });
         turnId = turn.turn.id; record({ activeTurnId: turnId }); schedule();
         await turnDone;
@@ -203,7 +268,12 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
         const args = ['exec', '--skip-git-repo-check', '--json', '-m', 'gpt-6.1-sol', '-c', `model_reasoning_effort=${low ? 'low' : 'medium'}`,
           '--sandbox', review ? 'read-only' : 'danger-full-access', '-C', workdir, '-o', resultPath,
           ...(session ? ['resume', session, '-'] : ['-'])];
-        if (session) metadata.resumeCount++;
+        if (session) {
+          try { await threadLifecycle(codexBin, 'thread/unarchive', session); }
+          catch (error) { fallback(`thread/unarchive failed: ${error.message}; exec resume`); }
+          archived = false;
+          metadata.resumeCount++;
+        }
         metadata.numTurns++;
         const child = start(args);
         let buffer = '';
@@ -237,6 +307,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
     outcome = { error };
   } finally {
     inbox.stop(); await drain.catch(error => { outcome = { error }; });
+    if (metadata.threadId && ownsAppThread) await archive();
     record({ finished: true, finishedAt: new Date().toISOString(), activeTurnId: null });
   }
   outcome ||= { error: new Error('Codex stopped') };

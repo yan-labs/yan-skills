@@ -32,11 +32,16 @@ if (args[0] === 'app-server') {
   readline.createInterface({ input: process.stdin }).on('line', line => {
     const req = JSON.parse(line); trace(req);
     if (req.method === 'initialize') send({ id: req.id, result: {} });
+    if (req.method === 'thread/archive' || req.method === 'thread/unarchive') {
+      if (mode === 'archive-fail' && req.method === 'thread/archive') send({ id: req.id, error: { code: -32000, message: 'mock archive failed' } });
+      else send({ id: req.id, result: {} });
+    }
     if (req.method === 'thread/start') send({ id: req.id, result: { thread: { id: 'thread-one' } } });
     if (req.method === 'turn/start') {
       send({ id: req.id, result: { turn: { id: 'turn-one' } } });
       send({ method: 'turn/started', params: { turn: { id: 'turn-one' } } });
-      if (mode === 'normal') setTimeout(complete, 25);
+      if (mode === 'normal' || mode === 'archive-fail') setTimeout(complete, 25);
+      if (mode === 'failed') setTimeout(() => send({ method: 'turn/completed', params: { turn: { id: 'turn-one', status: 'failed', error: { message: 'mock turn failed' } } } }), 25);
       if (mode === 'reject' || mode === 'crash') {
         const orphan = require('node:child_process').spawn(process.execPath, ['-e', '/* codex-orphan-fixture */ setInterval(() => {}, 1000)'], { stdio: 'ignore' });
         trace({ orphanPid: orphan.pid });
@@ -70,7 +75,7 @@ chmodSync(mock, 0o755);
 process.env.AGENT_FLEET_RUNS_DIR = scratch;
 
 let scenarioNumber = 0;
-async function scenario(mode, { backend, say, resume, review = false, low = false } = {}) {
+async function scenario(mode, { backend, say, stop, resume, review = false, low = false } = {}) {
   const runId = `codex-${++scenarioNumber}-${mode}-${review ? 'review' : 'code'}`;
   process.env.FLEET_DETACHED_RUN_ID = runId;
   process.env.FLEET_STEER_TEST_MODE = mode;
@@ -78,13 +83,13 @@ async function scenario(mode, { backend, say, resume, review = false, low = fals
   if (backend) process.env.FLEET_CODEX_BACKEND = backend;
   else delete process.env.FLEET_CODEX_BACKEND;
   const pending = runCode({ prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则', cwd: scratch, codexBin: mock, resume, review, low });
-  if (say) {
+  if (say || stop) {
     for (let attempt = 0; attempt < 500; attempt++) {
       if (existsSync(process.env.FLEET_STEER_TEST_TRACE) && readFileSync(process.env.FLEET_STEER_TEST_TRACE, 'utf8').includes('turn/start')) break;
       await delay(10);
     }
     assert.match(readFileSync(process.env.FLEET_STEER_TEST_TRACE, 'utf8'), /turn\/start/, '等待当前 turn 后才插话');
-    appendInbox(runId, { type: 'say', text: say });
+    appendInbox(runId, { type: stop ? 'stop' : 'say', text: say || '' });
   }
   const result = await pending;
   const trace = readFileSync(process.env.FLEET_STEER_TEST_TRACE, 'utf8').trim().split('\n').map(JSON.parse);
@@ -114,7 +119,18 @@ try {
   assert.equal(normal.record.backend, 'codex-app-server');
   assert.equal(normal.record.finished, true);
   assert.equal(normal.record.activeTurnId, null);
+  assert.equal(normal.trace.find(entry => entry.method === 'thread/archive').params.threadId, 'thread-one');
+  assert(normal.trace.findIndex(entry => entry.method === 'thread/archive') < normal.trace.findIndex(entry => entry.signal === 'SIGINT'));
+  const archiveFail = await scenario('archive-fail');
+  assert.equal(archiveFail.result.ok, true);
+  assert.equal(buildBrief(archiveFail.result).verdict, 'ok');
+  assert.match(archiveFail.result.fallbacks.join('\n'), /thread\/archive failed: mock archive failed/);
+  assert.match(archiveFail.record.fallbacks.join('\n'), /mock archive failed/);
 
+  for (const terminal of [await scenario('failed'), await scenario('stop', { stop: true })]) {
+    assert.equal(terminal.result.ok, false);
+    assert.equal(terminal.trace.find(entry => entry.method === 'thread/archive').params.threadId, 'thread-one');
+  }
   const steered = await scenario('steer', { say: '只写到 3 并停止' });
   const steer = steered.trace.find(entry => entry.method === 'turn/steer');
   assert.equal(steer.params.threadId, 'thread-one');
@@ -133,6 +149,8 @@ try {
   const orphanPid = rejected.trace.find(entry => entry.orphanPid).orphanPid;
   assert(!processCommand(orphanPid).includes('codex-orphan-fixture'), '续跑前必须结束旧工具子进程');
   assert.equal(rejected.result.resumeCount, 1);
+  assert(rejected.trace.findIndex(entry => entry.method === 'thread/unarchive') < rejected.trace.findIndex(entry => entry.args?.[0] === 'exec'));
+  assert.equal(rejected.trace.filter(entry => entry.method === 'thread/archive').length, 2);
   assert.equal(rejected.result.backend, 'codex-exec');
   assert.equal(rejected.result.ok, true);
   assert.match(rejected.result.fallbacks.join('\n'), /turn\/steer rejected.*SIGINT \+ exec resume/);
@@ -144,6 +162,7 @@ try {
   assert(!processCommand(crashed.trace.find(entry => entry.orphanPid).orphanPid).includes('codex-orphan-fixture'), '崩溃后也清理已记录旧工具');
   const unknownCrash = await scenario('crash-empty', { say: '不能与未知旧工具并发' });
   assert.equal(unknownCrash.result.ok, false);
+  assert(unknownCrash.trace.some(entry => entry.method === 'thread/archive'), '异常退出后用新服务归档本线程');
   assert.equal(unknownCrash.result.resumeBlocked, true);
   assert.equal(unknownCrash.trace.filter(entry => entry.args?.[0] === 'exec').length, 0);
   assert.match(unknownCrash.result.fallbacks.join('\n'), /无法确认旧工具.*--restart/);
@@ -168,6 +187,11 @@ try {
     assert.equal(brief.logPath, result.logPath);
     assert.match(formatBriefHuman(brief), /ok: true  verdict: ok/);
   }
+
+  const continued = await scenario('normal', { resume: 'thread-one' });
+  assert.equal(continued.result.ok, true);
+  assert.equal(continued.trace.find(entry => entry.method === 'thread/unarchive').params.threadId, 'thread-one');
+  assert.equal(continued.trace.at(-1).method, 'thread/archive');
 
   const invalid = await scenario('normal', { resume: 'invalid-thread' });
   assert.equal(invalid.result.ok, false);
