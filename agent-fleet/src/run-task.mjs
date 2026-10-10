@@ -11,7 +11,7 @@ import { resolveModel, ConfigError } from './config.mjs';
 import { buildIsolatedEnv, buildPinnedSettings } from './isolated-env.mjs';
 import { assertProjectSettingsTrusted, ProjectTrustError } from './project-trust.mjs';
 import { createProgress } from './progress.mjs';
-import { snapshotGit, inspectGit, attachArtifacts } from './brief.mjs';
+import { snapshotGit, inspectGit, attachArtifacts, redactEvidence } from './brief.mjs';
 import { createPromptStream, ensureInbox, watchInbox } from './inbox.mjs';
 import { patchPidRecord, processCommand, readPidRecord, runIdFromLogPath, writePidRecord } from './pid.mjs';
 import { onProcessSignal } from './signals.mjs';
@@ -23,7 +23,7 @@ import { prepareCopyPrompt, COPY_VOICE_PATH } from './copy-voice.mjs';
  *
  * 【为什么需要这个 —— 真实发生过的问题】
  * 用户全局的 ~/.claude/CLAUDE.md 要求"主线程必须把具体工作派给 subagent",而这个工具驱动的
- * 恰恰是第三方模型(GLM/Gemini/...)在扮演 Claude Code 的主循环。第三方模型读到宿主环境里那份
+ * 恰恰是第三方模型(Gemini/DeepSeek/...)在扮演 Claude Code 的主循环。第三方模型读到宿主环境里那份
  * 全局规则后,会把 agent-fleet 交给它的任务原样再转派一层——包括荒谬地用 Bash 工具反过来调用
  * agent-fleet 自己(2026-09-26 实测发生过),或者只回一句"已经在跑了/等结果"就结束当轮。
  * 这段默认提示就是直接把"你现在是执行者"这条边界钉在系统提示里,不依赖每次调用方都记得写。
@@ -140,7 +140,7 @@ export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, sy
       resume,
       resumedFrom,
       startedAt,
-      log: output.log,
+      log: line => output.log(redactEvidence(line)),
       runId,
     });
     const withMeta = resumedFrom ? { ...inner, resumedFrom } : inner;
@@ -148,8 +148,9 @@ export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, sy
   } catch (err) {
     // 未预见的异常:同样补一行 done error 再抛,保住"日志必有 done 行收尾"的不变量,
     // 否则 tail --follow 会对这份日志永远等下去。
-    output.log(`done error ${oneLine(err?.message ?? String(err), 160)}`);
-    throw err;
+    output.log(`done error ${oneLine(redactEvidence(err?.message ?? String(err)), 160)}`);
+    const failed = { ok: false, model: friendlyModel, cwd, error: err.message, durationMs: wallClockDurationMs(startedAt) };
+    return attachArtifacts({ ...failed, httpStatus: err.status ?? err.statusCode, errorObject: err.error ?? { code: err.code, type: err.type, message: err.message }, stderr: err.stderr }, output.logPath, inspectGit(cwd, gitBefore));
   } finally {
     markPidFinished(runId);
     output.stop();
@@ -217,7 +218,7 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
       // 这类错误发生在真正发起请求之前;也补一行 done error,保证"每份日志都以 done 行
       // 收尾"的不变量成立——tail --follow 靠这一行判断停止。
       log(`done error ${oneLine(err.message, 160)}`);
-      return { ok: false, model: friendlyModel, prompt, cwd, error: err.message, durationMs: wallClockDurationMs(startedAt) };
+      return { ok: false, model: friendlyModel, prompt, cwd, progress: { phase: '配置加载' }, error: err.message, durationMs: wallClockDurationMs(startedAt) };
     }
     throw err;
   }
@@ -300,11 +301,11 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
   const unhookSignal = onProcessSignal(onSignal);
 
   let finalResult = null;
-  let fallbackAssistant = { messageId: null, text: '' };
+  let assistantText = { messageId: null, text: '' };
   try {
     for await (const message of q) {
       logSdkMessage(log, message);
-      fallbackAssistant = collectFallbackAssistantText(fallbackAssistant, message);
+      assistantText = collectAssistantText(assistantText, message);
       if (runId && message.session_id) {
         try {
           patchPidRecord(runId, { sessionId: message.session_id });
@@ -319,8 +320,6 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
       }
     }
   } catch (err) {
-    const fatal402 = looksLikeFatal402(err.message);
-    if (fatal402) log('ERROR 402');
     if (signalName) log(`被外部信号 ${signalName} 终止`);
     log(`done error cost=? ${oneLine(err.message, 160)}`);
     inbox?.stop();
@@ -332,10 +331,12 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
       baseURL: resolved.baseURL,
       prompt,
       cwd,
+      progress: { phase: 'SDK 执行', assistantText: assistantText.text },
       error: signalName
         ? `被外部信号 ${signalName} 终止: ${err.message}`
         : `调用 Claude Agent SDK 失败: ${err.message}`,
-      fatal402,
+      httpStatus: err.status ?? err.statusCode,
+      errorObject: err.error ?? { code: err.code, type: err.type, message: err.message }, stderr: err.stderr,
       durationMs: wallClockDurationMs(startedAt),
       stopped: stopRequested || Boolean(signalName),
       signal: signalName,
@@ -358,10 +359,10 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
       baseURL: resolved.baseURL,
       prompt,
       cwd,
+      progress: { phase: 'SDK 执行', assistantText: assistantText.text },
       error: signalName
         ? `被外部信号 ${signalName} 终止,SDK 没有产出 result 消息`
-        : 'SDK 没有产出 result 消息,任务没有跑完就结束了(可能是进程被中断,或上游端点没有正确实现流式 Anthropic Messages 协议)。',
-      fatal402: false,
+        : 'SDK 没有产出 result 消息',
       durationMs: wallClockDurationMs(startedAt),
       stopped: stopRequested || Boolean(signalName),
       signal: signalName,
@@ -372,10 +373,8 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
   // 收尾行:done ok / done error + 成本。这是 tail --follow 的停止信号。
   const joinedErrors = (finalResult.errors ?? []).join('; ');
   const errorText = joinedErrors || (typeof finalResult.result === 'string' ? finalResult.result : '');
-  const fatal402 = looksLikeFatal402(errorText);
   const wasStopped = stopRequested || Boolean(signalName);
   if (finalResult.is_error) {
-    if (fatal402) log('ERROR 402');
     log(`done error cost=${fmtCost(finalResult.total_cost_usd)}${errorText ? ` ${oneLine(errorText, 160)}` : ''}`);
   } else if (wasStopped) {
     log(`done error cost=${fmtCost(finalResult.total_cost_usd)} stopped`);
@@ -393,7 +392,7 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
     // 只有 success 分支才有最终文本;error 分支(error_during_execution/error_max_turns/...)
     // 没有 result 字段,把 errors 数组透出去让调用方知道具体败在哪。
     result: finalResult.subtype === 'success'
-      ? resolveSuccessfulResult(finalResult.result, fallbackAssistant.text)
+      ? resolveSuccessfulResult(finalResult.result, assistantText.text)
       : null,
     isError: finalResult.is_error,
     subtype: finalResult.subtype,
@@ -404,11 +403,10 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
     totalCostUsd: finalResult.total_cost_usd,
     sessionId: finalResult.session_id,
     errors: finalResult.errors ?? [],
+    ...(finalResult.is_error ? { error: errorText } : {}),
     stopped: wasStopped,
     signal: signalName,
     ...(resumedFrom ? { resumedFrom } : {}),
-    // 只在失败分支有意义:上游 402/额度用尽,bin 据此以退出码 2 结束。
-    ...(finalResult.is_error || wasStopped ? { fatal402 } : {}),
   };
 }
 
@@ -432,10 +430,10 @@ function logSdkMessage(log, message) {
 }
 
 /**
- * 聚合同一条主 Agent assistant 消息的流式文本块，作为空 success result 的候选回退。
+ * 聚合同一条主 Agent assistant 消息的流式文本块，作为空 success result 的候选文本。
  * 新消息会先清空旧候选，子 Agent 消息不参与，避免把工具调用前的过程说明或子任务输出当最终结果。
  */
-export function collectFallbackAssistantText(current, message) {
+export function collectAssistantText(current, message) {
   if (message.type !== 'assistant' || message.parent_tool_use_id) return current;
   const messageId = message.message?.id;
   const content = message.message?.content ?? message.content;
@@ -451,7 +449,7 @@ export function collectFallbackAssistantText(current, message) {
 
 /**
  * 部分 Anthropic 兼容模型会把完整文本放在 assistant 消息里，却给 SDK 的成功 result 留空。
- * CLI 在这种情况下回退到最后一条 assistant 文本，避免把已完成的任务报告成空结果。
+ * CLI 在这种情况下取最后一条 assistant 文本，避免把已完成的任务报告成空结果。
  */
 export function resolveSuccessfulResult(result, lastAssistantText) {
   return typeof result === 'string' && result.trim() ? result : lastAssistantText;
@@ -469,12 +467,6 @@ function fmtCost(cost) {
   return typeof cost === 'number' && Number.isFinite(cost) ? `$${cost.toFixed(4)}` : '?';
 }
 
-/** 上游网关返回 402(额度/credit budget 用尽)时是"立即停止、不要重试"的失败。 */
-function looksLikeFatal402(text) {
-  if (!text) return false;
-  const s = String(text);
-  return /\b402\b/.test(s) || s.toLowerCase().includes('credit budget');
-}
 
 /*
  * 返回形状(成功时):

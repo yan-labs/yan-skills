@@ -65,7 +65,7 @@ function validateQuestions(questions) {
  * @param {object} params.config         已加载的 models.config.json
  * @returns {Promise<object>} 见文件底部的返回形状说明
  */
-export async function judgeTask({ friendlyModel, state, questions, config }) {
+export async function judgeTask({ friendlyModel, state, questions, config, signal }) {
   const startedAt = Date.now();
 
   const questionsError = validateQuestions(questions);
@@ -104,6 +104,7 @@ export async function judgeTask({ friendlyModel, state, questions, config }) {
   try {
     res = await fetch(resolved.baseURL, {
       method: 'POST',
+      signal,
       headers: {
         // typesafe-systemone 固定用裸 Authorization: Bearer <key>,不走
         // isolated-env.mjs 那套 x-api-key/auth-token 映射——那套映射是给
@@ -140,7 +141,8 @@ export async function judgeTask({ friendlyModel, state, questions, config }) {
       resolvedModel: resolved.model,
       baseURL: resolved.baseURL,
       httpStatus: res.status,
-      error: `上游返回 HTTP ${res.status}: ${parsed ? JSON.stringify(parsed) : text}${res.status === 400 ? `。检查 questions 的 type（${TYPES}）和 state 格式` : ''}`,
+      errorObject: parsed,
+      error: `上游返回 HTTP ${res.status}: ${parsed ? JSON.stringify(parsed) : text}`,
       durationMs: Date.now() - startedAt,
     };
   }

@@ -27,10 +27,10 @@ writeFileSync(join(bin, 'fleet'), `#!${process.execPath}
 const fs = require('fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.CALLS, JSON.stringify({args, pid:process.pid})+'\\n');
-if(args[0]==='status') console.log(fs.readFileSync(process.env.STATES,'utf8'));
-if(args[0]==='stop') fs.writeFileSync(process.env.STATES,'[]');
+if(args[0]==='status') { const rows=JSON.parse(fs.readFileSync(process.env.STATES,'utf8')); console.log(JSON.stringify(args.includes('--running')?rows.filter(r=>r.status==='running'):rows)); }
+if(args[0]==='stop') fs.writeFileSync(process.env.STATES,JSON.stringify(JSON.parse(fs.readFileSync(process.env.STATES,'utf8')).map(r=>r.runId===args[1]?{...r,status:'stopped'}:r)));
 if(args[0]==='say' && process.env.SAY_FAIL) process.exit(1);
-if(['code','copy','grok','haiku','sonnet'].includes(args[0])) process.exit(7);
+if(['code','copy','bulk','grok-cli','haiku','sonnet','opus','fable','judge'].includes(args[0])) process.exit(7);
 `, { mode: 0o755 });
 writeFileSync(join(bin, 'pgrep'), '#!/bin/sh\nif [ -n "${RESIDUAL:-}" ]; then\n printf "%s\\n" "$RESIDUAL"\n exit 0\nfi\nexit 1\n', { mode: 0o755 });
 const env = { ...process.env, HOME: home, PATH: bin + ':' + process.env.PATH, CALLS: calls, STATES: states };
@@ -42,7 +42,7 @@ function test(name, fn) { fn(); checks++; console.log('PASS - '+name); }
 try {
   let brief;
   test('dry-run 必需元素及顺序、最后一行逐字规则、无文件或派发', () => {
-    const r=run(['new','one','--goal','独有目标','--dry-run','--write','/tmp/project','--read','/tmp/source']);
+    const r=run(['new','--to','gpt','one','--goal','独有目标','--dry-run','--write','/tmp/project','--read','/tmp/source']);
     assert.equal(r.status,0,r.stderr); brief=r.stdout;
     let previous=-1;
     for(const text of ['归类：','REPORT:','围绕本 brief','## 授权覆盖','## 目标','## 允许读写/禁止','## 已知坑','## 验收',rule]) {
@@ -59,7 +59,7 @@ try {
   const report = brief.match(/^REPORT: (.+)$/m)[1];
   const path = report.replace(/\.md$/,'.brief.md');
   test('new 前台 exec、参数正确、退出码透传', () => {
-    const r=run(['new','one','--goal','独有目标']);
+    const r=run(['new','--to','gpt','one','--goal','独有目标']);
     assert.equal(r.status,7,r.stderr);
     assert.equal(history().at(-1).pid,r.pid);
     assert.deepEqual(history().at(-1).args,['code',path,'--name','one','--report',report]);
@@ -67,7 +67,7 @@ try {
   });
   const original=readFileSync(path,'utf8');
   test('同名拒绝覆盖', () => {
-    const r=run(['new','one','--goal','覆盖']); assert.equal(r.status,1); assert.match(r.stderr,/amend/); assert.equal(readFileSync(path,'utf8'),original);
+    const r=run(['new','--to','gpt','one','--goal','覆盖']); assert.equal(r.status,1); assert.match(r.stderr,/amend/); assert.equal(readFileSync(path,'utf8'),original);
   });
   test('amend 递增、不重复、原文保留、归类首行和规则末行保留', () => {
     for(const message of ['第一处要求','第二处要求','第二处要求']) assert.equal(run(['amend','one',message]).status,0);
@@ -88,12 +88,8 @@ try {
     assert.deepEqual(history().map(c=>c.args[0]),['status','say']);
   });
   test('restart 先 stop、核验退出、再执行', () => {
-    state(); reset(); assert.equal(run(['amend','one','重启','--restart']).status,7);
-    assert.deepEqual(history().map(c=>c.args[0]),['status','stop','status','code']);
-  });
-  test('restart 有残留不重派', () => {
-    state(); reset(); const r=run(['amend','one','残留','--restart'],{RESIDUAL:'123 codex exec one'});
-    assert.equal(r.status,1); assert.match(r.stderr,/残留/); assert.ok(!history().some(c=>c.args[0]==='code'));
+    state(); reset(); const r=run(['amend','one','重启','--restart']); assert.equal(r.status,7,r.stderr);
+    assert.deepEqual(history().map(c=>c.args[0]),['status','stop','status','status','code']);
   });
   test('找不到运行 run 清楚提示', () => {
     writeFileSync(states,'[]'); const r=run(['amend','one','离线修订','--say']); assert.equal(r.status,1); assert.match(r.stderr,/找不到唯一运行/);
@@ -109,16 +105,69 @@ try {
   });
   test('body 文件、stdin、授权叠加、paid 必须预算、默认报告和 no-launch', () => {
     const body=join(temp,'body.md'); writeFileSync(body,'## 独有正文\n只处理本目标');
-    let r=run(['new','body','--body',body,'--auth','local,readonly-web','--no-launch']); assert.equal(r.status,0,r.stderr);
-    assert.equal(run(['new','paid','--goal','付费','--auth','paid','--dry-run']).status,1);
-    r=run(['new','paid','--goal','付费','--auth','paid','--budget','$2，重试 1 次','--dry-run']); assert.equal(r.status,0); assert.match(r.stdout,/\$2，重试 1 次/);
-    r=spawnSync(script,['new','stdin','--dry-run'],{encoding:'utf8',env,input:'## stdin 独有正文'}); assert.equal(r.status,0); assert.match(r.stdout,/stdin 独有正文/);
+    let r=run(['new','--to','gpt','body','--body',body,'--auth','local,readonly-web','--no-launch']); assert.equal(r.status,0,r.stderr);
+    assert.equal(run(['new','--to','gpt','paid','--goal','付费','--auth','paid','--dry-run']).status,1);
+    r=run(['new','--to','gpt','paid','--goal','付费','--auth','paid','--budget','$2，重试 1 次','--dry-run']); assert.equal(r.status,0); assert.match(r.stdout,/\$2，重试 1 次/);
+    r=spawnSync(script,['new','--to','gpt','stdin','--dry-run'],{encoding:'utf8',env,input:'## stdin 独有正文'}); assert.equal(r.status,0); assert.match(r.stdout,/stdin 独有正文/);
   });
-  test('所有 kind 映射', () => {
-    for(const [kind,cmd] of Object.entries({code:'code',review:'code --review',research:'code',copy:'copy',grok:'grok',haiku:'haiku',sonnet:'sonnet'})) {
-      const r=run(['new',kind,'--kind',kind,'--goal','映射','--dry-run']); assert.equal(r.status,0); assert.ok(r.stderr.includes('fleet '+cmd+' '));
+  test('五产品、各档及选项映射，必填产品与旧参数拒绝', () => {
+    for(const [to,cmd] of Object.entries({gpt:'code',claude:'sonnet',grok:'grok-cli',gemini:'copy',jev:'judge'})) {
+      const r=run(['new',to,'--to',to,'--goal','是否满足判断条件','--dry-run']);
+      assert.equal(r.status,0,r.stderr); assert.ok(r.stderr.includes('fleet '+cmd+' '));
+      assert.match(r.stdout,/归类：/); assert.match(r.stdout,/REPORT: /); assert.ok(r.stdout.includes(rule));
     }
+    for(const tier of ['haiku','sonnet','opus','fable']) {
+      const r=run(['new','tier','--to','claude','--tier',tier,'--goal','任务','--dry-run']);
+      assert.equal(r.status,0,r.stderr); assert.ok(r.stderr.includes('fleet '+tier+' '));
+    }
+    for(const [to,opts,entry] of [['gpt',['--review','--low'],'code'],['grok',['--review','--model','grok-code','--subagents'],'grok-cli'],['gemini',['--bulk'],'bulk']]) {
+      const r=run(['new','opts','--to',to,...opts,'--goal','任务','--dry-run']);
+      assert.equal(r.status,0,r.stderr); assert.ok(r.stderr.includes('fleet '+entry+' '));
+      for(const opt of opts.filter(x=>x.startsWith('--')&&x!=='--bulk')) assert.ok(r.stderr.includes(opt));
+    }
+    assert.notEqual(run(['new','missing','--goal','任务','--dry-run']).status,0);
+    const old=run(['new','old','--kind','code']); assert.equal(old.status,1); assert.match(old.stderr,/--to/); assert.equal(old.stderr.trim().split('\n').length,1);
+    assert.equal(run(['new','bad','--to','gpt','--tier','opus','--goal','任务','--dry-run']).status,1);
   });
+  test('relaunch --to/--tier 改执行者、保留 brief/name/report，拒绝运行中的重复派发', () => {
+    writeFileSync(states,'[]'); reset();
+    const current=readFileSync(path,'utf8');
+    let r=run(['relaunch','one','--to','claude','--tier','opus']); assert.equal(r.status,7,r.stderr);
+    assert.deepEqual(history().at(-1).args,['opus',path,'--name','one','--report',report]);
+    assert.equal(readFileSync(path,'utf8'),current);
+    const meta=JSON.parse(readFileSync(path.replace(/\.md$/,'.json'),'utf8')); assert.equal(meta.to,'claude'); assert.equal(meta.tier,'opus');
+    reset(); r=run(['relaunch','one']); assert.equal(r.status,7,r.stderr); assert.equal(history().at(-1).args[0],'opus');
+    assert.equal(run(['relaunch','one','--to','gpt','--tier','haiku']).status,1);
+    state(); reset(); r=run(['relaunch','one','--to','grok']); assert.equal(r.status,1); assert.deepEqual(history().map(c=>c.args[0]),['status']);
+    writeFileSync(states,'[]');
+  });
+  test('Gemini new/relaunch 静态拒绝编码/UI/expect-changes，文本允许、不会派发', () => {
+    for(const goal of ['编码任务','实现 UI','修改 src/a.mjs 文件','write code','implement a component']) {
+      reset(); const r=run(['new','blocked','--to','gemini','--goal',goal,'--dry-run']); assert.equal(r.status,1,goal); assert.match(r.stderr,/Gemini.*编码\/UI\/--expect-changes/); assert.equal(history().length,0);
+    }
+    assert.equal(run(['new','blocked','--to','gemini','--goal','翻译短文','--expect-changes','--dry-run']).status,1);
+    reset(); assert.equal(run(['relaunch','one','--to','gemini']).status,1); assert.deepEqual(history().map(c=>c.args[0]),['status']);
+    for(const [name,goal,options] of [['ui-job','实现 UI',[]],['change-job','处理本目标',['--expect-changes']]]) {
+      const r=run(['new',name,'--to','claude','--goal',goal,...options,'--no-launch']); assert.equal(r.status,0,r.stderr);
+      reset(); assert.equal(run(['relaunch',name,'--to','gemini']).status,1); assert.deepEqual(history().map(c=>c.args[0]),['status']);
+    }
+    let r=run(['new','text-job','--to','claude','--goal','翻译短文','--no-launch']); assert.equal(r.status,0,r.stderr);
+    reset(); r=run(['relaunch','text-job','--to','gemini']); assert.equal(r.status,7,r.stderr); assert.equal(history().at(-1).args[0],'copy');
+  });
+  test('图片六项、视频工具与隐私错误要求、JEV问题元信息', () => {
+    for(const to of ['gpt','grok','claude','gemini','jev']) {
+      const r=run(['new','image','--to',to,'--make','image','--goal','生成猫','--dry-run']); assert.equal(r.status,0,r.stderr);
+      for(const item of ['/tmp/image/','01-image.png','1024×1024','共享风格块','No text, no letters, no logos, no watermarks.','Do not substitute placeholders','alpha yes/no']) assert.ok(r.stdout.includes(item),item);
+    }
+    const r=run(['new','video','--to','grok','--make','video','--goal','视频','--dry-run']); assert.equal(r.status,0,r.stderr); assert.match(r.stdout,/ZDR\/privacy/); assert.match(r.stdout,/reference_to_video/);
+    assert.equal(run(['new','bad-video','--to','gpt','--make','video','--goal','视频','--dry-run']).status,1);
+    const j=run(['new','decision','--to','jev','--goal','判断是否符合条件','--no-launch']); assert.equal(j.status,0,j.stderr);
+    const jp=j.stdout.match(/已生成：(.+)/)[1]; const meta=JSON.parse(readFileSync(jp.replace(/\.md$/,'.json'),'utf8'));
+    assert.equal(meta.to,'jev'); assert.deepEqual(JSON.parse(readFileSync(meta.questions,'utf8')),{decision:{type:'noul',instructions:'判断是否符合条件'}});
+    reset(); writeFileSync(states,'[]'); assert.equal(run(['relaunch','decision']).status,7);
+    assert.deepEqual(history().at(-1).args,['judge',jp,meta.questions,'--name','decision','--report',meta.report]);
+  });
+  test('team 转发底层入口', () => { reset(); assert.equal(run(['team']).status,0); assert.deepEqual(history().at(-1).args,['team']); });
   test('status 提醒 launchDetached 与 wait',()=> {
     state(); const r=run(['status']); assert.equal(r.status,0); assert.match(r.stdout,/⚠/); assert.match(r.stdout,/fleet wait fake-run/);
   });

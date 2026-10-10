@@ -22,7 +22,7 @@ import {
 import { loadModelsConfig, resolveModel } from '../src/config.mjs';
 import {
   buildQueryOptions,
-  collectFallbackAssistantText,
+  collectAssistantText,
   DEFAULT_EXECUTOR_SYSTEM_PROMPT,
   resolveSuccessfulResult,
 } from '../src/run-task.mjs';
@@ -403,9 +403,9 @@ try {
   );
 
   process.env.MOCK_SUB_K = FAKE_TASK_KEY;
-  const withSubagent = loadModelsConfig(writeSubagentConfig({ subagentModel: 'glm-5.3-flash' }));
+  const withSubagent = loadModelsConfig(writeSubagentConfig({ subagentModel: 'deepseek-v4.1-flash' }));
   const resolvedWithSubagent = resolveModel('m', withSubagent);
-  assert(resolvedWithSubagent.subagentModel === 'glm-5.3-flash', 'resolveModel 把合法的 subagentModel 原样透传出来');
+  assert(resolvedWithSubagent.subagentModel === 'deepseek-v4.1-flash', 'resolveModel 把合法的 subagentModel 原样透传出来');
 
   for (const maxOutputTokens of [0, -1, 1.5, '16000', null]) {
     assertThrows(
@@ -441,11 +441,11 @@ const envWithSubagent = buildIsolatedEnv({
   baseURL: 'https://gw.invalid',
   apiKey: FAKE_TASK_KEY,
   authHeader: 'x-api-key',
-  subagentModel: 'glm-5.3-flash',
+  subagentModel: 'deepseek-v4.1-flash',
 });
 assert(envWithSubagent.CLAUDE_CODE_SUBAGENT_MODEL === 'sonnet', '配了 subagentModel 时,子进程环境里 CLAUDE_CODE_SUBAGENT_MODEL 被设成一个 Claude Code 本地认识的档位别名');
 assert(
-  envWithSubagent.ANTHROPIC_DEFAULT_SONNET_MODEL === 'glm-5.3-flash',
+  envWithSubagent.ANTHROPIC_DEFAULT_SONNET_MODEL === 'deepseek-v4.1-flash',
   'ANTHROPIC_DEFAULT_SONNET_MODEL 把那个别名解析到 subagentModel 配置的真实网关模型 ID',
 );
 
@@ -454,9 +454,9 @@ assert(envWithoutSubagent.CLAUDE_CODE_SUBAGENT_MODEL === undefined, '没配 suba
 assert(envWithoutSubagent.ANTHROPIC_DEFAULT_SONNET_MODEL === undefined, '没配 subagentModel 时不设置 ANTHROPIC_DEFAULT_SONNET_MODEL');
 
 // 7c. isolated-env.mjs:flag 层 settings 同样钉住这两个变量(结构性兜底,不依赖 project-trust 的黑名单)。
-const pinnedWithSubagent = buildPinnedSettings({ baseURL: 'https://gw.invalid', subagentModel: 'glm-5.3-flash' });
+const pinnedWithSubagent = buildPinnedSettings({ baseURL: 'https://gw.invalid', subagentModel: 'deepseek-v4.1-flash' });
 assert(pinnedWithSubagent.env.CLAUDE_CODE_SUBAGENT_MODEL === 'sonnet', 'flag 层 settings 同样钉住 CLAUDE_CODE_SUBAGENT_MODEL');
-assert(pinnedWithSubagent.env.ANTHROPIC_DEFAULT_SONNET_MODEL === 'glm-5.3-flash', 'flag 层 settings 同样钉住 ANTHROPIC_DEFAULT_SONNET_MODEL 的目标值');
+assert(pinnedWithSubagent.env.ANTHROPIC_DEFAULT_SONNET_MODEL === 'deepseek-v4.1-flash', 'flag 层 settings 同样钉住 ANTHROPIC_DEFAULT_SONNET_MODEL 的目标值');
 
 // 7d. project-trust.mjs:目标目录一旦想在自己的 settings.json 里设这两个变量,已有的
 // "env 块一个都不许设" 黑名单必须照样能拦下来(不是这次新加字段才需要专门开的口子)。
@@ -483,23 +483,23 @@ assert(
 
 // 7f. 部分兼容网关的成功 result 为空，但主 Agent assistant 消息已携带完整文本。
 // SDK 会把同一消息的 content block 分开发出；新消息和子 Agent 输出不能污染最终候选。
-let fallback = { messageId: null, text: '' };
-fallback = collectFallbackAssistantText(fallback, {
+let assistantCandidate = { messageId: null, text: '' };
+assistantCandidate = collectAssistantText(assistantCandidate, {
   type: 'assistant', parent_tool_use_id: null, message: { id: 'msg-1', content: [{ type: 'text', text: '第一段' }] },
 });
-fallback = collectFallbackAssistantText(fallback, {
+assistantCandidate = collectAssistantText(assistantCandidate, {
   type: 'assistant', parent_tool_use_id: null, message: { id: 'msg-1', content: [{ type: 'text', text: '第二段' }] },
 });
-assert(fallback.text === '第一段\n第二段', '同一主 Agent 消息的多个文本块按顺序完整聚合');
-fallback = collectFallbackAssistantText(fallback, {
+assert(assistantCandidate.text === '第一段\n第二段', '同一主 Agent 消息的多个文本块按顺序完整聚合');
+assistantCandidate = collectAssistantText(assistantCandidate, {
   type: 'assistant', parent_tool_use_id: 'tool-parent', message: { id: 'sub-msg', content: [{ type: 'text', text: '子 Agent 输出' }] },
 });
-assert(fallback.text === '第一段\n第二段', '子 Agent assistant 文本不覆盖主 Agent 回退候选');
-fallback = collectFallbackAssistantText(fallback, {
+assert(assistantCandidate.text === '第一段\n第二段', '子 Agent assistant 文本不覆盖主 Agent 文本候选');
+assistantCandidate = collectAssistantText(assistantCandidate, {
   type: 'assistant', parent_tool_use_id: null, message: { id: 'msg-2', content: [{ type: 'tool_use', name: 'Bash', input: {} }] },
 });
-assert(fallback.text === '', '新一轮只有工具调用时清空上一轮过程文本');
+assert(assistantCandidate.text === '', '新一轮只有工具调用时清空上一轮过程文本');
 assert(resolveSuccessfulResult('SDK 结果', 'assistant 结果') === 'SDK 结果', '非空 SDK result 保持原值');
-assert(resolveSuccessfulResult(' ', 'assistant 结果') === 'assistant 结果', '空白 SDK result 回退到最后一条 assistant 文本');
+assert(resolveSuccessfulResult(' ', 'assistant 结果') === 'assistant 结果', '空白 SDK result 取最后一条 assistant 文本');
 
 finish();

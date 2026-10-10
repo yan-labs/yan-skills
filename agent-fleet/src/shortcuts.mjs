@@ -12,7 +12,7 @@ export const MODEL_ALIASES = Object.freeze({
   fable: 'claude-fable',
 });
 
-const BOOLEAN_FLAGS = new Set(['quiet', 'verbose', 'low', 'review', 'json', 'full', 'expect-changes', 'judge', 'no-voice', 'detach', 'attach', 'no-wait', 'help']);
+const BOOLEAN_FLAGS = new Set(['quiet', 'verbose', 'low', 'review', 'json', 'full', 'expect-changes', 'judge', 'no-voice', 'no-subagents', 'subagents', 'detach', 'attach', 'no-wait', 'help']);
 
 export function splitShortArgs(argv) {
   const positionals = [];
@@ -48,4 +48,12 @@ export function shortRunOptions(command, argv) {
     systemPrompt: flags['system-prompt'],
     flags,
   };
+}
+
+// 固定产品边界，不判断执行失败原因。
+export function geminiBlocked(prompt, { expectChanges = false } = {}) {
+  prompt = prompt.split('\n## 允许读写/禁止\n', 1)[0];
+  const classification = prompt.match(/^归类[^\r\n]*/m)?.[0] ?? '';
+  return expectChanges || /编码|code|UI|前端实现/i.test(classification) ||
+    /(?:修改|改动|改|编辑|重写|创建|新增|删除|更新).{0,12}(?:文件|代码|源码|组件|\S+\.(?:mjs|js|ts|tsx|jsx|py|html|css|json))|写代码|实现.{0,12}(?:UI|界面|页面|功能)|(?:edit|modify|write|create|delete|update)\s+(?:\S+\s+){0,3}(?:files?|code|components?)|implement\s+(?:\S+\s+){0,3}(?:UI|code|component)/i.test(prompt);
 }

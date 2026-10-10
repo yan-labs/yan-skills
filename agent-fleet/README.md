@@ -4,15 +4,43 @@
 
 ```bash
 ln -sf /Users/kcsx/Project/kcsx/macmini/yan-skills/agent-fleet/bin/fleet ~/.local/bin/fleet
-fleet copy brief.md --cwd /path/to/project
-fleet code brief.md --cwd /path/to/project
-fleet judge state.txt questions.json
-fleet haiku brief.md   # Claude 官方端点，走每月 API 赠送额度；sonnet/opus/fable 同理
+fleet-go new fix --to gpt --auth local --write /path/to/project --goal "修复问题" --body task.md --dry-run
+fleet team  # 五产品能力、顺位链与可用性；只显示存在性/登录状态
 ```
+
+| 让谁做 | 适合什么 | 命令示例 | 派用者顺位参考 |
+|---|---|---|---|
+| `gpt` | 编码、调研、报告、只读复核；本机 Codex GPT-6.1 Sol | `fleet-go new fix --to gpt --auth local --goal "修复问题" --body task.md` | 网关 gpt-sol → Grok |
+| `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | code → 网关 gpt-sol → Grok → Gemini（仅文本） |
+| `grok` | 编码备选、调研、生图、生视频、成人题材、X 热点与实时讨论 | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | Claude 顺位下一档 Gemini（仅文本） |
+| `gemini` | 文案、翻译、摘要、批量机械任务（`--bulk`） | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | — |
+| `jev` | 分类、选择、打分等结构化判断 | `fleet-go new decide --to jev --goal "按正文判据分类" --body task.md` | — |
+
+`--to` 必填且仅接受上表五产品。`--review` 用于 GPT/Grok 只读复核，GPT `--low`；Claude `--tier haiku|sonnet|opus|fable`，默认 sonnet；Gemini `--bulk`；Grok `--model <id>` 与 `--subagents`。底层短命令仍保留，见 [Skill 命令速查](skill/SKILL.md#命令速查)。
 
 `brief.md` 也可以直接写成任务文本；默认当前目录、不限轮数、安静模式。`--verbose` 显示进度。短命令和模型对应关系见 [skill](skill/SKILL.md)。
 
 `fleet copy` 与 `fleet run --model kollab-gateway-copy` 自动原样前置 [文案语气规范](skill/references/copy-voice.md) 的 Paste-ready block；文件或块缺失会报错。brief 仍须提供事实清单、禁止项与输出格式。仅纯机械改写可用 `fleet copy brief.md --no-voice`（长命令同样支持）跳过语气块，其他通道保持不变。
+
+## 失败上报与派用者顺位参考
+
+失败上报给派用者：verdict 为 `fail`，结果文件和简报只记录执行者与档位、脱敏原始错误摘要（stderr 末尾、HTTP 状态、结构化错误）、已完成步骤、产物与 dirty 状态。fleet 不分类错误、不提供建议、不更换执行者。
+
+下面的顺位表只供派用者自行判断，代码不消费：
+- Claude 额度档：`claude → code → kollab-gateway-gpt-sol → grok → gemini`（Gemini 仅文本）。
+- GPT 档：`code → kollab-gateway-gpt-sol → grok`；GPT 档含本机 Codex 与网关 gpt-sol 两跳。
+
+派用者决定后，用 `fleet-go relaunch <name> --to <产品> [--tier haiku|sonnet|opus|fable]` 沿用同份 brief、`--name` 与 `--report` 重派。切换至网关 GPT 用底层 `fleet gpt brief.md --name <name> --report <report>`。Gemini 静态拒绝编码、UI 或带 `--expect-changes` 的任务；这是产品边界检查。成功任务不产生失败上报。
+
+## xAI Grok Build CLI
+
+```bash
+fleet grok-cli brief.md --cwd /path/to/project --name demo-grok --report /tmp/demo-grok.md
+fleet grok-cli brief.md --review --cwd /path/to/project
+fleet-go new demo-grok --to grok --auth local --goal "完成编码任务" --body brief.md --dry-run
+```
+
+`grok-cli` 使用本机 xAI 完整编码 Agent；`fleet grok` 仍使用 Kollab 网关单轮模型。先 `grok login --oauth`，模型默认取 `grok models`，可用 `--model` 覆盖。默认 workspace 沙箱并自动批准工具；`--review` 使用 read-only 且不加自动批准。默认 `--no-subagents`，显式 `--subagents` 才放开。支持相同的 detach/status/wait/tail/stop、日志与结果简报；不支持 fleet say/resume；失败只记录事实，上报派用者自行判断重派。安装与权限说明见 [Grok CLI](skill/references/grok-cli.md)。
 
 ## 默认独立运行：跨会话接续
 
@@ -89,7 +117,6 @@ Agent 能力去驱动它们的模型——你拿到的不是"一问一答",而�
 | `kollab-gateway-research` | 同上 | 同上,`model: "grok-4.7"` | 通用调研摘要用途 |
 | `kollab-gateway-bulk` | 同上 | 同上,`model: "gemini-3.5-flash-lite"` | 批量翻译/格式转换等机械任务用途,目录里响应最快的免费档模型之一 |
 | `kollab-gateway-gpt-sol` | Kollab | 线上托管网关，`model: "gpt-6-sol"` | GPT-6 Sol |
-| `kollab-gateway-gpt-luna` | Kollab | 同上，`model: "gpt-6-luna"` | GPT-6 Luna |
 | `kollab-gateway-deepseek` | Kollab | 同上，`model: "deepseek-v4.1-flash"` | DeepSeek V4.1 Flash；无需第三方 Key |
 | `jev` | Typesafe(JEV / System One) | `https://api.typesafe.ai/v1/systemone`,`Authorization: Bearer` 鉴权(`protocol: "typesafe-systemone"`,**不是** Anthropic Messages/OpenAI 协议) | ⚠️ **不支持 `run`/`run-many`**——它是结构化决策 API,不生成文本、不支持多轮工具调用,只能用下面「JEV / `judge` 子命令」一节的方式调用 |
 
@@ -151,7 +178,7 @@ node bin/agent-fleet.mjs judge --model jev --state-file state.txt --questions-fi
 
 | 任务类型 | 推荐模型 / 友好名字 | 理由 |
 |---|---|---|
-| 写代码 / 修 bug / 补测试 | 本机 Codex CLI 的 `gpt-6.1-sol`，默认 `medium`，简单任务 `low` | `fleet code` 在 Codex 缺失、登录失效或模型明确不支持时回退 GPT 托管别名；GLM 不作为编程默认 |
+| 写代码 / 修 bug / 补测试 | 本机 Codex CLI 的 `gpt-6.1-sol`，默认 `medium`，简单任务 `low` | 主力编码通道；失败上报派用者自行判断重派 |
 | 写作 / 翻译 / 调研 / 母语校对（写文档、写报告、核实资料） | `kollab-gateway-copy`(`gemini-3.8-flash`)或 `kollab-gateway`(默认同款) | 响应迅速、成本低，即用免第三方审批。长报告换 `gemini-3.1-pro`。**注意：实测 `gemini-3.8-flash` 做多文件代码改动容易跑满轮数零产出，绝对不要派它写代码** |
 | 批量翻译 / 格式转换 | `deepseek-v4.1-flash`(需配 `DEEPSEEK_API_KEY`)或 `kollab-gateway-bulk`(`gemini-3.5-flash-lite`,即用免配置) | 官方 Flash 档更便宜;没有 DeepSeek key 时 `kollab-gateway-bulk` 是免第三方审批的平替 |
 | 简单调研摘要 | `kimi`(需配 `MOONSHOT_API_KEY`,自带联网搜索)或 `kollab-gateway-research`(`grok-4.7`,即用免配置) | Kimi 官方端点自带联网检索能力,适合真正需要查资料的调研;不想等 key 审批时用 `kollab-gateway-research` 顶上 |
@@ -335,9 +362,7 @@ ANTHROPIC_DEFAULT_SONNET_MODEL=<subagentModel 的值>
 实际含义——一个 `models.config.json` 条目本来就只对应一个具体第三方模型。这样 Claude Code
 本地看到的是一个自己认识的档位别名(不会触发 unrecognized_model),而真正发给网关的请求体里
 `model` 字段是 `subagentModel` 配置的那个网关模型 ID。当前 `kollab-gateway*` 系列的
-`subagentModel` 默认指向 `glm-5.3-flash`(2026-09-23 已验证的、tool-calling 可靠的编程档位模型
-——子 agent 的典型工作正是读写文件、跑 bash 这类需要可靠工具调用的活,而不是随便选一个"更便宜"
-但没验证过工具调用可靠性的模型)。没配 `subagentModel` 的模型条目行为不变(子 agent 原样继承
+`subagentModel` 统一指向 `deepseek-v4.1-flash`；这是当前配置已有的同网关模型 ID。该映射的本地桩验证与真实网关验证应分别记录，不能把历史其他模型的调用当成新映射验收。没配 `subagentModel` 的模型条目行为不变(子 agent 原样继承
 主 model 字符串)。
 
 这两个变量同样受「目标工作目录不能改动本次运行的任何环境变量」那条闸门保护(见下面「安全边界」
@@ -352,7 +377,7 @@ ANTHROPIC_DEFAULT_SONNET_MODEL=<subagentModel 的值>
 
 ## 验证情况(如实说明)
 
-当前模型刷新：Grok 路由为 `grok-4.7`，已通过 agent-fleet 生产真实调用（返回 `4`，无控制 token）；GPT-6 Sol/Luna 与 DeepSeek V4.1 Flash 已通过 Kollab CLI 生产真实调用，新 agent-fleet 别名的相同托管配置已通过静态检查，尚未逐个运行 SDK。历史 Grok 4.6 验证仅对应当时版本。
+当前模型刷新：Grok 路由为 `grok-4.7`，已通过 agent-fleet 生产真实调用（返回 `4`，无控制 token）；GPT-6 Sol 与 DeepSeek V4.1 Flash 已通过 Kollab CLI 生产真实调用，新 agent-fleet 别名的相同托管配置已通过静态检查，尚未逐个运行 SDK。历史 Grok 4.6 验证仅对应当时版本。
 
 没有真实的 DeepSeek/Moonshot API key(也没有去别的项目"顺手"拿),所以**这两家官方端点没有做过真实
 模型的端到端验证**。`kollab-gateway` 是例外——它用的是 Kollab 产品自助生成的账号 key,不需要等第三方
@@ -371,17 +396,6 @@ ANTHROPIC_DEFAULT_SONNET_MODEL=<subagentModel 的值>
    都带真实的 `totalCostUsd`(从该 key 绑定的 Space 额度扣除)和 `sessionId`,确认请求真的经过
    `POST https://test.flowus.work/api/llm` 拿到了对应模型的真实响应,不是报错也不是 mock,返回内容
    里也没有出现裸的 tool-call 控制 token。
-
-   **`kollab-gateway-code`(GLM 5.3,2026-09-23 追加验证)**:用户要求给编程任务开例外前,先跑了
-   两次真实验证而不是只改配置。第一次是简单无工具调用请求(`--prompt "回复OK两个字,不要调用任何
-   工具"`),返回 `"ok": true`、`"result": "OK"`,`numTurns: 1`,`totalCostUsd: 0.09276`。第二次是
-   真实的多轮工具调用编程任务(在临时目录里让它写 `add.js` 导出加法函数,再写一个跑
-   `add(2,3)===5` 断言的脚本),`numTurns: 3`,`totalCostUsd: 0.1361`,人工 `cat` 检查了生成的
-   `add.js`/`test.js` 内容合理,并且亲自用 `node test.js` 实跑一遍确认真的打印 `PASS`、退出码 0——
-   不是只看 agent-fleet 自报的 `"ok": true`。两次调用的完整输出都人工过了一遍,均未出现任何裸露的
-   tool-call 控制 token(如 `<tool_call>`、`<minimax:tool_call>`、`<|tool_calls_section_begin|>`
-   等)。**注意范围**:这只验证了 `glm-5.3-flash` 这一个模型,不代表 Kimi/DeepSeek/Qwen 家族的
-   同类风险已被排除,那几个家族仍按原结论处理。
 
    **`jev`(Typesafe System One,2026-09-25 接入并真实验证)**:先读了 <https://docs.typesafe.ai/>
    全部相关页面(`introduction/quickstart`、`concepts/system-one`、`api`、`models`、
@@ -405,25 +419,7 @@ ANTHROPIC_DEFAULT_SONNET_MODEL=<subagentModel 的值>
    dbreunig/building-with-jev-skill、kerpopule/hermes-jev-skills),结论和用法要点见上面
    「JEV / `judge` 子命令」一节,完整能力摸底报告见任务产出的 `jev-capabilities.md`。
 
-   **子 agent 模型映射(2026-09-26,修复 unrecognized_model 崩溃)**:先在历史日志里确认过真实
-   崩溃(`~/.agent-fleet/runs/2026-09-26T01-50-12-213Z-kollab-gateway-copy.log`:`tool=Agent`
-   前台同步调用后,`[claude-code:unrecognized_model] {"model":"gemini-3.8-flash",
-   "query_source":"sdk"}`,随后整个进程被 SIGKILL)。修复前用同样"派前台子 agent、子 agent 自己
-   跑多轮 Bash/Read 工具调用"的任务节奏对 `kollab-gateway-code`/`kollab-gateway-copy` 各重跑了
-   几次,**没能在修复前的多次尝试里重新触发这个崩溃**——如实记录:这说明触发条件不是每次必现,
-   而是和具体任务节奏/上游响应有关,不能拿"这次没崩"当作"问题不存在"的证据。改用直接读已安装 SDK
-   原生二进制字符串常量定位根因(`oZ()`/`gee()`/`tO()` 三个函数,细节见上面「子 agent 模型映射」
-   一节),给 `models.config.json` 加 `subagentModel` 字段、在 `src/isolated-env.mjs` 里落地
-   `CLAUDE_CODE_SUBAGENT_MODEL`+`ANTHROPIC_DEFAULT_SONNET_MODEL` 之后,分别对
-   `kollab-gateway-code`(`glm-5.3-flash`)和 `kollab-gateway-copy`(`gemini-3.8-flash`)各做了
-   一次真实调用(前台同步 Agent、子 agent 自己跑 Bash 写文件→Read→Bash 校验字节数,和崩溃时的
-   工具调用模式一致),两次都拿到 `"ok": true`、`numTurns: 2`,日志里能看到完整的
-   `tool=Agent`→`tool=Bash`→`tool=Read`→`tool=Bash`→`done ok` 序列,过程中直接 `ps` 查看真实
-   spawn 出来的原生 CLI 子进程命令行,确认 `--settings` 参数里确实带着
-   `"CLAUDE_CODE_SUBAGENT_MODEL":"sonnet"` 和 `"ANTHROPIC_DEFAULT_SONNET_MODEL":"glm-5.3-flash"`
-   ——这是比"这次没崩"更直接的证据:映射确实落到了发给 Claude Code 的真实参数里,不依赖崩溃是否
-   复现。另外补了单元测试(`test/security-unit-test.mjs` 第 7 节)锁定这两个变量的赋值逻辑和
-   flag 层钉定,补了 `test/smoke-test.mjs` 的真实请求体断言(见下面第 2 条)。
+   **子 agent 模型映射**：历史 `kollab-gateway-copy` 任务曾因子 agent 继承网关模型 ID 触发本地 `unrecognized_model`。当前通过 `CLAUDE_CODE_SUBAGENT_MODEL=sonnet` 与 `ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4.1-flash` 映射到同网关模型；本地假上游测试核对环境与请求体。历史成功调用不等于此映射已完成真实网关验收。
 
 1. **代码能正常跑**:`--help`、`--version`、`list-models`、缺参数/缺密钥/未知模型等错误路径都手动
    跑过,报错信息清晰可操作。
@@ -566,6 +562,6 @@ agent-fleet 会把 `CLAUDE_CONFIG_DIR` 指向自己专属的 `~/.agent-fleet/cla
 
 ## fleet-go 快速派单
 
-`fleet-go new fix-card --kind code --auth local --goal "修复窄屏卡片溢出" --write /path/to/project --body task.md` 自动拼标准块、lint、写 brief 并前台执行 fleet；也支持 heredoc 正文。`--dry-run` 只打印，`--no-launch` 只落盘。块在 `skill/templates/blocks/`，可直接编辑；paid 必须传 `--budget`，生产目标与回滚条件写在独有正文。
+`fleet-go new fix-card --to gpt --auth local --goal "修复窄屏卡片溢出" --write /path/to/project --body task.md` 按产品自动拼标准块、lint、写 brief 并前台执行 fleet；也支持 heredoc 正文。`--dry-run` 只打印，`--no-launch` 只落盘。块在 `skill/templates/blocks/`，可直接编辑；paid 必须传 `--budget`，生产目标与回滚条件写在独有正文。
 
 修订用 `fleet-go amend fix-card "补充要求"`；优先 `--say`，不支持插话则保留修订并提示，确需重来才用 `--restart`（先 stop 并核验残留）。`fleet-go lint brief.md` 检查格式与启动禁令；`fleet-go status` 给运行摘要。brief 和用于恢复命令的 `.brief.json` 放在 `~/.agent-reports/<日期>/`，同名拒绝覆盖。启动仍用工具 `run_in_background:true`，脚本不后台化。需要 Python 3，无新增 npm 依赖。

@@ -39,7 +39,7 @@
     "model": "gemini-3.8-flash",
     "apiKeyEnv": "KOLLAB_PROD_API_KEY",
     "authHeader": "x-api-key",
-    "subagentModel": "glm-5.3-flash"
+    "subagentModel": "deepseek-v4.1-flash"
   },
   "kollab-gateway-copy": {
     "description": "Kollab 网关,文案/创意用途:批量营销文案、社媒帖子、标题党变体、创意头脑风暴等对准确性要求不高、追求速度和多样性的写作任务。模型 gemini-3.8-flash,paidOnly=false。和默认 kollab-gateway 当前指向同一个模型,单独命名是为了不依赖默认值以后可能的调整,任务里显式写 --model kollab-gateway-copy 更稳。",
@@ -48,7 +48,7 @@
     "model": "gemini-3.8-flash",
     "apiKeyEnv": "KOLLAB_PROD_API_KEY",
     "authHeader": "x-api-key",
-    "subagentModel": "glm-5.3-flash"
+    "subagentModel": "deepseek-v4.1-flash"
   },
   "kollab-gateway-research": {
     "description": "Kollab 网关,通用调研摘要与常规编程用途。模型 grok-4.7,paidOnly=false。",
@@ -57,7 +57,7 @@
     "model": "grok-4.7",
     "apiKeyEnv": "KOLLAB_PROD_API_KEY",
     "authHeader": "x-api-key",
-    "subagentModel": "glm-5.3-flash"
+    "subagentModel": "deepseek-v4.1-flash"
   },
   "kollab-gateway-bulk": {
     "description": "Kollab 网关,批量机械任务用途:大批量翻译、格式转换、结构化抽取一类模式化、对模型能力要求不高的任务,优先图快图省。模型 gemini-3.5-flash-lite,paidOnly=false,是目录里响应最快的免费档模型之一。",
@@ -66,16 +66,7 @@
     "model": "gemini-3.5-flash-lite",
     "apiKeyEnv": "KOLLAB_PROD_API_KEY",
     "authHeader": "x-api-key",
-    "subagentModel": "glm-5.3-flash"
-  },
-  "kollab-gateway-code": {
-    "description": "Kollab 网关,编程任务例外用途:用户 2026-09-23 定调,GLM 5.3 经真实两轮验证(简单无工具调用请求 + 多轮工具调用编程任务,均未出现裸露 tool-call 控制 token)后开例外,允许编程类任务路由到这里。模型 glm-5.3-flash(`kollab model list` 确认的精确 ID,网关目录里没有不带后缀的 glm-5.3,这是唯一对应 5.3 版本的条目),paidOnly=false。即便通过验证,一旦某次实际输出中出现裸 tool-call 控制 token(如 <tool_call>、<minimax:tool_call> 等)仍应视为那次失败,不代表这条例外永久有效,需持续观察。",
-    "baseURL": "https://kollab.im/api/llm",
-    "maxOutputTokens": 16000,
-    "model": "glm-5.3-flash",
-    "apiKeyEnv": "KOLLAB_PROD_API_KEY",
-    "authHeader": "x-api-key",
-    "subagentModel": "glm-5.3-flash"
+    "subagentModel": "deepseek-v4.1-flash"
   },
   "jev": {
     "description": "Typesafe 的 JEV / System One 结构化决策 API(文档 https://docs.typesafe.ai/,2026-09-25 核实)。protocol 是 typesafe-systemone,不是 Anthropic Messages 也不是 OpenAI 协议——每次调用传一段 state(文本/JSON)+ 若干类型化 questions(noul=是否概率、choice=多选一+置信度、score=打分),返回校准过的结构化答案,官方原话:'System One models do not write replies, produce code, or generate explanations of their reasoning.' 真实测过 POST https://api.typesafe.ai/v1/messages 返回 404,证实它没有实现 Anthropic Messages 协议,所以**不支持** run/run-many(委派不了完整任务),只能用 `judge` 子命令按它自己的协议调用。只吃纯文本/结构化数据,不支持图片(真实测试:塞一张 1x1 PNG 的 base64 进去,noul 只返回 0.01,和文档'no image input'的说明一致)。真实验证(26 次调用,总成本约 $0.0004,见 README「JEV 验证记录」):结构化抽取/工单路由打分、爬取网页文本后分类打分、浏览器下一步动作选择(choice,复刻 wy-coliney/jev-browser-use 的用法)均正确出结果;同一输入连打 20 次高度稳定(noul 波动 0.01,score 波动 0.12/满量程3);'写一句俳句'之类的生成型请求会被降级成一个 0-1 概率而不是真的生成文本,进一步印证它结构性不会生成内容。适合:预定义分类/路由/打分/二元判断这类离散决策(尤其是多步骤 Agent 循环里的判断节点,替代'让通用 LLM 读完再判断');不适合:代码生成、开放式写作、总结、多轮工具调用、图片/浏览器操作本身(那些要交给另一个生成式模型或固定代码,JEV 只做决策层)。",
@@ -92,16 +83,7 @@
     "model": "gpt-6-sol",
     "apiKeyEnv": "KOLLAB_PROD_API_KEY",
     "authHeader": "x-api-key",
-    "subagentModel": "glm-5.3-flash"
-  },
-  "kollab-gateway-gpt-luna": {
-    "description": "Kollab 托管网关，轻量摘要与批量任务。模型 gpt-6-luna；费用从已有账号绑定的 Space 扣除。",
-    "baseURL": "https://kollab.im/api/llm",
-    "maxOutputTokens": 16000,
-    "model": "gpt-6-luna",
-    "apiKeyEnv": "KOLLAB_PROD_API_KEY",
-    "authHeader": "x-api-key",
-    "subagentModel": "glm-5.3-flash"
+    "subagentModel": "deepseek-v4.1-flash"
   },
   "kollab-gateway-deepseek": {
     "description": "Kollab 托管网关，低成本摘要与批量任务。模型 deepseek-v4.1-flash；费用从已有账号绑定的 Space 扣除。",
@@ -110,10 +92,10 @@
     "model": "deepseek-v4.1-flash",
     "apiKeyEnv": "KOLLAB_PROD_API_KEY",
     "authHeader": "x-api-key",
-    "subagentModel": "glm-5.3-flash"
+    "subagentModel": "deepseek-v4.1-flash"
   },
   "claude-haiku": {
-    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Haiku 5.5:摘要、分类、验收、机械批量,最便宜。额度用完且无充值时请求会被拒,不会扣订阅;不要改派别的模型,停下问用户。",
+    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Haiku 5.5:摘要、分类、验收、机械批量,最便宜。额度用完且无充值时请求会被拒,不会扣订阅;失败只如实上报给派用者，由派用者自行判断并用 relaunch --to 重派。",
     "baseURL": "https://api.anthropic.com",
     "model": "claude-haiku-5-5",
     "apiKeyEnv": "ANTHROPIC_CREDIT_API_KEY",
@@ -121,7 +103,7 @@
     "subagentModel": "claude-haiku-5-5"
   },
   "claude-sonnet": {
-    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Sonnet 5.5:需要判断力的实现、调研、review。额度用完且无充值时请求会被拒,不会扣订阅;不要改派别的模型,停下问用户。",
+    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Sonnet 5.5:需要判断力的实现、调研、review。额度用完且无充值时请求会被拒,不会扣订阅;失败只如实上报给派用者，由派用者自行判断并用 relaunch --to 重派。",
     "baseURL": "https://api.anthropic.com",
     "model": "claude-sonnet-5-5",
     "apiKeyEnv": "ANTHROPIC_CREDIT_API_KEY",
@@ -129,7 +111,7 @@
     "subagentModel": "claude-sonnet-5-5"
   },
   "claude-opus": {
-    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Opus 5.5:深度判断,谨慎使用。额度用完且无充值时请求会被拒,不会扣订阅;不要改派别的模型,停下问用户。",
+    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Opus 5.5:深度判断,谨慎使用。额度用完且无充值时请求会被拒,不会扣订阅;失败只如实上报给派用者，由派用者自行判断并用 relaunch --to 重派。",
     "baseURL": "https://api.anthropic.com",
     "model": "claude-opus-5-5",
     "apiKeyEnv": "ANTHROPIC_CREDIT_API_KEY",
@@ -137,7 +119,7 @@
     "subagentModel": "claude-opus-5-5"
   },
   "claude-fable": {
-    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Fable 5.1:方向不明时的顾问判断,谨慎使用。额度用完且无充值时请求会被拒,不会扣订阅;不要改派别的模型,停下问用户。",
+    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Fable 5.1:方向不明时的顾问判断,谨慎使用。额度用完且无充值时请求会被拒,不会扣订阅;失败只如实上报给派用者，由派用者自行判断并用 relaunch --to 重派。",
     "baseURL": "https://api.anthropic.com",
     "model": "claude-fable-5-1",
     "apiKeyEnv": "ANTHROPIC_CREDIT_API_KEY",

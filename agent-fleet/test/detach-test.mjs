@@ -52,6 +52,9 @@ writeFileSync(cfg, JSON.stringify({ stub: { model: 'stub-gemini', baseURL:'http:
 const env = { ...process.env, FLEET_TEST_SLEEP:'1', FLEET_TEST_EXIT:'0', AGENT_FLEET_RUNS_DIR:runs, FLEET_CODEX_BIN:stub,
   FLEET_TEST_PIDS:join(scratch,'pids'), FLEET_TEST_RESULT:join(scratch,'gateway-result'),
   FLEET_TEST_KEY:'fake-test-key', NODE_OPTIONS:`--no-warnings --experimental-loader=${pathToFileURL(loader).href}` };
+// 测试启动器不能继承宿主 fleet 的执行器身份。
+delete env.FLEET_DETACHED_RUN_ID;
+delete env.FLEET_DETACHED_BATCH;
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
 function cliRun(args, extra={}) {
   return new Promise((r,reject)=>{

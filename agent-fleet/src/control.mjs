@@ -42,7 +42,7 @@ export function collectStatus({ cwd } = {}) {
     if (!alive && !rec.finished) state = 'abnormal';
     else if (rec.finished) {
       const log = rec.logPath && existsSync(rec.logPath) ? readFileSync(rec.logPath, 'utf8') : '';
-      state = /\] done error/.test(log) ? 'failed' : 'done';
+      state = rec.verdict ? rec.verdict === 'ok' ? 'done' : 'failed' : /\] done error/.test(log) ? 'failed' : 'done';
     }
     rows.push({
       runId: rec.runId,
@@ -76,6 +76,7 @@ export function deliverSay(spec, text, { cwd } = {}) {
   const runId = resolveRunId(spec, cwd);
   const rec = readPidRecord(runId);
   if (!rec) throw new Error(`找不到任务 ${runId} 的 pid.json`);
+  if (rec.model?.startsWith('grok-cli:')) throw new Error('Grok CLI 任务不支持 fleet say；请 stop 后重新派发。');
   if (rec.model === 'gpt-6.1-sol') throw new Error('Codex 任务不支持 fleet say；请 stop 后重新派发。');
   if (rec.finished || !isPidAlive(rec.pid)) {
     throw new Error(`任务 ${runId} 已不在运行,无法投递插话。`);

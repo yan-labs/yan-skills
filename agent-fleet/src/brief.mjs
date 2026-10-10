@@ -79,16 +79,57 @@ export function previewLines(text, n = DEFAULT_BRIEF_LINES) {
  * @param {string} logPath
  * @param {{ newCommits: string[], hasUncommittedChanges: boolean }} gitInfo
  */
-export function attachArtifacts(result, logPath, gitInfo) {
-  const body = result?.result ?? result?.error ?? '';
-  const resultPath = writeResultFile(logPath, body);
+export function redactEvidence(value) {
+  const redactText = text => {
+    for (const [name, secret] of Object.entries(process.env)) {
+      if (/(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(name) && secret?.length >= 4) text = text.split(secret).join('[REDACTED]');
+    }
+    return text.replace(/\b(?:Bearer\s+|sk-)[\w.+/=-]+/gi, '[REDACTED]')
+      .replace(/((?:api[_-]?key|token|password|secret|authorization)["']?\s*[:=]\s*["']?)[^\s,"'}]+/gi, '$1[REDACTED]');
+  };
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); }
+    catch { return redactText(value); }
+  }
+  return JSON.stringify(value ?? null, (key, item) =>
+    /(?:api[_-]?key|token|password|secret|authorization)$/i.test(key) ? '[REDACTED]'
+      : typeof item === 'string' ? redactText(item) : item);
+}
+
+export function failureReport(result) {
+  if (result?.ok) return null;
+  const tail = value => redactEvidence(value).split(/\r?\n/).slice(-20).join('\n').slice(-4000);
   return {
+    executor: result?.model ?? null,
+    tier: result?.tier ?? result?.resolvedModel ?? result?.model ?? null,
+    error: result?.error ? tail(result.error) : null,
+    ...(result?.stderr ? { stderr: tail(result.stderr) } : {}),
+    ...(result?.httpStatus !== undefined ? { httpStatus: result.httpStatus } : {}),
+    ...(result?.errorObject ? { errorObject: JSON.parse(redactEvidence(result.errorObject)) } : {}),
+    ...(result?.errors?.length ? { errors: JSON.parse(redactEvidence(result.errors)) } : {}),
+    progress: result?.progress ? JSON.parse(redactEvidence(result.progress)) : { phase: result?.subtype ?? '执行结束', numTurns: result?.numTurns ?? null, stopReason: result?.stopReason ?? null },
+    artifacts: { resultPath: result?.resultPath ?? null, logPath: result?.logPath ?? null, newCommits: result?.newCommits ?? [] },
+    dirty: Boolean(result?.hasUncommittedChanges),
+  };
+}
+
+export function attachArtifacts(result, logPath, gitInfo) {
+  const output = {
     ...result,
     logPath: logPath ?? null,
-    resultPath,
+    resultPath: resultPathFromLog(logPath),
     newCommits: gitInfo?.newCommits ?? [],
     hasUncommittedChanges: Boolean(gitInfo?.hasUncommittedChanges),
   };
+  if (!output.ok) {
+    for (const key of ['error', 'stderr', 'errors', 'errorObject', 'progress', 'result']) {
+      if (output[key] !== undefined) output[key] = typeof output[key] === 'string' ? redactEvidence(output[key]) : JSON.parse(redactEvidence(output[key]));
+    }
+    output.failureReport = failureReport(output);
+  }
+  const body = output.result ?? output.error ?? '';
+  writeResultFile(logPath, output.failureReport ? `${redactEvidence(body)}\n\n## 失败事实\n${JSON.stringify(output.failureReport, null, 2)}\n` : body);
+  return output;
 }
 
 /**
@@ -128,7 +169,7 @@ export function buildBrief(result, { briefLines = DEFAULT_BRIEF_LINES, expectCha
     ok: Boolean(result?.ok),
     subtype: result?.subtype ?? null,
     result: result?.result ?? null,
-    error: result?.error ?? (Array.isArray(result?.errors) && result.errors.length ? result.errors.join('; ') : null),
+    error: result?.error ? redactEvidence(result.error) : (Array.isArray(result?.errors) && result.errors.length ? redactEvidence(result.errors.join('; ')) : null),
     expectChanges,
     hasNewCommits: (result?.newCommits ?? []).length > 0,
     hasUncommittedChanges: Boolean(result?.hasUncommittedChanges),
@@ -136,11 +177,11 @@ export function buildBrief(result, { briefLines = DEFAULT_BRIEF_LINES, expectCha
     stopped: Boolean(result?.stopped),
   });
 
-  const preview = previewLines(result?.result, briefLines);
+  const preview = previewLines(result?.ok ? result?.result : redactEvidence(result?.result ?? ''), briefLines);
   return {
     ok: Boolean(result?.ok),
-    verdict: judged.verdict,
-    verdictNote: judged.note ?? null,
+    verdict: !result?.ok && !result?.stopped ? 'fail' : judged.verdict,
+    verdictNote: !result?.ok ? null : judged.note ?? null,
     durationMs: result?.durationMs ?? null,
     sdkDurationMs: result?.sdkDurationMs ?? null,
     totalCostUsd: result?.totalCostUsd ?? null,
@@ -155,8 +196,8 @@ export function buildBrief(result, { briefLines = DEFAULT_BRIEF_LINES, expectCha
     resolvedModel: result?.resolvedModel ?? null,
     stopReason: result?.stopReason ?? null,
     subtype: result?.subtype ?? null,
-    error: result?.error ?? null,
-    fatal402: result?.fatal402 ?? false,
+    error: result?.error ? redactEvidence(result.error) : null,
+    ...(!result?.ok ? { failureReport: failureReport(result) } : {}),
     judgeSkipped: judge?.skipped ?? null,
     stopped: Boolean(result?.stopped),
     signal: result?.signal ?? null,
@@ -177,6 +218,8 @@ export function formatBriefHuman(brief) {
     `commits: ${commits}`,
     `dirty: ${brief.hasUncommittedChanges ? 'yes' : 'no'}  controlTokens: ${brief.hasControlTokens ? 'yes' : 'no'}`,
   ];
+  if (brief.model) lines.push(`model: ${brief.model}`);
+  if (brief.failureReport) lines.push(`失败事实: ${JSON.stringify(brief.failureReport)}`);
   if (brief.judgeSkipped) lines.push(`judge: ${brief.judgeSkipped}`);
   if (brief.resumedFrom) lines.push(`resumedFrom: ${brief.resumedFrom}`);
   if (brief.signal) lines.push(`signal: ${brief.signal}`);
@@ -200,7 +243,7 @@ export function formatFullHuman(result) {
     lines.push('-'.repeat(60));
     lines.push(result.result ?? '(没有文本结果)');
   } else {
-    lines.push(`错误: ${result.error ?? result.errors?.join('; ') ?? '未知错误'}`);
+    lines.push(`失败事实: ${JSON.stringify(failureReport(result))}`);
   }
   lines.push('='.repeat(60));
   return `${lines.join('\n')}\n`;
@@ -218,7 +261,7 @@ async function briefsFor(results, { briefLines, expectChanges, judge, config }) 
   const out = [];
   for (const result of results) {
     let judgeInfo = null;
-    if (judge) judgeInfo = await maybeJudge(result, config);
+    if (judge && result.ok) judgeInfo = await maybeJudge(result, config);
     out.push(buildBrief(result, { briefLines, expectChanges, judge: judgeInfo }));
   }
   return out;

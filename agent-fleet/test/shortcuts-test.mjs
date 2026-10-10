@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { createAsserter } from './assert-helper.mjs';
-import { MODEL_ALIASES, resolveBrief, shortRunOptions, splitShortArgs } from '../src/shortcuts.mjs';
+import { MODEL_ALIASES, resolveBrief, shortRunOptions, splitShortArgs, geminiBlocked } from '../src/shortcuts.mjs';
 import { runCode, reviewPrompt } from '../src/code-runner.mjs';
 import { DEFAULT_EXECUTOR_SYSTEM_PROMPT } from '../src/run-task.mjs';
 
@@ -13,6 +13,9 @@ const scratch = mkdtempSync(join(tmpdir(), 'fleet-shortcuts-'));
 const priorRunsDir = process.env.AGENT_FLEET_RUNS_DIR;
 process.env.AGENT_FLEET_RUNS_DIR = scratch;
 try {
+  for (const prompt of ['归类：编码\n复核', '实现 UI 页面', '修改文件 a.js']) assert(geminiBlocked(prompt), 'Gemini 底层静态拒绝编码/UI');
+  assert(geminiBlocked('摘要', { expectChanges: true }), 'Gemini 底层拒绝 expect-changes');
+  assert(!geminiBlocked('归类：Gemini 文本任务\n总结文章\n## 允许读写/禁止\n## 改动与产物 ← 文件路径'), 'Gemini 文本 brief 样板不误触发');
   const brief = join(scratch, 'brief.md');
   writeFileSync(brief, '来自文件的任务');
   for (const [alias, model] of Object.entries({
@@ -28,16 +31,8 @@ try {
   assert(splitShortArgs(['--review', brief]).positionals[0] === brief, '布尔选项在 brief 前也能解析');
   assert(DEFAULT_EXECUTOR_SYSTEM_PROMPT.includes('禁止调用 Agent/Task 工具，禁止转派任务'), '默认系统提示禁止转派');
   assert(reviewPrompt().includes('你是独立 reviewer'), 'review 模板来自唯一文档段落');
-  let fallbackCalls = 0;
-  const fallback = await runCode({
-    prompt: '不发送', cwd: scratch, codexBin: join(scratch, 'missing-codex'),
-    onFallback: (reason, prompt) => {
-      fallbackCalls++;
-      assert(reason === '找不到本机 codex' && prompt === '不发送', '缺少 codex 选择回退并保留 prompt');
-      return 'mock-gateway';
-    },
-  });
-  assert(fallback === 'mock-gateway' && fallbackCalls === 1, '回退只调用一次 mock 网关');
+  const missing = await runCode({ prompt: '不发送', cwd: scratch, codexBin: join(scratch, 'missing-codex') });
+  assert(!missing.ok && missing.errorObject.code === 'ENOENT', '缺少 codex 返回原始失败证据');
   const mockCodex = join(scratch, 'mock-codex');
   const captured = join(scratch, 'captured.txt');
   const capturedArgs = join(scratch, 'args.txt');

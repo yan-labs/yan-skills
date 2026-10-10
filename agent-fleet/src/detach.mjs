@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { runsDir } from './progress.mjs';
 import { assertSafeToSignal, isPidAlive, sameCwd, signalProcessTree, processCommand, collectDescendantPids, readPidPpidTable, readPidRecord, writePidRecord } from './pid.mjs';
-import { buildBrief, formatBriefHuman } from './brief.mjs';
+import { buildBrief, formatBriefHuman, redactEvidence, snapshotGit, inspectGit } from './brief.mjs';
 
 export const statePath = (id) => join(runsDir(), `${id}.json`);
 export function writeState(rec) {
@@ -166,9 +166,14 @@ export async function supervise(cli) {
     child.stdout.on('data', chunk => appendFileSync(rec.logPath, chunk));
     rec.stderr = '';
     child.stderr.setEncoding('utf8');
-    child.stderr.on('data', chunk => { rec.stderr += chunk.toString(); appendFileSync(rec.logPath, chunk); });
+    child.stderr.on('data', chunk => { const text = redactEvidence(chunk.toString()); rec.stderr += text; appendFileSync(rec.logPath, text); });
     child.on('message', msg => {
-      if (msg.brief) summary = msg.brief;
+      if (msg.brief) {
+        summary = msg.brief;
+        if (!Array.isArray(summary)) {
+          rec.model = summary.model ?? rec.model;
+        }
+      }
       if (msg.output !== undefined) output = msg.output;
       if (msg.resultText !== undefined) writeFileSync(rec.resultPath, msg.resultText);
     });
@@ -184,29 +189,37 @@ export async function supervise(cli) {
     const { code, signal } = await outcome;
     // 执行器退出也清掉它留下的进程组/子孙，终态不留下后台子任务。
     forceStop();
-    rec.brief = summary ?? buildBrief({ ok: false, error: `执行进程退出 ${code ?? signal}`,
+    rec.brief = summary ?? buildBrief({ ...failureFacts(rec), ok: false, progress: { phase: '执行进程结束', exitCode: code, signal }, error: `执行进程退出 ${code ?? signal}`,
       durationMs: Date.now() - Date.parse(rec.startedAt), resultPath: rec.resultPath, logPath: rec.logPath });
     rec.output = output;
     if (stopping) rec.brief = { ...rec.brief, ok: false, verdict: 'stopped', stopped: true };
     rec.verdict = Array.isArray(rec.brief) ? rec.brief.every(b => b.verdict === 'ok') ? 'ok' : 'fail' : rec.brief.verdict;
-    rec.exitCode = rec.verdict === 'ok' ? 0 : rec.brief.fatal402 ? 2 : 1;
+    rec.exitCode = rec.verdict === 'ok' ? 0 : 1;
     rec.status = stopping ? 'stopped' : rec.verdict === 'ok' ? 'done' : 'failed';
   } catch (err) {
     if (child?.pid) forceStop();
     rec.status = stopping ? 'stopped' : 'failed';
     rec.verdict = stopping ? 'stopped' : 'fail';
     rec.exitCode = 1;
-    rec.error = err.message;
-    console.error(err.message);
+    rec.error = redactEvidence(err.message);
+    rec.brief = buildBrief({ ...failureFacts(rec), ok: false, error: rec.error, progress: { phase: '监督进程' }, resultPath: rec.resultPath, logPath: rec.logPath });
+    console.error(rec.error);
   } finally {
     clearInterval(timer);
     clearTimeout(killTimer);
     rec.finishedAt = new Date().toISOString();
     if (!existsSync(rec.resultPath)) writeFileSync(rec.resultPath, rec.error ?? '任务被停止，未生成结果。\n');
+    if (!summary && rec.brief?.failureReport) writeFileSync(rec.resultPath, `${redactEvidence(readFileSync(rec.resultPath, 'utf8'))}\n\n## 失败事实\n${JSON.stringify(rec.brief.failureReport, null, 2)}\n`);
     beat();
     appendFileSync(rec.logPath, `[agent-fleet] done ${rec.status === 'done' ? 'ok' : 'error'}\n`);
     if (process.connected) process.disconnect();
   }
+}
+
+function failureFacts(rec) {
+  return { model: rec.model, tier: rec.brief?.failureReport?.tier ?? rec.model, stderr: rec.stderr,
+    resultPath: rec.resultPath, logPath: rec.logPath,
+    ...inspectGit(rec.cwd, snapshotGit(rec.cwd)) };
 }
 
 export async function waitDetached(spec, { cwd, timeout, originalOutput = false } = {}) {
@@ -217,9 +230,9 @@ export async function waitDetached(spec, { cwd, timeout, originalOutput = false 
     if (!rec) throw new Error(`找不到 detach 任务 ${id}`);
     const state = detachedState(rec);
     if (state !== 'running') {
-      const brief = state === 'abnormal' ? buildBrief({ ok: false,
+      const brief = state === 'abnormal' ? buildBrief({ ...failureFacts(rec), ok: false,
         error: `异常终止；最后心跳 ${rec.heartbeatAt}`, resultPath: rec.resultPath, logPath: rec.logPath })
-        : rec.brief ?? buildBrief({ ok: false, stopped: state === 'stopped', error: rec.error,
+        : rec.brief ?? buildBrief({ ...failureFacts(rec), ok: false, stopped: state === 'stopped', error: rec.error,
           resultPath: rec.resultPath, logPath: rec.logPath });
       if (originalOutput && rec.stderr) process.stderr.write(rec.stderr);
       process.stdout.write(originalOutput && rec.output !== undefined && !['abnormal', 'stopped'].includes(state) ? rec.output : Array.isArray(brief) ? brief.map((b, i) => `--- task ${i + 1} ${b.model ?? ''} ---\n${formatBriefHuman(b)}`).join('\n') : formatBriefHuman(brief));
@@ -250,9 +263,10 @@ export async function stopDetached(rec) {
     killGroup(rec.childPid, 'SIGKILL');
     rec.status = 'stopped'; rec.verdict = 'stopped'; rec.exitCode = 1;
     rec.finishedAt = new Date().toISOString();
-    rec.brief = buildBrief({ ok: false, stopped: true, error: '监督进程异常退出后停止执行器',
+    rec.brief = buildBrief({ ...failureFacts(rec), ok: false, stopped: true, error: '监督进程异常退出后停止执行器',
       resultPath: rec.resultPath, logPath: rec.logPath, durationMs: Date.now() - Date.parse(rec.startedAt) });
-    if (!existsSync(rec.resultPath)) writeFileSync(rec.resultPath, '监督进程异常退出后停止任务，未生成结果。\n');
+    const body = existsSync(rec.resultPath) ? readFileSync(rec.resultPath, 'utf8') : '监督进程异常退出后停止任务，未生成结果。\n';
+    writeFileSync(rec.resultPath, `${redactEvidence(body)}\n\n## 失败事实\n${JSON.stringify(rec.brief.failureReport, null, 2)}\n`);
     writeState(rec);
     appendFileSync(rec.logPath, '[agent-fleet] done error stopped\n');
     return { runId: rec.runId, signaled: true, exited: !isPidAlive(rec.childPid) };

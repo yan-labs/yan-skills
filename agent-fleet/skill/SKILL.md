@@ -5,9 +5,19 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 
 # agent-fleet
 
+| 让谁做 | 适合什么 | 命令示例 | 派用者顺位参考 |
+|---|---|---|---|
+| `gpt` | 编码、调研、报告、只读复核；本机 Codex GPT-6.1 Sol | `fleet-go new fix --to gpt --auth local --goal "修复问题" --body task.md` | 网关 gpt-sol → Grok |
+| `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | code → 网关 gpt-sol → Grok → Gemini（仅文本） |
+| `grok` | 编码备选、调研、生图、生视频、成人题材、X 热点与实时讨论 | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | Claude 顺位下一档 Gemini（仅文本） |
+| `gemini` | 文案、翻译、摘要、批量机械任务（`--bulk`） | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | — |
+| `jev` | 分类、选择、打分等结构化判断 | `fleet-go new decide --to jev --goal "按正文判据分类" --body task.md` | — |
+
+`fleet team` / `fleet-go team` 一屏检查五产品能力、顺位参考和可用性，只显示登录/凭据存在状态，不显示密钥或 token。
+
 > **派单前必读**
 > ⓪ **默认用 `fleet-go new` 派单**（见下「快速派单」）：只写任务独有的正文，归类行、REPORT 行、授权覆盖、已知坑、验收、逐字规则句由它自动补全。不要再手写整份 brief、也不要用 python 拼接旧 brief；手写 brief + `fleet code` 只留给需要完全自定义的少数情形。
-> ① 唯一正确写法：一条 Bash 调用，命令只含 `fleet-go new ...` 或 `fleet <子命令> brief.md ...`，工具参数 `run_in_background: true`（可重定向到输出文件）。
+> ① 唯一正确写法：一条 Bash 调用，命令只含 `fleet-go new ...` 、`fleet-go relaunch <name>` 或 `fleet <子命令> brief.md ...`，工具参数 `run_in_background: true`（可重定向到输出文件）。
 > ② 命令中一律禁止：末尾 `&`、`(... &)`、`> /dev/null 2>&1 &`、`nohup`、`setsid`、`disown`、`... & sleep`、`fleet ... && 别的命令 &`。
 > 这些写法会让任务脱离工具，没有完成通知，工具任务列表里也看不到。
 > ③ 补救：发现已经用错，或新会话接手未结束任务，**不要杀掉重派**；先 `fleet status --running --json`。
@@ -18,28 +28,32 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 一条 Bash 调用，工具参数 `run_in_background:true`，命令里不加 `&`；`fleet-go` 自身保持前台，完成即通知。正文只写独有内容（背景、要做的事、验收），其余样板自动带上。
 ```sh
 # 改代码（本地，不部署）
-fleet-go new fix-card --kind code --auth local --write /path/to/project --goal "修复卡片布局" <<'BRIEF'
+fleet-go new fix-card --to gpt --auth local --write /path/to/project --goal "修复卡片布局" <<'BRIEF'
 只修卡片在窄屏溢出；验收：现有构建通过，窄屏可完整阅读。
 BRIEF
 
 # 只读复核（checker）
-fleet-go new review-card --kind review --auth review --read /path/to/project --goal "复核 fix-card 的改动" <<'BRIEF'
+fleet-go new review-card --to gpt --review --auth review --read /path/to/project --goal "复核 fix-card 的改动" <<'BRIEF'
 对照 git diff 与 fix-card 报告，列必修项；结论写在最终回复里。
 BRIEF
 
 # 部署生产（授权边界与回滚条件占位由模板补全，正文写具体版本与回读清单）
-fleet-go new deploy-site --kind code --auth deploy-prod,readonly-web --goal "部署 <HEAD> 并回读" --body body.md
+fleet-go new deploy-site --to gpt --auth deploy-prod,readonly-web --goal "部署 <HEAD> 并回读" --body body.md
 
 # 花钱生成（必须带预算）
-fleet-go new gen-test --kind code --auth paid,local --budget "$1，失败最多重试 1 次" --goal "..." --body body.md
+fleet-go new gen-test --to gpt --auth paid,local --budget "$1，失败最多重试 1 次" --goal "..." --body body.md
 
 # 文案 / 调研
-fleet-go new page-copy --kind copy --goal "写 XX 页英文文案，正面表述" --body body.md
+fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述" --body body.md
 ```
-- `--kind`：`code`（默认执行者）、`review`（只读复核）、`research`、`copy`（Gemini）、`grok`、`haiku`、`sonnet`。`--auth` 可叠加（`local`、`readonly-web`、`deploy-prod`、`paid`、`review`）；`--write/--read` 写明允许读写的路径；`--forbid` 补充禁止项；`--pitfalls a,b` 选已知坑块（按 kind 有默认）；`--report` 缺省为 `~/.agent-reports/<日期>/<name>.md`。
+- `--to gpt|claude|grok|gemini|jev` 必填；`--tier haiku|sonnet|opus|fable` 仅 Claude，默认 sonnet；`--review` 用于 GPT/Grok，只读；GPT 可用 `--low`，Grok 可用 `--model <id>`、`--subagents`，Gemini 可用 `--bulk`。`--auth`、`--write/--read`、`--forbid`、`--pitfalls`、`--budget`、`--goal`、`--why`、`--report` 沿用，默认已知坑按产品选择。
+- `--make image` 叠加图片产物样板，不改变执行者：绝对输出目录、逐张编号文件名、尺寸比例、共享风格、`No text, no letters, no logos, no watermarks.`、做不出如实报告的逃生口、逐文件绝对路径/实际像素/字节数/alpha/方法回报。不得交占位图、ASCII、纯色块或下载图。GPT 使用 imagegen 的 Codex `image_gen`；Grok 使用内置 `image_gen` / `image_edit`，不传 model 参数。
+- `--make video` 仅 Grok，用内置 `image_to_video` / `reference_to_video`，不传 model 参数；ZDR/privacy 错误如实报告原因与处理方法，不交占位文件。
+- `--body body.md` 只接受现存文件路径；`--body -` 显式读取 stdin，也可以省略 `--body` 使用 heredoc。不存在的路径会明确报错。
+- 重新拉起已有任务：`fleet-go relaunch <name> [--to <产品>] [--tier <档位>]`，沿用唯一同名 brief、`--name` 和 `--report`，由派用者显式决定执行者；仍有未结束同名任务时拒绝重复派发。
 - **先预览再派**：`fleet-go new ... --dry-run`（只打印 brief，命令写 stderr）；`--no-launch` 只写 brief 不派发；`fleet-go lint brief.md` 检查样板（归类行、REPORT 行、逐字规则句、授权/禁止小节、密钥字面量）。
-- **改方向**：用 `fleet-go amend <name> "补充要求"`，它给 brief 顶部追加「修订 N」并（`--say`）尽量发给运行中的任务；运行中的 Codex 不支持 say 时会提示，此时才考虑 `--restart`（先 `fleet stop`、确认进程退净再重启）。**不要手工 kill 后重派，也不要用脚本拼接旧 brief。**
-- 看进度：`fleet-go status`（人读摘要，脱离启动的任务带 ⚠）；仍可用 `fleet status --running --json`。
+- **改方向**：用 `fleet-go amend <name> "补充要求"`，它给 brief 顶部追加「修订 N」并（`--say`）尽量发给运行中的任务；运行中的 Codex 不支持 say 时会提示，此时才考虑 `--restart`（只停止所选 run，按 runId/brief/`--name` 核验残留，最多等 60 秒、每 0.5 秒轮询，再走 `relaunch`；不按 cwd 判断。超时已确认 stopped 且无同一 runId 存活时告警并重新拉起，否则保留修订并报错）。**不要手工 kill 后重派，也不要用脚本拼接旧 brief。**
+- 看进度：`fleet-go status`（默认非终态及最近 1 小时，`--all` 查看全部本地历史；脱离启动的任务带 ⚠）；仍可用 `fleet status --running --json`。
 - 一个任务一次 Bash 调用；多个独立任务同一条消息里并行发多条 Bash。同一份共享工作树同一时刻只能有一个写入者的任务，别并发。
 - 已有 Claude Code 的 PreToolUse hook `~/.claude/hooks/check-fleet-launch.py`：命令里带 `fleet`/`fleet-go` 派单子命令又带 `&`、`nohup`、`setsid`、`disown` 会被直接拦下。
 - 标准块在 `skill/templates/blocks/`（规则句取自 `~/.claude/CLAUDE.md` §4.1、报告模板取自 §4.2），想调整样板改这里，不要改每份 brief。
@@ -48,10 +62,13 @@ fleet-go new page-copy --kind copy --goal "写 XX 页英文文案，正面表述
 
 ## 命令速查
 
+下表是保留的底层入口；新派单主推顶部的 `fleet-go new --to ...`。
+
 | 命令 | 用途 |
 |---|---|
 | `fleet copy brief.md` | Gemini 文案、翻译 |
 | `fleet grok brief.md` | Grok 调研 |
+| `fleet grok-cli brief.md [--review] [--model id]` | 本机 xAI 完整编码 Agent，默认禁止子代理；详见 [Grok CLI](references/grok-cli.md) |
 | `fleet web start/say/close/list`；兼容 `fleet web "问题" [--followup "追问" ...] [--close]` | 网页版 ChatGPT，少量串行问答 |
 | `fleet bulk brief.md` | Gemini 批量处理 |
 | `fleet gpt brief.md` | 托管 GPT 任务 |
@@ -76,86 +93,25 @@ fleet-go new page-copy --kind copy --goal "写 XX 页英文文案，正面表述
 `models.config.json` 的可选字段 `maxOutputTokens` 必须是正整数，限制该模型每次请求的最大输出 token 数；fleet 将它传为 `CLAUDE_CODE_MAX_OUTPUT_TOKENS`，未配置则沿用默认值。Kollab 网关条目统一设为 16000。
 Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定死，充值后要到下一个整点（UTC）才放开；期间用 `maxOutputTokens` 限制即可通过（仍须有足够预算）。
 
-## 启动方式（硬性，派单人自检）
+## 失败上报与派用者顺位参考
 
-见顶部「派单前必读」。
+失败上报给派用者：verdict 为 `fail`，结果文件和简报只记录执行者与档位、脱敏原始错误摘要（stderr 末尾、HTTP 状态、结构化错误）、已完成步骤、产物与 dirty 状态。fleet 不分类错误、不提供建议、不更换执行者。
 
-`fleet` 任务一律这样启动：**一条 Bash 调用，只放 `fleet ...` 这一条命令，用工具参数 `run_in_background: true`、`timeout: 7200000`**，输出用 `> 文件 2>&1` 重定向。**命令里绝不写结尾的 `&`、`nohup`、`disown`。**
+下面的顺位表只供派用者自行判断，代码不消费：
+- Claude 额度档：`claude → code → kollab-gateway-gpt-sol → grok → gemini`（Gemini 仅文本）。
+- GPT 档：`code → kollab-gateway-gpt-sol → grok`；GPT 档含本机 Codex 与网关 gpt-sol 两跳。
 
-```text
-Bash(command="fleet code brief.md --cwd <目录> > /tmp/<名>.out 2>&1", run_in_background=true, timeout=7200000)
-```
+派用者决定后，用 `fleet-go relaunch <name> --to <产品> [--tier haiku|sonnet|opus|fable]` 沿用同份 brief、`--name` 与 `--report` 重派。切换至网关 GPT 用底层 `fleet gpt brief.md --name <name> --report <report>`。Gemini 静态拒绝编码、UI 或带 `--expect-changes` 的任务；这是产品边界检查。成功任务不产生失败上报。
 
-默认独立运行（code/copy/grok/bulk/gpt/haiku/sonnet/opus/fable/run/run-many）：监督进程脱离派发者，launcher 等到终态才退出并给简报，关闭 Claude 不影响任务。`--detach` 兼容默认；脚本需立即返回用 `--no-wait`，旧前台行为用 `--attach`。可用 `--name <短名>`、`--report <路径>`；未传时从 brief 的“归类…”和 `REPORT:` 行提取。
+## 产品与任务边界
 
-**新会话先 `fleet status --running`（机器读取用 `--json`），有未结束任务就对每个 `fleet wait <id>` 发一条 Bash，`run_in_background:true`、`timeout:7200000` 接着等，不要重派。** `wait` / `tail` 可用短名或唯一 runId 前缀，终态 wait 立即返回；`latest` 是当前 cwd 最近任务。默认 status 跨目录列出非终态与最近24小时终态。
+按顶部五产品速查表派单。GPT 主力负责编码，Grok 可做备选与复核；文案、翻译、摘要交 Gemini，批量机械任务用 `--bulk`。Claude 用月度 API 额度，默认 sonnet；JEV 只做结构化判断，不生成自由文本。底层网关 GPT 与 DeepSeek、DeepSeek/Kimi 直连条目保留，可用 `fleet list-models` 核对。
 
-默认已脱离，不需要 `&` / nohup / disown；launcher 或 wait 退出才触发真实完成通知。
+文案遵守 [文案语气规范](references/copy-voice.md)，Gemini 自动注入，brief 给事实清单与禁止项；纯机械改写可用 `--no-voice`。编码与只读复核见 [Codex 编程与 review](references/codex-coding.md)。范围以本次 brief 的一个目标、授权与验收为准，相关改动可做，无关线索只列出。最终回复约 15 行，长内容写入 REPORT；退出码与实际验收分开记录。
 
-- 一个任务一次 Bash 调用；多个独立任务同一条消息里并行发多个 Bash 调用，不要在一条命令里串 `&`。
-- 核对：`fleet status --running --json` 能看到任务，且默认启动的 Bash 状态仍是 running。
-- 此前“误套 &”的旧坑：默认已脱离，不需要；用 `fleet wait <id>` 接上完成通知。
-- 重派进同一个 worktree 前先 `pgrep -fl 'codex exec.*<worktree>'`，杀 fleet 外壳不等于杀掉 codex。
+## 行动范围
 
-## 模型路由与任务边界
-
-写文案必须使用 `/marketing-psychology`、`/marketing-ideas`、`/write` 的原则并遵守 [references/copy-voice.md](references/copy-voice.md)，`fleet copy` 自动注入；写文案 brief 仍要给事实清单和禁止项。仅纯机械改写可用 `--no-voice` 跳过。
-
-大部分任务（编码、修 bug、补测试、调研、技术文档、报告、数据整理）优先 `fleet code`：本机 Codex `gpt-6.1-sol`，默认 medium，单文件且边界明确时用 `--low`。页面、营销和产品文案、翻译、多语言及母语校对一律 `fleet copy`，写能做什么和带来什么好处，不贬低竞品或用恐吓式对比。Grok 可分担擦边题材、其他调研或作为 GPT-6.1 Sol 备选；JEV 只做结构化判断。Claude 只做全局 CLAUDE.md §2 明确归它的任务。
-
-**Claude 侧任务优先走 `fleet haiku|sonnet|opus|fable`（每月 API 赠送额度），其次才是 Claude Code 的 `Agent` 工具（`executor-haiku/sonnet/opus/fable`，消耗 Claude App 订阅用量）。** 四个条目直连 `https://api.anthropic.com`，key 在 `.env` 的 `ANTHROPIC_CREDIT_API_KEY`，2026-10-08 实测 Haiku 一次小请求扣约 $0.01（Console 余额 $200→$199.99）；**fleet 简报里的 `cost` 对这四个条目是错的（高估十几倍），花费以 Console Settings > Billing 为准**。额度每个计费周期清零，用不完就浪费，所以同等任务先用它。只能走 `Agent` 工具的情况：任务需要本应用自带的工具（Browser pane、MCP 连接器、读其他会话、ccd_* 工具）或本机登录态；额度用完（402/拒绝）时**停下问用户**，不自动改派 Agent 工具或别的模型。brief 写法与 `fleet code` 相同（第一行「归类…」、`REPORT:` 行、逐字规则句，fleet 据此取短名和报告路径），Haiku 的能力范围与 brief 必写三样（产物定义、路径白名单、停止条件）以全局 `~/.claude/CLAUDE.md` §5 的 `haiku` 条为准。它接管主线程原本「太小不值得派 Codex、于是自己动手」的事，不替代 GPT-6.1 Sol 做编码主力，Gemini 仍是文案唯一出口。
-
-GPT-6.1 Sol 只做 brief 点名的事。除非逐项要求，不写测试或测试脚本、不先写测试、不加安全校验/防御代码/权限边界/输入校验/异常兜底、不重构或抽象封装、不加配置项、文档或注释、不改无关文件、不装依赖、不提交/推送/部署/发布、不调用外部写接口。已有测试和构建只在 brief 要求时运行；拿不准的事不做，最终回复用一行列「建议但未做」。未点名的产物算越界。brief 必须逐字包含：「只做本 brief 列出的事。不写测试、不加安全防护或边界校验、不重构、不做任何未点名的额外工作或 action；拿不准就不做，在回复里列一行建议。」
-
-GPT-6.1 Sol 走 ChatGPT 会员额度，按现有账号约定不额外花钱；其 brief 必须限定最终回复只给结论、改动路径和验证结果，约 15 行内，长内容写入文件。面向读者的文案交 Gemini。
-
-| 短名 | 实际模型 | 适合 |
-|---|---|---|
-| `copy` | `kollab-gateway-copy`（Gemini） | 文案、翻译（必须走这里，正面写） |
-| `grok` | `kollab-gateway-research` | 擦边题材、其他调研、GPT-6.1 Sol 备选 |
-| `bulk` | `kollab-gateway-bulk` | 批量转换 |
-| `gpt` | `kollab-gateway-gpt-sol` | GPT 托管任务 |
-| `code` | 本机 Codex `gpt-6.1-sol` | **默认执行者**：编码、调研、报告、通用任务；默认 medium，`--low` 为 low |
-| `haiku` | `claude-haiku`（claude-haiku-5-5，api.anthropic.com） | Claude 侧杂活：只读复核答题、日志/报告摘要、进度查看、路径核实、机械批量替换、单目的胶水脚本 |
-| `sonnet` | `claude-sonnet`（claude-sonnet-5-5） | 需要判断力的 Claude 侧实现、跨文件调研、E2E、review（原本派 executor-sonnet 的活） |
-| `opus` | `claude-opus`（claude-opus-5-5） | 深度判断、高风险改动，谨慎用，单价高 |
-| `fable` | `claude-fable`（claude-fable-5-1） | 方向不明时的顾问判断，谨慎用，单价最高 |
-| `judge` | `jev` | 分类、选择、打分 |
-| `web` | 网页版 ChatGPT（`chatgpt-web-ask.mjs`） | 联网调研、综述、对比、选题发散、竞品功能核对 |
-
-`code` 在本机 Codex 缺失、登录失效或模型明确不支持时，自动改走 `kollab-gateway-gpt-sol`；其他失败不自动重试。选择以当前配置和实际结果为准；查看其他模型用 `fleet list-models`。Codex 审查范围见 [编程与 review](references/codex-coding.md)。
-
-## 网页版 ChatGPT 通道
-
-与 Rankup 探针共用网页驱动，适合少量串行调研、综述与对比；每轮约 30–110 秒。不适合读本地文件、执行命令、改代码或批量任务。
-
-```bash
-fleet web start "问题" --name research-signatures
-fleet web say chatgpt-web-research-signatures "追问"
-fleet web list
-fleet web close chatgpt-web-research-signatures
-fleet web "问题" --followup "追问1" --followup "追问2" --out answer.md --json
-```
-
-- 不设轮次上限，不会自动关页；用完请 `close`。兼容问答命令加 `--close` 在结束后关闭；失败、报错或中断也关闭，页面文字保留在输出中。追问间至少隔 8 秒。
-- 常驻临时聊天占一个窗口池位（池容量 10），默认 dedicated，副屏优先、自动铺开；`AI_PROBE_WEB_WINDOW` 可覆盖。常驻对话打开时使用 `--keep-alive`，不自动回收，需显式 `fleet web close`；一次性问答（无追问且带 `--close`）仍默认 10 分钟空闲回收；旧 CLI 不认识该参数时提示并退回原 env 保活方案；页面丢失须重新 start，临时聊天无法找回。
-- 不产生 API token 费用，但消耗订阅额度；高频可能触发验证或限流（探针遇过一次，原因未确认）。限流、验证码或登录失效立即停，保存 pageText 和 pageUrl 后关闭会话，供人工核查。
-- 须用户确认账号已关闭记忆；脚本发送前读取临时页「不使用记忆」声明及页首模式；若是「个性化」会自动切到「不个性化」（该选择对后续新临时聊天持续生效）并回读确认，无法确认就停止并保存 pageText/pageUrl。已开路径已验证；自动切换路径未做真实切换实测。
-- 内容发给 OpenAI，不放密钥或未公开资料；答案当线索，域名与数字需核对来源。输出 DOM 引用域名，未做 payload 核验。
-- `start/say` 支持 `--json`、`--out file`；会话名、回答和引用一起输出。直接调用脚本与 `fleet web` 等价。窗口机制见 [opencli Skill](../../opencli/SKILL.md)。
-
-## 行动范围（方向锁定，适用于所有被派出的模型）
-
-执行者会自己找方向、顺手做没点名的事、做不成就绕路凑数。派单时把范围写死，一单只一个方向、一个目标：
-
-1. **一个目标，围绕它做事。** brief 第一段写清要做的事和交付物；目标所必需的相关改动执行者可以做，不必逐项点名；不自己新增或切换方向，无关线索只在最终回复里用一行列出。
-2. **办法由执行者定，只在四种情况停：** 小分叉（浏览器崩溃、弹窗遮挡、残留同名分支、验收条件现实中做不到等）选最保守方案继续，记在报告「偏差」里；要改生产或线上数据、要碰任务明显之外的系统、要花钱或用未授权凭据、缺权限或缺输入导致目标无法交付，才停下并如实写明已完成什么、卡在哪，不降低目标凑数。
-3. **边界写大致范围即可**：主要涉及的路径、明确禁止项（生产、数据、花钱、凭据）、完成标准；不必穷举每个文件，范围内相关的改动执行者自行判断。需要多个方向就拆成多个 brief，不在一个 brief 里并列。验收条件写成结果并给备用办法（例如「测不了深色就只测浅色」），不要把测量办法写死。
-4. **自动兜底**：`fleet code` 在 brief 前自动加上下面这段，网关模型则追加进默认执行者系统提示（`src/scope.mjs` 的 `SCOPE_LOCK`，文字与此逐字一致；改一处必须同步另一处）。brief 里仍要写自己的边界，兜底只防漏写：
-
-> 【行动范围】你有 brief 指定的这一个任务目标：围绕它做事，目标所必需的相关改动（相邻文件、同类键、配置、让验收通过所需的小修）可以做，不必逐项点名；不要节外生枝：不自己新增或切换方向，不主动加测试、安全防护、重构，不做与目标无关的事；发现的无关线索只在最终回复里用一行列出，不执行。怎么做、怎么测、怎么验证由你自己决定：遇到办法、测量方式、环境小障碍（浏览器崩溃、弹窗遮挡、残留的同名分支或工作区、验收条件在现实中做不到等），选最保守的可行方案继续，把选择和理由记在报告的「偏差」里，不要停；验收条件做不到时先用 brief 给的备用办法，没有备用就做最接近的版本并如实写明差距。只有这几种情况才立刻停止并如实报告：需要改动生产环境或线上数据；需要碰任务明显之外的系统；需要花钱或使用未授权的凭据；缺权限或缺输入导致目标本身无法交付。停止时写明已完成什么、卡在哪里，不降低目标凑数。brief 已列出多条路径时，单条路径不可用就改用 brief 列出的其他路径。
-
-验收时，执行者做了 brief 之外的事、改了方向、或做不到却用替代品交差，都算越界，按 CLAUDE.md §4.3 先向用户报告，不自行掩盖。
+一单只做 brief 指定的一个目标及必要改动，方法由执行者选择；小障碍记入报告「偏差」，超出授权或缺少交付必需输入时如实停止。完整规则与自动注入的逐字范围句见 [行动范围](references/operations.md#行动范围)。
 
 ## 简报与验收
 
@@ -170,31 +126,10 @@ fleet web "问题" --followup "追问1" --followup "追问2" --out answer.md --j
 
 `ok` 只说明进程结果，不能代替任务验收；空结果、裸 tool-call 控制 token、`suspect` 或 `fail` 都不能算成功。核对 brief、产物和要求的检查；`dirty` 和 `commits` 也可能包含同一工作树里其他人的改动。细节见 [README](../README.md)。
 
-## brief 写法
+## 详细派单规则
 
-开头说明目标、真实交付物、允许改的文件、不可碰的范围、并行工作边界、必须跑的检查和完成标准；方向只写一个，写法见上文「行动范围」。
-
-**派单前先核实路径，再写进 brief。** 允许读写清单里的每个路径都用 `ls` 或 `test -e` 确认：已有文件确认存在；新文件确认上级目录存在，并明确写成「新建，路径为……」，不要写「放在已有的脚本目录」这类要执行者自己去猜的说法。执行者遇到路径对不上会按「行动范围」直接停止、不会自行换路径，一处路径写错就白跑一轮。各 Skill 的布局并不统一（例如 agent-fleet 的说明在 `agent-fleet/skill/SKILL.md`、可执行脚本在 `bin/`；rankup 与 opencli 的说明在各自根目录的 `SKILL.md`、脚本在 `scripts/`），以派单时的实际 `ls` 为准，不凭记忆。需要改文件时加 `--expect-changes`；涉及浏览器时写明用 opencli（`opencli browser <会话名>`），禁止 Playwright/agent-browser。最终回复列改动与验证结果，不能只说“已完成”。 取证类 brief（打开外站、查 DNS/RDAP、批量读页面）还要写**重试与降级规则**：打开失败先同 URL 重开或刷新，间隔约 5 秒，最多 5 次；单项仍取不到记「无法验证」继续后面的项，只有站点整体不可达、验证码、限流、登录墙才整体停；否则执行者会因一次瞬时失败按「做不到就停」整单收工。
-
-**涉及数据、备份、数据库、云资源的 brief 必须逐字写明**：「不得在用户的 Mac 上安装任何软件（brew/pip/npm/docker 镜像等）；备份、恢复、DB 工具一律在 AWS 上（跳板机、ECS 任务、容器）执行，本机只保存行数和摘要。」原因：Codex 曾在用户 Mac 上擅自 `brew install postgresql@17 redis`。验收时顺手 grep 执行者日志里有没有本地安装命令。
-
-**brief 里带上已知坑清单（避免白跑一轮）**：浏览器自动化 Chromium 在重页面会崩，直接写 firefox.launch({headless:true}) 并每页独立实例（用的是 Playwright 自带的 Firefox，装在 ~/Library/Caches/ms-playwright/firefox-*，本机不需要安装 Firefox 应用，也不会弹窗）；页面有 Cookie 提示时先点「拒绝」或预置 localStorage 再测量；创建 worktree 前先 git worktree remove --force 并 git branch -D 清掉同名旧工作区；指定模型前先 `fleet list-models` 确认真有（gemini-3.1-pro 当前不在配置里，默认用 gemini-3.8-flash）；pull --rebase 超时重试一次；macOS 的 sed 用 `sed -i ''`。
-
-
-## 安全边界
-
-把 `--cwd` 指向的目录及其项目配置当作不可信输入核对；网关路径使用 Claude Agent SDK 的 `bypassPermissions`，执行者可读写文件和运行命令，没有工具调用沙箱。只对可信目录派单，保护他人改动，不打印密钥。默认执行者系统提示禁止调用 Agent/Task 工具或再次转派，额外 `--system-prompt` 会追加其后。`fleet code` 默认 `danger-full-access`（可读写任意路径、可联网，含本机代理），`--review` 使用 `read-only`；详见 [README 的安全边界](../README.md#安全边界)。
+启动与跨会话接续、网页 ChatGPT、brief 路径核实及安全边界见 [操作细则](references/operations.md)。
 
 ## JEV judge
 
-`fleet judge state.txt questions.json [--json]`：state 为文本或 `.json` 文件；questions 是 `{ "key": { "type": "noul"|"choice"|"score", "instructions": "..." } }`。`choice` 和 `score` 必须带 `criteria`。JEV 只做结构化判断，不生成自由文本，也不能用 `run`。旧写法 `fleet judge --model jev --state-file state.txt --questions-file questions.json` 仍可用。
-
-`questions.json` 可按需选用其中一种或组合使用：
-
-```json
-{
-  "is_urgent": { "type": "noul", "instructions": "这条消息是否紧急？" },
-  "team": { "type": "choice", "instructions": "该由哪个团队处理？", "criteria": { "billing": "付款或退款", "technical": "故障或集成" } },
-  "frustration": { "type": "score", "instructions": "客户有多沮丧？", "criteria": ["平静", "沮丧", "愤怒"] }
-}
-```
+`fleet judge state.txt questions.json [--json]` 做结构化判断，问题可用 `noul`、`choice` 或 `score`；后两者必须给 `criteria`。完整格式与示例见 [JEV 用法](references/judge.md)。

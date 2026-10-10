@@ -15,7 +15,7 @@
   "scripts": {
     "smoke-test": "node test/smoke-test.mjs",
     "security-test": "node test/security-unit-test.mjs && node test/security-e2e-test.mjs",
-    "unit-test": "node test/verdict-test.mjs && node test/control-unit-test.mjs && node test/shortcuts-test.mjs",
+    "unit-test": "node test/verdict-test.mjs && node test/control-unit-test.mjs && node test/shortcuts-test.mjs && node test/failure-report-test.mjs && node test/model-mapping-test.mjs && node test/team-test.mjs",
     "test": "npm run unit-test && npm run smoke-test && npm run security-test && node test/fleet-go-test.mjs",
     "check-sdk": "node -e \"const {execSync}=require('child_process');const pkg=require('./package.json');const cur=pkg.dependencies['@anthropic-ai/claude-agent-sdk'];const latest=execSync('npm view @anthropic-ai/claude-agent-sdk version').toString().trim();console.log('package.json 当前: '+cur+'  |  npm 最新: '+latest);\""
   },
