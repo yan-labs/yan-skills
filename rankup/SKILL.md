@@ -64,7 +64,7 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 | 「看一下 SEO / GEO 有没有问题」「能不能上线」「TDK」「密度」 | 4 | `checklists.md` 段 4 + [`seo-box.md`](references/seo-box.md)；第三方复核加载官方 `gefei-page`（[`seo-webcafe.md`](references/seo-webcafe.md)） |
 | 「怎么被 AI 引用」「llms.txt」「对 AI 代理友好吗」 | 4 | [`seo-ai-search.md`](references/seo-ai-search.md)；推荐位做法见 `seo-geo.md`；SEO 专题索引 [`seo-growth.md`](references/seo-growth.md) |
 | 「生成 logo / 配图 / og 图」「做一整套网站图标」 | 3–4 | `/imagegen` 真实生成；图标集 `scripts/make-favicons.mjs --src <logo.png> --out <public目录>` |
-| 「写一下这页的文案」「AI 味太重」 | 4 | 中文 `/write`（附属 Skill 缺的用 `find-skills` 装齐）；内容形状按 `/ai-seo`，见 [`skill-ecosystem.md`](references/skill-ecosystem.md) |
+| 「写一下这页的文案」「AI 味太重」 | 4 | 中文 `/write`（自带起稿、改稿与去 AI 味体检，不依赖别的 Skill）；内容形状按 `/ai-seo`，见 [`skill-ecosystem.md`](references/skill-ecosystem.md) |
 | 「站慢不慢」「Core Web Vitals」 | 4 | `scripts/pagespeed.mjs collect --strategy both`，判读 `seo-box.md` 一 |
 | 「这个域名能不能用」「域名黑历史」 | 5 | [段 5](references/lifecycle/stage-5-launch.md) 黑历史闸门 + 官方 `gefei-domain` |
 | 「域名买完了」「帮我绑域名」 | 5 | [`cloudflare/domain-email.md`](references/cloudflare/domain-email.md) §8.5 全 API 绑定 → [`cloudflare-stack.md`](references/cloudflare-stack.md) §8.8 基础安全 → `domain-email.md` §8.6 邮箱 → 上线验收 |

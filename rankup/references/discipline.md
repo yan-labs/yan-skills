@@ -298,7 +298,7 @@ Skill 集合不一样，文档只保证「该用什么」；遇缺就跳过会�
 | 陷阱 | 判据 |
 |---|---|
 | 全局有个 Skill 叫 `seo-audit`，rankup 自己有个脚本叫 `seo-audit.mjs`——同名，方向相反 | **不要加载那个 Skill。** 它开场先问六个问题，与「全权委托」正面冲突；体检就跑 `scripts/seo-audit.mjs`，判读用 `seo-box.md` |
-| `/write` 依赖五个附属 Skill（`writing-fragments` / `writing-shape` / `writing-beats` / `edit-article` / `humanizer-zh`），不一定装在当前机器 | **先 `ls` 确认五个都在，缺的用 `find-skills` 装齐再加载**；装不上才退到 `/human-writing` + `/shuorenhua` 并说明原因（`skill-ecosystem.md`「缺 Skill 的处置」） |
+| `/write` 是中文写作的唯一入口 | **用 `/write`，它自带起稿、改稿与去 AI 味体检，不依赖别的 Skill**；分工见 `skill-ecosystem.md`「`/write`」 |
 
 `ai-seo` 与 `seo-geo` 只取参考文档，不跑 `seo-geo/scripts/*.py`（走付费凭据，且与 rankup 取数口径重复）。
 `keyword-research` 自己不带数据源，由 rankup 先取数，它只做意图分类与聚簇，**严禁跑它的 Score 相**（两个输入都是模型自己编的）。

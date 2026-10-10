@@ -29,7 +29,7 @@
 | 「查一下 X 是怎么回事」「这个 Google 更新到底改了什么」 | **`/deep-research`**（方法论）+ **`/anysearch`**（执行）。rankup 的 demand/ 只吃结构化源 |
 | 「大家怎么评价 X」「小红书/推特/B站上怎么说」 | **`/agent-reach`**。这正是 capability-map §二「用户的原话」那一行缺的取数通路 |
 | 「这个领域现在有哪些 skill」「别人写过没」 | **`find-skills`**（原 `/skillsmp` 已于 2026-09-28 移除）。要「最近 7 天新冒出来的」才用 `demand/github-skill-search.mjs --mode recent` |
-| 「写篇中文长文」「这稿子 AI 味太重」 | **`/human-writing`** 起稿 → **`/shuorenhua`** 过滤。仅限中文；英文站内容两个都不适用 |
+| 「写篇中文长文」「这稿子 AI 味太重」 | **`/write`** 起稿、改稿并完成内置中文体检；英文站内容不套中文体检规则 |
 | 「扩词想不出角度了」 | **`/marketing-psychology`**（痛点/对比/决策词）+ **`/marketing-ideas`**（场景/人群词）。用法已写在 [`trends.md`](trends.md) W2 第一步 |
 | 「用 cf CLI」「管理 Cloudflare zone / DNS / 域名」 | **`/cf-cli`**（本仓库）；项目已有的构建与部署工作流见 [`cloudflare-stack.md`](cloudflare-stack.md) |
 | 「部署 Worker」「wrangler 报错」 | **`/wrangler`**（已在 [`cloudflare-stack.md`](cloudflare-stack.md) 接入）；要 D1/R2/Vectorize/Agents SDK 的深度用法才升到 `/cloudflare` |
@@ -105,16 +105,16 @@
 | **什么时候加载** | 动手写任何新脚本/新 Skill 之前先搜一遍；判断某个方向的供给饱和度 |
 | **取舍理由** | 接，但必须带上分工那一行——否则 AI 会拿 skillsmp 去做时间序信号，那是错的 |
 
-### `/human-writing` + `/shuorenhua` —— 中文内容的起稿与去 AI 味
+### `/write` —— 中文写作与去 AI 味
 
 | | |
 |---|---|
-| **human-writing 能干什么** | 中文长内容创作与改稿（知乎回答、论坛长帖、公众号、博客、教程、评测、人物稿）。核心是一道前置门槛：**非虚构长文动笔前必须列出至少五件具体材料，并注明各自来自用户哪句话或哪份可靠来源**；列不出就先研究、追问，或缩短成六百字短答，**不许用重复解释灌字数** |
-| **shuorenhua 能干什么** | 初稿之后的去 AI 味过滤：判场景（chat/status/docs/public-writing）→ 划 protected spans（术语、系统主语、引用原文不许动）→ 判力度档位 → 改写。它明确不是敏感词替换器，保留技术性 |
-| **与 rankup 的分工** | **补一整个空白。** rankup 生命周期段 7（7.2）起要持续产内容，但全仓**没有一条关于「文章怎么写」的规则**——[`seo-growth.md`](seo-growth.md) 只讲 Information Gain 要求内容含一手素材，不讲怎么落成句子。更巧的是这两件事是同一条判据的两侧：Google 的「非大众化内容才会被引用」和 human-writing 的「列不出五件材料就别写长稿」，说的是一回事 |
-| **顺序** | human-writing 起稿 → shuorenhua 过一遍 → 再按 `/ai-seo` 调结构 → 上线后 `seo-audit.mjs` 查 TDK 与密度 |
-| **硬边界** | **两个都是中文视角。** 英文站、日文站的内容两个都不适用，别硬套 |
-| **取舍理由** | 接。但只在真的要产中文长内容时加载，两个都不小 |
+| **能干什么** | 挖素材、定结构、按拍推进、诊断初稿与改稿；文案、标题与传播钩子、翻译与摘要、公众号排版。自带起稿、改稿与去 AI 味体检，不依赖别的 Skill |
+| **中文体检** | 内置 `scripts/check.py` 检测与清字符；按档位、文体处理，保留事实、术语、归因与限定，改完复查并通读 |
+| **与 rankup 的分工** | rankup 判断持续产内容的时机与 Information Gain 要求（见 [`seo-growth.md`](seo-growth.md)）；`/write` 负责把素材写成稿件。缺素材先收集，不编造事实、数据与来源 |
+| **顺序** | `/write` 起稿、改稿并完成中文体检 → 再按 `/ai-seo` 调结构 → 上线后 `seo-audit.mjs` 查 TDK 与密度 |
+| **硬边界** | 中文写作与中文体检按 `/write`；英文、日文内容不套中文体检规则 |
+| **什么时候加载** | 实际要写稿、改稿、写文案、翻译、摘要或排版时加载 |
 
 ### `/marketing-psychology` + `/marketing-ideas` —— 扩词的角度，不是词
 
@@ -164,18 +164,10 @@ rankup 自己只保留 `cf-zone-setup.mjs`（zone onboarding，**Wrangler 没有
 `seo-audit.mjs --sitemap` → `pagespeed.mjs collect`（默认路径，直接落 LHR JSON；`plan` 只出链接、不采数，仅兜底）读实验室+现场两套 → `ahrefs-site-audit.mjs report`（第二双眼睛）
 → 判读对 [`seo-box.md`](seo-box.md) + [`checklists.md`](checklists.md) 段 4。
 
-### `/write` —— 附属 Skill 装齐才加载，缺就用 find-skills 装齐
-
-`write` 是中文写作的**路由入口**，它把任务分派给 `writing-fragments`、`writing-shape`、
-`writing-beats`、`edit-article`、`humanizer-zh` 五个附属 Skill。它们不一定装在当前机器上：
-加载 `write` 之前先 `ls` 全局 Skill 目录确认五个都在；缺任何一个就按下面「缺 Skill 的处置」用
-`find-skills` 装上，再加载 `write`。装不上（源不存在、网络不通）时才退到 `/human-writing`（自带
-`references/` 五份，不依赖外部 Skill）+ `/shuorenhua`，并把退路原因写进回复。
-
 ### 缺 Skill 的处置：一律 find-skills 安装，不跳过、不现写替代
 
-本 Skill 点名的任何兄弟 Skill（`agent-reach`、`anysearch`、`deep-research`、`tuner`、`human-writing`、
-`shuorenhua`、`ai-seo`、`seo-geo`、`marketing-psychology`、`marketing-ideas`、`imagegen`、`backlink`、
+本 Skill 点名的任何兄弟 Skill（`agent-reach`、`anysearch`、`deep-research`、`tuner`、`write`、
+`ai-seo`、`seo-geo`、`marketing-psychology`、`marketing-ideas`、`imagegen`、`backlink`、
 `opencli`、`keyword-research`……）在当前机器上不存在时，处置只有一种：加载 `find-skills`，
 按名字搜索并安装（它会给出 `npx skills add <owner/repo> --skill <name> -g -y` 这类命令），装完再继续。
 为什么写死：每台机器、每个用户装的 Skill 集合都不一样，本文件只能保证「该用什么」，不能保证「已经装了」；
