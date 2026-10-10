@@ -107,11 +107,23 @@ def locate(name):
     return path, meta
 
 
+def gemini_task_text(text):
+    # 两处闸门同规格：统一换行，仅移除完整模板块；{大写占位符}匹配单行值。
+    text = text.replace('\r\n', '\n')
+    for path in sorted(BLOCKS.glob('*.md')):
+        template = path.read_text().strip().replace('\r\n', '\n')
+        parts = re.split(r'(\{[A-Z]+\})', template)
+        pattern = ''.join(r'[^\n]*?' if re.fullmatch(r'\{[A-Z]+\}', part) else re.escape(part) for part in parts)
+        text = re.sub(pattern, '', text)
+    return text
+
+
 def gemini_check(text, expect_changes=False):
     """静态路由限制，只判断任务要求，不判断执行失败原因。"""
-    classification = re.search(r'^归类[^\r\n]*', text, re.M)
+    text = gemini_task_text(text)
+    classifications = re.findall(r'^归类[^\r\n]*', text, re.M)
     coding = r'编码|\bUI\b|前端实现|写代码|(?:修改|改动|改|编辑|重写|创建|新增|删除|更新).{0,12}(?:文件|代码|源码|组件|\S+\.(?:mjs|js|ts|tsx|jsx|py|html|css|json))|实现.{0,12}(?:界面|页面|功能)|(?:edit|modify|write|create|delete|update)\s+(?:\S+\s+){0,3}(?:files?|code|components?)|implement\s+(?:\S+\s+){0,3}(?:UI|code|component)'
-    if expect_changes or (classification and re.search(r'编码|\bcode\b|\bUI\b|前端实现', classification[0], re.I)) or re.search(coding, text, re.I):
+    if expect_changes or any(re.search(r'编码|code|UI|前端实现', line, re.I) for line in classifications) or re.search(coding, text, re.I):
         raise ValueError('Gemini 只接文本任务，拒绝编码/UI/--expect-changes。')
 
 
@@ -126,7 +138,7 @@ def relaunch(name, to=None, tier=None):
         raise ValueError('--tier 仅用于 --to claude。')
     text = path.read_text()
     if target == 'gemini':
-        gemini_check(text.split('\n## 允许读写/禁止\n', 1)[0], meta.get('expect-changes', False))
+        gemini_check(text, meta.get('expect-changes', False))
     checked(text, target)
     if target != meta['to']:
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
