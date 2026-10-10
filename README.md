@@ -59,6 +59,7 @@ npx skills add yan-labs/yan-skills -g --all
 | 「一句话，你自己拆解自己跑完」 | [`autopilot`](autopilot/) |
 | 「生成 logo / 吉祥物 / og 图 / 内页配图 / 用户场景图 / 手绘插画」 | [`imagegen`](imagegen/) |
 | 「让 Codex 在后台跑一轮」 | [`codex`](codex/) |
+| 「写文章 / 改稿 / 写文案 / 写脚本 / 去 AI 味 / 翻译 / 摘要 / 排版」 | [`write`](write/) |
 | 「skill 没生效 / 目录重复 / 链接坏了」 | [`skill-link-check`](skill-link-check/) |
 
 三条容易走错的边界：
@@ -411,6 +412,10 @@ KD 与 SERP、用 Semrush 核对搜索量、检查可玩供给，结果统一写
 `develop / research / watch` 决策的 `latest.md` 与 `latest.json`。
 
 ### [`skill-link-check`](skill-link-check/) — Skill 目录审计
+
+### [`write`](write/) — 中文写作唯一入口
+
+写文章、改稿、写文案与脚本、标题钩子、翻译摘要、公众号排版和去 AI 味都从这里进。主文件只做路由，按情形读 `references/` 里的细则（素材、塑形、按拍推进、长文笔法、文案、标题、翻译排版）；成稿一律过内置中文体检 `scripts/check.py`（硬禁项、节奏统计、字符清理）。依赖 Python 3。
 
 检查 `.agents/skills` 和 `.claude/skills` 是否遵守「前者存真源、后者用符号链接镜像」的约定，输出孤儿目录、缺失链接、重复目录、断链和错误目标，给出需人工复核的修复命令。支持 JSON 证据输出。它只报告，不动你的目录。
 
