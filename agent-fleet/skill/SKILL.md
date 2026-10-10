@@ -52,7 +52,7 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 - `--body body.md` 只接受现存文件路径；`--body -` 显式读取 stdin，也可以省略 `--body` 使用 heredoc。不存在的路径会明确报错。
 - 重新拉起已有任务：`fleet-go relaunch <name> [--to <产品>] [--tier <档位>]`，沿用唯一同名 brief、`--name` 和 `--report`，由派用者显式决定执行者；仍有未结束同名任务时拒绝重复派发。
 - **先预览再派**：`fleet-go new ... --dry-run`（只打印 brief，命令写 stderr）；`--no-launch` 只写 brief 不派发；`fleet-go lint brief.md` 检查样板（归类行、REPORT 行、逐字规则句、授权/禁止小节、密钥字面量）。
-- **改方向**：用 `fleet-go amend <name> "补充要求"`，它给 brief 顶部追加「修订 N」并（`--say`）尽量发给运行中的任务；运行中的 Codex 不支持 say 时会提示，此时才考虑 `--restart`（只停止所选 run，按 runId/brief/`--name` 核验残留，最多等 60 秒、每 0.5 秒轮询，再走 `relaunch`；不按 cwd 判断。超时已确认 stopped 且无同一 runId 存活时告警并重新拉起，否则保留修订并报错）。**不要手工 kill 后重派，也不要用脚本拼接旧 brief。**
+- **改方向**：用 `fleet-go amend <name> "补充要求"`，它给 brief 顶部追加「修订 N」并（`--say`）尽量发给运行中的任务；Codex 优先同轮 steer，失败尝试中断后续会话；两者不可用时会提示，此时才考虑 `--restart`（只停止所选 run，按 runId/brief/`--name` 核验残留，最多等 60 秒、每 0.5 秒轮询，再走 `relaunch`；不按 cwd 判断。超时已确认 stopped 且无同一 runId 存活时告警并重新拉起，否则保留修订并报错）。**不要手工 kill 后重派，也不要用脚本拼接旧 brief。**
 - 看进度：`fleet-go status`（默认非终态及最近 1 小时，`--all` 查看全部本地历史；脱离启动的任务带 ⚠）；仍可用 `fleet status --running --json`。
 - 一个任务一次 Bash 调用；多个独立任务同一条消息里并行发多条 Bash。同一份共享工作树同一时刻只能有一个写入者的任务，别并发。
 - 已有 Claude Code 的 PreToolUse hook `~/.claude/hooks/check-fleet-launch.py`：命令里带 `fleet`/`fleet-go` 派单子命令又带 `&`、`nohup`、`setsid`、`disown` 会被直接拦下。
@@ -79,7 +79,7 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 | `fleet run --model name --prompt "任务"` | 旧的完整模型入口 |
 | `fleet run-many --config batch.json` | 批量任务 |
 | `fleet status` / `fleet tail [--follow]` | 看任务和日志 |
-| `fleet say latest "消息"` | 向运行中的任务插话（**只对网关模型任务有效，`fleet code` 的 Codex 任务无法插话**，改方向只能 stop 后重派） |
+| `fleet say latest "消息"` | 向运行中的任务插话（Codex 优先同轮 steer，降级为中断后续会话；网关 streaming input，Grok sessionId 续跑） |
 | `fleet stop latest` / `fleet resume latest` | 收尾或续跑 |
 | `fleet list-models` / `fleet help` | 看配置或用法 |
 | `fleet media list` | 看 Kollab 当前托管的图片、视频、音频、视觉工具与必填参数 |
@@ -92,6 +92,10 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 
 `models.config.json` 的可选字段 `maxOutputTokens` 必须是正整数，限制该模型每次请求的最大输出 token 数；fleet 将它传为 `CLAUDE_CODE_MAX_OUTPUT_TOKENS`，未配置则沿用默认值。Kollab 网关条目统一设为 16000。
 Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定死，充值后要到下一个整点（UTC）才放开；期间用 `maxOutputTokens` 限制即可通过（仍须有足够预算）。
+
+## Grok CLI 收尾与续跑
+
+使用 streaming-json，cost/turns 为 Grok 自报；保存 stopReason/sessionId/usage。退出码 0 仍可能 cancelled（无头工具批准被取消），非 end_turn 判 fail，无明确最终结论判 suspect。review 使用自动批准避免取消；本机沙箱不生效，只读靠提示与事后文件快照，发现改动列路径并判 suspect。`fleet say` / `fleet-go amend --say` 停当前 Grok 进程并以 sessionId 续会话，`fleet resume` 同理，沿用 name/report。代理 HTTPS_PROXY/HTTP_PROXY/ALL_PROXY 及小写原样透传，Rust 不认 NODE_USE_ENV_PROXY；详见 [Grok CLI](references/grok-cli.md)。
 
 ## 失败上报与派用者顺位参考
 

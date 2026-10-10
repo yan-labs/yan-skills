@@ -227,7 +227,9 @@ def amend(args):
     if args.say:
         result = subprocess.run(['fleet', 'say', run['runId'], args.message], capture_output=True, text=True)
         if result.returncode:
-            raise ValueError('fleet say 失败（Codex 不支持插话）；修订已保留，未 stop、未重派。确需重来用 --restart。')
+            raise ValueError('fleet say 失败：' + result.stderr.strip() + '；修订已保留，未 stop、未重派。确需重来用 --restart。')
+        if result.stdout.strip():
+            print(result.stdout.strip())
         return
     restart(run, path, args.name)
 

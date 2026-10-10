@@ -30,11 +30,11 @@ import { createProgress } from '../src/progress.mjs';
 import { tailLatestLog } from '../src/tail-log.mjs';
 import { buildBrief, DEFAULT_BRIEF_LINES, renderManyOutput, renderRunOutput, failureReport, redactEvidence, inspectGit } from '../src/brief.mjs';
 import { collectStatus, deliverSay, formatStatusHuman, requestStop } from '../src/control.mjs';
-import { readPidRecord, resolveRunId, patchPidRecord, runIdFromLogPath } from '../src/pid.mjs';
+import { readPidRecord, resolveRunId, isPidAlive, patchPidRecord, runIdFromLogPath } from '../src/pid.mjs';
 import { shortRunOptions, splitShortArgs, resolveBrief, geminiBlocked } from '../src/shortcuts.mjs';
 import { runCode } from '../src/code-runner.mjs';
 import { runGrok } from '../src/grok-runner.mjs';
-import { launchDetached, supervise, waitDetached } from '../src/detach.mjs';
+import { launchDetached, readState, resolveDetached, supervise, waitDetached } from '../src/detach.mjs';
 import { runMedia } from '../src/media.mjs';
 
 const PKG_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -109,14 +109,29 @@ function outputOptions(flags, config) {
 }
 
 async function printRunResult(result, options) {
-  const output = await renderRunOutput(result, {
+  let output = await renderRunOutput(result, {
     ...options,
     onBrief: brief => {
+      if (result.model?.startsWith('grok-cli:')) {
+        Object.assign(brief, { sessionId: result.sessionId, stopReason: result.stopReason, usage: result.usage,
+          modelUsage: result.modelUsage, costSource: 'grok 自报', changedFiles: result.changedFiles });
+        if (result.suspectNote) Object.assign(brief, { ok: false, verdict: brief.verdict === 'ok' ? 'suspect' : brief.verdict, verdictNote: result.suspectNote, error: [result.error, result.suspectNote].filter(Boolean).join('；') });
+      }
+      if (result.model === 'gpt-6.1-sol') {
+        Object.assign(brief, { backend: result.backend, threadId: result.threadId, sessionId: result.sessionId,
+          steerCount: result.steerCount, resumeCount: result.resumeCount, fallbacks: result.fallbacks,
+          numTurns: result.numTurns, usage: result.usage, resumedFrom: result.resumedFrom });
+      }
       const id = runIdFromLogPath(result.logPath);
       if (id && readPidRecord(id)) patchPidRecord(id, { model: brief.model, verdict: brief.verdict });
       if (process.env.FLEET_DETACHED_RUN_ID) process.send?.({ brief });
     },
   });
+  if (options.full && !options.json && result.suspectNote) output = output.replace('状态: 成功', `状态: suspect（${result.suspectNote}）`);
+  if (result.model?.startsWith('grok-cli:') && !options.json) output += '费用来源：grok 自报\n';
+  if (result.model === 'gpt-6.1-sol' && !options.json) {
+    output += `Codex：steer ${result.steerCount ?? 0} 次，resume ${result.resumeCount ?? 0} 次，降级 ${result.fallbacks?.length ?? 0} 次\n`;
+  }
   process.send?.({ output });
   process.stdout.write(output);
 }
@@ -294,8 +309,10 @@ function cmdSay(argv) {
   const spec = positionals[0];
   const text = positionals.slice(1).join(' ').trim();
   try {
-    const { runId } = deliverSay(spec, text, { cwd: matchCwd(flags) });
-    console.log(`已投递到 ${runId}`);
+    const { runId, mode } = deliverSay(spec, text, { cwd: matchCwd(flags) });
+    const note = mode === 'steer' ? '（优先同轮 steer；接受不等于立即执行，失败尝试续会话）'
+      : mode === 'resume' ? '（中断当前轮后续会话）' : '';
+    console.log(`已投递到 ${runId}${note}`);
   } catch (err) {
     console.error(err.message);
     process.exitCode = 1;
@@ -324,8 +341,7 @@ async function cmdStop(argv) {
 }
 
 async function cmdResume(argv) {
-  const flags = parseFlags(argv);
-  const positionals = positionalArgs(argv);
+  const { flags, positionals } = splitShortArgs(argv);
   const spec = positionals[0];
   if (!spec) {
     console.error('缺少 run-id。用法: agent-fleet resume <run-id> ["追加指令"] [选项]');
@@ -334,26 +350,62 @@ async function cmdResume(argv) {
   }
   let runId;
   try {
-    runId = resolveRunId(spec, matchCwd(flags));
+    runId = resolveRunId(spec !== 'latest' ? resolveDetached(spec, matchCwd(flags)) : spec, matchCwd(flags));
   } catch (err) {
     console.error(err.message);
     process.exitCode = 1;
     return;
   }
-  const rec = readPidRecord(runId);
+  const pidRec = readPidRecord(runId);
+  const rec = pidRec && { ...readState(runId), ...pidRec };
   if (!rec) {
     console.error(`找不到任务 ${runId} 的 pid.json`);
     process.exitCode = 1;
     return;
   }
   if (rec.model?.startsWith('grok-cli:')) {
-    console.error('Grok CLI 任务暂不支持 fleet resume；请重新派发 brief。');
-    process.exitCode = 1;
+    if (!rec.sessionId) throw new Error('Grok CLI 没有 sessionId，暂不支持 fleet resume。');
+    if ((!rec.finished && isPidAlive(rec.pid)) || (rec.childPid && isPidAlive(rec.childPid))) {
+      const stopped = await requestStop(runId, { grace: 0 });
+      if (!stopped.exited) throw new Error('旧 Grok 任务尚未停止，未启动续跑。');
+    }
+    const extra = typeof flags.prompt === 'string' ? flags.prompt : positionals.slice(1).join(' ').trim();
+    const args = ['grok-cli', extra || '继续完成上次未完成的工作，给出最终结论。',
+      '--resume-session', rec.sessionId, '--resumed-from', runId, '--cwd', flags.cwd ? resolvePath(flags.cwd) : rec.cwd || process.cwd()];
+    const model = flags.model || rec.model.slice('grok-cli:'.length);
+    if (model && model !== 'default') args.push('--model', model);
+    if (rec.review || flags.review) args.push('--review');
+    if (rec.subagents || flags.subagents) args.push('--subagents');
+    for (const [key, value] of [['max-turns', flags['max-turns'] ?? rec.maxTurns], ['reasoning-effort', flags['reasoning-effort'] ?? rec.reasoningEffort]]) {
+      if (value !== undefined && value !== null) args.push('--' + key, String(value));
+    }
+    if (flags.attach) { await cmdGrok(args); return; }
+    const nextId = await launchDetached(fileURLToPath(import.meta.url), args, { cwd: flags.cwd ? resolvePath(flags.cwd) : rec.cwd || process.cwd(), model: `grok-cli:${model}`,
+      briefPath: rec.briefPath, name: flags.name ?? rec.name, reportPath: flags.report ?? rec.reportPath, noWait: Boolean(flags['no-wait']) });
+    if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true });
     return;
   }
   if (rec.model === 'gpt-6.1-sol') {
-    console.error('Codex 任务暂不支持 fleet resume；请重新派发 brief。');
-    process.exitCode = 1;
+    if (rec.resumeBlocked) throw new Error('Codex 无法确认旧工具已结束，未启动续跑；改方向请用 --restart。');
+    const sessionId = rec.threadId || rec.sessionId;
+    if (!sessionId) throw new Error('Codex 任务没有 threadId/sessionId，无法 fleet resume；改方向请用 --restart。');
+    if ((!rec.finished && isPidAlive(rec.pid)) || (rec.childPid && isPidAlive(rec.childPid)) || (rec.codexPid && isPidAlive(rec.codexPid))) {
+      throw new Error('Codex 任务或执行器仍在运行；请用 fleet say 插话，未启动重复续跑。');
+    }
+    const cwd = flags.cwd ? resolvePath(flags.cwd) : rec.cwd || process.cwd();
+    const extra = typeof flags.prompt === 'string' ? flags.prompt : positionals.slice(1).join(' ').trim();
+    const args = ['code', extra || '继续完成上次未完成的工作，给出最终结论。',
+      '--resume-session', sessionId, '--resumed-from', runId, '--cwd', cwd];
+    if (rec.low || rec.tier === 'low' || flags.low) args.push('--low');
+    if (rec.review || flags.review) args.push('--review');
+    const name = flags.name ?? rec.name;
+    const reportPath = flags.report ?? rec.reportPath;
+    if (name) args.push('--name', name);
+    if (reportPath) args.push('--report', reportPath);
+    if (flags.attach) { await cmdCode(args); return; }
+    const nextId = await launchDetached(fileURLToPath(import.meta.url), args, { cwd, model: 'gpt-6.1-sol',
+      briefPath: rec.briefPath, name, reportPath, noWait: Boolean(flags['no-wait']) });
+    if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true });
     return;
   }
   if (!rec.sessionId) {
@@ -418,12 +470,12 @@ function cmdListModels(argv) {
 }
 
 async function cmdTeam() {
-  const check = (bin, args) => spawnSync(bin, args, {
-    encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024,
+  const check = (bin, args, timeout = 10000) => spawnSync(bin, args, {
+    encoding: 'utf8', timeout, maxBuffer: 1024 * 1024,
     env: { ...process.env, NODE_USE_ENV_PROXY: '1', GROK_DISABLE_AUTOUPDATER: '1' },
   });
   const codex = check(process.env.FLEET_CODEX_BIN || 'codex', ['login', 'status']);
-  const grok = check(process.env.FLEET_GROK_BIN || 'grok', ['models']);
+  const grok = check(process.env.FLEET_GROK_BIN || 'grok', ['models'], 20000);
   const available = r => r.error?.code === 'ENOENT' ? '未安装' : r.status === 0
     ? '可用/已登录' : r.error?.code === 'ETIMEDOUT' ? '检查超时（未确认）' : '登录检查失败（未确认）';
   const key = name => process.env[name] ? '已配置' : '未配置';
@@ -451,7 +503,7 @@ async function cmdCode(argv) {
   const { positionals, flags } = splitShortArgs(argv);
   if (flags.help) { console.log(HELP_TEXT); return; }
   const prompt = resolveBrief(flags.prompt ?? positionals[0]);
-  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), review: Boolean(flags.review) });
+  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), review: Boolean(flags.review), resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
   await printRunResult(result, outputOptions(flags));
   process.exitCode = buildBrief(result, outputOptions(flags)).verdict === 'ok' ? 0 : 1;
 }
@@ -459,9 +511,9 @@ async function cmdCode(argv) {
 async function cmdGrok(argv) {
   const { positionals, flags } = splitShortArgs(argv);
   if (flags.help) { console.log(HELP_TEXT); return; }
-  const result = await runGrok({ prompt: resolveBrief(flags.prompt ?? positionals[0]), cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), model: flags.model, review: Boolean(flags.review), subagents: Boolean(flags.subagents) && !flags['no-subagents'], maxTurns: flags['max-turns'], reasoningEffort: flags['reasoning-effort'] });
+  const result = await runGrok({ prompt: resolveBrief(flags.prompt ?? positionals[0]), cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), model: flags.model, review: Boolean(flags.review), subagents: Boolean(flags.subagents) && !flags['no-subagents'], maxTurns: flags['max-turns'], reasoningEffort: flags['reasoning-effort'], resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
   await printRunResult(result, outputOptions(flags));
-  process.exitCode = buildBrief(result, outputOptions(flags)).verdict === 'ok' ? 0 : 1;
+  process.exitCode = !result.suspectNote && buildBrief(result, outputOptions(flags)).verdict === 'ok' ? 0 : 1;
 }
 
 async function cmdShortJudge(argv) {

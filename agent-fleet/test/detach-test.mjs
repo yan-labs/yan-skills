@@ -12,6 +12,8 @@ mkdirSync(runs);
 const stub = join(scratch, 'runner');
 writeFileSync(stub, `#!/bin/sh
 out=
+if [ -n "$FLEET_TEST_ARGS" ]; then printf '%s\\n' "$@" > "$FLEET_TEST_ARGS"; fi
+if [ -n "$FLEET_TEST_SESSION" ]; then printf '{"type":"thread.started","thread_id":"%s"}\\n' "$FLEET_TEST_SESSION"; fi
 while [ "$#" -gt 0 ]; do
   if [ "$1" = '-o' ]; then shift; out=$1; fi
   shift
@@ -49,7 +51,7 @@ writeFileSync(loader, `export async function resolve(specifier, context, next) {
 }`);
 const cfg = join(scratch, 'models.json');
 writeFileSync(cfg, JSON.stringify({ stub: { model: 'stub-gemini', baseURL:'http://127.0.0.1:1', apiKeyEnv:'FLEET_TEST_KEY' } }));
-const env = { ...process.env, FLEET_TEST_SLEEP:'1', FLEET_TEST_EXIT:'0', AGENT_FLEET_RUNS_DIR:runs, FLEET_CODEX_BIN:stub,
+const env = { ...process.env, FLEET_TEST_SLEEP:'1', FLEET_TEST_EXIT:'0', AGENT_FLEET_RUNS_DIR:runs, FLEET_CODEX_BIN:stub, FLEET_CODEX_BACKEND:'exec',
   FLEET_TEST_PIDS:join(scratch,'pids'), FLEET_TEST_RESULT:join(scratch,'gateway-result'),
   FLEET_TEST_KEY:'fake-test-key', NODE_OPTIONS:`--no-warnings --experimental-loader=${pathToFileURL(loader).href}` };
 // 测试启动器不能继承宿主 fleet 的执行器身份。
@@ -98,7 +100,38 @@ const speaking=await launch('run',{FLEET_TEST_SLEEP:'3'});await sleep(500);
 assert.equal((await cliRun(['say',speaking,'hello gateway'])).code,0);
 assert.equal((await cliRun(['wait',speaking])).code,0);assert.match(readFileSync(state(speaking).logPath,'utf8'),/收到插话.*hello gateway/);
 assert.equal((await cliRun(['resume',gateway,'continue','--models-config',cfg])).code,0);
-assert.match((await cliRun(['resume',code])).stderr,/Codex.*不支持/);
+assert.match((await cliRun(['resume',code])).stderr,/Codex.*没有/);
+const sessionId = await launch('code', { FLEET_TEST_SESSION:'detached-thread' }, ['--low','--review','--name','codex-continued','--report',join(scratch,'report.md')]);
+const sessionWait=await cliRun(['wait',sessionId]);
+assert.equal(sessionWait.code,0);
+assert.match(sessionWait.stdout,/Codex：steer 0 次，resume 0 次/);
+assert.equal(state(sessionId).threadId,'detached-thread');
+assert.equal(state(sessionId).brief.backend,'codex-exec');
+assert.equal(state(sessionId).brief.steerCount,0);
+const resumeArgsPath=join(scratch,'resume-args');
+const continued=await cliRun(['resume',sessionId,'追加要求','--no-wait'],{FLEET_TEST_SESSION:'detached-thread',FLEET_TEST_ARGS:resumeArgsPath});
+assert.equal(continued.code,0,continued.stderr);
+const continuedId=continued.stdout.match(/runId: (.+)/)[1];
+assert.equal((await cliRun(['wait',continuedId])).code,0);
+const continuedState=state(continuedId);
+assert.equal(continuedState.threadId,'detached-thread');
+assert.equal(continuedState.resumedFrom,sessionId);
+assert.equal(continuedState.name,'codex-continued');
+assert.equal(continuedState.reportPath,join(scratch,'report.md'));
+assert.equal(continuedState.review,true);
+assert.equal(continuedState.low,true);
+const resumedArgs=readFileSync(resumeArgsPath,'utf8').trim().split('\n');
+assert(resumedArgs.includes('resume') && resumedArgs.includes('detached-thread'));
+assert(resumedArgs.includes('read-only') && resumedArgs.includes('model_reasoning_effort=low'));
+console.log('Codex CLI resume: preserved thread, low/review/name/report and metadata');
+const leftoverId='codex-executor-alive';
+writeFileSync(join(runs,leftoverId+'.pid.json'),JSON.stringify({runId:leftoverId,model:'gpt-6.1-sol',pid:0,codexPid:process.pid,threadId:'detached-thread',cwd:scratch}));
+const refused=await cliRun(['resume',leftoverId,'继续','--no-wait']);
+assert.equal(refused.code,1);
+assert.match(refused.stderr,/执行器仍在运行.*未启动重复续跑/);
+assert.equal(existsSync(join(runs,leftoverId+'.inbox')),false);
+
+
 // 等完整 30 秒心跳；顺带验证 SIGHUP、wait 超时和 Codex say 提示。
 const beat=await launch('code',{FLEET_TEST_SLEEP:'34'});
 await sleep(500);const before=state(beat).heartbeatAt;process.kill(state(beat).pid,'SIGHUP');

@@ -40,7 +40,7 @@ fleet grok-cli brief.md --review --cwd /path/to/project
 fleet-go new demo-grok --to grok --auth local --goal "完成编码任务" --body brief.md --dry-run
 ```
 
-`grok-cli` 使用本机 xAI 完整编码 Agent；`fleet grok` 仍使用 Kollab 网关单轮模型。先 `grok login --oauth`，模型默认取 `grok models`，可用 `--model` 覆盖。默认 workspace 沙箱并自动批准工具；`--review` 使用 read-only 且不加自动批准。默认 `--no-subagents`，显式 `--subagents` 才放开。支持相同的 detach/status/wait/tail/stop、日志与结果简报；不支持 fleet say/resume；失败只记录事实，上报派用者自行判断重派。安装与权限说明见 [Grok CLI](skill/references/grok-cli.md)。
+`grok-cli` 使用本机 xAI 完整编码 Agent；`fleet grok` 仍使用 Kollab 网关单轮模型。先 `grok login --oauth`，模型默认取 `grok models`，可用 `--model` 覆盖。runner 解析 streaming-json，保存 sessionId、stopReason、usage；简报 cost/turns 为 Grok 自报。非 end_turn（尤其工具批准被取消的 cancelled）判 fail，无明确最终结论判 suspect。写任务和 review 都自动批准；本机沙箱实测不生效，review 只读靠提示与事后快照，改动文件判 suspect。支持 `fleet say <任务> "新指令"` / `fleet-go amend --say` / `fleet resume <任务>` 以 sessionId 续跑。代理变量 HTTPS_PROXY/HTTP_PROXY/ALL_PROXY（含小写）原样透传，Rust Grok 不认 NODE_USE_ENV_PROXY。默认禁止子代理，详见 [Grok CLI](skill/references/grok-cli.md)。
 
 ## 默认独立运行：跨会话接续
 
@@ -63,7 +63,7 @@ Claude Code 派单写法与误加 `&` 后的补救见 [Skill 顶部「派单前�
 
 状态保存在 `~/.agent-fleet/runs/<runId>.json`，原子更新监督/执行 PID、每30秒心跳、结果/日志路径及简报。PID死亡或心跳超过90秒判为 abnormal；若最后心跳早于启动+10分钟，提示可能重启/强制休眠中断及 `fleet resume <id>`。`wait` 每两秒只读状态与 PID，终态立即返回简报；超时只结束等待，任务继续。`wait` / `tail` 支持短名、唯一runId前缀，`latest` 指当前目录最近任务（包括终态）；stop/say/resume 的 latest 保持当前目录最近存活任务规则。
 
-网关任务支持 say/resume；Codex 暂不支持，会明确提示。macOS 沿用系统 caffeinate 防空闲睡眠；机器重启、合盖强制休眠仍会中断或暂停，不提供重启恢复。监督器被 SIGKILL 时标 abnormal，可用完整runId stop 清理存活执行器。
+网关与 Grok 任务支持 say/resume；Codex 默认用独立 stdio app-server 支持同轮 `turn/steer`，失败尝试 SIGINT 后 `codex exec resume`；启动/握手失败退回原 exec，没有可续跑会话时明确提示 `--restart`。`fleet-go amend --say` 同样生效，异常中断可用 threadId/sessionId `fleet resume`，沿用 cwd、low/review、name/report；简报记录 steer/resume 次数与降级。只读沙箱无法等价时保持 read-only exec。steer 接受不等于立即执行，也不能撤销已完成写入，详见 [中途插话](skill/references/codex-coding.md#中途插话)。macOS 沿用系统 caffeinate 防空闲睡眠；机器重启、合盖强制休眠仍会中断或暂停，不提供重启恢复。监督器被 SIGKILL 时标 abnormal，可用完整runId stop 清理存活执行器。
 
 ## Kollab 文字模型与多模态
 
@@ -279,9 +279,9 @@ agent-fleet resume <run-id> "接着把剩下的做完"
 ```
 
 - `status`:列出 pid 仍存活的任务。pid 已不在但未标 finished →「异常终止（可能被外部信号杀掉）」。
-- `say`:把消息追加进收件箱,运行中的 query 以 streaming input 推成新的 user 消息;日志会出现 `收到插话：…`。
+- `say`:把消息追加进收件箱；网关 query 使用 streaming input，Codex 优先同轮 steer，Grok 与 Codex 兜底中断当前轮后续会话。
 - `stop`:先投递「请立即收尾」;宽限期后 `query.interrupt()`,仍在则对该 pid 发 SIGTERM,再 5 秒 SIGKILL。发信号前校验 pid 来自该 run 的 pid.json,且 `ps` command 含 `agent-fleet` 并与记录一致。只杀这棵 pid 树,绝不 `pkill`/`killall`。结果文件和简报仍会写出,`verdict=stopped`。
-- `resume`:SDK `options.resume` 用 pid.json 里的 `sessionId` 续跑,生成新 run-id,简报带 `resumedFrom`。
+- `resume`:用记录中的 threadId/sessionId 续跑，生成新 run-id，简报带 `resumedFrom`；Codex 仍运行时用 say，避免重复执行。
 
 默认执行者提示里写明:绝不 `kill` / `pkill` / `killall` 任何不是你自己启动的进程。进程收到并非来自本工具 `stop` 的 SIGTERM/SIGINT 时,结果文件注明「被外部信号 X 终止」。
 

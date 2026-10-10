@@ -63,4 +63,7 @@ printf 'mock codex log\n'
   else process.env.AGENT_FLEET_RUNS_DIR = priorRunsDir;
   rmSync(scratch, { recursive: true, force: true });
 }
+await import('./codex-steer-test.mjs');
+await import('./grok-runner-test.mjs');
+await import('./grok-control-test.mjs');
 finish();

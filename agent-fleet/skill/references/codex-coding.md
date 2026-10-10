@@ -14,6 +14,22 @@ fleet code brief.md --review --cwd <项目目录>
 
 失败只如实上报执行者/档位、脱敏原始错误、已完成步骤、产物与 dirty 状态；fleet 不判断原因或更换执行者。派用者顺位参考：Claude `claude → code → kollab-gateway-gpt-sol → grok → gemini`（仅文本）；GPT `code → kollab-gateway-gpt-sol → grok`，GPT 档含网关 gpt-sol。派用者按事实自行判断，用 `fleet-go relaunch <name> --to <产品>` 重派；网关 GPT 用底层 `fleet gpt`。不要打印登录文件或密钥。
 
+## 中途插话
+
+```bash
+fleet say <任务短名或 run-id> "只写到 3 并停止"
+fleet-go amend <name> "补充要求" --say
+fleet resume <异常中断的任务> "继续完成剩余工作"
+```
+
+`FLEET_CODEX_BACKEND` 可取 `app-server`（默认优先模式，失败时仍可降级）或 `exec`（直接使用原执行器）；例如 `FLEET_CODEX_BACKEND=exec fleet code brief.md`。只读 review 和 resume 沿用 exec。
+
+每个 `fleet code` 任务优先启动独立 `codex app-server`，仅用 stdio，不共享服务或开放端口。`say` 在同一 thread/当前 turn 上调用 `turn/steer`；初始化期间先排队。简报保存 threadId、执行模式、steer/resume 次数与降级记录。`resume` 根据 threadId/sessionId 开新 run，沿用 cwd、low/review、name/report。
+
+app-server 启动或握手失败时退回原 `codex exec`；已有会话的 steer 被拒时，先 SIGINT 并等待当前执行结束，再 `codex exec resume` 同一会话（新一轮）。没有可续跑会话或续跑不可用时，明确提示改用 `fleet-go amend --restart`。exec 兜底始终保留；只读 `--review` 如不能等价使用 app-server，则退回原 read-only exec，不放宽沙箱。
+
+steer 被接受不等于立即执行，插话无法撤销已经完成的文件写入；结束后仍要核验产物。没有 threadId/sessionId 的旧记录不能 resume。server 异常退出且无法确认旧工具已结束时，会保守拒绝续跑并提示 `--restart`；执行器仍活着时也不启动重复会话。
+
 ## 哪些任务需要额外 review
 
 编码类按全局 CLAUDE.md §4.3 由另一个只读 GPT-6.1 Sol 对照最终 diff 和检查记录做 review；跨模块重构、数据迁移、权限、计费、删除、外部写入及结果不明确的任务尤其不能省。文案、简单配置、有明确测试的单点修复可免；用户或项目要求 review 时仍执行。审查发现实际问题后修复并重跑受影响检查。执行者只跑 brief 要求的已有测试，不新写测试或安全防护代码（见 SKILL.md「产品与任务边界」）。

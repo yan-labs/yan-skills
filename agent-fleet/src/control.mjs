@@ -1,7 +1,7 @@
 // status / say / stop 的控制面。只按 pid.json 里的 pid 操作,绝不 pkill/killall。
 
 import { existsSync, readFileSync } from 'node:fs';
-import { detachedState, listDetached, readState, stopDetached } from './detach.mjs';
+import { detachedState, listDetached, readState, resolveDetached, stopDetached } from './detach.mjs';
 import { appendInbox } from './inbox.mjs';
 import {
   assertSafeToSignal,
@@ -54,6 +54,9 @@ export function collectStatus({ cwd } = {}) {
       duration: formatDuration(rec.startedAt, rec.finishedAt),
       state,
       logPath: rec.logPath ?? null,
+      ...(rec.model === 'gpt-6.1-sol' ? { backend: rec.backend, threadId: rec.threadId, sessionId: rec.sessionId,
+        steerCount: rec.steerCount, resumeCount: rec.resumeCount, fallbacks: rec.fallbacks,
+        low: rec.low, review: rec.review, resumedFrom: rec.resumedFrom } : {}),
     });
   }
   rows.sort((a, b) => String(b.startedAt ?? '').localeCompare(String(a.startedAt ?? '')));
@@ -73,16 +76,19 @@ export function formatStatusHuman(rows) {
 
 export function deliverSay(spec, text, { cwd } = {}) {
   if (!text) throw new Error('缺少消息。用法: agent-fleet say <run-id|latest> "<消息>"');
-  const runId = resolveRunId(spec, cwd);
+  const runId = resolveRunId(spec && spec !== 'latest' ? resolveDetached(spec, cwd) : spec, cwd);
   const rec = readPidRecord(runId);
   if (!rec) throw new Error(`找不到任务 ${runId} 的 pid.json`);
-  if (rec.model?.startsWith('grok-cli:')) throw new Error('Grok CLI 任务不支持 fleet say；请 stop 后重新派发。');
-  if (rec.model === 'gpt-6.1-sol') throw new Error('Codex 任务不支持 fleet say；请 stop 后重新派发。');
+  if (rec.model?.startsWith('grok-cli:') && !rec.sessionId) throw new Error('Grok CLI 尚未提供 sessionId，暂不支持 fleet say；当前任务继续运行。');
+  const codex = rec.model === 'gpt-6.1-sol';
+  if (codex && rec.backend !== 'codex-app-server' && !rec.threadId && !rec.sessionId) {
+    throw new Error('Codex 任务不支持 fleet say（当前没有可续跑的会话）；改方向请用 fleet-go amend --restart。');
+  }
   if (rec.finished || !isPidAlive(rec.pid)) {
     throw new Error(`任务 ${runId} 已不在运行,无法投递插话。`);
   }
   appendInbox(runId, { type: 'say', text });
-  return { runId, delivered: true };
+  return { runId, delivered: true, mode: codex ? rec.backend === 'codex-app-server' ? 'steer' : 'resume' : undefined };
 }
 
 function sleep(ms) {

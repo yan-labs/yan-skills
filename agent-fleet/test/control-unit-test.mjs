@@ -24,7 +24,9 @@ import {
   LATEST_MISS,
   sameCwd,
   normalizeCwd,
+  writePidRecord,
 } from '../src/pid.mjs';
+import { deliverSay } from '../src/control.mjs';
 import { computeVerdict } from '../src/verdict.mjs';
 import { DEFAULT_EXECUTOR_SYSTEM_PROMPT, wallClockDurationMs } from '../src/run-task.mjs';
 import { buildBrief } from '../src/brief.mjs';
@@ -41,6 +43,31 @@ assert(parseInboxLine(JSON.stringify({ type: 'ping' })) === null, '未知 type �
 {
   const stop = parseInboxLine(JSON.stringify({ type: 'stop', text: '', at: 't', grace: 20 }));
   assert(stop?.type === 'stop' && stop.grace === 20, '合法 stop 带 grace');
+}
+
+{
+  const isolated = mkdtempSync(join(tmpdir(), 'fleet-codex-say-'));
+  const previous = process.env.AGENT_FLEET_RUNS_DIR;
+  process.env.AGENT_FLEET_RUNS_DIR = isolated;
+  try {
+    const base = { pid: process.pid, model: 'gpt-6.1-sol', finished: false, cwd: isolated };
+    writePidRecord('codex-starting', { ...base, backend: 'codex-app-server' });
+    assert(deliverSay('codex-starting', '只写到 3').mode === 'steer', 'Codex app-server 初始化期间可排队插话');
+    assert(readInboxSince(join(isolated, 'codex-starting.inbox'), 0, '').entries[0]?.text === '只写到 3', 'Codex say 保留原始指令');
+    writePidRecord('codex-exec', { ...base, backend: 'codex-exec', threadId: 'thread-1' });
+    assert(deliverSay('codex-exec', '继续').mode === 'resume', 'Codex exec 有 threadId 时允许续会话插话');
+    writePidRecord('codex-legacy', base);
+    let failure = '';
+    try { deliverSay('codex-legacy', '继续'); } catch (err) { failure = err.message; }
+    assert(failure.includes('--restart'), '没有会话的 Codex 旧记录提示 restart');
+    writePidRecord('codex-done', { ...base, backend: 'codex-app-server', finished: true });
+    try { deliverSay('codex-done', '继续'); } catch (err) { failure = err.message; }
+    assert(failure.includes('已不在运行'), 'Codex 终态禁止插话');
+  } finally {
+    if (previous === undefined) delete process.env.AGENT_FLEET_RUNS_DIR;
+    else process.env.AGENT_FLEET_RUNS_DIR = previous;
+    rmSync(isolated, { recursive: true, force: true });
+  }
 }
 
 const dir = mkdtempSync(join(tmpdir(), 'agent-fleet-inbox-'));
