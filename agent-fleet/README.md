@@ -12,7 +12,7 @@ fleet team  # 五产品能力、顺位链与可用性；只显示存在性/登�
 |---|---|---|---|
 | `gpt` | 编码、调研、报告、只读复核；本机 Codex GPT-6.1 Sol | `fleet-go new fix --to gpt --auth local --goal "修复问题" --body task.md` | 网关 gpt-sol → Grok |
 | `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | code → 网关 gpt-sol → Grok → Gemini（仅文本） |
-| `grok` | 编码备选、调研、生图、生视频、成人题材、X 热点与实时讨论 | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | Claude 顺位下一档 Gemini（仅文本） |
+| `grok` | 视频与图片（生成、搜索）、X 平台（热点与实时讨论）、编码、检索调研、成人题材 | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | Claude 顺位下一档 Gemini（仅文本） |
 | `gemini` | 文案、翻译、摘要、批量机械任务（`--bulk`） | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | — |
 | `jev` | 分类、选择、打分等结构化判断 | `fleet-go new decide --to jev --goal "按正文判据分类" --body task.md` | — |
 

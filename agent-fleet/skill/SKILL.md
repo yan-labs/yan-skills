@@ -9,9 +9,22 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 |---|---|---|---|
 | `gpt` | 编码、调研、报告、只读复核；本机 Codex GPT-6.1 Sol | `fleet-go new fix --to gpt --auth local --goal "修复问题" --body task.md` | 网关 gpt-sol → Grok |
 | `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | code → 网关 gpt-sol → Grok → Gemini（仅文本） |
-| `grok` | 编码备选、调研、生图、生视频、成人题材、X 热点与实时讨论 | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | Claude 顺位下一档 Gemini（仅文本） |
+| `grok` | 视频与图片（生成、搜索）、X 平台（热点与实时讨论）、编码、检索调研、成人题材 | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | Claude 顺位下一档 Gemini（仅文本） |
 | `gemini` | 文案、翻译、摘要、批量机械任务（`--bulk`） | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | — |
 | `jev` | 分类、选择、打分等结构化判断 | `fleet-go new decide --to jev --goal "按正文判据分类" --body task.md` | — |
+
+## 中途插话（所有执行者都能改方向，不要杀掉重派）
+统一入口：`fleet say <任务> "新指令"` 或 `fleet-go amend <名字> --say "补充要求"`（`--restart` 只作最后兜底）。
+
+| 执行者 | 插话方式 | 说明 |
+|---|---|---|
+| `gpt`（Codex，非 `--review`） | **同一轮里** `turn/steer`（每个任务自己的 `codex app-server`） | 失败降级为 SIGINT + `codex exec resume`（新一轮，同会话），再降级为 `--restart`；steer 被接受不等于立即停下正在执行的命令，已完成的写入撤不回 |
+| `gpt --review`（只读 exec） | 不支持同轮 | 改方向用 `amend --restart` |
+| `grok` | 停掉当前进程，用 `grok -r <sessionId>` 在**同一会话**续跑（新一轮，保留上下文） | 拿到 sessionId 之前拒绝，当前任务继续运行 |
+| `claude`、`gemini`（网关与 SDK 任务） | 经收件箱送入运行中的任务 | `fleet say` 即可 |
+| `jev` | 单次请求，无需插话 | |
+| `fleet web`（网页版 ChatGPT） | `fleet web say <会话名> "追问"` | |
+| `Agent` 工具里的 `executor-*` | `SendMessage` | 不属于 fleet |
 
 `fleet team` / `fleet-go team` 一屏检查五产品能力、顺位参考和可用性，只显示登录/凭据存在状态，不显示密钥或 token。
 

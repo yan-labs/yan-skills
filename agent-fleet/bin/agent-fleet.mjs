@@ -482,10 +482,11 @@ async function cmdTeam() {
   console.log('产品  | 擅长 | 派用者重派顺位 | 当前可用性');
   console.log(`gpt   | 编码、调研、只读复核 | code → 网关 gpt-sol → grok | Codex ${available(codex)}`);
   console.log(`claude| 月度额度任务，默认 sonnet | claude → code → 网关 gpt-sol → grok → gemini | ANTHROPIC_CREDIT_API_KEY ${key('ANTHROPIC_CREDIT_API_KEY')}`);
-  console.log(`grok  | 编码备选、调研、图/视频、成人题材、X 热点 | 由派用者决定 | grok models ${available(grok)}`);
+  console.log(`grok  | 视频与图片、X 平台、编码、检索调研、成人题材 | 由派用者决定 | grok models ${available(grok)}`);
   console.log(`gemini| 文案、翻译、摘要、批量 | 无；拒绝编码/UI/改文件 | KOLLAB_PROD_API_KEY ${key('KOLLAB_PROD_API_KEY')}`);
   console.log(`jev   | 结构化判断 | 无 | TYPESAFE_API_KEY ${key('TYPESAFE_API_KEY')}`);
   console.log('GPT 档含本机 code 与网关 kollab-gateway-gpt-sol；失败只上报事实，派用者自行判断并用 relaunch --to 重派；状态只检查登录/凭据存在。');
+  console.log('中途插话：fleet say <任务> "新指令" / fleet-go amend <名字> --say；gpt 同轮 steer，grok 同会话续跑，claude/gemini 经收件箱，jev 无需（--review 的只读 exec 不支持，用 --restart）。');
 }
 
 function flagArgs(flags, omitted = []) {
