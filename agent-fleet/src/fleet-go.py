@@ -261,15 +261,13 @@ def new(args):
         raise ValueError('未知授权块。可用：' + ','.join(AUTH))
     if 'local-commit' in auth:
         auth = [a for a in auth if a != 'local']
-    if 'paid' in auth and not args.budget:
-        raise ValueError('paid 必须提供 --budget（上限与重试次数）。')
     pitfalls = args.pitfalls.split(',') if args.pitfalls is not None else (['node-proxy', 'zsh', 'secrets', 'shared-tree'] if args.to in ('gpt', 'grok') else ['secrets', 'fleet-bg'])
     if args.pitfalls is None and 'deploy-prod' in auth:
         pitfalls.append('pnpm-entry')
         pitfalls.extend(p.stem[8:] for p in BLOCKS.glob('pitfall-deploy-*.md'))
     if any(p not in PITFALLS and not (BLOCKS / ('pitfall-' + p + '.md')).exists() for p in pitfalls if p):
         raise ValueError('未知已知坑块。')
-    values = {'NAME': args.name, 'REPORT': report, 'BUDGET': args.budget or '付费由主线程另行授权', 'DATE': day,
+    values = {'NAME': args.name, 'REPORT': report, 'DATE': day,
               'COMMITS': '本地提交仅限授权分支，报告列出本地提交哈希' if 'local-commit' in auth else '提交按授权覆盖执行'}
     if args.body and args.body != '-':
         body_path = Path(args.body).expanduser()
@@ -285,6 +283,8 @@ def new(args):
         classification += ' ' + (args.tier or 'sonnet')
     parts = [f'归类：{classification}；理由：{args.why or classification + "任务，按既有路由执行"}\nREPORT: {report}', block('style-sol', values),
              '## 授权覆盖\n' + '\n\n'.join(block('auth-' + a, values) for a in dict.fromkeys(auth))]
+    if args.budget:
+        parts.append('## 预算与重试限制\n' + args.budget)
     if args.goal:
         parts.append('## 目标\n' + args.goal)
     if body.strip():

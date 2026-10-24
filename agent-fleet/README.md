@@ -471,7 +471,7 @@ ANTHROPIC_DEFAULT_SONNET_MODEL=<subagentModel 的值>
 
 review 的只读是 brief 约定，而非沙箱。项目文件保持原样；允许联网、运行测试和脚本，只在自己的 `mktemp -d` 临时目录建删文件。Codex 普通/review 的 app-server、exec 和 resume 均使用 `danger-full-access`；SDK（Claude haiku/sonnet/opus/fable、Gemini 与网关）均使用 `bypassPermissions`，不设只读 allowedTools/disallowedTools/canUseTool，也不带入受信项目配置中的 permissions、sandbox 或工具名单。Grok 普通/review 均使用 `--always-approve`、不传 sandbox、不做文件快照失败判定。Gemini 不因编码/UI/expect-changes 关键词硬拒绝；JEV 是结构化 API，没有 Bash/文件工具，不存在只读沙箱。
 
-各命令执行器保留宿主的 HTTP(S)_PROXY、ALL_PROXY、NO_PROXY 及小写形式，Node 子进程开启 `NODE_USE_ENV_PROXY=1`。全权限允许实际修改项目，执行者必须遵守 brief；这不是防止写入的安全隔离。密钥脱敏与凭据路由隔离、费用上限、生产写授权继续保留；真实系统访问控制和上游协议能力不由 fleet 绕过。原有 git dirty 信息只作产物提示，不因 review 文件变化单独判失败。
+各命令执行器保留宿主的 HTTP(S)_PROXY、ALL_PROXY、NO_PROXY 及小写形式，Node 子进程开启 `NODE_USE_ENV_PROXY=1`。全权限允许实际修改项目，执行者必须遵守 brief；这不是防止写入的安全隔离。密钥脱敏与凭据路由隔离、用户明确给出的费用上限、生产写授权继续保留；真实系统访问控制和上游协议能力不由 fleet 绕过。原有 git dirty 信息只作产物提示，不因 review 文件变化单独判失败。
 
 ### 谁说了算:信任模型
 
@@ -568,7 +568,7 @@ agent-fleet 会把 `CLAUDE_CONFIG_DIR` 指向自己专属的 `~/.agent-fleet/cla
 
 ## fleet-go 快速派单
 
-`fleet-go new fix-card --to gpt --auth local --goal "修复窄屏卡片溢出" --write /path/to/project --body task.md` 按产品自动拼标准块、lint、写 brief 并前台执行 fleet；也支持 heredoc 正文。`--dry-run` 只打印，`--no-launch` 只落盘。块在 `skill/templates/blocks/`，可直接编辑；paid 必须传 `--budget`，生产目标与回滚条件写在独有正文。
+`fleet-go new fix-card --to gpt --auth local --goal "修复窄屏卡片溢出" --write /path/to/project --body task.md` 按产品自动拼标准块、lint、写 brief 并前台执行 fleet；也支持 heredoc 正文。`--dry-run` 只打印，`--no-launch` 只落盘。块在 `skill/templates/blocks/`，可直接编辑；`--budget` 可选，用户给了预算才写进 brief，没给不写、不设默认值，生产目标与回滚条件写在独有正文。
 
 修订用 `fleet-go amend fix-card "补充要求"`；优先 `--say`，不支持插话则保留修订并提示，确需重来才用 `--restart`（先 stop 并核验残留）。`fleet-go lint brief.md` 检查格式与启动禁令；`fleet-go status` 给运行摘要。brief 和用于恢复命令的 `.brief.json` 放在 `~/.agent-reports/<日期>/`，同名拒绝覆盖。启动仍用工具 `run_in_background:true`，脚本不后台化。需要 Python 3，无新增 npm 依赖。
 

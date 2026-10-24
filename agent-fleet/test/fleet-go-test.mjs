@@ -157,11 +157,19 @@ try {
       assert.equal(r.stdout,'');
     }
   });
-  test('body 文件、stdin、授权叠加、paid 必须预算、默认报告和 no-launch', () => {
+  test('body 文件、stdin、授权叠加、paid 预算可选、默认报告和 no-launch', () => {
     const body=join(temp,'body.md'); writeFileSync(body,'## 独有正文\n只处理本目标');
     let r=run(['new','--to','gpt','body','--body',body,'--auth','local,readonly-web','--no-launch']); assert.equal(r.status,0,r.stderr);
-    assert.equal(run(['new','--to','gpt','paid','--goal','付费','--auth','paid','--dry-run']).status,1);
-    r=run(['new','--to','gpt','paid','--goal','付费','--auth','paid','--budget','$2，重试 1 次','--dry-run']); assert.equal(r.status,0); assert.match(r.stdout,/\$2，重试 1 次/);
+    for (const auth of ['paid', 'paid,local']) {
+      r=run(['new','--to','gpt','paid','--goal','付费','--auth',auth,'--dry-run']);
+      assert.equal(r.status,0,r.stderr);
+      assert.match(r.stdout,/允许范围：当前目标必要的付费验证/);
+      assert.doesNotMatch(r.stdout,/\$5|## 预算与重试限制|付费由主线程另行授权|\{BUDGET\}/);
+      const preview=join(temp,'paid-preview.md'); writeFileSync(preview,r.stdout);
+      assert.equal(run(['lint',preview]).status,0);
+    }
+    r=run(['new','--to','gpt','paid','--goal','付费','--auth','paid','--budget','$2，重试 1 次','--dry-run']); assert.equal(r.status,0); assert.match(r.stdout,/## 预算与重试限制\n\$2，重试 1 次/);
+    assert.equal(r.stdout.split('$2，重试 1 次').length-1,1);
     r=spawnSync(script,['new','--to','gpt','stdin','--dry-run'],{encoding:'utf8',env,input:'## stdin 独有正文'}); assert.equal(r.status,0); assert.match(r.stdout,/stdin 独有正文/);
   });
   test('五产品、各档及选项映射，必填产品与旧参数拒绝', () => {
