@@ -10,8 +10,9 @@ import { readPidRecord, processCommand } from '../src/pid.mjs';
 import { buildBrief, formatBriefHuman } from '../src/brief.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'fleet-codex-steer-'));
-const envKeys = ['AGENT_FLEET_RUNS_DIR', 'FLEET_DETACHED_RUN_ID', 'FLEET_CODEX_BACKEND', 'FLEET_STEER_TEST_MODE', 'FLEET_STEER_TEST_TRACE'];
+const envKeys = ['AGENT_FLEET_RUNS_DIR', 'FLEET_DETACHED_RUN_ID', 'FLEET_CODEX_BACKEND', 'FLEET_STEER_TEST_MODE', 'FLEET_STEER_TEST_TRACE', 'HTTPS_PROXY', 'FLEET_EXPECTED_PROXY'];
 const saved = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
+process.env.HTTPS_PROXY = process.env.FLEET_EXPECTED_PROXY = 'http://127.0.0.1:19876';
 const mock = join(scratch, 'codex-mock');
 writeFileSync(mock, String.raw`#!/usr/bin/env node
 const fs = require('node:fs');
@@ -20,6 +21,7 @@ const args = process.argv.slice(2), mode = process.env.FLEET_STEER_TEST_MODE;
 const trace = value => fs.appendFileSync(process.env.FLEET_STEER_TEST_TRACE, JSON.stringify(value) + '\n');
 const send = value => process.stdout.write(JSON.stringify(value) + '\n');
 trace({ args });
+trace({ nodeProxy: process.env.NODE_USE_ENV_PROXY, proxyInherited: process.env.HTTPS_PROXY === process.env.FLEET_EXPECTED_PROXY });
 process.on('SIGINT', () => { trace({ signal: 'SIGINT' }); process.exit(130); });
 if (args[0] === 'app-server') {
   if (mode === 'app-fail') { process.stderr.write('mock app-server unavailable\n'); process.exit(2); }
@@ -201,8 +203,22 @@ try {
 
   const review = await scenario('normal', { review: true });
   assert.equal(review.result.ok, true);
-  assert.equal(review.trace[0].args[0], 'exec');
-  assert(review.trace[0].args.includes('read-only'));
+  assert.equal(review.result.backend, 'codex-app-server');
+  assert.equal(review.trace.find(entry => entry.method === 'thread/start').params.sandbox, 'danger-full-access');
+  assert.equal(review.trace.find(entry => entry.method === 'thread/start').params.approvalPolicy, 'never');
+  assert.match(review.trace.find(entry => entry.method === 'turn/start').params.input[0].text, /自己的.*mktemp -d/);
+  const reviewExec = await scenario('normal', { review: true, backend: 'exec' });
+  const reviewFallback = await scenario('app-fail', { review: true });
+  const reviewResume = await scenario('normal', { review: true, resume: 'thread-one' });
+  for (const run of [review, reviewExec, reviewFallback, reviewResume]) {
+    assert.equal(run.result.ok, true);
+    for (const { args } of run.trace.filter(entry => entry.args?.[0] === 'exec')) {
+      assert.equal(args[args.indexOf('--sandbox') + 1], 'danger-full-access');
+      assert(!args.includes('read-only'));
+    }
+    assert.equal(buildBrief(run.result).verdict, 'ok', 'review 不按项目 dirty 状态判 suspect');
+    assert(run.trace.some(entry => entry.nodeProxy === '1' && entry.proxyInherited), '保留宿主代理环境并开启 Node 代理支持');
+  }
   console.log('PASS - Codex app-server/steer、SIGINT + resume、exec 兜底、元数据及简报桩测试');
 } finally {
   for (const key of envKeys) {

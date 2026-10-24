@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { appendFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { createHash, randomUUID } from 'node:crypto';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { snapshotGit, inspectGit, attachArtifacts, redactEvidence } from './brief.mjs';
 import { runsDir } from './progress.mjs';
@@ -10,20 +10,6 @@ import { watchInbox } from './inbox.mjs';
 import { SCOPE_LOCK } from './scope.mjs';
 
 const execute = promisify(execFile);
-
-function filesSnapshot(cwd) {
-  const files = [];
-  function visit(dir) {
-    for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      if (['.git', 'node_modules', '.grok'].includes(entry.name)) continue;
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) visit(path);
-      else if (entry.isFile()) files.push([path, createHash('sha256').update(readFileSync(path)).digest('hex')]);
-    }
-  }
-  visit(cwd);
-  return new Map(files);
-}
 
 export async function runGrok({ prompt, cwd = process.cwd(), model, review = false, subagents = false,
   maxTurns, reasoningEffort, resume, resumedFrom, grokBin = process.env.FLEET_GROK_BIN || 'grok' }) {
@@ -41,13 +27,13 @@ export async function runGrok({ prompt, cwd = process.cwd(), model, review = fal
   let result = '', error = null, git = {}, stderrEvidence = '', errorObject, httpStatus, signal;
   let metadata = { sessionId: resume || null, review, subagents, maxTurns, reasoningEffort,
     stopReason: null, numTurns: null, totalCostUsd: null, usage: null, modelUsage: null, costSource: 'grok 自报' };
-  let suspectNote = null, changedFiles = [];
+  let suspectNote = null;
   const record = finished => {
     writePidRecord(runId, { pid: process.pid, command: processCommand(process.pid),
       model: `grok-cli:${selectedModel || 'default'}`, cwd: workdir,
-      startedAt: new Date(startedAt).toISOString(), logPath, finished, ...metadata, changedFiles });
-    writeFileSync(`${base}.grok.json`, `${JSON.stringify({ ...metadata, changedFiles }, null, 2)}\n`);
-    process.send?.({ grokMetadata: { ...metadata, changedFiles } });
+      startedAt: new Date(startedAt).toISOString(), logPath, finished, ...metadata });
+    writeFileSync(`${base}.grok.json`, `${JSON.stringify({ ...metadata }, null, 2)}\n`);
+    process.send?.({ grokMetadata: { ...metadata } });
   };
   writeFileSync(resultPath, '');
   appendFileSync(logPath, '[grok-cli] checking authentication and default model\n');
@@ -55,8 +41,8 @@ export async function runGrok({ prompt, cwd = process.cwd(), model, review = fal
   try {
     const models = await execute(grokBin, ['models'], { cwd: workdir, env, timeout: 30000 });
     selectedModel ||= models.stdout.match(/Default model:\s*(\S+)/i)?.[1];
-    const filesBefore = filesSnapshot(workdir);
-    const fullPrompt = `${SCOPE_LOCK}\n\n${review ? '只读审查：只读取与回答，不修改文件，不执行写操作。\n\n' : ''}${prompt}\n\n最终回答请用“结论：”说明实际结果。`;
+    const reviewInstruction = '只读审查：项目文件保持原样；允许联网、运行测试和脚本，只在自己的 mktemp -d 临时目录建删文件。';
+    const fullPrompt = `${SCOPE_LOCK}\n\n${review ? `${reviewInstruction}\n\n` : ''}${prompt}\n\n最终回答请用“结论：”说明实际结果。`;
     const promptPath = `${base}.prompt.md`;
     let nextPrompt = fullPrompt;
     let session = resume;
@@ -139,7 +125,7 @@ export async function runGrok({ prompt, cwd = process.cwd(), model, review = fal
         signal = outcome.signal;
         if (pendingSay && metadata.sessionId) {
           session = metadata.sessionId;
-          nextPrompt = `${review ? '只读审查，不修改文件。\n' : ''}${pendingSay}\n最终回答请用“结论：”说明实际结果。`;
+          nextPrompt = `${review ? `${reviewInstruction}\n` : ''}${pendingSay}\n最终回答请用“结论：”说明实际结果。`;
           pendingSay = null;
           result += '\n\n';
           metadata.stopReason = null;
@@ -158,14 +144,9 @@ export async function runGrok({ prompt, cwd = process.cwd(), model, review = fal
       clearTimeout(killTimer);
     }
     result = result.trim();
-    const filesAfter = filesSnapshot(workdir);
-    changedFiles = [...new Set([...filesBefore.keys(), ...filesAfter.keys()])]
-      .filter(path => filesBefore.get(path) !== filesAfter.get(path));
     git = inspectGit(workdir, before);
-    git.hasUncommittedChanges ||= changedFiles.length > 0;
     if (!error && !/(?:结论|总结|完成|结果|conclusion|summary|completed|result)\s*[:：]|\b(?:done|finished)\b/i.test(finalText))
       suspectNote = 'Grok 没有明确最终结论，可能只有提前结束前的片段';
-    if (review && changedFiles.length) suspectNote = `只读 review 期间文件发生变化：${changedFiles.join(', ')}`;
   } catch (err) {
     stderrEvidence = err.stderr || err.stdout || stderrEvidence;
     errorObject = err.error ?? { ...err, message: err.message };
@@ -181,6 +162,6 @@ export async function runGrok({ prompt, cwd = process.cwd(), model, review = fal
     appendFileSync(logPath, `[grok-cli] done ${error || suspectNote ? 'error' : 'ok'}${suspectNote ? ' verdict=suspect' : ''}\n`);
     record(true);
   }
-  return attachArtifacts({ ...metadata, suspectNote, changedFiles, resumedFrom, ok: !error && Boolean(result), result, error, progress: { phase }, tier: selectedModel || 'default', stderr: stderrEvidence.split(/\r?\n/).slice(-20).join('\n'), errorObject, httpStatus, signal, durationMs: Date.now() - startedAt,
+  return attachArtifacts({ ...metadata, suspectNote, resumedFrom, ok: !error && Boolean(result), result, error, progress: { phase }, tier: selectedModel || 'default', stderr: stderrEvidence.split(/\r?\n/).slice(-20).join('\n'), errorObject, httpStatus, signal, durationMs: Date.now() - startedAt,
     model: `grok-cli:${selectedModel || 'default'}`, cwd: workdir, resultPath, logPath }, logPath, Object.keys(git).length ? git : inspectGit(workdir, before));
 }

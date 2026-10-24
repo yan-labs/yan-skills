@@ -30,7 +30,7 @@ fleet team  # 五产品能力、顺位链与可用性；只显示存在性/登�
 - Claude 额度档：`claude → code → kollab-gateway-gpt-sol → grok → gemini`（Gemini 仅文本）。
 - GPT 档：`code → kollab-gateway-gpt-sol → grok`；GPT 档含本机 Codex 与网关 gpt-sol 两跳。
 
-派用者决定后，用 `fleet-go relaunch <name> --to <产品> [--tier haiku|sonnet|opus|fable]` 沿用同份 brief、`--name` 与 `--report` 重派。切换至网关 GPT 用底层 `fleet gpt brief.md --name <name> --report <report>`。Gemini 静态拒绝编码、UI 或带 `--expect-changes` 的任务；这是产品边界检查。成功任务不产生失败上报。
+派用者决定后，用 `fleet-go relaunch <name> --to <产品> [--tier haiku|sonnet|opus|fable]` 沿用同份 brief、`--name` 与 `--report` 重派。切换至网关 GPT 用底层 `fleet gpt brief.md --name <name> --report <report>`。Gemini 的文本任务定位是路由建议，不按编码/UI/`--expect-changes` 关键词硬拒绝。成功任务不产生失败上报。
 
 ## xAI Grok Build CLI
 
@@ -40,7 +40,7 @@ fleet grok-cli brief.md --review --cwd /path/to/project
 fleet-go new demo-grok --to grok --auth local --goal "完成编码任务" --body brief.md --dry-run
 ```
 
-`grok-cli` 使用本机 xAI 完整编码 Agent；`fleet grok` 仍使用 Kollab 网关单轮模型。先 `grok login --oauth`，模型默认取 `grok models`，可用 `--model` 覆盖。runner 解析 streaming-json，保存 sessionId、stopReason、usage；简报 cost/turns 为 Grok 自报。非 end_turn（尤其工具批准被取消的 cancelled）判 fail，无明确最终结论判 suspect。写任务和 review 都自动批准；本机沙箱实测不生效，review 只读靠提示与事后快照，改动文件判 suspect。支持 `fleet say <任务> "新指令"` / `fleet-go amend --say` / `fleet resume <任务>` 以 sessionId 续跑。代理变量 HTTPS_PROXY/HTTP_PROXY/ALL_PROXY（含小写）原样透传，Rust Grok 不认 NODE_USE_ENV_PROXY。默认禁止子代理，详见 [Grok CLI](skill/references/grok-cli.md)。
+`grok-cli` 使用本机 xAI 完整编码 Agent；`fleet grok` 仍使用 Kollab 网关单轮模型。先 `grok login --oauth`，模型默认取 `grok models`，可用 `--model` 覆盖。runner 解析 streaming-json，保存 sessionId、stopReason、usage；简报 cost/turns 为 Grok 自报。非 end_turn（尤其工具批准被取消的 cancelled）判 fail，无明确最终结论判 suspect。写任务和 review 都自动批准；本机沙箱实测不生效，review 只读靠 brief 约定，允许联网、临时脚本和测试，不因文件变化判 suspect。支持 `fleet say <任务> "新指令"` / `fleet-go amend --say` / `fleet resume <任务>` 以 sessionId 续跑。代理变量 HTTPS_PROXY/HTTP_PROXY/ALL_PROXY（含小写）原样透传，Rust Grok 不认 NODE_USE_ENV_PROXY。默认禁止子代理，详见 [Grok CLI](skill/references/grok-cli.md)。
 
 ## 默认独立运行：跨会话接续
 
@@ -65,7 +65,7 @@ Claude Code 派单写法与误加 `&` 后的补救见 [Skill 顶部「派单前�
 
 Codex app-server 任务运行中仍显示在 Codex APP，结束后自动归档本任务线程；归档失败只记降级。历史保留，fleet 续跑前取消归档，结束后再归档。
 
-网关与 Grok 任务支持 say/resume；Codex 默认用独立 stdio app-server 支持同轮 `turn/steer`，失败尝试 SIGINT 后 `codex exec resume`；启动/握手失败退回原 exec，没有可续跑会话时明确提示 `--restart`。`fleet-go amend --say` 同样生效，异常中断可用 threadId/sessionId `fleet resume`，沿用 cwd、low/review、name/report；简报记录 steer/resume 次数与降级。只读沙箱无法等价时保持 read-only exec。steer 接受不等于立即执行，也不能撤销已完成写入，详见 [中途插话](skill/references/codex-coding.md#中途插话)。macOS 沿用系统 caffeinate 防空闲睡眠；机器重启、合盖强制休眠仍会中断或暂停，不提供重启恢复。监督器被 SIGKILL 时标 abnormal，可用完整runId stop 清理存活执行器。
+网关与 Grok 任务支持 say/resume；Codex 默认用独立 stdio app-server 支持同轮 `turn/steer`，失败尝试 SIGINT 后 `codex exec resume`；启动/握手失败退回原 exec，没有可续跑会话时明确提示 `--restart`。`fleet-go amend --say` 同样生效，异常中断可用 threadId/sessionId `fleet resume`，沿用 cwd、low/review、name/report；简报记录 steer/resume 次数与降级。review 同样支持 app-server，及 exec/resume 兜底，两路均为 `danger-full-access`。steer 接受不等于立即执行，也不能撤销已完成写入，详见 [中途插话](skill/references/codex-coding.md#中途插话)。macOS 沿用系统 caffeinate 防空闲睡眠；机器重启、合盖强制休眠仍会中断或暂停，不提供重启恢复。监督器被 SIGKILL 时标 abnormal，可用完整runId stop 清理存活执行器。
 
 ## Kollab 文字模型与多模态
 
@@ -469,6 +469,10 @@ ANTHROPIC_DEFAULT_SONNET_MODEL=<subagentModel 的值>
 
 ## 安全边界
 
+review 的只读是 brief 约定，而非沙箱。项目文件保持原样；允许联网、运行测试和脚本，只在自己的 `mktemp -d` 临时目录建删文件。Codex 普通/review 的 app-server、exec 和 resume 均使用 `danger-full-access`；SDK（Claude haiku/sonnet/opus/fable、Gemini 与网关）均使用 `bypassPermissions`，不设只读 allowedTools/disallowedTools/canUseTool，也不带入受信项目配置中的 permissions、sandbox 或工具名单。Grok 普通/review 均使用 `--always-approve`、不传 sandbox、不做文件快照失败判定。Gemini 不因编码/UI/expect-changes 关键词硬拒绝；JEV 是结构化 API，没有 Bash/文件工具，不存在只读沙箱。
+
+各命令执行器保留宿主的 HTTP(S)_PROXY、ALL_PROXY、NO_PROXY 及小写形式，Node 子进程开启 `NODE_USE_ENV_PROXY=1`。全权限允许实际修改项目，执行者必须遵守 brief；这不是防止写入的安全隔离。密钥脱敏与凭据路由隔离、费用上限、生产写授权继续保留；真实系统访问控制和上游协议能力不由 fleet 绕过。原有 git dirty 信息只作产物提示，不因 review 文件变化单独判失败。
+
 ### 谁说了算:信任模型
 
 这个工具的核心信任规则只有一条:
@@ -501,10 +505,10 @@ ANTHROPIC_DEFAULT_SONNET_MODEL=<subagentModel 的值>
 目标目录的 `.mcp.json` 也不自动加载(`strictMcpConfig`)。
 这不等于屏蔽所有项目文本:`CLAUDE.md` / 文件内容的 prompt injection 风险仍见下文。
 
-只有希望项目里的权限等行为配置生效时,才需要可选白名单。对自己控制的仓库,可在 agent-fleet 根目录的
+只有希望项目里的清理周期等行为配置生效时,才需要可选白名单。对自己控制的仓库,可在 agent-fleet 根目录的
 `.env` 或进程环境变量中设置 `AGENT_FLEET_TRUSTED_CWDS=/绝对路径/仓库一:/绝对路径/仓库二`（进程环境优先）。
 白名单按 realpath 后的目录边界覆盖自身及子目录,不覆盖同名前缀的兄弟目录,空值、相对路径和 `/` 均忽略。
-命中时会输出提示,并只加载过滤后的项目配置（如权限）：项目里的 `hooks`、`statusLine`、插件、`env`、凭据 helper
+命中时会输出提示,并只加载过滤后的项目配置（如清理周期），工具权限与沙箱配置不传入 SDK：项目里的 `hooks`、`statusLine`、插件、`env`、凭据 helper
 与登录方式设置一律不带进子任务;白名单目录的非法 JSON 仍会报错,因为这条可选路径需要解析配置。
 请求地址、凭据和自定义头仍只取自 `models.config.json` + 操作者的 `.env`/环境变量。
 仍建议只添加自己控制的目录,不要添加第三方项目。

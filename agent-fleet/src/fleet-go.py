@@ -119,26 +119,6 @@ def locate(name):
     return path, meta
 
 
-def gemini_task_text(text):
-    # 两处闸门同规格：统一换行，仅移除完整模板块；{大写占位符}匹配单行值。
-    text = text.replace('\r\n', '\n')
-    for path in sorted(BLOCKS.glob('*.md')):
-        template = path.read_text().strip().replace('\r\n', '\n')
-        parts = re.split(r'(\{[A-Z]+\})', template)
-        pattern = ''.join(r'[^\n]*?' if re.fullmatch(r'\{[A-Z]+\}', part) else re.escape(part) for part in parts)
-        text = re.sub(pattern, '', text)
-    return text
-
-
-def gemini_check(text, expect_changes=False):
-    """静态路由限制，只判断任务要求，不判断执行失败原因。"""
-    text = gemini_task_text(text)
-    classifications = re.findall(r'^归类[^\r\n]*', text, re.M)
-    coding = r'编码|\bUI\b|前端实现|写代码|(?:修改|改动|改|编辑|重写|创建|新增|删除|更新).{0,12}(?:文件|代码|源码|组件|\S+\.(?:mjs|js|ts|tsx|jsx|py|html|css|json))|实现.{0,12}(?:界面|页面|功能)|(?:edit|modify|write|create|delete|update)\s+(?:\S+\s+){0,3}(?:files?|code|components?)|implement\s+(?:\S+\s+){0,3}(?:UI|code|component)'
-    if expect_changes or any(re.search(r'编码|code|UI|前端实现', line, re.I) for line in classifications) or re.search(coding, text, re.I):
-        raise ValueError('Gemini 只接文本任务，拒绝编码/UI/--expect-changes。')
-
-
 def relaunch(name, to=None, tier=None):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     path, meta = locate(name)
@@ -149,8 +129,6 @@ def relaunch(name, to=None, tier=None):
     if tier and target != 'claude':
         raise ValueError('--tier 仅用于 --to claude。')
     text = path.read_text()
-    if target == 'gemini':
-        gemini_check(text, meta.get('expect-changes', False))
     checked(text, target)
     if target != meta['to']:
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
@@ -302,8 +280,6 @@ def new(args):
         body = sys.stdin.read() if args.body == '-' or not sys.stdin.isatty() else ''
     if not args.goal and not body.strip():
         raise ValueError('请提供 --goal、--body 或 stdin 正文。')
-    if args.to == 'gemini':
-        gemini_check('\n'.join([args.goal or '', body, args.why or '']), args.expect_changes)
     classification = PRODUCTS[args.to] + (' 只读复核' if args.review else '')
     if args.to == 'claude':
         classification += ' ' + (args.tier or 'sonnet')

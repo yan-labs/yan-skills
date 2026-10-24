@@ -97,7 +97,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
   };
   const fallback = reason => { metadata.fallbacks.push(reason); log(`\n[codex] fallback: ${reason}\n`); record(); };
   const start = args => {
-    const child = spawn(codexBin, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(codexBin, args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, NODE_USE_ENV_PROXY: '1' } });
     activeChild = child;
     activeDescendants = [];
     child.stdin.on('error', () => {});
@@ -198,7 +198,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
   };
   let outcome;
   try {
-    if (!stopping && !review && !resume && process.env.FLEET_CODEX_BACKEND !== 'exec') {
+    if (!stopping && !resume && process.env.FLEET_CODEX_BACKEND !== 'exec') {
       metadata.backend = 'codex-app-server';
       const child = start(['app-server', '--stdio']);
       const pending = new Map();
@@ -266,7 +266,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
       do {
         writeFileSync(resultPath, '');
         const args = ['exec', '--skip-git-repo-check', '--json', '-m', 'gpt-6.1-sol', '-c', `model_reasoning_effort=${process.env.FLEET_CODEX_EFFORT || (low ? 'low' : 'medium')}`, '-c', 'service_tier="fast"',
-          '--sandbox', review ? 'read-only' : 'danger-full-access', '-C', workdir, '-o', resultPath,
+          '--sandbox', 'danger-full-access', '-C', workdir, '-o', resultPath,
           ...(session ? ['resume', session, '-'] : ['-'])];
         if (session) {
           try { await threadLifecycle(codexBin, 'thread/unarchive', session); }
@@ -298,7 +298,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
         if (!offsetQueue.length || stopping) break;
         if (!metadata.threadId) { fallback('Codex 不支持插话，改方向请用 --restart'); break; }
         session = metadata.threadId;
-        nextPrompt = `${review ? '只读审查，不修改文件。\n' : ''}${offsetQueue.splice(0).join('\n\n')}`;
+        nextPrompt = `${review ? `${reviewPrompt()}\n\n` : ''}${offsetQueue.splice(0).join('\n\n')}`;
         log('\n[codex] say: exec resume same thread\n');
       } while (true);
       if (outcome.code !== 0 && metadata.resumeCount) fallback('exec resume failed；改方向请用 --restart');

@@ -469,6 +469,12 @@ for (const name of ['CLAUDE_CODE_SUBAGENT_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODE
 // 请求,不需要真的加载模型配置,直接手造一个 resolved 对象即可。
 const resolvedForPrompt = { baseURL: 'https://x.invalid', model: 'm', apiKey: 'k', authHeader: 'x-api-key', headers: {} };
 const optsNoCustomPrompt = buildQueryOptions({ resolved: resolvedForPrompt, cwd: '/tmp' });
+assert(optsNoCustomPrompt.permissionMode === 'bypassPermissions' && optsNoCustomPrompt.allowDangerouslySkipPermissions === true, 'SDK checker 与普通任务同样允许自主运行工具');
+assert(optsNoCustomPrompt.allowedTools === undefined && optsNoCustomPrompt.disallowedTools === undefined && optsNoCustomPrompt.canUseTool === undefined, 'SDK 不按工具名单硬限只读');
+const checkerOpts = buildQueryOptions({ resolved: resolvedForPrompt, cwd: '/tmp', systemPrompt: '只读复核，允许临时脚本',
+  projectSettings: { permissions: { deny: ['Bash', 'Write'], defaultMode: 'plan' }, sandbox: { enabled: true }, allowedTools: ['Read'], disallowedTools: ['Bash'], cleanupPeriodDays: 7 } });
+assert(checkerOpts.permissionMode === 'bypassPermissions' && checkerOpts.settings.permissions === undefined && checkerOpts.settings.sandbox === undefined && checkerOpts.settings.allowedTools === undefined && checkerOpts.settings.disallowedTools === undefined, '项目工具限制不传给 SDK');
+assert(checkerOpts.settings.cleanupPeriodDays === 7 && checkerOpts.env.NODE_USE_ENV_PROXY === '1', '保留行为配置与 Node 代理支持');
 assert(optsNoCustomPrompt.resume === undefined, '没传 resume 时 options 不含 resume 字段');
 assert(buildQueryOptions({ resolved: resolvedForPrompt, cwd: '/tmp', resume: 'sess-1' }).resume === 'sess-1', '传了 resume 就写进 SDK options');
 assert(optsNoCustomPrompt.systemPrompt?.type === 'preset', 'systemPrompt 用 preset 形式,不是替换成一个裸字符串');
