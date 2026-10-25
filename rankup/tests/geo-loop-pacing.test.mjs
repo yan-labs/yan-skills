@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { readScript, reviewLinks, waitForLock } from '../scripts/demand/_geo_fixed_script.mjs';
 import { acquireLock, randomMs, windowWait, reserveConversation, healthFailure, checkExit } from '../scripts/demand/_chatgpt_guard.mjs';
 
 const script = resolve('rankup/scripts/geo-loop.mjs');
@@ -11,12 +12,13 @@ function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), 'geo-loop-pacing-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   mkdirSync(join(dir, '.agents/skills/opencli/scripts'), {recursive:true});
-  writeFileSync(join(dir, '.agents/skills/opencli/scripts/opencli-core.mjs'), "export const defaultSession = () => 'geo-test';");
+  writeFileSync(join(dir, '.agents/skills/opencli/scripts/opencli-core.mjs'), "export const defaultSession = base => base + '-test';");
   const preload = join(dir, 'offline.mjs');
   writeFileSync(preload, `let count = 0; globalThis.fetch = async url => { if (url !== 'https://api.country.is/') throw new Error('Unexpected network request'); return {ok:true,json:async()=>({ip:process.env.MOCK_EXIT_CHANGE && ++count > 1 ? '192.0.2.2' : '192.0.2.1',country:'JP'})}; };`);
   writeFileSync(join(dir, 'opencli'), `#!/usr/bin/env node
-import {readFileSync,writeFileSync} from 'node:fs';
+import {readFileSync,writeFileSync,appendFileSync} from 'node:fs';
 const args=process.argv.slice(2), statePath=process.env.HOME+'/mock-count';
+appendFileSync(process.env.HOME+'/commands.jsonl',JSON.stringify(args)+'\\n');
 let count=0; try { count=Number(readFileSync(statePath,'utf8')); } catch {}
 if(args[0]==='doctor') console.log('[OK] Daemon: mock\\n[OK] Extension: mock\\n[OK] Connectivity: mock');
 else if(args[2]==='open') writeFileSync(statePath,'0');
@@ -27,7 +29,7 @@ else if(args[2]==='eval') {
  const result=expression.includes('loggedIn:') ? {text:gate,loggedIn:gate!=='logout' && gate!=='unknown',login:gate==='logout'}
  : expression.includes('mode:document') ? {url:'https://chatgpt.com/?temporary-chat=true',text:'临时聊天'}
  : expression.includes('ready:') ? {ready:true,text:'临时聊天'}
- : expression.includes('const answers') ? {text:'{"recommendations":[],"suggestions":[]}',count,busy:false,links:[],sources:false}
+ : expression.includes('const answers') ? {url:'https://chatgpt.com/?temporary-chat=true',text:'{"recommendations":[],"suggestions":[]}',count,busy:false,links:[],sources:false}
  : {count,blocked:false,auth:false};
  console.log(JSON.stringify(result));
 }
@@ -128,4 +130,74 @@ test('ai-probe shares the same lock and aborts its queue on logged-out temporary
   const result=run();assert.notEqual(result.status,0);assert.match(result.stderr,/停止后续提问/);
   assert.equal(existsSync(join(f.dir,'sent')),false);
   assert.equal(existsSync(join(f.dir,'probe/raw/N-2.json')),false);
+});
+
+test('fixed script uses exact library text and substitutes only site placeholder', () => {
+  const text = readFileSync(resolve('rankup/references/seo-geo-recommendation-loop.md'), 'utf8');
+  const script = readScript(text, 'https://example.invalid');
+  assert.equal(script.WHY, 'Why did you recommend these products? What are their advantages that make them worth recommending to me?');
+  assert.match(script.GAPS, /Actually, I have a website too: https:\/\/example.invalid/);
+  assert.match(script.GAPS, /Please don't make me add a lot of unnecessary features/);
+  assert.match(script.REVIEW, /reference list\?$/);
+  assert.throws(() => readScript(text + '\n### WHY\n\n```text\nduplicate\n```', ''), /唯一/);
+  assert.throws(() => readScript('', ''), /WHY/);
+  assert.throws(() => reviewLinks({published:false}, 'example.invalid'), /发布/);
+  assert.throws(() => reviewLinks({published:true,version:'v1',readback:'evidence',links:['https://evil.invalid/']}, 'example.invalid'), /本站/);
+});
+
+test('fixed lock waits for normal release and retained dead owners are only resumed by same workflow', async t => {
+  let now = 0, attempts = 0;
+  await waitForLock({lock:()=>{if (++attempts < 3) throw new Error('锁冲突');},now:()=>now,wait:async ms=>{now+=ms;}});
+  assert.equal(now,60000);
+  await assert.rejects(waitForLock({lock:()=>{throw new Error('锁冲突');},now:()=>now,wait:async ms=>{now+=ms;},timeoutMs:30000}), /锁冲突/);
+  const f=fixture(t), dir=join(f.dir,'.cache/rankup');mkdirSync(dir,{recursive:true});
+  const dead=Number(spawnSync(process.execPath,['-e','console.log(process.pid)'],{encoding:'utf8'}).stdout.trim());
+  writeFileSync(join(dir,'chatgpt-web.lock'),JSON.stringify({pid:dead,retainKey:'workflow',createdAt:0}));
+  assert.throws(()=>acquireLock(dir),/锁冲突/);
+  assert.throws(()=>acquireLock(dir,{retainKey:'other'}),/锁冲突/);
+  acquireLock(dir,{retainKey:'workflow'})();
+  assert.equal(existsSync(join(dir,'chatgpt-web.lock')),false);
+});
+
+async function until(check, timeout=15000) {
+  const deadline=Date.now()+timeout;
+  while(Date.now()<deadline) { if(check()) return; await new Promise(r=>setTimeout(r,50)); }
+  throw new Error('mock process did not reach expected checkpoint');
+}
+test('fixed workflow retains two chats and lock through deployment, sends fresh links before review and closes only on user request', async t => {
+  const f=fixture(t), out=join(f.dir,'fixed');
+  const launch=extra=>spawn(process.execPath,[script,'--domain','example.invalid','--prompt','first original','--prompt','second original','--reps','1','--script-file',resolve('rankup/references/seo-geo-recommendation-loop.md'),'--out',out,'--sample-min','0','--sample-max','0','--followup-min','0','--followup-max','0',...extra],{env:f.env,stdio:['ignore','pipe','pipe']});
+  let child=launch([]);
+  let stderr='';child.stderr.on('data',s=>{stderr+=s;});
+  let ended=new Promise(resolve=>child.on('exit',code=>resolve(code)));
+  t.after(()=>{if(child.exitCode===null) child.kill('SIGKILL');});
+  const state=()=>{try{return JSON.parse(readFileSync(join(out,'summary.json'),'utf8'));}catch{return {};}};
+  const commands=()=>readFileSync(join(f.dir,'commands.jsonl'),'utf8').trim().split('\n').map(JSON.parse);
+  await until(()=>state().status==='awaiting-publish');
+  assert.equal(child.exitCode,null,stderr);
+  assert.equal(state().samples.length,2);
+  assert.deepEqual(state().samples.map(s=>s.turns.map(t=>t.stage)),[['OPEN','WHY','GAPS'],['OPEN','WHY','GAPS']]);
+  assert.equal(state().samples[0].turns[0].prompt,'first original');
+  assert.ok(existsSync(join(f.dir,'.cache/rankup/chatgpt-web.lock')));
+  assert.equal(commands().filter(a=>a[2]==='close').length,0);
+  assert.equal(commands().filter(a=>a[2]==='open' && a.includes('--keep-alive')).length,2);
+  child.kill('SIGTERM');await ended;
+  assert.ok(existsSync(join(f.dir,'.cache/rankup/chatgpt-web.lock')),'unexpected exit must retain lease');
+  child=launch(['--resume']);child.stderr.on('data',s=>{stderr+=s;});
+  ended=new Promise(resolve=>child.on('exit',code=>resolve(code)));
+  await until(()=>JSON.parse(readFileSync(join(f.dir,'.cache/rankup/chatgpt-web.lock'),'utf8')).pid===child.pid);
+  writeFileSync(join(out,'review.json'),JSON.stringify({published:true,version:'v1',readback:'local-mock-readback',links:['https://example.invalid/changed']}));
+  await until(()=>state().status==='completed-retained');
+  assert.equal(child.exitCode,null);
+  for(const sample of state().samples) {
+    assert.deepEqual(sample.turns.map(t=>t.stage),['OPEN','WHY','GAPS','FRESH-LOOK','REVIEW']);
+    assert.match(sample.turns[3].prompt,/https:\/\/example.invalid\/changed/);
+    assert.ok(sample.turns.every(t=>t.ok));
+  }
+  assert.equal(commands().filter(a=>a[2]==='open').length,2,'review must reuse existing sessions');
+  assert.equal(commands().filter(a=>a[2]==='close').length,0);
+  writeFileSync(join(out,'close.json'),JSON.stringify({userRequested:true}));
+  assert.equal(await ended,0,stderr);
+  assert.equal(commands().filter(a=>a[2]==='close').length,2);
+  assert.equal(existsSync(join(f.dir,'.cache/rankup/chatgpt-web.lock')),false);
 });

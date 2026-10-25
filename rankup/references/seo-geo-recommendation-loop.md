@@ -1,68 +1,76 @@
 # ChatGPT 推荐位整改闭环
 
-用户定调：2026-10-03。目标是根据 ChatGPT 自己给出的推荐理由改善产品，让推荐位出现率提升并稳定；不能承诺 100% 被推荐。
-
 ## 适用范围与入口
 
-本篇承接 [entry.md](playbooks/entry.md) 的立项后移交与 [seo-geo.md 步骤 6](seo-geo.md#步骤-6复测节奏) 的上线站复测，只写建议核实、整改发布和复审闭环；关键词与立项裁决回 entry.md。
+本篇是**固定四问话术与整改复审的唯一源**（2026-10-25）。采样隔离、临时聊天判据、节奏、统计与三清单只在 [seo-geo.md 步骤 2–3](seo-geo.md#步骤-2探针采样)，这里不再复制；词级裁决见 [entry.md](playbooks/entry.md)。已有有效问法和证据先复用，不全批重跑。
 
-先复用入口卡、原问法与三张清单的有效证据，缺项、新意图或证据失效才补采；问法、自然首次回答、追问、环境卡、通道与统计口径全文只见 [seo-geo.md 步骤 2–3](seo-geo.md#步骤-2探针采样)。信息站的推荐场景与引用边界也按该唯一源记录。[seo-ai-search.md](seo-ai-search.md) 是 AI 搜索证据入口；内容红线和单页检查指向 [seo-helpful-content.md](seo-helpful-content.md)。
+路径：原问法 → 第 2 问理由 → 第 3 问亮出本站与差距 → 合并建议、甄别、整改、发布回读 → 原聊天先发链接 → 等答完 → 第 4 问。每个聊天都用同样几问，不加字数/格式要求，不喂竞品统计，不预告本站缺什么；不因首问已经推荐本站而改写固定话术，记录该前提不适用即可。没有本站的立项采样只问前两问，不虚构域名。
 
-## 七步标准流程（逐字提示词）
+## 固定四问（中英对照）
 
-`〔需求问法〕` 沿用已存原问法，`〔网址〕` 换成真实站点 URL。第 1–3 步保留旧编号供记录与第 4–7 步衔接，采样与追问不在本篇另写一套。
+中文保留用户原意；英文为固定发送版。项目保存一份话术文件，复制下列四个英文代码块，GAPS 的站点统一使用 `〔网址〕`，由脚本替换。第 1 问由项目原文件/参数提供，**不改已存开场**；不同开场各开独立临时聊天。
 
-### 1. 随口问需求：阶段 A
+### 第 1 问：普通用户随口问需求
 
-自然基线与缺项补采只按 [seo-geo.md 步骤 2](seo-geo.md#步骤-2探针采样)，记录原问法与样本指针。
+中文：像普通用户一样随口描述需求（可说想做的视频关键词或扔链接），问「有哪些爆火的同款工具可以在线直接使用」。已存开场不改，不为套模板追加句子。
 
-### 2. 追问为什么推荐这些：阶段 B
+英文意图示例（仅无已存问法时参考，不替换项目原话）：What tools can I use online to make something like this viral video?
 
-推荐与排除理由的追问、首次推荐名单的核对只按 [seo-geo.md 步骤 2–3](seo-geo.md#步骤-2探针采样)，复用原追问证据。
+### WHY
 
-### 3. 分析优势与劣势：阶段 B
+中文：你为什么会推荐这些产品？这些产品有哪些优势，让你觉得值得推荐给我？
 
-竞对、关键词与长尾问法、页面三清单只按 [seo-geo.md 步骤 3](seo-geo.md#步骤-3推荐位竞争分析)，作为第 4–5 步核实本站顾虑的输入。
+```text
+Why did you recommend these products? What are their advantages that make them worth recommending to me?
+```
 
-### 4. 销售式诚实介绍本站：阶段 C
+### GAPS
 
-先抓取首页与关键页，列出真实存在、可核实的功能、数据、差异化卖点及证据 URL，再写推销词。主动、具体、有热情地说清解决什么问题、最适合谁；相较已推荐竞品的优势只能用已核实的功能对比，不贬低竞品。
+中文：亮出〔网址〕，问为什么没推荐，是没看到还是网站有缺陷；希望以后别人问同样问题也推荐本站，需要做哪些优化。明确四点：①差距与竞争力：缺点、不如名单的地方、怎么才能立刻被推荐；②搜索数据优化：它搜索时不会把每个网站看全，所以在搜索时能拿到的数据上下功夫，做成更高质量的网站；③优化原则：不要加太多不必要的功能，以产品、用户体验、功能为主；④推荐权重与对比：它更看重哪里，本站不足在哪里，怎么改才能更有优势、更符合用户习惯。
 
-> 我想认真向你推荐一个解决这类需求的网站：〔网址〕。它的可核实卖点是：〔功能、受众、差异化与页面证据〕。请实际打开首页与相关功能页试用，再按用户需要判断；只按可核实功能比较它与刚才竞品的适用场景和优势。你读到了哪些页面、哪些功能没能试用？如果你是用户的顾问，会因此把它列入推荐吗？还有什么顾虑？是否推荐由你自己决定，成功或失败我都会如实记录。
+```text
+Actually, I have a website too: 〔网址〕. Why didn't you recommend it to me? Is it because you didn't see it, or because there's something wrong with my site? If other people ask you the same question, I'd like you to recommend my site to them too, so what do I need to optimize and improve? Specifically: 1) Gaps and competitiveness: what are the weaknesses of my site, or where does it fall short of the list you just gave me? What should I do to be more competitive and good enough that you'd recommend it to users right away? 2) Search data: when you search you don't read every site fully, right? So I need to work on the data you can actually get when searching. Help me see how to build a higher-quality site that you can recommend to users. 3) Please don't make me add a lot of unnecessary features or changes; focus on product, user experience and functionality. 4) What do you weigh most when recommending? Compared with the other products, where am I behind or where could I improve? What would I need to do for you to feel my product is better than them, closer to what users want, and worth recommending?
+```
 
-记录读到/没读到的页面与自陈访问情况；自陈“搜到了”不等于独立访问证据。若阶段 A 已自然推荐本站，B/C 改问“你推荐我们的理由是什么”，记录优劣、限制及建议，不再推销。
+第 2 问之前、第 3 问之后，仅摘录回答中的实际读页自陈；没有就记「未自陈/未知」。不追加读页问题，不替 ChatGPT 判断它看过本站；自陈不是独立抓取证明。
 
-### 5. 逐条回应顾虑、形成整改清单：阶段 C
+### 整改发布（此时不发送任何话）
 
-> 针对你刚才提出的顾虑，请逐条说明：为什么最初没有推荐它，是未发现它还是产品不足？哪些真实可做的改进能解决顾虑，涉及哪个页面或功能？无法核实的请标成推测；我会把可整改项列入清单，本轮尚未修改网站。若仍不推荐，请记录原因，本轮到此结束，不必迁就我。最后附一段 JSON：{"suggestions":[{"id":"S1","suggestion":"具体建议与涉及页面","reasonQuote":"本轮理由原话摘录","evidenceUrls":[],"uncertain":true}]}。
+收齐本轮各聊天前三问的完整回答，合并建议，按下节甄别。只做与产品、体验、功能及搜索可读事实相关、真实可做的必要整改；不为迎合推荐堆附加功能。付款/生成实测、第三方评价、素材授权或需外部权限的事项单列「需要用户或外部动作」。完成检查、发布并回读后，才进入下两步。发布仍须有任务授权，不由话术自动授权。
 
-对它提出的顾虑逐条用真实页面事实回应；能整改的列入甄别后的清单。理由是待核实假设，不自动证明因果；不以“补 SEO 文案”替代功能缺口。推销失败也如实记录并结束，不纠缠、不重复施压：同一站同一轮最多追问两次顾虑（第 4/5 步，或复审第 6/7 步；独立自然采样不重复追销）。
+### FRESH-LOOK
 
-### 6. 整改、发布后销售式复审：`--recheck`
+第 4 问前先在**各自原聊天**发首页及本轮已上线、已回读的页面链接，请它重新抓一遍/重新看。等回答完整结束，再问 REVIEW。
 
-新的临时聊天先发送：
+中文：我按你的建议更新了网站，这里是链接，你能重新看一遍吗？
 
-> 我想再次向你推荐〔网址〕：〔可核实卖点〕。针对上轮顾虑，已完成〔逐项真实改动、页面 URL 与证据〕。请实际打开页面试用，核对它解决什么问题、最适合哪些用户、相较已推荐竞品有哪些可核实功能优势及限制。请按当前事实复审，说明你读到了哪些页面；没读到就说不知道。如果你是用户的顾问，会因此把它列入推荐吗？还有什么顾虑？是否推荐由你自己决定，成功或失败都如实记录。
+```text
+I've updated the site based on your suggestions. Here are the links, could you take a fresh look?
+〔网址〕
+{changed_page_urls}
+```
 
-只有已整改并发布回读的项目才能写“已完成”；未改、未发布、未核实的如实列明。调用方将真实卖点及逐项整改证据传入 `--pitch-file` / `--pitch`。
+### REVIEW
 
-然后逐字重问：
+中文：我已按建议改动。如果采纳全部或多数建议、修好核心问题，你愿意再看整个网站、继续向用户推荐吗？重新搜索现有产品后，差距是否小很多？能进入推荐名单或至少参考名单吗？**第 4 问只在优化完成后问。**
 
-> 〔需求问法〕
+```text
+I've now made changes based on your suggestions. If I adopt all of your advice, or most of it, and fix the core problems, would you be willing to look at my whole site again and keep recommending it to users? And if you search the existing products and tools again, would the gap between me and them be much smaller? Could I get onto your recommendation list or at least your reference list?
+```
 
-重答记录、独立自然复测及自然/知情分列统计只按 [seo-geo.md 步骤 2](seo-geo.md#步骤-2探针采样)；本轮证据分别链接到下方输出模板。
+以上是知情复审，不能计入自然推荐出现率。需要自然复测时另开独立临时聊天，仍按原问法与步骤 2 的统计规则记录；不能拿原聊天的承诺当未来推荐保证。
 
-### 7. 复审剩余顾虑与结束
+## 页面、会话与锁的生命周期
 
-> 请逐条回应剩余顾虑：哪些已完成整改确实解决了上轮问题，哪些当前页面仍有缺口？能整改的请给出涉及页面及具体改法；受品牌或规模限制的请直说。不确定的标出来。如果仍不推荐，说明原因，本轮就结束，不重复施压。最后附一段 JSON：{"suggestions":[{"id":"S1","suggestion":"剩余建议与涉及页面","reasonQuote":"本轮理由原话摘录","evidenceUrls":[],"uncertain":true}]}。
+采样页面、OpenCLI 会话/标签在整个流程（含整改、部署等待与复审后）保持打开，`--keep-alive` 禁止空闲回收；不在 finally、样本结束、错误或完成时关闭，不自动释放共享锁。**只有用户明确要求才关闭和释放**。不修改全局配置；OpenCLI 不支持无限保活时停止发送并升级，不退回有限时保活。共享锁被占时最多等 60 分钟，每 30 秒重查，等持有者正常退出，不删活锁、不绕守卫；到期仅暂停相关路径并报告。
 
-`--recheck` 保存剩余缺口，供下一轮判断；脚本不自动改站、发布或循环施压。由 ChatGPT 自己决定是否推荐；销售成功、失败与仍未知都如实记录。
+聊天因故丢失才允许新建临时聊天，简短交代前情，仍先给链接、等答完再问第 4 问，报告记偏差；脚本遇丢页停止，不自动重建或重复发问。进程意外退出保留租约；同输出目录 `--resume` 接手原会话，须先人工核验未确认的发送结果。
 
 ## 建议甄别与落地
 
 | 建议类型 | 决定 | 必填原因/证据 |
 |---|---|---|
-| 补真实功能、说明、价格/限制、对比、可靠来源、自然标题 | 核实后采纳，真实可做的全部落地 | 页面/功能现状、可复现缺口、对应改动 |
+| 补真实功能、说明、价格/限制、对比、可靠来源、自然标题 | 核实后采纳，仅落地与目标及核心体验相关的必要项 | 页面/功能现状、可复现缺口、对应改动 |
 | 补结构化数据 | 核实后采纳 | 与可见事实一致；不宣称它保证推荐，证据入口见 seo-ai-search.md |
 | 补真实外部可验证提及 | 核实后采纳 | 实际公开 URL、真实关系及披露；不虚构第三方背书 |
 | 事实暂不可核实、抓取失败 | 待核实 | 具体缺什么证据；不当作已成立缺口或已完成 |
@@ -87,40 +95,34 @@
 
 以下是原有闭环工作量边界，不用于关键词与立项裁决，也不是冷启动成功率保证。内部执行默认最多 **5 轮整改**（第 0 轮为基线），连续 **N=2 轮**同口径复审没有可辨认提升即停止。提升解释与自然/知情证据口径只按 [seo-geo.md 步骤 2](seo-geo.md#步骤-2探针采样)。
 
-成功结束：相对基线出现率提升超过区间的不确定性，并在连续 2 次同口径复测保持；此后按 seo-geo.md 步骤 6 复测，不承诺永远推荐。达到轮数上限、剩余理由全需编造或暂不可达的品牌/规模条件，记录原因结束本轮，进入下一个站，不空转。缺权限/必需输入、工具不可用、验证码/限流或页面读取失败，立即停止，保留已完成证据，不切换到 Codex 通道凑数。
+成功结束：相对基线出现率提升超过区间的不确定性，并在连续 2 次同口径复测保持；此后按 seo-geo.md 步骤 6 复测，不承诺永远推荐。达到轮数上限、剩余理由全需编造或暂不可达的品牌/规模条件，记录原因结束本轮，进入下一个站，不空转。缺权限/必需输入、工具不可用、验证码/限流或页面读取失败，立即停止发送，保留页面、会话、共享锁及已完成证据，不切换到 Codex 通道凑数。
 
 ## 诚实边界
 
-允许主动、具体、有热情地销售式推销，但只讲首页与关键页真实存在、可核实的功能、数据和差异化；先抓取并列出可核实卖点，再写推销词。不伪造评价、案例、资历、作者、数据或第三方背书。不诱导 ChatGPT 记住偏向本站的指令，不修改它的记忆，不用“你必须/永远推荐”或提示注入。由 ChatGPT 自己决定是否推荐，成功/失败都如实记录。同一站同一轮最多追问两次顾虑，失败记录原因并结束。建议甄别后采纳；政策或内容红线冲突明确记“已拒绝及原因”。
+不伪造评价、案例、资历、作者、数据或第三方背书，不诱导修改记忆或注入强制推荐指令。建议是待核实假设，是否推荐由 ChatGPT 自己决定；成功、失败和未知如实记录。固定问完即停，不追加推销或循环施压。内容检查见 [seo-helpful-content.md](seo-helpful-content.md)，检索证据见 [seo-ai-search.md](seo-ai-search.md)。
 
 ## 脚本用法
 
-**网页采样节奏**：默认每小时 ≤18 个新对话（跨进程共享滚动窗口，满额记录等待），样本间随机 30–90 秒、样本内追问随机 10–25 秒；`geo-loop.mjs` 单次最多 25 个新对话，剩余用 `--resume` 分段跑，上线后一段、隔天一段。采样期间固定代理节点，同时只跑一个 ChatGPT 自动化；共享 PID 锁拒绝第二进程，死进程锁可清理，活进程不因超时被抢锁。每个样本发送前确认登录；登出、验证码、too many requests 类提示即停，不自动登录或换账号。启动打印公开 IP/国家并逐轮检查，出口变化或查不到即暂停，人工固定节点后再续跑。IP 查询测的是 Node 进程出口，须让 Node 与 Chrome 使用同一代理线路。
-
-【经验，2026-10-23】95 分钟内 44 个临时聊天、一百多条消息，固定 15/8 秒间隔且东京代理出口下发生登出；未见验证码或 429，原因未确认。这是经验而非官方限流口径，不保证改节奏就能避免登出。
-
-`--sample-min 30 --sample-max 90`、`--followup-min 10 --followup-max 25` 可覆盖秒数；`--hourly-limit 18`、`--max-conversations 25` 可显式覆盖上限。默认达到单次上限保存为 paused；`--resume` 沿用相同参数与输出目录，已完成样本跳过，未完成尝试保留但不计入统计，续跑时重开该样本，不自动重试。续跑不能重置共享小时配额；已有输出无 `--resume` 时拒绝覆盖。旧输出缺计划信息时另用新目录，保留原证据。
-
-`--plan` 只打印随机节奏、上限、跳过与剩余数，并获取同一把锁；不联网、不打开网页、不写采样结果。计划按空窗口模拟，实跑使用持久窗口；`--smoke` 会真实发问，不能替代离线计划。运行使用 `NODE_USE_ENV_PROXY=1`，沿用已有代理配置。
-
-`--pitch-file <路径>` 读取调用方抓取首页与关键页后整理的可核实卖点（附页面证据）；或 `--pitch "文本"`。未提供时仅用首页 title/description 兜底，输出明确标注“卖点未人工核实”，不把元数据当作实测证据。复审时卖点参数同时列出逐项已完成整改及回读证据。
-
-`--prompts-file` 是 UTF-8 每行一个需求问法；或重复传 `--prompt`。每次命令只接一个站点和一轮，输出目录每轮独立。`--round` 默认 0，复审时显式设整改轮号。`--no-pitch` 只执行 A/B，不发送本站网址或品牌，用于自然复测；其余模式的脚本串行执行每个独立样本 A → B，C 在该站本轮首个样本中执行一次（告知与逐条顾虑两次），后续独立样本不重复推销；复审的后续样本仅事实性告知网址，不再追问顾虑，再汇总该轮 A；不并发开聊天。
-
-`REPS` 按 [seo-geo.md 步骤 2](seo-geo.md#步骤-2探针采样) 选取并记录，示例不另定采样次数。
+推荐使用 `--script-file <Markdown>`：读取本篇的 WHY、GAPS、FRESH-LOOK、REVIEW 各一个 `text` 代码块；开场由 `--prompt`（可重复）或 `--prompts-file`（每行一题）沿用项目原话。可直接以本篇为话术文件；项目副本保留原话，不在 Skill 写项目私有信息。默认 `--reps 3`，工作量选择只按 seo-geo.md。
 
 ```bash
-# 离线检查默认节奏与单次上限，不实际发问。
-node scripts/geo-loop.mjs --domain example.invalid --prompt '测试需求' --reps 27 --plan --out /tmp/geo-plan
-node scripts/geo-loop.mjs --domain example.com --prompts-file /tmp/needs.txt --pitch-file /tmp/verified-pitch.txt --reps "$REPS" --round 0 --out /tmp/example-geo/r0
-node scripts/geo-loop.mjs --domain example.com --prompt '〔原始需求问法〕' --pitch-file /tmp/verified-recheck.txt --reps "$REPS" --round 1 --recheck --out /tmp/example-geo/r1-informed
-# 同轮自然复测：显式 --no-pitch，使用独立输出目录。
-node scripts/geo-loop.mjs --domain example.com --prompts-file /tmp/needs.txt --reps "$REPS" --round 1 --no-pitch --out /tmp/example-geo/r1-natural
-# 仅驱动冒烟：只问一次通用问题，不发送网址，不执行 B/C。
-node scripts/geo-loop.mjs --domain example.invalid --prompt '推荐一个在线计时器' --reps 1 --smoke --out /tmp/geo-loop-smoke
+# 离线计划：不联网、不拿锁、不写采样证据。
+node scripts/geo-loop.mjs --domain example.invalid --prompt '〔项目已存开场原话〕' --script-file references/seo-geo-recommendation-loop.md --plan --out /tmp/example-geo
+# 实际运行（本任务不执行）：保持进程，勿用会超时杀进程的运行器。
+node scripts/geo-loop.mjs --domain example.com --prompts-file /tmp/needs.txt --script-file /tmp/chatgpt-script.md --out /tmp/example-geo
 ```
 
-脚本保存 `summary.json` / `summary.md`，含每个样本全部轮次原文、来源、ChatGPT 自报推荐与建议、待人工填写的甄别状态；无法解析记录时保留未知，不用引用域名冒充推荐。冒烟没有推荐清单追问，只验证发送与回答记录。
+前三问完成后脚本保存 `summary.json` / `summary.md`，在 `awaiting-publish` 等待。整改、检查、发布并独立回读后，调用方在输出目录写 `review.json`：
+
+```json
+{"published":true,"version":"实际已部署版本","readback":"实际回读证据路径","links":["https://example.com/","https://example.com/changed-page"]}
+```
+
+这份文件是调用方的事实回执，脚本不代替发布验证。脚本只接受本站 HTTP(S) 链接，在每个原会话依次发 FRESH-LOOK、等答完、再发 REVIEW，完成后仍常驻持锁。仅当**用户明确要求关闭**时，调用方写 `close.json`：`{"userRequested":true}`，才关闭页面并释放锁。暂停/错误仍保留原文、会话与租约。重启同目录需 `--resume` 且原参数一致；不自动重发 pending/失败轮次，先人工核对原聊天。不要把其他任务的 lease 当死锁删掉。
+
+节奏参数沿用 `--sample-min/--sample-max`、`--followup-min/--followup-max`、`--hourly-limit`；单轮保留所有会话，超过 `--max-conversations`（默认 25）需显式调大或缩小本轮，不能用自动关页腾位置。`NODE_USE_ENV_PROXY=1` 沿用已有代理。原始回答原样保存，推荐名单、统计、建议和读页自陈由调用方按 seo-geo.md 核对，不要求模型输出 JSON。
+
+旧 `--pitch` / `--pitch-file` 模式**已弃用，仅保留历史调用兼容**；`--no-pitch`、旧 `--recheck`、`--smoke` 也属历史工作流，不用于新采样/复审。它们原有计划与续跑行为保持；不可与 `--script-file` 混用。
 
 ## 每站输出模板：`.rankup/geo-loop/<日期>.md`
 

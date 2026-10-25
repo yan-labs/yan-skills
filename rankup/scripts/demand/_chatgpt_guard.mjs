@@ -11,12 +11,12 @@ export function windowWait(starts, limit = 18, now = Date.now()) {
   const recent = starts.filter(t => t > now - 3600000).sort((a, b) => a - b);
   return recent.length < limit ? 0 : Math.max(0, recent[recent.length - limit] + 3600000 - now);
 }
-export function acquireLock(dir = cacheDir) {
+export function acquireLock(dir = cacheDir, { retainKey } = {}) {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const path = join(dir, 'chatgpt-web.lock');
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      writeFileSync(path, JSON.stringify({ pid: process.pid, createdAt: Date.now() }), { flag: 'wx', mode: 0o600 });
+      writeFileSync(path, JSON.stringify({ pid: process.pid, createdAt: Date.now(), ...(retainKey ? { retainKey } : {}) }), { flag: 'wx', mode: 0o600 });
       let released = false;
       const release = () => {
         if (released) return;
@@ -24,7 +24,8 @@ export function acquireLock(dir = cacheDir) {
         try { if (JSON.parse(readFileSync(path, 'utf8')).pid === process.pid) unlinkSync(path); } catch (e) { if (e.code !== 'ENOENT') throw e; }
         process.removeListener('exit', release);
       };
-      process.once('exit', release);
+      // 固定四问的租约跨崩溃保留；只有同一输出目录能续接，用户要求关闭才释放。
+      if (!retainKey) process.once('exit', release);
       return release;
     } catch (e) {
       if (e.code !== 'EEXIST') throw e;
@@ -36,7 +37,7 @@ export function acquireLock(dir = cacheDir) {
       } else {
         alive = Date.now() - statSync(path).mtimeMs < 3600000;
       }
-      if (alive || attempt) throw new Error(`ChatGPT 自动化锁冲突：${path}；PID=${owner?.pid || '未知'}，请先结束原任务。`);
+      if (alive || (owner?.retainKey && owner.retainKey !== retainKey) || attempt) throw new Error(`ChatGPT 自动化锁冲突：${path}；PID=${owner?.pid || '未知'}，请先结束原任务。`);
       // Serialize stale cleanup, then re-read ownership; never remove a replacement lock.
       const cleanupPath = path + '.cleanup';
       let claimed = false;
@@ -52,7 +53,7 @@ export function acquireLock(dir = cacheDir) {
   }
 }
 let releaseGlobal;
-export function lockChatgpt() { releaseGlobal ||= acquireLock(); }
+export function lockChatgpt(options) { releaseGlobal ||= acquireLock(cacheDir, options); }
 export function unlockChatgpt() { releaseGlobal?.(); releaseGlobal = undefined; }
 
 export async function reserveConversation({ limit = 18, dir = cacheDir, now = Date.now, wait = sleep, log = console.error } = {}) {

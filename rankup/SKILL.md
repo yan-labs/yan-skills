@@ -2,7 +2,7 @@
 name: rankup
 description: 独立开发者的项目全生命周期管理：需求验证、选词选品、建站或做原生 App、上线接入、SEO/GEO 获客、支付变现、监控迭代与跨会话接力。以下情况使用：用户提到 rankup 或 /rankup（check、review、init；doctor 仅指整理项目 .rankup 记录）；当前目录或工作区有 .rankup/，或要读取、续做、整理项目计划、路线图、待办、PRD、交接或进度文档；在这些项目记录上下文里说「继续」「接着做」「上次做到哪」「下一步做什么」；以及项目规划、需求验证、关键词调研与 SERP、独立 Google Trends 热度查询或对比、AI 搜索推荐（GEO）、网站体检、sitemap/IndexNow/Search Console、流量、建站、上线、支付（Stripe、Anyway、PayPal）、变现与增长。SEO/GEO 是主要手段，不是适用边界，非 SEO 的项目计划与 macOS、iOS、iPad 原生 App 同样适用。纯文案（含 SEO 趋势博客等主题写作）、纯视觉设计、与项目管理无关的通用开发及基础设施排错（含 Cloudflare 部署报错、普通 CLI doctor）不触发；目录内有 .rankup/ 时仅叠加项目记录维护义务；外链执行交 backlink，浏览器驱动交 opencli，配图生成交 imagegen，多模型派单交 agent-fleet。
 metadata:
-  version: "3.38.13"
+  version: "3.39.0"
 ---
 
 # Rankup
@@ -24,7 +24,7 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 | **收尾**：完成、放弃、叫停或等用户决定 | [维护「一」「二」](references/maintenance.md#二收尾维护五步顺序固定) | 按轻量路径或五步维护收口；扫描用 `scripts/maintain/ref-scan.mjs` | 回复有维护摘要与证据 |
 | 有项目记录上下文的「继续」「接着做」「上次做到哪」「我们开始执行这个项目的计划」，或读计划 / 交接 / 进度文档 | 同上「新会话怎么接」 | 定位项目 → 读接力（无 `.rankup/` 用 `HANDOFF.md`）→ 核对后台产物与改动 → 直接执行下一步 | 下一步已有执行证据 |
 | 选词、调研、找需求（**已有主词**） | [`playbooks/entry.md`](references/playbooks/entry.md) → [`research.md`](references/playbooks/research.md) | 按入口四步顺序与两路判读执行；方向未落主词先走 [`selection.md`](references/playbooks/selection.md)，无方向先走 [P1](references/playbooks/research/p1-discovery.md)，主词出现后回本行 | 入口卡写进 `.rankup/research/<词根>-<日期>.md` |
-| ChatGPT 问法链路、自然推荐验证 | [`seo-geo.md`](references/seo-geo.md) 步骤 2–3 | 问法、采样、追问与三清单只按该唯一源；词级编排与裁决回 [`entry.md`](references/playbooks/entry.md) | 入口卡②有三清单与原始证据指针 |
+| ChatGPT 问法链路、自然推荐验证 | [`seo-geo.md`](references/seo-geo.md) 步骤 2–3 | 采样与三清单按该唯一源；固定四问正文见其话术入口；词级编排与裁决回 [`entry.md`](references/playbooks/entry.md) | 入口卡②有三清单与原始证据指针 |
 | 「谷歌质量」「HCU」「E-E-A-T」「AI 内容会不会被打」「内容 review」「垃圾内容政策」 | [`seo-helpful-content.md`](references/seo-helpful-content.md) | 区分官方口径与业内推断；按单页或站点级自检表核对并留证据 | 对应自检表通过且无红线 |
 | 建站、做功能、写 UI | [`lifecycle/stage-3-build.md`](references/lifecycle/stage-3-build.md)、[`cloudflare-stack.md`](references/cloudflare-stack.md) | 用用户指定模板，未指定则用默认 shadcn 命令；UI 来自组件库，不手写基础控件；当天过完 Day-1 清单；核[建设中红线](references/discipline.md#二十一禁止建设中内容与功能区域) | [`checklists.md`](references/checklists.md) 段 3 通过 |
 | 写页面内容、写文章、写 blog、model 页面、模型对比、产品对比、补参考视频、封面图 | [`blog`](../blog/SKILL.md)（`blog/SKILL.md`） | 按其分工与流程执行（X 调研交 Grok、成文交 Gemini、review 交 Sonnet），不自己编内容；站内英文页面内容一律走 `/blog` | sources、成文、review、评判（哥飞评分、AITDK、ChatGPT 匿名问答）、回读证据齐全 |
@@ -56,7 +56,7 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 | 「运行趋势监控」「扫描种子 Rising」「美日韩趋势追踪」 | 1–2 | [`trends-system.md`](references/trends-system.md)：三区串行扫描、去重、健康台账与追踪复查 |
 | 「XX 和 YY 哪个更火」「今天美国在搜什么」「这个词有没有量」 | 1–2 | [`trends.md`](references/trends.md)（[gpts 基线判读](references/trends.md#gpts-基线判读到底怎么才算有搜索量唯一判据源)），`scripts/gt.py` |
 | 「这个词在 AI 里有多大需求」「候选会不会被 ChatGPT 推荐」「竞品为什么被 AI 推荐」 | 1 / 4 验证 | 词级编排先读 [`entry.md`](references/playbooks/entry.md)，问法链路只按 [`seo-geo.md`](references/seo-geo.md)；面板数据见 [`provider-capabilities.md`](references/provider-capabilities.md)「三·五」 |
-| 「已上线站 ChatGPT 会不会推荐我们」「问 ChatGPT 为什么不推荐」「推荐位整改」「GEO 闭环」「复审」 | 5 / 6 上线后 | [`seo-geo-recommendation-loop.md`](references/seo-geo-recommendation-loop.md)：复用问法与三清单 → 建议甄别 → 整改发布 → 复审；采样规则只指 [`seo-geo.md`](references/seo-geo.md) |
+| 「已上线站 ChatGPT 会不会推荐我们」「问 ChatGPT 为什么不推荐」「推荐位整改」「GEO 闭环」「复审」 | 5 / 6 上线后 | [`seo-geo-recommendation-loop.md`](references/seo-geo-recommendation-loop.md)：固定四问 → 建议甄别 → 整改发布 → 原聊天发链接再复审；采样规则只指 [`seo-geo.md`](references/seo-geo.md) |
 | 「有什么游戏站能做」「小游戏机会采集 / 决策」 | 1–2 | [`game-sites.md`](references/game-sites.md)：平台监控、sitemap 差分、新标题筛选；旧每日决策协议仅部分覆盖 |
 | 「做不做」「做哪个语种」「要不要多语言」「做成工具还是内容站」 | 2 | [`lifecycle/stage-2-positioning.md`](references/lifecycle/stage-2-positioning.md) |
 | 「我们做个网站吧」「帮我搭起来」 | 2→3 | 先过段 2 立项，再段 3 按用户指定模板起站，未指定则用默认 shadcn 命令；手上没有词树先回段 1 |
