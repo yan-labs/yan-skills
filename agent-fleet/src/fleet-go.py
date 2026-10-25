@@ -294,7 +294,7 @@ def new(args):
         if args.make == 'image':
             parts.append('执行方法：' + ('使用 imagegen Skill 和 Codex 内置 image_gen 工具。' if args.to == 'gpt' else 'Grok 使用内置 image_gen / image_edit 工具，model 参数留空。' if args.to == 'grok' else '使用当前产品可用的真实图片生成工具，生成受阻时如实报告缺口。'))
     writes = [report, '/tmp/' + args.name + '/', *(args.write or [])]
-    parts.append('## 允许范围\n允许写：\n' + '\n'.join('- ' + p for p in dict.fromkeys(writes)) + '\n只读：\n' + ('\n'.join('- ' + p for p in (args.read or [])) or '按正文指定路径读取。'))
+    parts.append('## 允许范围\n允许写：\n' + '\n'.join('- ' + p for p in dict.fromkeys(writes)) + '\n- 正文明确写了“允许读写”的路径（含源码仓与其 .git）\n只读：\n' + ('\n'.join('- ' + p for p in (args.read or [])) or '按正文指定路径读取。'))
     if args.forbid:
         parts.append('另行授权事项：' + args.forbid)
     parts.append('## 已知坑\n' + '\n\n'.join(block('pitfall-' + p, values) for p in dict.fromkeys(pitfalls) if p))

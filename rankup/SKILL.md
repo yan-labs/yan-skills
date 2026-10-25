@@ -2,7 +2,7 @@
 name: rankup
 description: 独立开发者的项目全生命周期管理：需求验证、选词选品、建站或做原生 App、上线接入、SEO/GEO 获客、支付变现、监控迭代与跨会话接力。以下情况使用：用户提到 rankup 或 /rankup（check、review、init；doctor 仅指整理项目 .rankup 记录）；当前目录或工作区有 .rankup/，或要读取、续做、整理项目计划、路线图、待办、PRD、交接或进度文档；在这些项目记录上下文里说「继续」「接着做」「上次做到哪」「下一步做什么」；以及项目规划、需求验证、关键词调研与 SERP、独立 Google Trends 热度查询或对比、AI 搜索推荐（GEO）、网站体检、sitemap/IndexNow/Search Console、流量、建站、上线、支付（Stripe、Anyway、PayPal）、变现与增长。SEO/GEO 是主要手段，不是适用边界，非 SEO 的项目计划与 macOS、iOS、iPad 原生 App 同样适用。纯文案（含 SEO 趋势博客等主题写作）、纯视觉设计、与项目管理无关的通用开发及基础设施排错（含 Cloudflare 部署报错、普通 CLI doctor）不触发；目录内有 .rankup/ 时仅叠加项目记录维护义务；外链执行交 backlink，浏览器驱动交 opencli，配图生成交 imagegen，多模型派单交 agent-fleet。
 metadata:
-  version: "3.38.12"
+  version: "3.38.13"
 ---
 
 # Rankup
@@ -142,6 +142,7 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 
 - **浏览器通道与公开页面例外统一按纪律五执行**，以复用登录态与可复现会话；见[纪律五](references/discipline.md#五浏览器与取数规则在-opencli-skill这里只留判据)。
 - **所有 AI 爬虫必须放行**并逐 UA 实测，使公开内容具备被发现与读取的资格；见[基础安全](references/cloudflare-stack.md)与 `checklists.md` 段 5。
+- **部署前必须先把代码合并到对应环境的分支并推送，再经团队流水线部署**，防止别人发布时冲掉我们、或我们覆盖别人；见[纪律二十二](references/discipline.md#二十二部署红线先合入对应环境分支并推送再部署)。
 - 令牌保护见文末「令牌与项目中立」；密钥不进回复、日志或仓库，防止泄漏与误提交。
 
 ## 主线：维护 checklist，使用 checklist
