@@ -1,6 +1,4 @@
 import assert from 'node:assert/strict';
-import { geminiBriefCases } from './gemini-brief-fixtures.mjs';
-import { geminiBlocked } from '../src/shortcuts.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -159,11 +157,19 @@ try {
       assert.equal(r.stdout,'');
     }
   });
-  test('body 文件、stdin、授权叠加、paid 必须预算、默认报告和 no-launch', () => {
+  test('body 文件、stdin、授权叠加、paid 预算可选、默认报告和 no-launch', () => {
     const body=join(temp,'body.md'); writeFileSync(body,'## 独有正文\n只处理本目标');
     let r=run(['new','--to','gpt','body','--body',body,'--auth','local,readonly-web','--no-launch']); assert.equal(r.status,0,r.stderr);
-    assert.equal(run(['new','--to','gpt','paid','--goal','付费','--auth','paid','--dry-run']).status,1);
-    r=run(['new','--to','gpt','paid','--goal','付费','--auth','paid','--budget','$2，重试 1 次','--dry-run']); assert.equal(r.status,0); assert.match(r.stdout,/\$2，重试 1 次/);
+    for (const auth of ['paid', 'paid,local']) {
+      r=run(['new','--to','gpt','paid','--goal','付费','--auth',auth,'--dry-run']);
+      assert.equal(r.status,0,r.stderr);
+      assert.match(r.stdout,/允许范围：当前目标必要的付费验证/);
+      assert.doesNotMatch(r.stdout,/\$5|## 预算与重试限制|付费由主线程另行授权|\{BUDGET\}/);
+      const preview=join(temp,'paid-preview.md'); writeFileSync(preview,r.stdout);
+      assert.equal(run(['lint',preview]).status,0);
+    }
+    r=run(['new','--to','gpt','paid','--goal','付费','--auth','paid','--budget','$2，重试 1 次','--dry-run']); assert.equal(r.status,0); assert.match(r.stdout,/## 预算与重试限制\n\$2，重试 1 次/);
+    assert.equal(r.stdout.split('$2，重试 1 次').length-1,1);
     r=spawnSync(script,['new','--to','gpt','stdin','--dry-run'],{encoding:'utf8',env,input:'## stdin 独有正文'}); assert.equal(r.status,0); assert.match(r.stdout,/stdin 独有正文/);
   });
   test('五产品、各档及选项映射，必填产品与旧参数拒绝', () => {
@@ -197,42 +203,14 @@ try {
     state(); reset(); r=run(['relaunch','one','--to','grok']); assert.equal(r.status,1); assert.deepEqual(history().map(c=>c.args[0]),['status']);
     writeFileSync(states,'[]');
   });
-  test('两处 Gemini 闸门对完整/移动模板、正文、归类、expect-changes 口径一致', () => {
-    const r = spawnSync('python3', ['-B', '-c', `
-import importlib.util,json,sys
-spec=importlib.util.spec_from_file_location('fleet_go',sys.argv[1])
-m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
-results=[]
-for item in json.load(sys.stdin):
-    try:
-        m.gemini_check(item['text'],item.get('expectChanges',False));results.append(False)
-    except ValueError:
-        results.append(True)
-print(json.dumps(results))
-`, join(root,'src/fleet-go.py')], { encoding:'utf8', env, input:JSON.stringify(geminiBriefCases) });
-    assert.equal(r.status,0,r.stderr);
-    assert.deepEqual(JSON.parse(r.stdout),geminiBriefCases.map(item=>item.blocked));
-    for (const item of geminiBriefCases) assert.equal(geminiBlocked(item.text,item),item.blocked);
-    const body=join(temp,'text-with-templates.md');
-    writeFileSync(body,geminiBriefCases[1].text);
-    reset();
-    const preview=run(['new','template-text','--to','gemini','--auth','readonly-web','--goal','核对一段英文文案','--body',body,'--dry-run']);
-    assert.equal(preview.status,0,preview.stderr);
-    assert.equal(geminiBlocked(preview.stdout),false);
-    assert.equal(history().length,0);
-  });
-  test('Gemini new/relaunch 静态拒绝编码/UI/expect-changes，文本允许、不会派发', () => {
-    for(const goal of ['编码任务','实现 UI','修改 src/a.mjs 文件','write code','implement a component']) {
-      reset(); const r=run(['new','blocked','--to','gemini','--goal',goal,'--dry-run']); assert.equal(r.status,1,goal); assert.match(r.stderr,/Gemini.*编码\/UI\/--expect-changes/); assert.equal(history().length,0);
+  test('Gemini new/relaunch 允许复核代码、临时脚本及 expect-changes', () => {
+    for (const goal of ['复核代码并运行测试', '实现 UI', '修改 src/a.mjs 文件', 'write code']) {
+      reset(); const r = run(['new','gemini-check','--to','gemini','--goal',goal,'--dry-run']);
+      assert.equal(r.status,0,r.stderr); assert.equal(history().length,0);
     }
-    assert.equal(run(['new','blocked','--to','gemini','--goal','翻译短文','--expect-changes','--dry-run']).status,1);
-    reset(); assert.equal(run(['relaunch','one','--to','gemini']).status,1); assert.deepEqual(history().map(c=>c.args[0]),['status']);
-    for(const [name,goal,options] of [['ui-job','实现 UI',[]],['change-job','处理本目标',['--expect-changes']]]) {
-      const r=run(['new',name,'--to','claude','--goal',goal,...options,'--no-launch']); assert.equal(r.status,0,r.stderr);
-      reset(); assert.equal(run(['relaunch',name,'--to','gemini']).status,1); assert.deepEqual(history().map(c=>c.args[0]),['status']);
-    }
-    let r=run(['new','text-job','--to','claude','--goal','翻译短文','--no-launch']); assert.equal(r.status,0,r.stderr);
-    reset(); r=run(['relaunch','text-job','--to','gemini']); assert.equal(r.status,7,r.stderr); assert.equal(history().at(-1).args[0],'copy');
+    assert.equal(run(['new','gemini-check','--to','gemini','--goal','运行小测试','--expect-changes','--dry-run']).status,0);
+    reset(); const r = run(['relaunch','one','--to','gemini']);
+    assert.equal(r.status,7,r.stderr); assert.equal(history().at(-1).args[0],'copy');
   });
   test('图片六项、视频工具与隐私错误要求、JEV问题元信息', () => {
     for(const to of ['gpt','grok','claude','gemini','jev']) {

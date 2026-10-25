@@ -31,7 +31,7 @@ import { tailLatestLog } from '../src/tail-log.mjs';
 import { buildBrief, DEFAULT_BRIEF_LINES, renderManyOutput, renderRunOutput, failureReport, redactEvidence, inspectGit } from '../src/brief.mjs';
 import { collectStatus, deliverSay, formatStatusHuman, requestStop } from '../src/control.mjs';
 import { readPidRecord, resolveRunId, isPidAlive, patchPidRecord, runIdFromLogPath } from '../src/pid.mjs';
-import { shortRunOptions, splitShortArgs, resolveBrief, geminiBlocked } from '../src/shortcuts.mjs';
+import { shortRunOptions, splitShortArgs, resolveBrief } from '../src/shortcuts.mjs';
 import { runCode, launchArchiveSweep } from '../src/code-runner.mjs';
 import { runGrok } from '../src/grok-runner.mjs';
 import { launchDetached, readState, resolveDetached, supervise, waitDetached } from '../src/detach.mjs';
@@ -59,7 +59,7 @@ run 默认不限轮数、安静、当前目录；--verbose 显示进度。--quie
 --system-prompt、--json、--full、--brief-lines、--expect-changes、--judge 可选。
 code/grok-cli/copy/grok/bulk/gpt/run/run-many 默认独立运行并等待；--no-wait 立即返回，--attach 前台，--detach 兼容默认。
 --name 短名、--report 路径；status [--running] [--json]；wait/tail 支持短名或 runId 前缀。
-code 的 --review 使用只读沙箱与内置审查提示词；旧 agent-fleet 长命令继续可用。
+code 的 --review 使用全权限沙箱与内置只读审查提示词；旧 agent-fleet 长命令继续可用。
 copy 自动注入文案语气规范；--no-voice 仅用于纯机械改写（长名 kollab-gateway-copy 同样支持）。
 `;
 
@@ -145,7 +145,6 @@ async function cmdRun(argv, { copyVoice = false } = {}) {
     return;
   }
 
-  if (/^kollab-gateway(?:-copy|-bulk)?$/.test(flags.model) && geminiBlocked(flags.prompt, { expectChanges: Boolean(flags['expect-changes']) })) throw new Error('Gemini 拒绝编码/UI/--expect-changes；只接文本任务。');
   const config = loadModelsConfig(flags['models-config'] ? resolvePath(flags['models-config']) : undefined);
   // 进度行实时打到 stderr,并同步写进 ~/.agent-fleet/runs/<ISO时间>-<模型名>.log(tail 的
   // 数据源);--quiet 时 stderr 静音,文件照写。日志文件路径在启动时已由进度对象打到 stderr。
@@ -486,7 +485,7 @@ async function cmdTeam() {
   console.log(`gemini| 文案、翻译、摘要、批量 | 无；拒绝编码/UI/改文件 | KOLLAB_PROD_API_KEY ${key('KOLLAB_PROD_API_KEY')}`);
   console.log(`jev   | 结构化判断 | 无 | TYPESAFE_API_KEY ${key('TYPESAFE_API_KEY')}`);
   console.log('GPT 档含本机 code 与网关 kollab-gateway-gpt-sol；失败只上报事实，派用者自行判断并用 relaunch --to 重派；状态只检查登录/凭据存在。');
-  console.log('中途插话：fleet say <任务> "新指令" / fleet-go amend <名字> --say；gpt 同轮 steer，grok 同会话续跑，claude/gemini 经收件箱，jev 无需（--review 的只读 exec 不支持，用 --restart）。');
+  console.log('中途插话：fleet say <任务> "新指令" / fleet-go amend <名字> --say；gpt 同轮 steer，grok 同会话续跑，claude/gemini 经收件箱，jev 无需；Codex review 同样支持 steer/resume。');
 }
 
 function flagArgs(flags, omitted = []) {

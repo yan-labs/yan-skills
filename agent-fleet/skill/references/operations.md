@@ -54,7 +54,7 @@ fleet web "问题" --followup "追问1" --followup "追问2" --out answer.md --j
 
 ## 安全边界
 
-先核验 `--cwd` 指向的目录及项目配置的信任边界；网关路径使用 Claude Agent SDK 的 `bypassPermissions`，执行者可读写文件和运行命令，没有工具调用沙箱。只对可信目录派单，保护他人改动；配置读取用 `safe-grep` 或经 `redact`，只看名字、计数与存在状态。默认执行者系统提示将任务交给当前执行者负责，额外 `--system-prompt` 会追加其后。`fleet code` 默认 `danger-full-access`（可读写任意路径、可联网，含本机代理），`--review` 使用 `read-only`；详见 [README 的安全边界](../../README.md#安全边界)。
+先核验 `--cwd` 指向的目录及项目配置的信任边界；网关路径使用 Claude Agent SDK 的 `bypassPermissions`，执行者可读写文件和运行命令，没有工具调用沙箱。只对可信目录派单，保护他人改动；配置读取用 `safe-grep` 或经 `redact`，只看名字、计数与存在状态。默认执行者系统提示将任务交给当前执行者负责，额外 `--system-prompt` 会追加其后。`fleet code` 默认 `danger-full-access`（可读写任意路径、可联网，含本机代理），`--review` 也使用 `danger-full-access`，只读靠 brief 约定，允许联网和在自己的 `mktemp -d` 目录写脚本、跑测试。SDK 不设置只读工具名单，并忽略受信项目配置里的 permissions/sandbox/工具名单；Grok 不用文件快照判失败；Gemini 不按任务关键词拒绝，JEV 无命令工具；详见 [README 的安全边界](../../README.md#安全边界)。
 
 
 ## 行动范围

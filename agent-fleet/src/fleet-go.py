@@ -119,26 +119,6 @@ def locate(name):
     return path, meta
 
 
-def gemini_task_text(text):
-    # 两处闸门同规格：统一换行，仅移除完整模板块；{大写占位符}匹配单行值。
-    text = text.replace('\r\n', '\n')
-    for path in sorted(BLOCKS.glob('*.md')):
-        template = path.read_text().strip().replace('\r\n', '\n')
-        parts = re.split(r'(\{[A-Z]+\})', template)
-        pattern = ''.join(r'[^\n]*?' if re.fullmatch(r'\{[A-Z]+\}', part) else re.escape(part) for part in parts)
-        text = re.sub(pattern, '', text)
-    return text
-
-
-def gemini_check(text, expect_changes=False):
-    """静态路由限制，只判断任务要求，不判断执行失败原因。"""
-    text = gemini_task_text(text)
-    classifications = re.findall(r'^归类[^\r\n]*', text, re.M)
-    coding = r'编码|\bUI\b|前端实现|写代码|(?:修改|改动|改|编辑|重写|创建|新增|删除|更新).{0,12}(?:文件|代码|源码|组件|\S+\.(?:mjs|js|ts|tsx|jsx|py|html|css|json))|实现.{0,12}(?:界面|页面|功能)|(?:edit|modify|write|create|delete|update)\s+(?:\S+\s+){0,3}(?:files?|code|components?)|implement\s+(?:\S+\s+){0,3}(?:UI|code|component)'
-    if expect_changes or any(re.search(r'编码|code|UI|前端实现', line, re.I) for line in classifications) or re.search(coding, text, re.I):
-        raise ValueError('Gemini 只接文本任务，拒绝编码/UI/--expect-changes。')
-
-
 def relaunch(name, to=None, tier=None):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     path, meta = locate(name)
@@ -149,8 +129,6 @@ def relaunch(name, to=None, tier=None):
     if tier and target != 'claude':
         raise ValueError('--tier 仅用于 --to claude。')
     text = path.read_text()
-    if target == 'gemini':
-        gemini_check(text, meta.get('expect-changes', False))
     checked(text, target)
     if target != meta['to']:
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
@@ -283,15 +261,13 @@ def new(args):
         raise ValueError('未知授权块。可用：' + ','.join(AUTH))
     if 'local-commit' in auth:
         auth = [a for a in auth if a != 'local']
-    if 'paid' in auth and not args.budget:
-        raise ValueError('paid 必须提供 --budget（上限与重试次数）。')
     pitfalls = args.pitfalls.split(',') if args.pitfalls is not None else (['node-proxy', 'zsh', 'secrets', 'shared-tree'] if args.to in ('gpt', 'grok') else ['secrets', 'fleet-bg'])
     if args.pitfalls is None and 'deploy-prod' in auth:
         pitfalls.append('pnpm-entry')
         pitfalls.extend(p.stem[8:] for p in BLOCKS.glob('pitfall-deploy-*.md'))
     if any(p not in PITFALLS and not (BLOCKS / ('pitfall-' + p + '.md')).exists() for p in pitfalls if p):
         raise ValueError('未知已知坑块。')
-    values = {'NAME': args.name, 'REPORT': report, 'BUDGET': args.budget or '付费由主线程另行授权', 'DATE': day,
+    values = {'NAME': args.name, 'REPORT': report, 'DATE': day,
               'COMMITS': '本地提交仅限授权分支，报告列出本地提交哈希' if 'local-commit' in auth else '提交按授权覆盖执行'}
     if args.body and args.body != '-':
         body_path = Path(args.body).expanduser()
@@ -302,13 +278,13 @@ def new(args):
         body = sys.stdin.read() if args.body == '-' or not sys.stdin.isatty() else ''
     if not args.goal and not body.strip():
         raise ValueError('请提供 --goal、--body 或 stdin 正文。')
-    if args.to == 'gemini':
-        gemini_check('\n'.join([args.goal or '', body, args.why or '']), args.expect_changes)
     classification = PRODUCTS[args.to] + (' 只读复核' if args.review else '')
     if args.to == 'claude':
         classification += ' ' + (args.tier or 'sonnet')
     parts = [f'归类：{classification}；理由：{args.why or classification + "任务，按既有路由执行"}\nREPORT: {report}', block('style-sol', values),
              '## 授权覆盖\n' + '\n\n'.join(block('auth-' + a, values) for a in dict.fromkeys(auth))]
+    if args.budget:
+        parts.append('## 预算与重试限制\n' + args.budget)
     if args.goal:
         parts.append('## 目标\n' + args.goal)
     if body.strip():
@@ -318,7 +294,7 @@ def new(args):
         if args.make == 'image':
             parts.append('执行方法：' + ('使用 imagegen Skill 和 Codex 内置 image_gen 工具。' if args.to == 'gpt' else 'Grok 使用内置 image_gen / image_edit 工具，model 参数留空。' if args.to == 'grok' else '使用当前产品可用的真实图片生成工具，生成受阻时如实报告缺口。'))
     writes = [report, '/tmp/' + args.name + '/', *(args.write or [])]
-    parts.append('## 允许范围\n允许写：\n' + '\n'.join('- ' + p for p in dict.fromkeys(writes)) + '\n只读：\n' + ('\n'.join('- ' + p for p in (args.read or [])) or '按正文指定路径读取。'))
+    parts.append('## 允许范围\n允许写：\n' + '\n'.join('- ' + p for p in dict.fromkeys(writes)) + '\n- 正文明确写了“允许读写”的路径（含源码仓与其 .git）\n只读：\n' + ('\n'.join('- ' + p for p in (args.read or [])) or '按正文指定路径读取。'))
     if args.forbid:
         parts.append('另行授权事项：' + args.forbid)
     parts.append('## 已知坑\n' + '\n\n'.join(block('pitfall-' + p, values) for p in dict.fromkeys(pitfalls) if p))

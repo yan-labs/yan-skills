@@ -128,7 +128,7 @@ assert.equal(continuedState.review,true);
 assert.equal(continuedState.low,true);
 const resumedArgs=readFileSync(resumeArgsPath,'utf8').trim().split('\n');
 assert(resumedArgs.includes('resume') && resumedArgs.includes('detached-thread'));
-assert(resumedArgs.includes('read-only') && resumedArgs.includes('model_reasoning_effort=low'));
+assert(resumedArgs.includes('danger-full-access') && resumedArgs.includes('model_reasoning_effort=low'));
 console.log('Codex CLI resume: preserved thread, low/review/name/report and metadata');
 const leftoverId='codex-executor-alive';
 writeFileSync(join(runs,leftoverId+'.pid.json'),JSON.stringify({runId:leftoverId,model:'gpt-6.1-sol',pid:0,codexPid:process.pid,threadId:'detached-thread',cwd:scratch}));
