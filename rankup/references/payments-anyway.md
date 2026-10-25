@@ -44,7 +44,7 @@ node scripts/anyway/scripts/stg/webhook-capture.mjs --evidence-dir <项目侧证
 node scripts/anyway/scripts/stg/pay-test.mjs --env stg --link <stg支付链接> --ref <项目侧引用> --email <测试邮箱> --evidence-dir <项目侧证据目录>
 ```
 
-`anyway.mjs help` 列出只读查询和 webhook 验签命令。`create-product.mjs`、`create-webhook.mjs` 可用 `--env prod` 指向生产后台；前者支持 `--dry-run` 只预览参数、`--type subscription --interval month|year` 选择月付或年付（省略周期时仍为月付，默认类型仍为一次性），提交前会核对表单周期，提交后仍须核对结账页实际周期；不传 `--dry-run` 会实际创建商品，后者只有 `--commit` 才提交。`pay-test.mjs` 自动完成 stg 支付测试全流程（结账、等待回跳、Merchant API 复核），直接调用即可；`--env prod` 指向生产支付链接，需要额外的环境变量。生产付款会产生真实交易，须由项目发布流程决定是否执行。
+`anyway.mjs help` 列出只读查询和 webhook 验签命令。`create-product.mjs`、`create-webhook.mjs` 可用 `--env prod` 指向生产后台；前者支持 `--dry-run` 只预览参数、`--type subscription --interval month|year` 选择月付或年付（省略周期时仍为月付，默认类型仍为一次性），提交前会核对表单周期，提交后仍须核对结账页实际周期；不传 `--dry-run` 会实际创建商品，后者只有 `--commit` 才提交。`pay-test.mjs` 自动完成 stg 支付测试全流程（结账、多路径取订单号、Merchant API 复核），直接调用即可；`--env prod` 指向生产支付链接，需要额外的环境变量。生产付款会产生真实交易，须由项目发布流程决定是否执行。
 
 ## 已知坑（2026-09-07 stg 单次实测）
 
@@ -56,8 +56,11 @@ node scripts/anyway/scripts/stg/pay-test.mjs --env stg --link <stg支付链接> 
 - Merchant API 订单响应的商品字段为平铺 `productId`，不能按 webhook payload 的嵌套 `product.id` 解析。结账页的字段和币种切换可能改变，运行前核对当前页面。
 - webhook 后台（开发者 → Webhook）没有投递日志、响应码、重投或"发送测试事件"入口；确认投递只能靠调用方自己的 `wrangler tail`（或等价日志）配合一次真实付款，不能只看后台的"启用"状态。
 
-## 已知坑（2026-09-29 stg 复测 + 2026-10-20 补充）
+## 已知坑（2026-09-29 stg 复测 + 2026-10-25 补充）
 
-- `pay-test.mjs` 已处理结账页的各种边界情况（窗口模式、地址字段、多跳跳转重试等），直接调用即可；脚本内部注释有完整排障记录。
+- `pay-test.mjs` 在 OpenCLI `open` 时启动的会话级网络捕获中读取整个跳转链的请求 URL，同时检查最终地址栏、成功页链接/表单/订单字段及 Performance URL；站点快速消费并删除 `anyway_order_id` 也不会仅因地址栏超时判失败。旧桥接不支持网络捕获时仍可走 API 兜底。
+- 付款前从 Merchant API 商品支付链接读取预期金额/币种；也可传 `--amount-cents <分> --currency <ISO币种>`（可变金额、折扣等以本次实际预期为准）。无法确定预期时在付款前停止。付款提交一次后只读观察，不因 URL 不变或点击回执超时再次提交。
+- 订单号取不到时，API 按 `--ref`（merchantReference）与本次启动至查询时刻的创建时间窗口分页回查，并在本地严格校验引用、时间、金额、币种及可用的支付链接 ID。仅唯一匹配的 PAID 订单且独立详情回读一致才退出 0；多个匹配 PAID 订单拒绝猜测。因此每次尽量使用唯一 `--ref`。
+- `--timeout`（默认 120 秒）控制 URL/页面/网络观察期限；Merchant API 从付款后开始回查，期限后继续最多 60 秒纯 API 查询。成功日志区分「捕获回跳订单」与「已 PAID、URL 参数缺失、API 找回」；未 PAID/预期不匹配或 API 不可用最终退出 1，均不会重新付款。PAID 只证明订单状态，业务入账与 webhook 仍须项目侧独立验收。
 - 一次真实付款会同时触发 webhook 和 checkout-return 回跳，两条路径相隔可能只有几秒；调用方的入账逻辑必须在这种并发下保持幂等（按 Anyway `orderId` 去重），否则会双重入账。
 - 想抓真实 webhook 原始报文用于重放：`wrangler tail --format json`（不用 `--format pretty`，后者实测不透传 log）。
