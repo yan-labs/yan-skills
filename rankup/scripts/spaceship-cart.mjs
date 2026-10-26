@@ -5,6 +5,7 @@
 //   node scripts/spaceship-cart.mjs add example.org other.org   # 先用 spaceship-api.mjs request GET /domains/<d>/available 确认可注册
 //   node scripts/spaceship-cart.mjs read                         # 只读回读购物车
 // 依赖：OpenCLI 已连接本机 Chrome，且 spaceship.com 已登录（页面语言为中文界面，选择器按文字匹配）。
+// 优惠码见 references/cloudflare/domain-email.md §8.4（购物车里由用户填码，脚本不填）。
 // 已知坑（2026-10-23 实测）：
 //  - 搜索页顶部结果卡的「加入购物车」是第一个可见按钮；点完变成「查看购物车」，重复加购安全。
 //  - 点购物车图标先弹「完善您的订单」推荐抽屉（Spacemail/托管等试用，默认不选），点「继续」才出真正购物车抽屉，抽屉底部「结账」不要点。

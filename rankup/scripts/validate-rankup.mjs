@@ -16,7 +16,7 @@ import { lint as lintDocs } from "./maintain/doc-lint.mjs";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "3.39.1";
+const expectedVersion = "3.39.2";
 const requiredReferences = [
   "integrations/kie.md",
   "integrations/kie-models.md",
