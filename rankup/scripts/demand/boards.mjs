@@ -56,13 +56,13 @@
  *
  * 已知坑（都踩过）：
  *   - taaft：**是站点在挡我们，不是环境不可达**（2026-08-23 更正了之前的判断）。
- *     纯 HTTP 一律 403 + `cf-mitigated: challenge`（/new/ /requests/ /sitemap.xml
+ *     纯 HTTP 一律 403 + `cf-mitigated: challenge`（/just-released/ /requests/ /sitemap.xml
  *     /api/ 全挂，只有 /robots.txt 能过），但 OpenCLI 驱动真实 Chrome 一次就打开了。
  *     apex 域用 curl 直连时报的「TLS 握手被切断」是本机代理的 fake-IP（198.18.x.x）
  *     假象，走 HTTPS_PROXY 就正常。判据：DNS 解到 198.18/15 网段 = 本机代理接管，
  *     此时任何「连不上」的结论都要先换代理路径复验。
  *   - taaft 只给相对时间（「Released 5mo ago」「25d ago」），没有绝对日期字段。
- *   - taaft 工具榜一页就出 200 条上下、没有分页；许愿区每页 24 条，用
+ *   - taaft /just-released/ 滚动加载，--days 默认 7；无新行或 40 次滚动停止；许愿区每页 24 条，用
  *     /requests/page/<n>/ 翻页，--pages 控制。
  *   - producthunt 的外链是 /r/p/<id> 跳转，纯 HTTP 跟随重定向同样被 CF 挡（403）。
  *     真实域名只能靠浏览器实际跳一次拿 location.href，所以 --resolve-urls 很慢
@@ -99,6 +99,7 @@
  *     绝对不要跑 `opencli browser cleanup`，会关掉别人的标签页。
  */
 
+import { regDomain } from "./_chatgpt_web.mjs";
 import { spawnSync } from "node:child_process";
 import { readFileSync, existsSync, realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -208,7 +209,7 @@ function hostOf(u) {
   }
 }
 
-function stripTracking(u) {
+export function stripTracking(u) {
   if (!u) return u;
   try {
     const url = new URL(u);
@@ -483,7 +484,7 @@ function phResolveUrls(session, rows, max) {
   return rows;
 }
 
-async function cmdProducthunt(args) {
+export async function cmdProducthunt(args) {
   const date = args.date && args.date !== true ? String(args.date) : today();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) die("--date 要 YYYY-MM-DD");
   const limit = num(args.limit, 30);
@@ -699,7 +700,7 @@ function toolifyResolveDomains(session, rows, boardKey, max) {
   });
 }
 
-async function cmdToolify(args) {
+export async function cmdToolify(args) {
   const boardKey = args.board && args.board !== true ? String(args.board) : "new";
   const path = args.path && args.path !== true ? String(args.path) : (TOOLIFY_BOARDS[boardKey] || {}).path;
   if (!path) die(`--board 只认 ${Object.keys(TOOLIFY_BOARDS).join(" / ")}，或用 --path /任意路径`);
@@ -758,12 +759,23 @@ async function cmdToolify(args) {
   return rows;
 }
 
+/** 相对发布时间按抓取时刻估算；月/年分别按 30/365 天。 */
+export function parseRelativeTime(value, fetchedAt) {
+  const match = String(value ?? "").match(/(?:Released\s+)?(\d+(?:\.\d+)?)\s*(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|months?|mo|years?|yrs?|y)\s+ago/i);
+  if (!match) return null;
+  const unit = match[2].toLowerCase();
+  const seconds = /^(mo|month)/.test(unit) ? 2592000 : /^(y|yr|year)/.test(unit) ? 31536000
+    : /^(w|week)/.test(unit) ? 604800 : /^(d|day)/.test(unit) ? 86400
+    : /^(h|hr|hour)/.test(unit) ? 3600 : /^(m|min|minute)/.test(unit) ? 60 : 1;
+  return new Date(Date.parse(fetchedAt) - Number(match[1]) * seconds * 1000).toISOString();
+}
+
 /* =================================================================== TAAFT */
 
 /* 「最新收录的 AI 工具」列表页。每个条目是一个 <li class="li">，
    真正有用的东西全在 data-* 属性上（含未经跳转的真实外链），统计数字在几个
    有语义的 class 里。 */
-const TAAFT_TOOLS_EXTRACT = `(()=>{
+export const TAAFT_TOOLS_EXTRACT = `(()=>{
   const items = [...document.querySelectorAll("li.li")];
   if(!items.length) return {error:"页面上没有 li.li，选择器改了或者页面还没渲染完"};
   const txt = (el,sel) => { const e = el.querySelector(sel); return e ? e.innerText.trim() : null; };
@@ -787,7 +799,7 @@ const TAAFT_TOOLS_EXTRACT = `(()=>{
       views: numOf(txt(li, ".stats_views") || txt(li, ".views_count")),
       saves: numOf(txt(li, ".saves")),
       rating: numOf(txt(li, ".average_rating")),
-      pricing: txt(li, ".ai_launch_date"),
+      pricing: [...li.querySelectorAll(".ai_launch_date")].map(e=>e.innerText.trim()).find(t=>/free|from|[$€£]|paid|trial|credit|contact|subscription/i.test(t)) || null,
       released,
     };
   })};
@@ -817,16 +829,16 @@ const TAAFT_REQUESTS_EXTRACT = `(()=>{
 })()`;
 
 const TAAFT_BOARDS = {
-  new: { path: "/new/", kind: "tools" },
+  new: { path: "/just-released/", kind: "tools" },
   requests: { path: "/requests/", kind: "requests" },
   "requests-top": { path: "/requests/most-voted/", kind: "requests" },
 };
 
-async function cmdTaaft(args) {
+export async function cmdTaaft(args) {
   const boardKey = args.board && args.board !== true ? String(args.board) : "new";
   const spec = TAAFT_BOARDS[boardKey];
   if (!spec) die(`--board 只认 ${Object.keys(TAAFT_BOARDS).join(" / ")}`);
-  const limit = num(args.limit, 50);
+  const limit = num(args.limit, spec.kind === "tools" ? Infinity : 50);
   const pages = num(args.pages, 1);
   const session = sessionName("demand-taaft");
   const date = today();
@@ -834,42 +846,52 @@ async function cmdTaaft(args) {
 
   try {
     if (spec.kind === "tools") {
-      let res;
+      const days = num(args.days, 7);
+      if (!Number.isFinite(days) || days <= 0) die("--days 要大于 0");
+      const fetchedAt = new Date().toISOString();
+      const cutoff = Date.parse(fetchedAt) - days * 86400000;
+      const seen = new Map();
+      let rawCount = 0;
+      let stopReason = "scroll-limit";
+      let oldest = null;
+      let rounds = 0;
       try {
         browserOpen(session, `https://theresanaiforthat.com${spec.path}`);
-        res = browserEval(session, TAAFT_TOOLS_EXTRACT);
-        if (!res || res.error) throw new Error(`taaft 取数失败：${res?.error ?? "eval 无返回"}`);
+        for (; rounds < 40; rounds++) {
+          const res = browserEval(session, TAAFT_TOOLS_EXTRACT);
+          if (!res || res.error) throw new Error(`taaft 取数失败：${res?.error ?? "eval 无返回"}`);
+          rawCount += res.rows.length;
+          const before = seen.size;
+          for (const t of res.rows) if (!seen.has(t.id)) seen.set(t.id, t);
+          const times = [...seen.values()].map(t => parseRelativeTime(t.released, fetchedAt)).filter(Boolean);
+          oldest = times.sort()[0] ?? null;
+          if (oldest && Date.parse(oldest) < cutoff) { stopReason = "days-covered"; break; }
+          if (rounds && before === seen.size) { stopReason = "no-new-rows"; break; }
+          browserEval(session, "(()=>{window.scrollTo(0,document.documentElement.scrollHeight);return 1;})()");
+          sleep(2200);
+        }
       } catch (e) {
-        // 失败先取证（截图+全文），状态进 manifest；返回空行集而不是 die 全局。
         leaveSceneAndRecord(session, `taaft:${boardKey}`, `taaft-${boardKey}`, e);
-        return rows;
+        stopReason = "browser-error";
       }
-      recordSource({ source: `taaft:${boardKey}`, status: "ok", rawCount: res.rows.length });
-      for (const t of res.rows) {
+      recordSource({ source: `taaft:${boardKey}`, status: stopReason === "browser-error" ? "partial" : "ok",
+        rawCount, uniqueCount: seen.size, oldestReleasedAt: oldest, fetchedAt, days, stopReason, rounds: Math.min(rounds + 1, 40) });
+      for (const t of seen.values()) {
+        const releasedAt = parseRelativeTime(t.released, fetchedAt);
+        if (releasedAt && Date.parse(releasedAt) < cutoff) continue;
         if (rows.length >= limit) break;
         if (args.skipAds && t.featured) continue;
         const url = stripTracking(t.website);
         rows.push({
-          source: `taaft:${boardKey}`,
-          rank: rows.length + 1,
-          name: t.name,
-          url,
-          domain: hostOf(url),
-          metric: t.saves ?? null,
-          metricLabel: "saves",
-          // 站点只给「5mo ago」这种相对时间，没有绝对收录日期，date 记抓取日
-          date,
+          source: `taaft:${boardKey}`, rank: rows.length + 1, name: t.name,
+          url, website: url, domain: hostOf(url), rootDomain: regDomain(url) || null,
+          releasedAt, releasedAtEstimated: releasedAt !== null, fetchedAt,
+          metric: t.saves ?? null, metricLabel: "saves", date,
           extra: {
-            id: t.id,
-            task: t.task,
-            taskSlug: t.taskSlug,
+            id: t.id, task: t.task, taskSlug: t.taskSlug,
             tagline: t.desc ? String(t.desc).slice(0, 160) : null,
-            views: t.views,
-            rating: t.rating,
-            pricing: t.pricing,
-            releasedAgo: t.released,
-            siteRank: t.rank ? Number(t.rank) : null,
-            featured: t.featured,
+            views: t.views, rating: t.rating, pricing: t.pricing,
+            releasedAgo: t.released, siteRank: t.rank ? Number(t.rank) : null, featured: t.featured,
           },
         });
       }
@@ -1150,10 +1172,11 @@ producthunt：
 
 taaft（需浏览器；不需要登录账号，只需要一个能过 CF 质询的真实 Chrome）：
   --board <k>        new | requests | requests-top（默认 new）
-                     new          = 最新收录的 AI 工具（metric = saves）
+                     new          = /just-released/ 最新收录（metric = saves）
                      requests     = 许愿区最新（metric = 票数）
                      requests-top = 许愿区按票数排（真实需求信号最强的一档）
   --pages <n>        许愿区翻几页（每页 24 条，默认 1）
+  --days <n>        工具榜回溯天数（默认 7），按站点 id 去重；无新行或 40 次滚动停止
   --skip-ads         工具榜过滤 data-featured 的推广位
 
 toolify：

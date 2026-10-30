@@ -108,6 +108,7 @@
 | Hacker News 信号 | `hn-signals.mjs` | `--mode show --q <词>` |
 | GitHub 趋势 | `github-trending.mjs` | `--source trending` |
 | 用户许愿 | `reddit-wishes.mjs` | `--topic <词>` |
+| 新品多站同词 | `new-launches.mjs` | `--days 7 --sources taaft,toolify --snapshot-dir <dir> --compare --md --json`；TAAFT 为 `/just-released/`，仅候选 |
 | TAAFT 许愿区 | `boards.mjs taaft` | `--board requests` |
 | 游戏新词 | `game-newtitles.mjs` | `--source steam` |
 | 竞品 sitemap 变化 | `sitemap-diff.mjs` | `--domain <d>` |

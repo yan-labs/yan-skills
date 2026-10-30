@@ -7,7 +7,7 @@
 - 历史来源经验见 [`experiences/demand-discovery.md`](experiences/demand-discovery.md)，不作现行裁定集。
 
 全部脚本在 `<rankup-skill-dir>/scripts/demand/`。Node 22、零第三方依赖、
-统一支持 `--help` / `--json` / `--out <file>`。**所有条目的取数路径都在 2026-08-23 逐个发过真请求验证**，
+支持 `--help` / `--json` / `--out <file>`（`new-launches` 用 `--snapshot-dir` 替代 `--out`）。**所有条目的取数路径都在 2026-08-23 逐个发过真请求验证**，
 不是照文档抄的。
 
 > **口径已变，验证日未重跑（2026-08-30 声明）。** 那次验证在三波去判决化重构**之前**：
@@ -40,6 +40,8 @@
 | **需要搜索结果页采集入口** | [一·五](#一五先亲眼看一遍搜索结果首页多引擎实勘) |
 | 拿到候选之后怎么验证 | [十](demand-sources/validation-chain.md#十候选验证链路) |
 | 经营背景与历史案例 | [十·五](demand-sources/validation-chain.md#十五能排上去和能赚钱是两个独立命题--判据见裁定集) |
+
+新品同词与跨周观察用 `new-launches.mjs`（TAAFT `/just-released/` + Toolify new）；[命令与口径](demand-sources/users-and-launches.md#新品快照与多站同词候选)。
 
 **来源产物**：汇成候选域名或词表，保留来源 URL、日期、国家/语言、原话或实际页面措辞与采集状态；移交见第十节。
 

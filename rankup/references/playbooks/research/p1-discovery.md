@@ -1,5 +1,10 @@
 # 调研流水线 · P1 挖需求
 
+新品候选可补跑 `node scripts/demand/new-launches.mjs --days 7 --sources taaft,toolify --snapshot-dir <dir> --compare --md --json`：
+TAAFT 最新收录入口为 `/just-released/`，按根域统计多站同词与首次观察新增；[用法、覆盖限制与下一步](../../demand-sources/users-and-launches.md#新品快照与多站同词候选)。
+候选先交 gpts 基线判读与 `entry.md` 入口环节，不据目录收录直接判断需求。
+
+
 > 本文件从 [`research.md`](../research.md) 拆出（2026-09-30）。开跑前先读主文件的[四条铁律](../research.md#四条贯穿全部流水线的铁律)、[五个取数动作](../research.md#五个取数动作与编排探索循环)与[阶段 0](../research.md#阶段-0-开工前-30-秒每条流水线都以它开头)；路径变量 `$RANKUP` / `$BACKLINK` 见主文件「怎么用」。
 
 ## P1 · 挖需求 / 找方向 / 不知道做什么

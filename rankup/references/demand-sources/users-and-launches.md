@@ -105,10 +105,36 @@ Wish it could…       I love this extension, but…   ← 最值钱的一句
 | GitHub Trending | **期内新增 star（升温速度）**、仓库/简介/语言；`--issues` 挖产品化机会 | 公开 HTML（`/trending`） | 否 | `scripts/demand/github-trending.mjs` |
 | GitHub Search | 累计 star、创建/push 时间、topics、open issue 正文 | 公开 JSON API | 否（给 token 配额高 80 倍） | `scripts/demand/github-trending.mjs --source search` |
 | GitHub SKILL.md 反查 | 别人沉淀的 skill 名 + description（= 反复出现的真实需求） | JSON API。**要「最近更新」用 `--mode recent`**：repo search `pushed:>` + Git Trees（一次请求拿全仓库文件清单，实测 34,019 节点 / 286 个 SKILL.md，**且不吃 code search 10 次/分的配额**） | code search 需 token | `scripts/demand/github-skill-search.mjs --mode recent\|repo\|code` |
-| There's An AI For That `/new/` | 工具名、**未经跳转的真实官网**、saves / views / 评分 / 定价，一页 205 条 | OpenCLI 真实 Chrome（纯 HTTP 全路径 CF 403） | 否，但要真实浏览器 | `scripts/demand/boards.mjs taaft --board new` |
+| There's An AI For That `/just-released/` | 工具名、**未经跳转的真实官网**、saves / views / 评分 / 定价、估算发布时间与根域；按天数滚动去重 | OpenCLI 真实 Chrome（纯 HTTP 全路径 CF 403） | 否，但要真实浏览器 | `scripts/demand/boards.mjs taaft --board new --days 7` |
 | **turbo0.com** | Fastest Growing（645 产品按 Similarweb 流量增速排，月更）、DR Climbers（888 域名按 Ahrefs DR 增速排，周更）、Hidden Gems（698 小产品异常增长）、New This Month（日更 400 新品） | 公开页面 | 否 | 暂无脚本——AI 读 Collections 页判断 |
 | **Indie Hackers** | 创始人收入复盘帖（直接披露获客关键词和渠道）、产品目录按收入排序、「I'd pay for X」天然付费意图句式、失败案例中的用户反馈（项目失败 ≠ 需求不存在） | 公开页面 | 否 | 暂无脚本——AI 直接读页面判断 |
 | **产品目录站 / 竞品地图**（SaaSHub、BetaList、Uneed 及各行业工具目录） | 这个领域现在有哪些产品、各自服务谁、怎么收费、用户在找哪些替代品——用来画一张竞品地图，不是用来判断谁做得好 | 公开页面 | 否 | 暂无脚本——AI 直接读页面判断 |
+
+### 新品快照与多站同词候选
+
+```bash
+node scripts/demand/new-launches.mjs --days 7 --sources taaft,toolify --snapshot-dir <snapshot-dir> --md --json
+node scripts/demand/new-launches.mjs --days 7 --sources taaft,toolify --snapshot-dir <snapshot-dir> --compare --md --json
+```
+
+TAAFT `new` 取 `/just-released/`（Newest AI Tools），滚动至最老发布时间越过 `--days`、无新 ID 或 40 次上限；
+未知发布时间保留 null。`releasedAt` 以抓取时刻估算，月按 30 天、年按 365 天；覆盖不足看 notes 与 evidence manifest，不能当成完整一周。
+Toolify `new` 仅当前列表，未提供可靠发布时间或定价时保留 null，不把抓取日冒充发布日期。
+可在 `--sources` 加 `producthunt`；缺 `PRODUCTHUNT_TOKEN` 时跳过并注明。
+
+当日快照为 `<snapshot-dir>/YYYY-MM-DD.json`，包含来源原始行 `rawRows`、根域合并行 `rows`、来源统计和两张候选榜；
+`--md` 同时写日期 `.md`。`--json --md` 同用时 stdout 保持纯 JSON。每天文件保留最后一次采集。
+`--compare` 在写入前读取最近 28 天快照，同日第二次运行也能读取上一轮；首次运行明确没有基线。
+本周按抓取时刻向前滚动 7 天；新增域名、首次出现都指**首次观察**，首次出现日期仅限保存的 28 天。
+“本周 1→多”表示此前观察到 1 个域名，本周累计达到至少 2 个；同日基线不等于跨周覆盖。
+
+按名称、TAAFT task、tagline 依次抽取英文 generator / maker / changer / creator / remover / editor / converter /
+swap / upscaler / enhancer / animator 等词尾，去虚词、明确分隔的品牌前缀与标点，简单单复数归一。
+跨来源同根域只计一次；多站榜至少 2 个根域，新出现单站榜排除历史已见词。
+这是词法候选，可能把描述性句子误当主词，也会漏掉隐含功能与无分隔的品牌；保留站点、定价与发布时间供复核。
+根域沿用现有常见后缀/多租户规则，未使用完整 Public Suffix List。
+候选词下一步交给 [`gpts 基线判读`](../trends.md#gpts-基线判读到底怎么才算有搜索量唯一判据源)，再按 [`entry.md`](../playbooks/entry.md) 入口环节推进；
+本脚本不判断搜索需求、KD、CPC 或是否值得做。
 
 ### 目录收录不是流量证明，更不是销量证明
 
