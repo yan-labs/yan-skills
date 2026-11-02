@@ -503,7 +503,7 @@ async function cmdCode(argv) {
   const { positionals, flags } = splitShortArgs(argv);
   if (flags.help) { console.log(HELP_TEXT); return; }
   const prompt = resolveBrief(flags.prompt ?? positionals[0]);
-  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), review: Boolean(flags.review), resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
+  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
   await printRunResult(result, outputOptions(flags));
   process.exitCode = buildBrief(result, outputOptions(flags)).verdict === 'ok' ? 0 : 1;
 }
@@ -524,6 +524,14 @@ async function cmdShortJudge(argv) {
 
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
+  // 执行器身份只属于监督器直接启动的进程，嵌套 fleet 必须创建自己的 runId 和收件箱。
+  if (process.env.FLEET_DETACHED_RUN_ID) {
+    const owner = readState(process.env.FLEET_DETACHED_RUN_ID);
+    if (owner?.childPid && owner.childPid !== process.pid) {
+      delete process.env.FLEET_DETACHED_RUN_ID;
+      delete process.env.FLEET_DETACHED_BATCH;
+    }
+  }
   if (command !== 'media') loadEnvFile(join(PKG_ROOT, '.env'));
 
   if (!command || command === 'help' || command === '--help' || command === '-h') {
@@ -547,7 +555,7 @@ async function main() {
       if (command === 'run-many' && !flags.config) throw new Error('run-many 需要 --config');
       const brief = command === 'run-many' ? flags.config : flags.prompt ?? positionals[0];
       const text = command === 'run-many' ? '' : resolveBrief(brief);
-      const args = flagArgs(flags, ['detach', 'attach', 'no-wait', 'name', 'report', 'prompt']);
+      const args = flagArgs(flags, ['detach', 'attach', 'no-wait', 'name', 'prompt']);
       if (flags.prompt !== undefined) args.push('--prompt', flags.prompt);
       const runId = await launchDetached(fileURLToPath(import.meta.url), [command, ...positionals, ...args], {
         cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(),

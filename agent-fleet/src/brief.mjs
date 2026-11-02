@@ -73,18 +73,15 @@ export function previewLines(text, n = DEFAULT_BRIEF_LINES) {
   return lines.slice(0, limit);
 }
 
-/**
- * 给 runTask 的返回值补上 git / 结果文件路径。不计算 verdict(那还依赖 CLI 标志)。
- * @param {object} result
- * @param {string} logPath
- * @param {{ newCommits: string[], hasUncommittedChanges: boolean }} gitInfo
- */
+/** 统一过滤日志、失败证据及裁判请求；连接配置整值隐藏，裸 URL 只隐藏密码以保留定位信息。 */
 export function redactEvidence(value) {
   const redactText = text => {
     for (const [name, secret] of Object.entries(process.env)) {
       if (/(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(name) && secret?.length >= 4) text = text.split(secret).join('[REDACTED]');
     }
-    return text.replace(/\b(?:Bearer\s+|sk-)[\w.+/=-]+/gi, '[REDACTED]')
+    return text.replace(/(\b[\w.-]+_(?:URL|DSN)["']?\s*[:=]\s*)("[^"\r\n]*"|'[^'\r\n]*'|[^\s,;}]+)/gi, '$1[REDACTED]')
+      .replace(/(\b[a-z][a-z\d+.-]*:\/\/[^\s/@:]*:)[^\s/@]*@/gi, '$1[REDACTED]@')
+      .replace(/\b(?:Bearer\s+|sk-)[\w.+/=-]+/gi, '[REDACTED]')
       .replace(/((?:api[_-]?key|token|password|secret|authorization)["']?\s*[:=]\s*["']?)[^\s,"'}]+/gi, '$1[REDACTED]');
   };
   if (typeof value === 'string') {
@@ -92,7 +89,7 @@ export function redactEvidence(value) {
     catch { return redactText(value); }
   }
   return JSON.stringify(value ?? null, (key, item) =>
-    /(?:api[_-]?key|token|password|secret|authorization)$/i.test(key) ? '[REDACTED]'
+    /(?:api[_-]?key|token|password|secret|authorization|_url|_dsn)$/i.test(key) ? '[REDACTED]'
       : typeof item === 'string' ? redactText(item) : item);
 }
 
@@ -127,7 +124,8 @@ export function attachArtifacts(result, logPath, gitInfo) {
     }
     output.failureReport = failureReport(output);
   }
-  const body = output.result ?? output.error ?? '';
+  const continueNote = output.continuation ? `\n\n续做 ${output.continueCount} 次${output.continueStop ? `；${output.continueStop}` : ''}\n${output.continuation.map(step => `第 ${step.attempt} 次：${step.progress ? '有进展' : '无进展'}（提交：${step.commits ? '有' : '无'}，文件：${step.files ? '有' : '无'}，报告：${step.report ? '有' : '无'}）`).join('\n')}\n` : '';
+  const body = (output.result ?? output.error ?? '') + continueNote + (output.continuationChecks ? `\n续做判断记录：\n${JSON.stringify(output.continuationChecks, null, 2)}\n` : '');
   writeResultFile(logPath, output.failureReport ? `${redactEvidence(body)}\n\n## 失败事实\n${JSON.stringify(output.failureReport, null, 2)}\n` : body);
   return output;
 }
@@ -180,12 +178,16 @@ export function buildBrief(result, { briefLines = DEFAULT_BRIEF_LINES, expectCha
   const preview = previewLines(result?.ok ? result?.result : redactEvidence(result?.result ?? ''), briefLines);
   return {
     ok: Boolean(result?.ok),
-    verdict: !result?.ok && !result?.stopped ? 'fail' : judged.verdict,
+    verdict: !result?.ok && !result?.stopped ? 'fail'
+      : judged.verdict === 'fail' || judged.verdict === 'stopped' ? judged.verdict
+      : result?.ok && result?.reportConclusion?.startsWith('失败') ? 'fail'
+      : result?.ok && (result?.reportConclusion?.startsWith('部分完成') || result?.continueRequired) ? 'partial' : judged.verdict,
     verdictNote: !result?.ok ? null : judged.note ?? null,
     durationMs: result?.durationMs ?? null,
     sdkDurationMs: result?.sdkDurationMs ?? null,
     totalCostUsd: result?.totalCostUsd ?? null,
     numTurns: result?.numTurns ?? null,
+    ...(result?.continuation ? { continueCount: result.continueCount, continuation: result.continuation, continueStop: result.continueStop, continuationChecks: result.continuationChecks } : {}),
     preview,
     resultPath: result?.resultPath ?? null,
     logPath: result?.logPath ?? null,
@@ -218,6 +220,7 @@ export function formatBriefHuman(brief) {
     `commits: ${commits}`,
     `dirty: ${brief.hasUncommittedChanges ? 'yes' : 'no'}  controlTokens: ${brief.hasControlTokens ? 'yes' : 'no'}`,
   ];
+  if (brief.continuation) lines.push(`续做 ${brief.continueCount} 次${brief.continueStop ? `；${brief.continueStop}` : ''}；${brief.continuation.map(step => `第 ${step.attempt} 次${step.progress ? '有进展' : '无进展'}`).join('，')}`);
   if (brief.model) lines.push(`model: ${brief.model}`);
   if (brief.failureReport) lines.push(`失败事实: ${JSON.stringify(brief.failureReport)}`);
   if (brief.judgeSkipped) lines.push(`judge: ${brief.judgeSkipped}`);

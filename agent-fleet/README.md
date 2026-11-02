@@ -63,6 +63,8 @@ Claude Code 派单写法与误加 `&` 后的补救见 [Skill 顶部「派单前�
 
 状态保存在 `~/.agent-fleet/runs/<runId>.json`，原子更新监督/执行 PID、每30秒心跳、结果/日志路径及简报。PID死亡或心跳超过90秒判为 abnormal；若最后心跳早于启动+10分钟，提示可能重启/强制休眠中断及 `fleet resume <id>`。`wait` 每两秒只读状态与 PID，终态立即返回简报；超时只结束等待，任务继续。`wait` / `tail` 支持短名、唯一runId前缀，`latest` 指当前目录最近任务（包括终态）；stop/say/resume 的 latest 保持当前目录最近存活任务规则。
 
+Codex app-server 默认使用两层续做闸门：部分完成、报告七节缺失或 brief 要求的提交哈希/读回结果缺失，直接同线程继续；写完成且规则放行后，用现有 JEV 判断验收证据、授权内剩余步骤和中途自查，并将具体缺项带回。置信度低于 0.55 只额外继续一次；JEV 不可用按规则结果走。最多续做 3 次，连续两次没有新提交、文件内容或报告变化时停止；结果记录每次进展及裁判结论/置信度，最终仍有缺项则 verdict 为 partial。`--no-continue` 或 `FLEET_NO_CONTINUE=1` 可关闭，review、exec 兜底与其他产品不适用；用户 amend/steer/relaunch 行为不变。脱离启动的运行中任务按监督器对应的执行进程和收件箱插话，嵌套 fleet 不继承外层任务身份；送不进会报告具体缺口。
+
 Codex app-server 任务运行中仍显示在 Codex APP，结束后自动归档本任务线程；归档失败只记降级。历史保留，fleet 续跑前取消归档，结束后再归档。
 
 网关与 Grok 任务支持 say/resume；Codex 默认用独立 stdio app-server 支持同轮 `turn/steer`，失败尝试 SIGINT 后 `codex exec resume`；启动/握手失败退回原 exec，没有可续跑会话时明确提示 `--restart`。`fleet-go amend --say` 同样生效，异常中断可用 threadId/sessionId `fleet resume`，沿用 cwd、low/review、name/report；简报记录 steer/resume 次数与降级。review 同样支持 app-server，及 exec/resume 兜底，两路均为 `danger-full-access`。steer 接受不等于立即执行，也不能撤销已完成写入，详见 [中途插话](skill/references/codex-coding.md#中途插话)。macOS 沿用系统 caffeinate 防空闲睡眠；机器重启、合盖强制休眠仍会中断或暂停，不提供重启恢复。监督器被 SIGKILL 时标 abnormal，可用完整runId stop 清理存活执行器。

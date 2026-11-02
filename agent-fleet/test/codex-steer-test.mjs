@@ -84,7 +84,7 @@ async function scenario(mode, { backend, say, stop, resume, review = false, low 
   process.env.FLEET_STEER_TEST_TRACE = join(scratch, `${runId}.trace`);
   if (backend) process.env.FLEET_CODEX_BACKEND = backend;
   else delete process.env.FLEET_CODEX_BACKEND;
-  const pending = runCode({ prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则', cwd: scratch, codexBin: mock, resume, review, low });
+  const pending = runCode({ noContinue: true, prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则', cwd: scratch, codexBin: mock, resume, review, low });
   if (say || stop) {
     for (let attempt = 0; attempt < 500; attempt++) {
       if (existsSync(process.env.FLEET_STEER_TEST_TRACE) && readFileSync(process.env.FLEET_STEER_TEST_TRACE, 'utf8').includes('turn/start')) break;

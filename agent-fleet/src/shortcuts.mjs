@@ -12,7 +12,7 @@ export const MODEL_ALIASES = Object.freeze({
   fable: 'claude-fable',
 });
 
-const BOOLEAN_FLAGS = new Set(['quiet', 'verbose', 'low', 'review', 'json', 'full', 'expect-changes', 'judge', 'no-voice', 'no-subagents', 'subagents', 'detach', 'attach', 'no-wait', 'help']);
+const BOOLEAN_FLAGS = new Set(['quiet', 'verbose', 'low', 'review', 'json', 'full', 'expect-changes', 'judge', 'no-voice', 'no-continue', 'no-subagents', 'subagents', 'detach', 'attach', 'no-wait', 'help']);
 
 export function splitShortArgs(argv) {
   const positionals = [];

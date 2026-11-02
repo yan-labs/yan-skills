@@ -66,6 +66,8 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 - `--body body.md` 只接受现存文件路径；`--body -` 显式读取 stdin，也可以省略 `--body` 使用 heredoc。不存在的路径会明确报错。
 - 重新拉起已有任务：`fleet-go relaunch <name> [--to <产品>] [--tier <档位>]`，沿用唯一同名 brief、`--name` 和 `--report`，由派用者显式决定执行者；仍有未结束同名任务时拒绝重复派发。
 - **先预览再派**：`fleet-go new ... --dry-run`（只打印 brief，命令写 stderr）；`--no-launch` 只写 brief 不派发；`fleet-go lint brief.md` 检查样板（归类行、REPORT 行、逐字规则句、允许范围小节、密钥字面量）。
+- - Codex app-server 默认使用两层续做闸门：部分完成、报告七节缺失或 brief 要求的提交哈希/读回结果缺失，直接同线程继续；写完成且规则放行后，用现有 JEV 判断验收证据、授权内剩余步骤和中途自查，并将具体缺项带回。置信度低于 0.55 只额外继续一次；JEV 不可用按规则结果走。最多续做 3 次，连续两次没有新提交、文件内容或报告变化时停止；结果记录每次进展及裁判结论/置信度，最终仍有缺项则 verdict 为 partial。`--no-continue` 或 `FLEET_NO_CONTINUE=1` 可关闭，review、exec 兜底与其他产品不适用；用户 amend/steer/relaunch 行为不变。脱离启动的运行中任务按监督器对应的执行进程和收件箱插话，嵌套 fleet 不继承外层任务身份；送不进会报告具体缺口。
+
 - **改方向**：用 `fleet-go amend <name> "补充要求"`，它给 brief 顶部追加「修订 N」并（`--say`）尽量发给运行中的任务；Codex 优先同轮 steer，失败尝试中断后续会话；任务已结束（常见：部分完成交回）时 `--say` 直接按修订后的 brief relaunch（整条命令放 `run_in_background`），不必再单独 relaunch；运行中且两者都不可用时会提示，此时才考虑 `--restart`（只停止所选 run，按 runId/brief/`--name` 核验残留，最多等 60 秒、每 0.5 秒轮询，再走 `relaunch`，以 run 身份判断。超时已确认 stopped 且无同一 runId 存活时告警并重新拉起，否则保留修订并报错）。调整沿用 `amend` / `relaunch` 保存的 brief 与任务身份。
 - 看进度：`fleet-go status`（默认非终态及最近 1 小时，`--all` 查看全部本地历史；脱离启动的任务带 ⚠）；仍可用 `fleet status --running --json`。
 - 一个任务一次 Bash 调用；多个独立任务同一条消息里并行发多条 Bash。同一份共享工作树按单写入者串行执行。
