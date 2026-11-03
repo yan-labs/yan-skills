@@ -72,8 +72,12 @@ async function threadLifecycle(codexBin, method, threadId) {
 }
 
 /** 执行 Codex 任务；自动续做保留 thread，用户插话仍走现有 steer/resume 链路。 */
-export async function runCode({ prompt, cwd = process.cwd(), low = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
+export async function runCode({ prompt, cwd = process.cwd(), low = false, simple = false, noFast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
   codexBin = process.env.FLEET_CODEX_BIN || 'codex' }) {
+  if (noFast && !simple) throw new Error('--no-fast 必须与 --simple 同用。');
+  if (simple && review) throw new Error('--simple 不能与 --review 同用；复核固定使用 Sol。');
+  const model = simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol';
+  const serviceTier = simple && !noFast ? 'priority' : null;
   const workdir = resolve(cwd);
   reportPath ||= prompt.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim();
   const continueEnabled = !review && !noContinue && process.env.FLEET_NO_CONTINUE !== '1';
@@ -91,11 +95,11 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
   let stderr = '', activeChild, closed, rpc, turnId, completed, turnFinished, stopping = false;
   let offsetQueue = [], drain = Promise.resolve(), activeDescendants = [];
   const metadata = { backend: 'codex-exec', threadId: resume || null, sessionId: resume || null,
-    steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, review, resumedFrom };
+    steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, simple, model, serviceTier, review, resumedFrom };
   const record = (patch = {}) => {
     process.send?.({ codexMetadata: metadata });
     return patchPidRecord(runId, { pid: process.pid, command: processCommand(process.pid),
-    model: 'gpt-6.1-sol', cwd: workdir, startedAt: new Date(startedAt).toISOString(), logPath,
+    model, cwd: workdir, startedAt: new Date(startedAt).toISOString(), logPath,
     ...metadata, ...patch });
   };
   const log = text => {
@@ -252,7 +256,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
       try {
         await rpc('initialize', { clientInfo: { name: 'agent_fleet', version: '0.7.0' }, capabilities: { experimentalApi: true } });
         child.stdin.write('{"method":"initialized"}\n');
-        const response = await rpc('thread/start', { cwd: workdir, model: 'gpt-6.1-sol', sandbox: 'danger-full-access', approvalPolicy: 'never' });
+        const response = await rpc('thread/start', { cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
         metadata.threadId = metadata.sessionId = response.thread.id; ownsAppThread = true; record();
         let nextPrompt = fullPrompt, previous, stagnant = 0, lowConfidenceUsed = false;
         while (true) {
@@ -308,7 +312,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
       let nextPrompt = session ? offsetQueue.splice(0).join('\n\n') || fullPrompt : fullPrompt;
       do {
         writeFileSync(resultPath, '');
-        const args = ['exec', '--skip-git-repo-check', '--json', '-m', 'gpt-6.1-sol', '-c', `model_reasoning_effort=${process.env.FLEET_CODEX_EFFORT || (low ? 'low' : 'medium')}`, '-c', 'service_tier="fast"',
+        const args = ['exec', '--skip-git-repo-check', '--json', '-m', model, ...(serviceTier ? ['-c', 'service_tier="priority"'] : []), '-c', `model_reasoning_effort=${process.env.FLEET_CODEX_EFFORT || (low ? 'low' : 'medium')}`,
           '--sandbox', 'danger-full-access', '-C', workdir, '-o', resultPath,
           ...(session ? ['resume', session, '-'] : ['-'])];
         if (session) {
@@ -368,7 +372,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
     result,
     error: outcome.error?.message ?? (outcome.code === 0 ? (result.trim() ? null : 'Codex 没有写出结果') : `Codex 退出码 ${outcome.code ?? outcome.signal ?? '?'}`),
     durationMs: Date.now() - startedAt,
-    model: 'gpt-6.1-sol',
+    model,
     cwd: workdir,
     resultPath,
     logPath,

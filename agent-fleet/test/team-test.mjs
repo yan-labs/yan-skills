@@ -11,10 +11,10 @@ try {
   const secret = 'fixture-must-never-be-printed';
   const result = spawnSync(process.execPath, ['bin/agent-fleet.mjs', 'team'], {
     encoding: 'utf8', env: { ...process.env, FLEET_CODEX_BIN: bin, FLEET_GROK_BIN: bin,
-      ANTHROPIC_CREDIT_API_KEY: secret, KOLLAB_PROD_API_KEY: secret, TYPESAFE_API_KEY: secret },
+      OPENAI_CREDIT_API_KEY: secret, ANTHROPIC_CREDIT_API_KEY: secret, KOLLAB_PROD_API_KEY: secret, TYPESAFE_API_KEY: secret },
   });
   assert.equal(result.status, 0);
-  for (const product of ['gpt', 'claude', 'grok', 'gemini', 'jev']) assert.match(result.stdout, new RegExp(`^${product}\\s*\\|`, 'm'));
+  for (const product of ['gpt', 'openai', 'claude', 'grok', 'gemini', 'jev']) assert.match(result.stdout, new RegExp(`^${product}\\s*\\|`, 'm'));
   assert.ok(!`${result.stdout}${result.stderr}`.includes(secret));
   assert.ok(result.stdout.split('\n').length < 12);
   console.log('team 桩通过：五产品、一屏、登录存在性、凭据不回显');

@@ -125,5 +125,25 @@
     "apiKeyEnv": "ANTHROPIC_CREDIT_API_KEY",
     "authHeader": "x-api-key",
     "subagentModel": "claude-fable-5-1"
+  },
+  "openai-gpt-sol": {
+    "description": "OpenAI 官方 Responses API，关联 ChatGPT 订阅的 API 组织额度；经本机协议适配复用 Claude Agent SDK 工具与会话，不走 Codex。须先激活组织 grant；额度不足可继续消耗已购买 API 余额，实际以平台账单为准。",
+    "protocol": "openai-responses",
+    "baseURL": "https://api.openai.com/v1",
+    "model": "gpt-6.1-sol",
+    "apiKeyEnv": "OPENAI_CREDIT_API_KEY",
+    "authHeader": "bearer-raw",
+    "subagentModel": "gpt-6.1-sol",
+    "maxOutputTokens": 16000
+  },
+  "openai-gpt-terra": {
+    "description": "OpenAI GPT-6.1 Terra 官方 Responses API，关联 ChatGPT 订阅的 API 组织额度；经本机协议适配复用 Claude Agent SDK 工具与会话，不走 Codex。须先激活组织 grant；额度不足可继续消耗已购买 API 余额，实际以平台账单为准。",
+    "protocol": "openai-responses",
+    "baseURL": "https://api.openai.com/v1",
+    "model": "gpt-6.1-terra",
+    "apiKeyEnv": "OPENAI_CREDIT_API_KEY",
+    "authHeader": "bearer-raw",
+    "subagentModel": "gpt-6.1-terra",
+    "maxOutputTokens": 16000
   }
 }

@@ -13,7 +13,7 @@ import time
 
 BLOCKS = Path(__file__).resolve().parents[1] / 'skill/templates/blocks'
 LEGACY_RULE = "禁止单纯转发，允许分发子步骤：不能把整个任务原样甩给另一个 agent 后只回'已启动/等结果'就结束当轮；可以拆出边界清晰的子步骤交给更便宜的 agent 做，但你必须自己掌握全局、消化并验证子任务结果，最终给出真正的结论作为你的最终答案"
-PRODUCTS = {'gpt': '(a) Codex 编码', 'claude': 'Claude 月度额度',
+PRODUCTS = {'gpt': '(a) Codex 编码', 'claude': 'Claude 月度额度', 'openai': 'OpenAI 月度API额度',
             'grok': 'Grok Build CLI', 'gemini': 'Gemini 文本任务', 'jev': 'JEV 判断'}
 AUTH = ['local', 'local-commit', 'readonly-web', 'deploy-prod', 'paid', 'review']
 PITFALLS = ['node-proxy', 'zsh', 'pnpm-entry', 'local-preview', 'playwright-clean', 'shared-tree', 'secrets', 'fleet-bg', 'ssr-check']
@@ -62,7 +62,7 @@ def lint(text, to='gpt'):
         # 只检查启动命令；禁令和标明的错误示范是说明文字。
         if re.search(r'禁止|不加|不要|错误示范|绝不|不得', line):
             continue
-        if re.search(r'(?:^|[\s`$;(])(?:fleet|fleet-go)\s+(?:code|copy|bulk|grok-cli|grok|haiku|sonnet|opus|fable|judge|run|new)\b|^\s*(?:\$\s*)?`?(?:nohup|node|npm|pnpm|python3?|bash|sh)\s+', line):
+        if re.search(r'(?:^|[\s`$;(])(?:fleet|fleet-go)\s+(?:code|copy|bulk|grok-cli|grok|openai|haiku|sonnet|opus|fable|judge|run|new)\b|^\s*(?:\$\s*)?`?(?:nohup|node|npm|pnpm|python3?|bash|sh)\s+', line):
             if re.search(r'\b(?:nohup|setsid|disown)\b|(?<![&>])&(?![&\d])', line):
                 errors.append('发现脱离启动命令；请使用工具 run_in_background。')
     if to in ('gpt', 'grok') and not all(word in text for word in ['授权覆盖', '允许范围']):
@@ -78,13 +78,13 @@ def checked(text, to):
 
 def command(meta):
     to = meta['to']
-    entry = {'gpt': 'code', 'claude': meta.get('tier') or 'sonnet', 'grok': 'grok-cli',
+    entry = {'gpt': 'code', 'openai': 'openai', 'claude': meta.get('tier') or 'sonnet', 'grok': 'grok-cli',
              'gemini': 'bulk' if meta.get('bulk') else 'copy', 'jev': 'judge'}[to]
     args = ['fleet', entry, meta['brief']]
     if to == 'jev':
         args.append(meta['questions'])
     args.extend(['--name', meta['name'], '--report', meta['report']])
-    for option in ['review', 'low', 'subagents', 'expect-changes']:
+    for option in ['review', 'low', 'simple', 'no-fast', 'subagents', 'expect-changes']:
         if meta.get(option):
             args.append('--' + option)
     if meta.get('model'):
@@ -119,7 +119,7 @@ def locate(name):
     return path, meta
 
 
-def relaunch(name, to=None, tier=None):
+def relaunch(name, to=None, tier=None, simple=False, no_fast=False):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     path, meta = locate(name)
     matches = [r for r in running() if r.get('briefPath') == str(path) or r.get('name') == name]
@@ -128,17 +128,25 @@ def relaunch(name, to=None, tier=None):
     target = to or meta['to']
     if tier and target != 'claude':
         raise ValueError('--tier 仅用于 --to claude。')
+    if simple and (target != 'gpt' or meta.get('review')):
+        raise ValueError('--simple 仅用于非 review 的 --to gpt（Sol 容量故障时改派 Terra）。')
+    if no_fast and not simple:
+        raise ValueError('--no-fast 必须与 --simple 同用。')
     text = path.read_text()
     checked(text, target)
     if target != meta['to']:
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
-                                 ('low', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
+                                 ('low', ['gpt']), ('simple', ['gpt']), ('no-fast', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                                  ('bulk', ['gemini'])]:
             if target not in products:
                 meta.pop(option, None)
     meta.update(to=target, name=name, brief=str(path))
     if tier:
         meta['tier'] = tier
+    if simple:
+        meta['simple'] = True
+    if no_fast:
+        meta['no-fast'] = True
     if target == 'jev' and not meta.get('questions'):
         meta['questions'] = str(path.with_suffix('.questions.json'))
         Path(meta['questions']).write_text(json.dumps({'decision': {'type': 'noul', 'instructions': text}}, ensure_ascii=False) + '\n')
@@ -244,10 +252,14 @@ def amend(args):
 def new(args):
     """组装标准 brief；预览不写盘，正文文件与 stdin 使用明确输入规则。"""
     for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
-                             ('low', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
+                             ('low', ['gpt']), ('simple', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                              ('bulk', ['gemini'])]:
         if getattr(args, option) and args.to not in products:
             raise ValueError('--' + option + ' 仅用于 --to ' + '|'.join(products) + '。')
+    if args.no_fast and not args.simple:
+        raise ValueError('--no-fast 必须与 --simple 同用。')
+    if args.simple and args.review:
+        raise ValueError('--simple 不能与 --review 同用；复核固定使用 Sol。')
     if args.make == 'video' and args.to != 'grok':
         raise ValueError('--make video 仅用于 --to grok。')
     day = datetime.date.today().isoformat()
@@ -281,7 +293,7 @@ def new(args):
     classification = PRODUCTS[args.to] + (' 只读复核' if args.review else '')
     if args.to == 'claude':
         classification += ' ' + (args.tier or 'sonnet')
-    parts = [f'归类：{classification}；理由：{args.why or classification + "任务，按既有路由执行"}\nREPORT: {report}', block('style-sol', values),
+    parts = [f'归类：{classification}；理由：{args.why or classification + "任务，按既有路由执行"}\nREPORT: {report}', block('style-sol', values), block('time-box', values),
              '## 授权覆盖\n' + '\n\n'.join(block('auth-' + a, values) for a in dict.fromkeys(auth))]
     if args.budget:
         parts.append('## 预算与重试限制\n' + args.budget)
@@ -302,7 +314,7 @@ def new(args):
     text = '\n\n'.join(parts) + '\n'
     checked(text, args.to)
     meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
-            'tier': args.tier, 'review': args.review, 'low': args.low, 'model': args.model,
+            'tier': args.tier, 'review': args.review, 'low': args.low, 'simple': args.simple, 'no-fast': args.no_fast, 'model': args.model,
             'subagents': args.subagents, 'bulk': args.bulk, 'expect-changes': args.expect_changes}
     if args.to == 'jev':
         meta['questions'] = str(path.with_suffix('.questions.json'))
@@ -332,7 +344,7 @@ def main():
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
     p.add_argument('--model')
     p.add_argument('--make', choices=['image', 'video'])
-    for option in ['review', 'low', 'subagents', 'bulk', 'expect-changes']:
+    for option in ['review', 'low', 'simple', 'no-fast', 'subagents', 'bulk', 'expect-changes']:
         p.add_argument('--' + option, action='store_true')
     for option in ['why', 'goal', 'body', 'budget', 'forbid', 'pitfalls', 'report']:
         p.add_argument('--' + option)
@@ -352,6 +364,8 @@ def main():
     p.add_argument('name')
     p.add_argument('--to', choices=PRODUCTS)
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
+    p.add_argument('--simple', action='store_true', help='GPT 任务改用 Terra + fast（Sol 容量故障时的改派）')
+    p.add_argument('--no-fast', action='store_true', help='使用 Terra 时关闭 fast')
     p = sub.add_parser('lint')
     p.add_argument('brief')
     p.add_argument('--to', choices=PRODUCTS, default='gpt')
@@ -359,7 +373,7 @@ def main():
     p = sub.add_parser('status')
     p.add_argument('--all', action='store_true')
     if any(a == '--kind' or a.startswith('--kind=') for a in sys.argv[1:]):
-        raise ValueError('请使用 --to gpt|claude|grok|gemini|jev。')
+        raise ValueError('请使用 --to gpt|openai|claude|grok|gemini|jev。')
     args = parser.parse_args()
     if hasattr(args, 'name') and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.name):
         raise ValueError('名称只能包含字母、数字、下划线与连字符。')
@@ -368,7 +382,7 @@ def main():
     elif args.action == 'amend':
         amend(args)
     elif args.action == 'relaunch':
-        relaunch(args.name, args.to, args.tier)
+        relaunch(args.name, args.to, args.tier, args.simple, args.no_fast)
     elif args.action == 'team':
         os.execvp('fleet', ['fleet', 'team'])
     elif args.action == 'lint':

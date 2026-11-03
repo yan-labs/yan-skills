@@ -125,7 +125,8 @@ export function attachArtifacts(result, logPath, gitInfo) {
     output.failureReport = failureReport(output);
   }
   const continueNote = output.continuation ? `\n\n续做 ${output.continueCount} 次${output.continueStop ? `；${output.continueStop}` : ''}\n${output.continuation.map(step => `第 ${step.attempt} 次：${step.progress ? '有进展' : '无进展'}（提交：${step.commits ? '有' : '无'}，文件：${step.files ? '有' : '无'}，报告：${step.report ? '有' : '无'}）`).join('\n')}\n` : '';
-  const body = (output.result ?? output.error ?? '') + continueNote + (output.continuationChecks ? `\n续做判断记录：\n${JSON.stringify(output.continuationChecks, null, 2)}\n` : '');
+  const body = (output.result ?? output.error ?? '') + (output.backend?.startsWith('codex-')
+    ? `\n\nmodel: ${output.model}\nservice_tier: ${output.serviceTier ?? 'unset'}\n` : '') + continueNote + (output.continuationChecks ? `\n续做判断记录：\n${JSON.stringify(output.continuationChecks, null, 2)}\n` : '');
   writeResultFile(logPath, output.failureReport ? `${redactEvidence(body)}\n\n## 失败事实\n${JSON.stringify(output.failureReport, null, 2)}\n` : body);
   return output;
 }
@@ -186,6 +187,7 @@ export function buildBrief(result, { briefLines = DEFAULT_BRIEF_LINES, expectCha
     durationMs: result?.durationMs ?? null,
     sdkDurationMs: result?.sdkDurationMs ?? null,
     totalCostUsd: result?.totalCostUsd ?? null,
+    ...(result?.billingProvider === 'openai-api' ? { billingProvider: result.billingProvider, providerUsage: result.providerUsage } : {}),
     numTurns: result?.numTurns ?? null,
     ...(result?.continuation ? { continueCount: result.continueCount, continuation: result.continuation, continueStop: result.continueStop, continuationChecks: result.continuationChecks } : {}),
     preview,
@@ -195,6 +197,7 @@ export function buildBrief(result, { briefLines = DEFAULT_BRIEF_LINES, expectCha
     hasUncommittedChanges: Boolean(result?.hasUncommittedChanges),
     hasControlTokens: control,
     model: result?.model ?? null,
+    ...(result?.backend?.startsWith('codex-') ? { simple: result.simple, serviceTier: result.serviceTier } : {}),
     resolvedModel: result?.resolvedModel ?? null,
     stopReason: result?.stopReason ?? null,
     subtype: result?.subtype ?? null,
@@ -222,6 +225,7 @@ export function formatBriefHuman(brief) {
   ];
   if (brief.continuation) lines.push(`续做 ${brief.continueCount} 次${brief.continueStop ? `；${brief.continueStop}` : ''}；${brief.continuation.map(step => `第 ${step.attempt} 次${step.progress ? '有进展' : '无进展'}`).join('，')}`);
   if (brief.model) lines.push(`model: ${brief.model}`);
+  if ('serviceTier' in brief) lines.push(`service_tier: ${brief.serviceTier ?? 'unset'}`);
   if (brief.failureReport) lines.push(`失败事实: ${JSON.stringify(brief.failureReport)}`);
   if (brief.judgeSkipped) lines.push(`judge: ${brief.judgeSkipped}`);
   if (brief.resumedFrom) lines.push(`resumedFrom: ${brief.resumedFrom}`);
@@ -239,6 +243,7 @@ export function formatFullHuman(result) {
     `${'='.repeat(60)}`,
     `模型: ${result.model}${result.resolvedModel ? ` (${result.resolvedModel})` : ''}`,
   ];
+  if (result.backend?.startsWith('codex-')) lines.push(`service_tier: ${result.serviceTier ?? 'unset'}`);
   if (result.cwd) lines.push(`工作目录: ${result.cwd}`);
   lines.push(`状态: ${result.ok ? '成功' : '失败'}`);
   if (result.ok) {

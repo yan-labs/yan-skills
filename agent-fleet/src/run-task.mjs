@@ -7,6 +7,7 @@
 // 交给调用方(Promise.allSettled 或者操作系统层面的多进程)。
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { startOpenAIBridge } from './openai-bridge.mjs';
 import { resolveModel, ConfigError } from './config.mjs';
 import { buildIsolatedEnv, buildPinnedSettings } from './isolated-env.mjs';
 import { assertProjectSettingsTrusted, ProjectTrustError } from './project-trust.mjs';
@@ -226,7 +227,15 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
     throw err;
   }
 
-  const options = buildQueryOptions({ resolved, cwd, maxTurns, systemPrompt, resume, projectSettings });
+  const bridge = resolved.protocol === 'openai-responses' ? await startOpenAIBridge(resolved) : null;
+  try {
+  const sdkResolved = bridge ? { ...resolved, baseURL: bridge.baseURL, apiKey: bridge.apiKey, authHeader: 'x-api-key' } : resolved;
+  const options = buildQueryOptions({ resolved: sdkResolved, cwd, maxTurns, systemPrompt, resume, projectSettings });
+  if (bridge) {
+    options.env.ENABLE_TOOL_SEARCH = 'false';
+    // The real provider credential belongs only to the parent-side bridge.
+    for (const name of Object.keys(options.env)) if (name.startsWith('OPENAI_')) delete options.env[name];
+  }
 
   const stream = createPromptStream(prompt);
   const q = query({ prompt: stream, options });
@@ -374,15 +383,16 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
   }
 
   // 收尾行:done ok / done error + 成本。这是 tail --follow 的停止信号。
+  if (bridge) log(`openai usage ${JSON.stringify(bridge.getUsage())}; billed cost requires API Usage/Credit grants`);
   const joinedErrors = (finalResult.errors ?? []).join('; ');
   const errorText = joinedErrors || (typeof finalResult.result === 'string' ? finalResult.result : '');
   const wasStopped = stopRequested || Boolean(signalName);
   if (finalResult.is_error) {
-    log(`done error cost=${fmtCost(finalResult.total_cost_usd)}${errorText ? ` ${oneLine(errorText, 160)}` : ''}`);
+    log(`done error cost=${fmtCost(bridge ? null : finalResult.total_cost_usd)}${errorText ? ` ${oneLine(errorText, 160)}` : ''}`);
   } else if (wasStopped) {
-    log(`done error cost=${fmtCost(finalResult.total_cost_usd)} stopped`);
+    log(`done error cost=${fmtCost(bridge ? null : finalResult.total_cost_usd)} stopped`);
   } else {
-    log(`done ok cost=${fmtCost(finalResult.total_cost_usd)}`);
+    log(`done ok cost=${fmtCost(bridge ? null : finalResult.total_cost_usd)}`);
   }
 
   return {
@@ -403,7 +413,8 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
     numTurns: finalResult.num_turns,
     durationMs: wallClockDurationMs(startedAt),
     sdkDurationMs: finalResult.duration_ms,
-    totalCostUsd: finalResult.total_cost_usd,
+    totalCostUsd: bridge ? null : finalResult.total_cost_usd,
+    ...(bridge ? { sdkReportedCostUsd: finalResult.total_cost_usd, providerUsage: bridge.getUsage?.(), billingProvider: 'openai-api' } : {}),
     sessionId: finalResult.session_id,
     errors: finalResult.errors ?? [],
     ...(finalResult.is_error ? { error: errorText } : {}),
@@ -411,6 +422,9 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
     signal: signalName,
     ...(resumedFrom ? { resumedFrom } : {}),
   };
+  } finally {
+    await bridge?.close();
+  }
 }
 
 /**

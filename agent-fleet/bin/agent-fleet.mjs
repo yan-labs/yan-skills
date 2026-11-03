@@ -42,9 +42,9 @@ const PKG_VERSION = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf
 
 const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
 
-  fleet copy|grok|bulk|gpt <brief文件或文本> [--cwd dir] [--verbose]
+  fleet copy|grok|bulk|gpt|openai <brief文件或文本> [--cwd dir] [--verbose]
   fleet grok-cli <brief文件或文本> [--review] [--cwd dir] [--model id] [--name name] [--report path] [--no-subagents|--subagents]
-  fleet code <brief文件或文本> [--low] [--review] [--cwd dir]
+  fleet code <brief文件或文本> [--low] [--simple] [--review] [--no-continue] [--cwd dir]
   fleet haiku|sonnet|opus|fable <brief.md|文本>   # Claude 官方端点，走每月 API 赠送额度
   fleet judge <state文件> <questions文件> [--json]
   fleet run --model name --prompt "任务" [--cwd dir] [--max-turns N]
@@ -117,7 +117,7 @@ async function printRunResult(result, options) {
           modelUsage: result.modelUsage, costSource: 'grok 自报', changedFiles: result.changedFiles });
         if (result.suspectNote) Object.assign(brief, { ok: false, verdict: brief.verdict === 'ok' ? 'suspect' : brief.verdict, verdictNote: result.suspectNote, error: [result.error, result.suspectNote].filter(Boolean).join('；') });
       }
-      if (result.model === 'gpt-6.1-sol') {
+      if (result.backend?.startsWith('codex-')) {
         Object.assign(brief, { backend: result.backend, threadId: result.threadId, sessionId: result.sessionId,
           steerCount: result.steerCount, resumeCount: result.resumeCount, fallbacks: result.fallbacks,
           numTurns: result.numTurns, usage: result.usage, resumedFrom: result.resumedFrom });
@@ -129,7 +129,7 @@ async function printRunResult(result, options) {
   });
   if (options.full && !options.json && result.suspectNote) output = output.replace('状态: 成功', `状态: suspect（${result.suspectNote}）`);
   if (result.model?.startsWith('grok-cli:') && !options.json) output += '费用来源：grok 自报\n';
-  if (result.model === 'gpt-6.1-sol' && !options.json) {
+  if (result.backend?.startsWith('codex-') && !options.json) {
     output += `Codex：steer ${result.steerCount ?? 0} 次，resume ${result.resumeCount ?? 0} 次，降级 ${result.fallbacks?.length ?? 0} 次\n`;
   }
   process.send?.({ output });
@@ -384,7 +384,7 @@ async function cmdResume(argv) {
     if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true });
     return;
   }
-  if (rec.model === 'gpt-6.1-sol') {
+  if (['gpt-6.1-sol', 'gpt-6.1-terra'].includes(rec.model)) {
     if (rec.resumeBlocked) throw new Error('Codex 无法确认旧工具已结束，未启动续跑；改方向请用 --restart。');
     const sessionId = rec.threadId || rec.sessionId;
     if (!sessionId) throw new Error('Codex 任务没有 threadId/sessionId，无法 fleet resume；改方向请用 --restart。');
@@ -395,6 +395,8 @@ async function cmdResume(argv) {
     const extra = typeof flags.prompt === 'string' ? flags.prompt : positionals.slice(1).join(' ').trim();
     const args = ['code', extra || '继续完成上次未完成的工作，给出最终结论。',
       '--resume-session', sessionId, '--resumed-from', runId, '--cwd', cwd];
+    if (rec.simple) args.push('--simple');
+    if (rec.simple && rec.serviceTier === null) args.push('--no-fast');
     if (rec.low || rec.tier === 'low' || flags.low) args.push('--low');
     if (rec.review || flags.review) args.push('--review');
     const name = flags.name ?? rec.name;
@@ -402,7 +404,7 @@ async function cmdResume(argv) {
     if (name) args.push('--name', name);
     if (reportPath) args.push('--report', reportPath);
     if (flags.attach) { await cmdCode(args); return; }
-    const nextId = await launchDetached(fileURLToPath(import.meta.url), args, { cwd, model: 'gpt-6.1-sol',
+    const nextId = await launchDetached(fileURLToPath(import.meta.url), args, { cwd, model: rec.model,
       briefPath: rec.briefPath, name, reportPath, noWait: Boolean(flags['no-wait']) });
     if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true });
     return;
@@ -480,6 +482,7 @@ async function cmdTeam() {
   const key = name => process.env[name] ? '已配置' : '未配置';
   console.log('产品  | 擅长 | 派用者重派顺位 | 当前可用性');
   console.log(`gpt   | 编码、调研、只读复核 | code → 网关 gpt-sol → grok | Codex ${available(codex)}`);
+  console.log(`openai| ChatGPT API组织额度，默认 GPT-6.1 Sol | 官方 Responses API + 原 Agent SDK | OPENAI_CREDIT_API_KEY ${key('OPENAI_CREDIT_API_KEY')}`);
   console.log(`claude| 月度额度任务，默认 sonnet | claude → code → 网关 gpt-sol → grok → gemini | ANTHROPIC_CREDIT_API_KEY ${key('ANTHROPIC_CREDIT_API_KEY')}`);
   console.log(`grok  | 视频与图片、X 平台、编码、检索调研、成人题材 | 由派用者决定 | grok models ${available(grok)}`);
   console.log(`gemini| 文案、翻译、摘要、批量 | 无；拒绝编码/UI/改文件 | KOLLAB_PROD_API_KEY ${key('KOLLAB_PROD_API_KEY')}`);
@@ -503,7 +506,7 @@ async function cmdCode(argv) {
   const { positionals, flags } = splitShortArgs(argv);
   if (flags.help) { console.log(HELP_TEXT); return; }
   const prompt = resolveBrief(flags.prompt ?? positionals[0]);
-  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
+  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), simple: Boolean(flags.simple), noFast: Boolean(flags['no-fast']), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
   await printRunResult(result, outputOptions(flags));
   process.exitCode = buildBrief(result, outputOptions(flags)).verdict === 'ok' ? 0 : 1;
 }
@@ -544,10 +547,15 @@ async function main() {
   }
 
   try {
+    if (rest.includes('--no-fast') && (command !== 'code' || !rest.includes('--simple'))) throw new Error('--no-fast 必须与 fleet code 的 --simple 同用。');
+    if (rest.includes('--simple')) {
+      if (command !== 'code') throw new Error('--simple 仅用于 fleet code（fleet-go --to gpt）。');
+      if (rest.includes('--review')) throw new Error('--simple 不能与 --review 同用；复核固定使用 Sol。');
+    }
     if (command === '__supervise') { await supervise(fileURLToPath(import.meta.url)); return; }
-    if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many', 'judge'].includes(command)
+    if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many', 'judge'].includes(command)
       && !process.env.FLEET_DETACHED_RUN_ID && !rest.includes('--help')) launchArchiveSweep();
-    if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many'].includes(command)
+    if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many'].includes(command)
       && !process.env.FLEET_DETACHED_RUN_ID && !rest.includes('--attach')) {
       const { flags, positionals } = splitShortArgs(rest);
       if (flags.help) { console.log(HELP_TEXT); return; }
@@ -559,7 +567,7 @@ async function main() {
       if (flags.prompt !== undefined) args.push('--prompt', flags.prompt);
       const runId = await launchDetached(fileURLToPath(import.meta.url), [command, ...positionals, ...args], {
         cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(),
-        model: command === 'code' ? 'gpt-6.1-sol' : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : flags.model ?? shortRunOptions(command, rest).model,
+        model: command === 'code' ? (flags.simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : flags.model ?? shortRunOptions(command, rest).model,
         briefPath: brief && existsSync(brief) ? resolvePath(brief) : null,
         name: flags.name ?? text.match(/^归类[^\r\n]*/m)?.[0],
         reportPath: flags.report || text.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim(),
@@ -579,6 +587,7 @@ async function main() {
       case 'grok':
       case 'bulk':
       case 'gpt':
+      case 'openai':
       case 'haiku':
       case 'sonnet':
       case 'opus':

@@ -575,3 +575,13 @@ agent-fleet 会把 `CLAUDE_CONFIG_DIR` 指向自己专属的 `~/.agent-fleet/cla
 修订用 `fleet-go amend fix-card "补充要求"`；优先 `--say`，不支持插话则保留修订并提示，确需重来才用 `--restart`（先 stop 并核验残留）。`fleet-go lint brief.md` 检查格式与启动禁令；`fleet-go status` 给运行摘要。brief 和用于恢复命令的 `.brief.json` 放在 `~/.agent-reports/<日期>/`，同名拒绝覆盖。启动仍用工具 `run_in_background:true`，脚本不后台化。需要 Python 3，无新增 npm 依赖。
 
 补扫漏归档线程：`node bin/fleet-archive-sweep.mjs [--dry-run] [--json] [--min-idle-minutes 10]`。派单前及 Codex 完成后运行；派单入口也会后台补扫（不等待、失败不阻断），`FLEET_NO_ARCHIVE_SWEEP=1` 可关闭自动扫描。
+
+## OpenAI 订阅 API 额度
+
+与 Claude 月度 API 额度入口并列：`fleet openai brief.md` 或 `fleet-go new name --to openai --auth local --goal "目标" --body brief.md`。默认 `gpt-6.1-sol`。把关联 API 组织的 Key 存入本工具 `.env` 的 `OPENAI_CREDIT_API_KEY`（0600）。
+
+该入口通过临时本机协议适配复用现有 Claude Agent SDK 工具、会话/续跑、插话与报告；上游直接 OpenAI Responses API。它不是 Codex，不占 signed-in Codex 额度；`fleet code` 与已有 `fleet gpt` 路由保持原样。不要把 OpenAI Key 直接当 Anthropic Key 发往 Anthropic。
+
+额度须先在 ChatGPT/API Billing 激活并发到 Key 所属组织；API 请求成功不能证明赠送额度到账。官方 grant 优先抵扣，但赠送用尽时已有购买余额仍可能继续使用。以平台 Credit grants/Usage 为准；本工具不自动购买、充值或改套餐。参考：[官方说明](https://help.openai.com/zh-hans-cn/articles/20001626-api-credits-benefit-for-eligible-chatgpt-subscriptions)。
+
+GPT 适配当前已验证普通文本、Bash/Read 工具往返和 SDK 原会话 resume。未知内容块、延迟工具注册、原生 web_search 或未支持选项会明确失败；不承诺所有 Claude 特殊工具完全等价。当前先等待 OpenAI 完整响应再转 SDK SSE，无实时首 token；报告保留 OpenAI 实际 token 用量，不用 SDK 的 Claude 估价冒充 GPT 实际账单。

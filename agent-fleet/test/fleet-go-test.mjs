@@ -22,7 +22,7 @@ fs.appendFileSync(process.env.CALLS, JSON.stringify({args, pid:process.pid})+'\\
 if(args[0]==='status') { const rows=JSON.parse(fs.readFileSync(process.env.STATES,'utf8')); console.log(JSON.stringify(args.includes('--running')?rows.filter(r=>r.status==='running'):rows)); }
 if(args[0]==='stop') fs.writeFileSync(process.env.STATES,JSON.stringify(JSON.parse(fs.readFileSync(process.env.STATES,'utf8')).map(r=>r.runId===args[1]?{...r,status:'stopped'}:r)));
 if(args[0]==='say' && process.env.SAY_FAIL) process.exit(1);
-if(['code','copy','bulk','grok-cli','haiku','sonnet','opus','fable','judge'].includes(args[0])) process.exit(7);
+if(['code','openai','copy','bulk','grok-cli','haiku','sonnet','opus','fable','judge'].includes(args[0])) process.exit(7);
 `, { mode: 0o755 });
 writeFileSync(join(bin, 'pgrep'), '#!/bin/sh\nif [ -n "${RESIDUAL:-}" ]; then\n printf "%s\\n" "$RESIDUAL"\n exit 0\nfi\nexit 1\n', { mode: 0o755 });
 const env = { ...process.env, HOME: home, PATH: bin + ':' + process.env.PATH, CALLS: calls, STATES: states };
@@ -173,7 +173,7 @@ try {
     r=spawnSync(script,['new','--to','gpt','stdin','--dry-run'],{encoding:'utf8',env,input:'## stdin 独有正文'}); assert.equal(r.status,0); assert.match(r.stdout,/stdin 独有正文/);
   });
   test('五产品、各档及选项映射，必填产品与旧参数拒绝', () => {
-    for(const [to,cmd] of Object.entries({gpt:'code',claude:'sonnet',grok:'grok-cli',gemini:'copy',jev:'judge'})) {
+    for(const [to,cmd] of Object.entries({gpt:'code',openai:'openai',claude:'sonnet',grok:'grok-cli',gemini:'copy',jev:'judge'})) {
       const r=run(['new',to,'--to',to,'--goal','是否满足判断条件','--dry-run']);
       assert.equal(r.status,0,r.stderr); assert.ok(r.stderr.includes('fleet '+cmd+' '));
       assert.match(r.stdout,/归类：/); assert.match(r.stdout,/REPORT: /); assert.ok(r.stdout.includes(rule));
@@ -190,6 +190,38 @@ try {
     assert.notEqual(run(['new','missing','--goal','任务','--dry-run']).status,0);
     const old=run(['new','old','--kind','code']); assert.equal(old.status,1); assert.match(old.stderr,/--to/); assert.equal(old.stderr.trim().split('\n').length,1);
     assert.equal(run(['new','bad','--to','gpt','--tier','opus','--goal','任务','--dry-run']).status,1);
+  });
+  test('simple 两档、组合限制及 relaunch/amend 保留档位', () => {
+    const normal = run(['new','normal-mode','--to','gpt','--goal','x','--dry-run']);
+    assert.equal(normal.status, 0, normal.stderr);
+    assert(!normal.stderr.includes('--simple'));
+    const simple = run(['new','simple-mode','--to','gpt','--simple','--low','--goal','x','--no-launch']);
+    assert.equal(simple.status, 0, simple.stderr);
+    const simplePath = join(home,'.agent-reports', report.split('/').at(-2), 'simple-mode.brief.md');
+    assert.equal(JSON.parse(readFileSync(simplePath.replace(/\.md$/,'.json'),'utf8')).simple, true);
+    writeFileSync(states,'[]'); reset();
+    assert.equal(run(['relaunch','simple-mode']).status, 7);
+    assert(history().at(-1).args.includes('--simple'));
+    assert(history().at(-1).args.includes('--low'));
+    reset();
+    assert.equal(run(['amend','simple-mode','继续','--say']).status, 7);
+    assert(history().at(-1).args.includes('--simple'));
+    const noFast = run(['new','no-fast-mode','--to','gpt','--simple','--no-fast','--goal','x','--no-launch']);
+    assert.equal(noFast.status, 0, noFast.stderr);
+    for (const args of [['relaunch','no-fast-mode'], ['amend','no-fast-mode','继续','--say']]) {
+      reset(); assert.equal(run(args).status, 7); assert(history().at(-1).args.includes('--no-fast'));
+    }
+    const badFast = run(['new','bad-fast','--to','gpt','--no-fast','--dry-run']);
+    assert.equal(badFast.status, 1); assert.match(badFast.stderr, /--no-fast.*--simple/);
+    for (const to of ['openai','claude','grok','gemini','jev']) {
+      const bad = run(['new','bad-simple','--to',to,'--simple','--goal','x','--dry-run']);
+      assert.equal(bad.status, 1); assert.match(bad.stderr, /--simple.*--to gpt/);
+    }
+    const review = run(['new','bad-simple','--to','gpt','--simple','--review','--goal','x','--dry-run']);
+    assert.equal(review.status, 1); assert.match(review.stderr, /--simple.*--review/);
+    reset();
+    assert.equal(run(['relaunch','simple-mode','--to','claude']).status, 7);
+    assert(!history().at(-1).args.includes('--simple'));
   });
   test('relaunch --to/--tier 改执行者、保留 brief/name/report，拒绝运行中的重复派发', () => {
     writeFileSync(states,'[]'); reset();

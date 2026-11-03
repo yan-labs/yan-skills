@@ -77,14 +77,14 @@ chmodSync(mock, 0o755);
 process.env.AGENT_FLEET_RUNS_DIR = scratch;
 
 let scenarioNumber = 0;
-async function scenario(mode, { backend, say, stop, resume, review = false, low = false } = {}) {
+async function scenario(mode, { backend, say, stop, resume, review = false, low = false, simple = false, noFast = false } = {}) {
   const runId = `codex-${++scenarioNumber}-${mode}-${review ? 'review' : 'code'}`;
   process.env.FLEET_DETACHED_RUN_ID = runId;
   process.env.FLEET_STEER_TEST_MODE = mode;
   process.env.FLEET_STEER_TEST_TRACE = join(scratch, `${runId}.trace`);
   if (backend) process.env.FLEET_CODEX_BACKEND = backend;
   else delete process.env.FLEET_CODEX_BACKEND;
-  const pending = runCode({ noContinue: true, prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则', cwd: scratch, codexBin: mock, resume, review, low });
+  const pending = runCode({ noContinue: true, prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则', cwd: scratch, codexBin: mock, resume, review, low, simple, noFast });
   if (say || stop) {
     for (let attempt = 0; attempt < 500; attempt++) {
       if (existsSync(process.env.FLEET_STEER_TEST_TRACE) && readFileSync(process.env.FLEET_STEER_TEST_TRACE, 'utf8').includes('turn/start')) break;
@@ -114,6 +114,42 @@ try {
   assert.equal(normal.result.usage.total.totalTokens, 17);
   const threadStart = normal.trace.find(entry => entry.method === 'thread/start');
   assert.deepEqual([threadStart.params.cwd, threadStart.params.model, threadStart.params.sandbox, threadStart.params.approvalPolicy], [scratch, 'gpt-6.1-sol', 'danger-full-access', 'never']);
+  assert.equal('serviceTier' in threadStart.params, false);
+  assert.equal(normal.record.simple, false);
+  assert.equal(normal.result.serviceTier, null);
+  const defaultExec = await scenario('normal', { backend: 'exec' });
+  assert(!defaultExec.trace.find(entry => entry.args?.[0] === 'exec').args.some(arg => arg.startsWith('service_tier=')));
+  const simpleApp = await scenario('normal', { simple: true, low: true });
+  const simpleStart = simpleApp.trace.find(entry => entry.method === 'thread/start').params;
+  assert.equal(simpleStart.model, 'gpt-6.1-terra');
+  assert.equal(simpleStart.serviceTier, 'priority');
+  assert.equal(simpleApp.trace.find(entry => entry.method === 'turn/start').params.effort, 'low');
+  const simpleExec = await scenario('app-fail', { simple: true });
+  const simpleResume = await scenario('normal', { simple: true, resume: 'thread-one' });
+  for (const run of [simpleApp, simpleExec, simpleResume]) {
+    assert.equal(run.result.ok, true);
+    assert.equal(run.record.simple, true);
+    assert.equal(run.record.model, 'gpt-6.1-terra');
+    assert.equal(run.record.serviceTier, 'priority');
+    assert.match(readFileSync(run.result.resultPath, 'utf8'), /model: gpt-6.1-terra\nservice_tier: priority/);
+    assert.match(formatBriefHuman(buildBrief(run.result)), /service_tier: priority/);
+    const args = run.trace.find(entry => entry.args?.[0] === 'exec')?.args;
+    if (args) {
+      assert.equal(args[args.indexOf('-m') + 1], 'gpt-6.1-terra');
+      assert(args.includes('service_tier="priority"'));
+    }
+  }
+  for (const mode of ['normal', 'app-fail']) {
+    const run = await scenario(mode, { simple: true, noFast: true });
+    assert.equal(run.record.model, 'gpt-6.1-terra');
+    assert.equal(run.record.serviceTier, null);
+    const start = run.trace.find(entry => entry.method === 'thread/start');
+    if (start) assert.equal('serviceTier' in start.params, false);
+    const exec = run.trace.find(entry => entry.args?.[0] === 'exec');
+    if (exec) assert(!exec.args.some(arg => arg.startsWith('service_tier=')));
+  }
+  await assert.rejects(runCode({ prompt: 'x', noFast: true }), /--no-fast.*--simple/);
+  await assert.rejects(runCode({ prompt: 'x', simple: true, review: true }), /--simple.*--review/);
   const initial = normal.trace.find(entry => entry.method === 'turn/start');
   assert.equal(initial.params.effort, 'low');
   assert.match(initial.params.input[0].text, /归类：\(a\) Codex 编码\nREPORT: \/tmp\/report\n原任务规则$/);
