@@ -44,6 +44,8 @@ node scripts/anyway/scripts/stg/webhook-capture.mjs --evidence-dir <项目侧证
 node scripts/anyway/scripts/stg/pay-test.mjs --env stg --link <stg支付链接> --ref <项目侧引用> --email <测试邮箱> --evidence-dir <项目侧证据目录>
 ```
 
+结账会话（后台 app.anyway.sh/checkout-sessions）没有 Merchant API，只能读后台页面：`node scripts/anyway-checkout-sessions.mjs --out <json> [--max-pages N] [--no-detail]`（opencli 专用窗口，只读，逐行点开详情，输出会话 ID / 商户业务单号 / 过期时间 / 客户（邮箱已脱敏）/ 订单；2026-10-30 实测 172 行 9 页全部读出）。页面时间是 Chrome 本地时区（此机 Asia/Bangkok UTC+7，不是北京时间）；来源下拉默认“API 创建”为空，脚本会切到“全部来源”；早期会话 ID 前缀为 `CKA`、无购买快照；详情里没有 IP/国家/UA/return URL。商户业务单号里的站点用户 id（前缀 `site:user:attempt` 或早期裸 uuid）可用来把测试批次与历史会话对上同一浏览器身份。
+
 `anyway.mjs help` 列出只读查询和 webhook 验签命令。`create-product.mjs`、`create-webhook.mjs` 可用 `--env prod` 指向生产后台；前者支持 `--dry-run` 只预览参数、`--type subscription --interval month|year` 选择月付或年付（省略周期时仍为月付，默认类型仍为一次性），提交前会核对表单周期，提交后仍须核对结账页实际周期；不传 `--dry-run` 会实际创建商品，后者只有 `--commit` 才提交。`pay-test.mjs` 自动完成 stg 支付测试全流程（结账、多路径取订单号、Merchant API 复核），直接调用即可；`--env prod` 指向生产支付链接，需要额外的环境变量。生产付款会产生真实交易，须由项目发布流程决定是否执行。
 
 ## 已知坑（2026-09-07 stg 单次实测）

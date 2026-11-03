@@ -139,6 +139,7 @@ Web组件、Cloudflare和后续URL/SEO检查仅适用Web面；原生App按[`life
 | **域名是一处配置留位** | 域名只存在于一个常量/环境变量；**全仓库 grep 不到域名字面量**；预览构建输出 `noindex` 与 `robots.txt` `Disallow: /`，两处由同一个索引开关控制 | 项目仓库 + 预览域 `curl` | 做法见 [`lifecycle/stage-3-build.md`](lifecycle/stage-3-build.md) 段 3 · 3.1 第 6 条。开发期不接正式域名 | 一次 |
 | **远端仓库私有且已推送** | `gh repo view --json isPrivate` 为 true，当前状态已推；若公开，journal 里有用户明说「公开」的原话 | 项目仓库 | `gh repo create <name> --private --source . --push`。未上线项目的仓库里带着选题与定价策略，公开等于把选题送人 | 每轮 |
 | 入库内容不含凭据 | 将要入库的文件里没有真实密钥、token、私钥 | 项目仓库 | 提交前扫一遍 diff | 每轮 |
+| 公开内容页已预渲染为静态资产 | 内容页构建产物是静态 HTML，`run_worker_first` 只含 `/api/*` 等动态路径；请求内容页时 Worker 请求数不增长；确需 SSR 的页面已在 `.rankup/PROJECT.md` 写明原因 | `.rankup/infrastructure.md` | `wrangler dev` + curl、读回 wrangler 配置 | 一次 |
 | 真实 SSR/API 路径能跑 | 至少一条 SSR 页面和一条 API 路由在本地或预览环境返回预期内容 | `.rankup/infrastructure.md` | `wrangler dev` + curl | 一次 |
 | **匿名页 HTML 边缘缓存已实现且线上验证** | 匿名页面（无 Cookie/Authorization 的 GET 页面）线上连续两次 `curl` 第二次带 `x-edge-cache: HIT` 且 TTFB 明显下降；换出口/节点再测一遍；部署新版本后首个请求是 `x-edge-cache: MISS` 且内容是新版本 | `.rankup/infrastructure.md` | 做法见 [`cloudflare-stack.md`](cloudflare-stack.md)「12. 匿名页面 HTML 边缘缓存（Cache API）」 | 一次 |
 | **Cloudflare 循环消耗红线** | 触发图覆盖全部后台入口、回写与重试边；每条循环有持久化终止条件和操作量/成本上界；共享预算副作用前原子预留；独立停用能阻止续约与生产。空待办/失败/重复/重启/取消/过期/超预算的故障测试通过，隔离环境真实熔断后完整观察窗口内业务操作不再增长；正常任务与有限重试不回归。预算告警不当硬顶，未证明有界的付费后台链路不得启用；纯静态或未用 CF 的项写明不适用依据 | 触发图、预算与计费依据、测试命令/断言、停机步骤、实测时间与指标进 `.rankup/audit.md` / `infrastructure.md` | 唯一操作源见 [§8.9](cloudflare-stack.md#89-循环消耗与账单熔断红线)；检索只是起点，必须追所有调用者和平台触发配置 | 建站当天 / 上线前 / 改触发链或额度 / 每次 review |

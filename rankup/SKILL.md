@@ -26,7 +26,7 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 | 选词、调研、找需求（**已有主词**） | [`playbooks/entry.md`](references/playbooks/entry.md) → [`research.md`](references/playbooks/research.md) | 按入口四步顺序与两路判读执行；方向未落主词先走 [`selection.md`](references/playbooks/selection.md)，无方向先走 [P1](references/playbooks/research/p1-discovery.md)，主词出现后回本行 | 入口卡写进 `.rankup/research/<词根>-<日期>.md` |
 | ChatGPT 问法链路、自然推荐验证 | [`seo-geo.md`](references/seo-geo.md) 步骤 2–3 | 采样与三清单按该唯一源；固定四问正文见其话术入口；词级编排与裁决回 [`entry.md`](references/playbooks/entry.md) | 入口卡②有三清单与原始证据指针 |
 | 「谷歌质量」「HCU」「E-E-A-T」「AI 内容会不会被打」「内容 review」「垃圾内容政策」 | [`seo-helpful-content.md`](references/seo-helpful-content.md) | 区分官方口径与业内推断；按单页或站点级自检表核对并留证据 | 对应自检表通过且无红线 |
-| 建站、做功能、写 UI | [`lifecycle/stage-3-build.md`](references/lifecycle/stage-3-build.md)、[`cloudflare-stack.md`](references/cloudflare-stack.md) | 用用户指定模板，未指定则用默认 shadcn 命令；UI 来自组件库，不手写基础控件；当天过完 Day-1 清单；核[建设中红线](references/discipline.md#二十一禁止建设中内容与功能区域) | [`checklists.md`](references/checklists.md) 段 3 通过 |
+| 建站、做功能、写 UI | [`lifecycle/stage-3-build.md`](references/lifecycle/stage-3-build.md)、[`cloudflare-stack.md`](references/cloudflare-stack.md) | 用用户指定模板，未指定则用默认 shadcn 命令；UI 来自组件库，不手写基础控件；**公开内容页默认构建时预渲染成静态资产，Worker 只管 API 与必须动态的页面，减少 CPU 浪费**（[静态优先](references/cloudflare-stack.md#20-默认静态优先2026-10-27-cpu-降耗回流)）；当天过完 Day-1 清单；核[建设中红线](references/discipline.md#二十一禁止建设中内容与功能区域) | [`checklists.md`](references/checklists.md) 段 3 通过 |
 | 写页面内容、写文章、写 blog、model 页面、模型对比、产品对比、补参考视频、封面图 | [`blog`](../blog/SKILL.md)（`blog/SKILL.md`） | 按其分工与流程执行（X 调研交 Grok、成文交 Gemini、review 交 Sonnet），不自己编内容；站内英文页面内容一律走 `/blog` | sources、成文、review、评判（哥飞评分、AITDK、ChatGPT 匿名问答）、回读证据齐全 |
 | 做内页、「把这个词做成页面」 | [`lifecycle/stage-4-prelaunch.md`「新增内页随手清单」](references/lifecycle/stage-4-prelaunch.md#新增内页--新模板的随手清单2026-09-12-回流) | 页面映射按 [段 2 §2.3](references/lifecycle/stage-2-positioning.md#23-问法簇--页面--faqdescription与站点结构)；目标词登记到 `keywords.md`；按段 4 完成页面与体检；核[建设中红线](references/discipline.md#二十一禁止建设中内容与功能区域) | `checks.md` 记 ✅ 与证据 |
 | 上线前体检、「能不能上线」 | `checklists.md` 段 4、[`lifecycle/stage-4-prelaunch.md`](references/lifecycle/stage-4-prelaunch.md) | 全套体检：AITDK、PageSpeed、图标专项、占位专项；重跑不采信上一轮；核[建设中红线](references/discipline.md#二十一禁止建设中内容与功能区域) | 段 4 闸门全绿，或写明改不动的理由 |
@@ -108,6 +108,7 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 - **适用**：shadcn、TanStack、Cloudflare 与段 4–6 的网页规则只约束 Web 面；macOS 按 `build-macos-apps` 专项 Skill，iOS/iPad 按对应原生工具，商店分发读 `monetization.md` 五；只有 App 时网页项标 N/A。
 - **入口**：[`cloudflare-stack.md`](references/cloudflare-stack.md)（用户指定模板 / 未指定时的默认脚手架命令、资源选择）；三方库优先见 [`integrations.md`](references/integrations.md)。
 - **原则与范围**：Web 面复用现有可访问组件；用户指定模板已有的 shadcn 初始化配置视为同等有效，追加组件仍用 `shadcn add`，保留键盘、焦点与 ARIA 能力；基础控件边界见[纪律十六](references/discipline.md#十六组件库红线段-3--段-4ui-只准来自组件库不许自己造控件)。**品牌图标在开发当天做齐**，Day-1 清单见[段 3](references/lifecycle/stage-3-build.md)。
+- **静态优先**：新站的内容页一律预渲染，每页都 SSR 需写明原因；见 [cloudflare-stack.md §2.0](references/cloudflare-stack.md#20-默认静态优先2026-10-27-cpu-降耗回流)。
 - **红线**：建站、上线前与每次 review 必查 [Cloudflare 循环消耗与账单熔断](references/cloudflare-stack.md#89-循环消耗与账单熔断红线)；不能证明有界的付费后台触发不得启用，预算告警不当消费硬顶。
 - **闸门**：`checklists.md` 段 3。
 
