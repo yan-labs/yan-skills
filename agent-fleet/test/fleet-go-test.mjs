@@ -235,6 +235,22 @@ try {
     assert.equal(run(['relaunch','simple-mode','--to','claude']).status, 7);
     assert(!history().at(-1).args.includes('--simple'));
   });
+  test('luna 新建、重派和修订保留模型及冲突限制', () => {
+    assert.equal(run(['new','luna-mode','--to','gpt','--luna','--low','--goal','x','--no-launch']).status, 0);
+    const metaPath = join(home,'.agent-reports', report.split('/').at(-2), 'luna-mode.brief.json');
+    assert.equal(JSON.parse(readFileSync(metaPath,'utf8')).luna, true);
+    for (const args of [['relaunch','luna-mode'], ['amend','luna-mode','继续','--say']]) {
+      reset(); assert.equal(run(args).status, 7); assert(history().at(-1).args.includes('--luna')); assert(!history().at(-1).args.includes('--fast'));
+    }
+    for (const option of ['--simple','--review']) {
+      const r = run(['new','bad-luna','--to','gpt','--luna',option,'--goal','x','--dry-run']);
+      assert.equal(r.status,1); assert.match(r.stderr,/--luna/);
+      if (option === '--simple') assert.equal(run(['relaunch','luna-mode',option]).status,1);
+    }
+    assert.equal(run(['new','luna-amend','--to','gpt','--goal','x','--no-launch']).status,0);
+    reset(); assert.equal(run(['amend','luna-amend','改用','--luna','--say']).status,7); assert(history().at(-1).args.includes('--luna'));
+    assert.equal(run(['new','luna-fast','--to','gpt','--luna','--fast','--goal','x','--dry-run']).status,0);
+  });
   test('relaunch --to/--tier 改执行者、保留 brief/name/report，拒绝运行中的重复派发', () => {
     writeFileSync(states,'[]'); reset();
     const current=readFileSync(path,'utf8');

@@ -72,11 +72,13 @@ async function threadLifecycle(codexBin, method, threadId) {
 }
 
 /** 执行 Codex 任务；自动续做保留 thread，用户插话仍走现有 steer/resume 链路。 */
-export async function runCode({ prompt, cwd = process.cwd(), low = false, simple = false, fast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
+export async function runCode({ prompt, cwd = process.cwd(), low = false, simple = false, luna = false, fast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
   codexBin = process.env.FLEET_CODEX_BIN || 'codex' }) {
-  if (fast && !simple) throw new Error('--fast 必须与 --simple 同用。');
+  if (fast && !simple && !luna) throw new Error('--fast 必须与 --simple 或 --luna 同用。');
   if (simple && review) throw new Error('--simple 不能与 --review 同用；复核固定使用 Sol。');
-  const model = simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol';
+  if (luna && (simple || review)) throw new Error('--luna 不能与 --simple 或 --review 同用。');
+  low ||= luna;
+  const model = luna ? 'gpt-6-luna' : simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol';
   const serviceTier = fast ? 'priority' : null;
   const workdir = resolve(cwd);
   reportPath ||= prompt.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim();
@@ -95,7 +97,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, simple
   let stderr = '', activeChild, closed, rpc, turnId, completed, turnFinished, stopping = false;
   let offsetQueue = [], drain = Promise.resolve(), activeDescendants = [];
   const metadata = { backend: 'codex-exec', threadId: resume || null, sessionId: resume || null,
-    steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, simple, model, serviceTier, review, resumedFrom };
+    steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, simple, luna, model, serviceTier, review, resumedFrom };
   const record = (patch = {}) => {
     process.send?.({ codexMetadata: metadata });
     return patchPidRecord(runId, { pid: process.pid, command: processCommand(process.pid),

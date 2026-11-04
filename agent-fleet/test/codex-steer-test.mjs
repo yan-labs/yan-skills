@@ -77,14 +77,14 @@ chmodSync(mock, 0o755);
 process.env.AGENT_FLEET_RUNS_DIR = scratch;
 
 let scenarioNumber = 0;
-async function scenario(mode, { backend, say, stop, resume, review = false, low = false, simple = false, fast = false } = {}) {
+async function scenario(mode, { backend, say, stop, resume, review = false, low = false, simple = false, luna = false, fast = false } = {}) {
   const runId = `codex-${++scenarioNumber}-${mode}-${review ? 'review' : 'code'}`;
   process.env.FLEET_DETACHED_RUN_ID = runId;
   process.env.FLEET_STEER_TEST_MODE = mode;
   process.env.FLEET_STEER_TEST_TRACE = join(scratch, `${runId}.trace`);
   if (backend) process.env.FLEET_CODEX_BACKEND = backend;
   else delete process.env.FLEET_CODEX_BACKEND;
-  const pending = runCode({ noContinue: true, prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则', cwd: scratch, codexBin: mock, resume, review, low, simple, fast });
+  const pending = runCode({ noContinue: true, prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则', cwd: scratch, codexBin: mock, resume, review, low, simple, luna, fast });
   if (say || stop) {
     for (let attempt = 0; attempt < 500; attempt++) {
       if (existsSync(process.env.FLEET_STEER_TEST_TRACE) && readFileSync(process.env.FLEET_STEER_TEST_TRACE, 'utf8').includes('turn/start')) break;
@@ -148,6 +148,19 @@ try {
     const exec = run.trace.find(entry => entry.args?.[0] === 'exec');
     if (exec) assert(!exec.args.some(arg => arg.startsWith('service_tier=')));
   }
+  for (const mode of ['normal', 'app-fail']) {
+    const run = await scenario(mode, { luna: true });
+    assert.equal(run.result.model, 'gpt-6-luna');
+    assert.equal(buildBrief({ ...run.result, ok: false }).failureReport.executor, 'gpt-6-luna');
+    assert.equal(run.result.serviceTier, null);
+    assert.equal(run.record.luna, true);
+    const start = run.trace.find(entry => entry.method === 'thread/start');
+    if (start) { assert.equal(start.params.model, 'gpt-6-luna'); assert.equal(start.params.serviceTier, undefined); assert.equal(run.trace.find(entry => entry.method === 'turn/start').params.effort, 'low'); }
+    const exec = run.trace.find(entry => entry.args?.[0] === 'exec');
+    if (exec) { assert(exec.args.includes('gpt-6-luna')); assert(exec.args.includes('model_reasoning_effort=low')); assert(!exec.args.some(arg => arg.startsWith('service_tier='))); }
+  }
+  await assert.rejects(runCode({ prompt: 'x', luna: true, review: true }), /--luna.*--review/);
+  await assert.rejects(runCode({ prompt: 'x', luna: true, simple: true }), /--luna.*--simple/);
   await assert.rejects(runCode({ prompt: 'x', fast: true }), /--fast.*--simple/);
   await assert.rejects(runCode({ prompt: 'x', simple: true, review: true }), /--simple.*--review/);
   const initial = normal.trace.find(entry => entry.method === 'turn/start');

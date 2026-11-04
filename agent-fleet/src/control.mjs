@@ -56,7 +56,7 @@ export function collectStatus({ cwd } = {}) {
       logPath: rec.logPath ?? null,
       ...(['gpt-6.1-sol', 'gpt-6.1-terra'].includes(rec.model) ? { backend: rec.backend, threadId: rec.threadId, sessionId: rec.sessionId,
         steerCount: rec.steerCount, resumeCount: rec.resumeCount, fallbacks: rec.fallbacks,
-        low: rec.low, simple: rec.simple, serviceTier: rec.serviceTier, review: rec.review, resumedFrom: rec.resumedFrom } : {}),
+        low: rec.low, simple: rec.simple, luna: rec.luna, serviceTier: rec.serviceTier, review: rec.review, resumedFrom: rec.resumedFrom } : {}),
     });
   }
   rows.sort((a, b) => String(b.startedAt ?? '').localeCompare(String(a.startedAt ?? '')));

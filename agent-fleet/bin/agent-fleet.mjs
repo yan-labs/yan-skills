@@ -44,7 +44,7 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
 
   fleet copy|grok|bulk|gpt|openai <brief文件或文本> [--cwd dir] [--verbose]
   fleet grok-cli <brief文件或文本> [--review] [--cwd dir] [--model id] [--name name] [--report path] [--no-subagents|--subagents]
-  fleet code <brief文件或文本> [--low] [--simple [--fast]] [--review] [--no-continue] [--cwd dir]
+  fleet code <brief文件或文本> [--low] [--simple|--luna] [--fast] [--review] [--no-continue] [--cwd dir]
   fleet haiku|sonnet|opus|fable <brief.md|文本>   # Claude 官方端点，走每月 API 赠送额度
   fleet judge <state文件> <questions文件> [--json]
   fleet run --model name --prompt "任务" [--cwd dir] [--max-turns N]
@@ -59,6 +59,7 @@ run 默认不限轮数、安静、当前目录；--verbose 显示进度。--quie
 --system-prompt、--json、--full、--brief-lines、--expect-changes、--judge 可选。
 code/grok-cli/copy/grok/bulk/gpt/run/run-many 默认独立运行并等待；--no-wait 立即返回，--attach 前台，--detach 兼容默认。
 --name 短名、--report 路径；status [--running] [--json]；wait/tail 支持短名或 runId 前缀。
+code 的 --luna 使用 gpt-6-luna，默认 low 且不开 fast；不能与 --simple 或 --review 同用。
 code 的 --review 使用全权限沙箱与内置只读审查提示词；旧 agent-fleet 长命令继续可用。
 copy 自动注入文案语气规范；--no-voice 仅用于纯机械改写（长名 kollab-gateway-copy 同样支持）。
 `;
@@ -396,7 +397,8 @@ async function cmdResume(argv) {
     const args = ['code', extra || '继续完成上次未完成的工作，给出最终结论。',
       '--resume-session', sessionId, '--resumed-from', runId, '--cwd', cwd];
     if (rec.simple) args.push('--simple');
-    if (rec.simple && rec.serviceTier === 'priority') args.push('--fast');
+    if (rec.luna) args.push('--luna');
+    if ((rec.simple || rec.luna) && rec.serviceTier === 'priority') args.push('--fast');
     if (rec.low || rec.tier === 'low' || flags.low) args.push('--low');
     if (rec.review || flags.review) args.push('--review');
     const name = flags.name ?? rec.name;
@@ -506,7 +508,7 @@ async function cmdCode(argv) {
   const { positionals, flags } = splitShortArgs(argv);
   if (flags.help) { console.log(HELP_TEXT); return; }
   const prompt = resolveBrief(flags.prompt ?? positionals[0]);
-  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), simple: Boolean(flags.simple), fast: Boolean(flags.fast), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
+  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), simple: Boolean(flags.simple), luna: Boolean(flags.luna), fast: Boolean(flags.fast), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
   await printRunResult(result, outputOptions(flags));
   process.exitCode = buildBrief(result, outputOptions(flags)).verdict === 'ok' ? 0 : 1;
 }
@@ -547,7 +549,11 @@ async function main() {
   }
 
   try {
-    if (rest.includes('--fast') && (command !== 'code' || !rest.includes('--simple'))) throw new Error('--fast 必须与 fleet code 的 --simple 同用。');
+    if (rest.includes('--fast') && (command !== 'code' || !rest.includes('--simple') && !rest.includes('--luna'))) throw new Error('--fast 必须与 fleet code 的 --simple 或 --luna 同用。');
+    if (rest.includes('--luna')) {
+      if (command !== 'code') throw new Error('--luna 仅用于 fleet code（fleet-go --to gpt）。');
+      if (rest.includes('--simple') || rest.includes('--review')) throw new Error('--luna 不能与 --simple 或 --review 同用。');
+    }
     if (rest.includes('--simple')) {
       if (command !== 'code') throw new Error('--simple 仅用于 fleet code（fleet-go --to gpt）。');
       if (rest.includes('--review')) throw new Error('--simple 不能与 --review 同用；复核固定使用 Sol。');
@@ -567,7 +573,7 @@ async function main() {
       if (flags.prompt !== undefined) args.push('--prompt', flags.prompt);
       const runId = await launchDetached(fileURLToPath(import.meta.url), [command, ...positionals, ...args], {
         cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(),
-        model: command === 'code' ? (flags.simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : flags.model ?? shortRunOptions(command, rest).model,
+        model: command === 'code' ? (flags.luna ? 'gpt-6-luna' : flags.simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : flags.model ?? shortRunOptions(command, rest).model,
         briefPath: brief && existsSync(brief) ? resolvePath(brief) : null,
         name: flags.name ?? text.match(/^归类[^\r\n]*/m)?.[0],
         reportPath: flags.report || text.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim(),
