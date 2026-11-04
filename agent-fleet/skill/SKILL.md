@@ -7,11 +7,11 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 
 | 让谁做 | 适合什么 | 命令示例 | 派用者顺位参考 |
 |---|---|---|---|
-| `gpt` | 编码、调研、报告、只读复核；本机 Codex：重要或复杂用 GPT-6.1 Sol（不开 fast），简单任务用 `--simple`，最简单的任务用 `--luna` | `fleet-go new fix --to gpt --auth local --goal "修复问题" --body task.md` | 网关 gpt-sol（不转 Grok） |
+| `gpt` | 正常开发与编程用 Terra（`--simple`）；非常严谨、内容紧密的开发才用 Sol；监工、定时任务、部署与发布执行用 Luna（`--luna`） | `fleet-go new fix --to gpt --simple --auth local --goal "修复问题" --body task.md` | 周用量 ≥ 95% 改 Gemini 4 |
 | `openai` | 官方 GPT API / ChatGPT 关联组织额度，复用原 Agent SDK | `fleet-go new task --to openai --auth local --goal "目标" --body task.md` | 单独入口，不改 Codex 默认 |
-| `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | code → 网关 gpt-sol → Gemini（优先级靠后，能力不限于文本） |
-| `grok` | 视频与图片（生成、搜索）、X 平台（热点与实时讨论）、X/社媒实时检索、成人题材；默认不派编码与代码复核（优先级安排） | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | Claude 顺位下一档 Gemini（优先级靠后，能力不限于文本） |
-| `gemini` | 文案、翻译、摘要、批量机械任务（`--bulk`） | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | — |
+| `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | 按额度规则选择 Terra 或 Gemini |
+| `grok` | 视频与图片（生成、搜索）、X 平台（热点与实时讨论）、X/社媒实时检索、成人题材；默认不派编码与代码复核（优先级安排） | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | 按任务与额度选择 Gemini |
+| `gemini` | 文案、翻译、摘要、批量任务与编码；默认 Gemini 4 `gemini-4-argon`，经 Claude Agent SDK | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | Codex 周用量 ≥ 95% 时使用 |
 | `jev` | 分类、选择、打分等结构化判断 | `fleet-go new decide --to jev --goal "按正文判据分类" --body task.md` | — |
 
 ## OpenAI 订阅 API 额度
@@ -53,7 +53,7 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 一条 Bash 调用，工具参数 `run_in_background:true`，命令保持单一前台调用；`fleet-go` 自身保持前台，完成即通知。正文只写独有内容（背景、要做的事、验收），其余样板自动带上。
 ```sh
 # 改代码（允许范围：本地）
-fleet-go new fix-card --to gpt --auth local --write /path/to/project --goal "修复卡片布局" <<'BRIEF'
+fleet-go new fix-card --to gpt --simple --auth local --write /path/to/project --goal "修复卡片布局" <<'BRIEF'
 卡片在手机窄屏上会溢出，希望内容能完整读到。可以改卡片和必要的相邻样式，保留其他人的现有改动；共享组件默认样式由主线程另行授权，先完成现有范围内的修复并报告剩余缺口。现有构建通过，窄屏上内容完整并适配视口宽度，就算做完。
 BRIEF
 
@@ -63,7 +63,7 @@ fix-card 已修过手机卡片溢出，需要确认改动和报告是否对得�
 BRIEF
 
 # 部署生产（正文写齐目标、环境、回滚条件及回读清单，齐全后执行部署）
-fleet-go new deploy-site --to gpt --auth deploy-prod,readonly-web --goal "部署 <HEAD> 并回读" --body body.md
+fleet-go new deploy-site --to gpt --luna --auth deploy-prod,readonly-web --goal "部署 <HEAD> 并回读" --body body.md
 
 # 花钱生成（预算可选）
 fleet-go new gen-test --to gpt --auth paid,local --goal "..." --body body.md
@@ -72,7 +72,7 @@ fleet-go new gen-test --to gpt --auth paid,local --goal "..." --body body.md
 fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述" --body body.md
 ```
 - review 的只读是 brief 约定：项目文件保持原样，允许联网、运行测试和脚本，只在自己的 `mktemp -d` 临时目录建删文件；各执行路径不加只读工具名单、沙箱或文件快照失败判定。SDK 使用 `bypassPermissions`，Codex 使用 `danger-full-access`，Grok 使用 `--always-approve`。JEV 只有结构化 API，没有命令执行器。
-- `--to gpt|openai|claude|grok|gemini|jev` 必填；`--tier haiku|sonnet|opus|fable` 仅 Claude，默认 sonnet；`--review` 用于 GPT，只读（代码复核不派 Grok）；GPT 可用 `--luna`（Codex gpt-6-luna，默认 low、不开 fast，可显式 `--fast`；仅用于最简单、边界清楚且可机械验证的改名、小修、格式化、按清单核对和摘要；带逻辑的改动用 Terra/Sol；不能与 `--review` 或 `--simple` 同用）及 `--simple`（Terra，默认不开 fast，加 `--fast` 才设置 priority；`--no-fast` 为兼容别名；默认 Sol 不设置 service tier；不能与 `--review` 同用）和 `--low`（只调推理强度，可组合），Grok 可用 `--model <id>`、`--subagents`，Gemini 可用 `--bulk`。`--auth`、`--write/--read`、`--forbid`、`--pitfalls`、`--budget`、`--goal`、`--why`、`--report` 沿用，默认已知坑按产品选择。
+- `--to gpt|openai|claude|grok|gemini|jev` 必填；GPT 的 `--simple` 选 Terra，`--luna` 选 Luna，二者均不能与 `--review` 同用。各模型默认 medium，`--low` 可降档，Luna 等较便宜模型可用 `--high`；`--low` 与 `--high` 不同用。Codex 默认不开 fast，必要时显式 `--fast`。Claude `--tier haiku|sonnet|opus|fable`，Grok `--model`/`--subagents`，Gemini `--bulk`。其余授权、预算与正文选项沿用。
 - `--budget` 可选：用户给了预算与重试限制才传入并写进 brief；没给则不写、不设默认值。
 - 需要本地提交时用 `--auth local-commit` 代替 `local`：允许在本地分支提交；与 `deploy-prod` 同传时推送、合入环境分支、流水线发布都已授权（执行者不得因“本块不含推送”停下），单独使用时不推送；验收报告要列提交哈希。可与 `readonly-web`、`paid` 组合；与 `local` 同传时取代 `local`。只读审查、生产部署仍用各自的授权块。
 - `--make image` 叠加图片产物样板，沿用所选执行者：绝对输出目录、逐张编号文件名、尺寸比例、共享风格、纯画面（文字、字母、logo 与水印留空）、受阻时报告已完成部分与缺口、逐文件绝对路径/实际像素/字节数/alpha/方法回报。交付实际生成的图片；占位图、ASCII、纯色块或下载图按缺少生成产物报告。GPT 使用 imagegen 的 Codex `image_gen`；Grok 使用内置 `image_gen` / `image_edit`，这些工具没有 model 参数，仅传工具支持的输入，沿用工具自身模型。
@@ -103,7 +103,7 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 | `fleet bulk brief.md` | Gemini 批量处理 |
 | `fleet gpt brief.md` | 托管 GPT 任务 |
 | `node ~/Project/kcsx/macmini/yan-skills/agent-fleet/bin/fleet-archive-sweep.mjs [--dry-run]` | 派单前及 Codex 完成后补扫归档 |
-| `fleet code brief.md [--simple|--luna] [--fast] [--low] [--cwd dir]` | 本机 Codex GPT-6.1 Sol：默认 Sol，不设置 service tier；--simple 使用 Terra，--luna 使用 Luna；默认不开 fast，加 --fast 才开启 |
+| `fleet code brief.md [--simple|--luna] [--fast] [--low|--high] [--cwd dir]` | 默认 Sol；`--simple` Terra、`--luna` Luna；默认 medium、不设 fast |
 | `fleet code brief.md --review` | 本机 Codex 只读审查 |
 | `fleet haiku\|sonnet\|opus\|fable brief.md` | Claude 官方端点直连，走订阅附赠的每月 API 额度（`ANTHROPIC_CREDIT_API_KEY`），**使用独立于 Claude App 的用量**；Claude 侧任务优先走这里 |
 | `fleet judge state.txt questions.json` | JEV 结构化判断 |
@@ -133,15 +133,15 @@ Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定�
 失败上报给派用者：verdict 为 `fail`，结果文件和简报只记录执行者与档位、脱敏原始错误摘要（stderr 末尾、HTTP 状态、结构化错误）、已完成步骤、产物与 dirty 状态。错误分类、后续建议与执行者选择由派用者负责。
 
 下面的顺位表只供派用者自行判断，代码不消费：
-- Claude 额度档：`claude → code → kollab-gateway-gpt-sol → gemini`（Gemini 优先级靠后，能力不限于文本）。
-- **Codex 额度不多时默认 Terra**（用户 2026-11-03：“如果 Codex 额度不多的时候就用 terra而不是优先用 sol 了”）：派 GPT 单前读一次额度，取 `~/.codex/sessions/<今天>/` 里最新 rollout 的最后一条 `rate_limits`：`primary.used_percent`（`window_minutes=10080` 为周窗口，`resets_at` 为重置时间戳）≥ 80，或已到 100 靠 `credits.balance` 继续跑，就算“额度不多”，非 review 的 GPT 单一律派 Terra 且**关掉 fast**（`--simple`，fast 即 priority 服务档，同样的活更费额度），不再优先 Sol；用户点名 Sol 或 review 单（`--simple` 不能配 `--review`）照旧。剩余 ≤ 20%（即 `used_percent` ≥ 80）时 fast 一律关闭，普通简单任务也不加 `--fast`（用户 2026-11-03：“如果他还剩 20% 额度，那这个时候 fast 模式就得关掉”）。额度回到 80% 以下恢复 Sol 优先、`--simple` 仍默认不开 fast。报告「实际执行」写明因额度改派 Terra。
-- GPT 档：`code`（Sol）→ **Terra**（`fleet-go relaunch <名字> --simple`，Sol 报 “Selected model is at capacity”等容量故障、同档重试一次仍失败时立即改派，用户 2026-11-03 定）→ `kollab-gateway-gpt-sol`（不转 Grok）；`--simple` 仅非 review 的 GPT 单，review 与总管类长任务改 Terra 时在报告写明换档。
+- Claude 额度档：按任务和以下 Codex 额度规则选择 Claude、Terra 或 Gemini。
+- **Codex 周额度 ≥ 95% 或用尽**：派单前读取 `~/.codex/sessions/<今天>/` 最新 rollout 的 `rate_limits.primary`（`window_minutes=10080`）的 `used_percent`；达到 95% 或用尽时不再派 Terra/Sol/Luna，改用 `fleet-go new --to gemini`（默认 Gemini 4 `gemini-4-argon`，经 Claude Agent SDK，编码也可做）。Gemini 约 10 万美元免费额度、剩约 4–6 万美元且会过期，可放开使用；余额以实际为准。非非常重要的编程交 Gemini 4，非常重要的编程交 Claude 子代理 Sonnet，难的用 Opus。额度用尽可让 Kollab 派任务执行充值脚本，付款前须先与用户确认金额。
+- GPT 档：正常开发 Terra（`--simple`）→ 非常严谨、内容紧密的开发才用 Sol（medium、不开 fast，默认不派）→ 周用量 ≥ 95% 改 Gemini 4；监工、定时任务、部署与发布执行用 Luna（`--luna`）。
 
-派用者决定后，用 `fleet-go relaunch <name> --to <产品> [--tier haiku|sonnet|opus|fable] [--simple] [--fast]` 沿用同份 brief、`--name` 与 `--report` 重派。切换至网关 GPT 用底层 `fleet gpt brief.md --name <name> --report <report>`。Gemini 的文本定位是优先级而非能力范围，不按编码/UI/`--expect-changes` 关键词硬拒绝。成功任务不产生失败上报。
+派用者决定后，用 `fleet-go relaunch <name> --to <产品> [--tier haiku|sonnet|opus|fable] [--simple|--luna] [--high] [--fast]` 沿用 brief、name 与 report 重派。成功任务不产生失败上报。
 
 ## 产品与任务边界
 
-按顶部五产品速查表派单。表里写的是默认优先级，不是各模型的能力上限：成本、额度、顺位或用户点名时可改派。GPT 负责编码、调研与代码复核，Grok 优先做 X/社媒、成人题材、图片视频与实时检索；文案、翻译、摘要交 Gemini，批量机械任务用 `--bulk`。Claude 用月度 API 额度，默认 sonnet；JEV 只用 `fleet judge` 输出结构化判断，`fleet run` 的允许模型范围不含 JEV。底层网关 GPT 与 DeepSeek、DeepSeek/Kimi 直连条目保留，可用 `fleet list-models` 核对。
+按顶部五产品速查表派单。各模型默认 medium，Luna、Gemini 等较便宜模型可开 high；Codex 默认不开 fast，必要时显式开启。严苛架构或成本收缩、清理速度每秒 1000 行等硬性指标多轮仍达不到时，派 executor-fable 子代理调研方案，再派执行者。
 
 文案遵守 [文案语气规范](references/copy-voice.md)，Gemini 自动注入，brief 给事实清单与允许范围；纯机械改写可用 `--no-voice`。编码与只读复核见 [Codex 编程与 review](references/codex-coding.md)。范围以本次 brief 的一个目标、授权与验收为准，相关改动可做，无关线索只列出。最终回复约 15 行，长内容写入 REPORT；退出码与实际验收分开记录。
 

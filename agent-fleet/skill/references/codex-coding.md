@@ -10,11 +10,11 @@ fleet code brief.md --low --cwd <项目目录>
 fleet code brief.md --review --cwd <项目目录>
 ```
 
-**分档（2026-10-30 用户）**：简单任务用 `--simple`（Terra 可开 fast，`priority` 服务档）；重要或复杂的编程任务用默认 `gpt-6.1-sol`，不开 fast；拿不准按复杂处理。最简单、边界清楚且可机械验证的子任务（改名、小修、格式化、按清单核对、摘要）用 `--luna`；带逻辑的改动仍用 Terra/Sol。**精准修复**：模板自动带「只修复核心流程问题，不增加多余门禁、安全边界、防御校验或附加动作」一句，手写 brief 也要写。
+**分档（2026-11-04 用户）**：正常开发与编程用 Terra（`--simple`）；非常严谨、内容紧密的开发才用 Sol（medium、不开 fast，默认不派）；监工、定时任务、部署与发布执行用 Luna（`--luna`）。**精准修复**：只修复核心流程问题，不增加多余门禁、安全边界、防御校验或附加动作。
 
-`--luna` 使用 Codex 原生 `gpt-6-luna`，默认 low 且不设置 service tier，可与 `--low` 或显式 `--fast` 同用，不能与 `--simple` 或 `--review` 同用。`new`、`relaunch` 和 `amend` 支持此开关，amend 对运行中的任务须重启或下次重派才切换模型。默认本机 `gpt-6.1-sol`、medium、`danger-full-access`（全权限、可联网）；`--simple` 使用 `gpt-6.1-terra`，默认不设置 service tier；加 `--fast` 才设置 `service_tier="priority"`，且必须与 `--simple` 或 `--luna` 同用；`--no-fast` 为兼容别名，无副作用。默认 Sol 不设置 service tier。`--low` 只改推理强度，可与 `--simple` 组合；`--simple` 不能与 `--review` 同用，且仅用于 `fleet-go new --to gpt` / `fleet code`。`relaunch`、`amend` 与 `resume` 沿用任务档位。`--low` 改为 low，`--review` 沿用全权限沙箱并在 brief 前加入下方只读审查模板。`brief.md` 可换成直接输入的任务文本。结果和日志写入 `~/.agent-fleet/runs/`，结束后核对 diff、产物及相关测试；退出码 0 后仍按 brief 核验交付。
+`--luna` 使用 Codex 原生 `gpt-6-luna`，`--simple` 使用 `gpt-6.1-terra`，都不能与 `--review` 同用或互相组合。各模型默认 medium，`--low` 降为 low，较便宜模型可用 `--high`；两者不能同用。所有 Codex 默认不开 fast，必要时显式 `--fast`。`new`、`relaunch` 和 `amend` 支持 Luna；amend 对运行中的任务须重启或下次重派才切换模型。`relaunch`、`amend` 与 `resume` 沿用已保存档位。默认底层模型为 Sol，sandbox 为 `danger-full-access`；review 使用只读提示。
 
-失败只如实上报执行者/档位、脱敏原始错误、已完成步骤、产物与 dirty 状态；原因判断与执行者选择由派用者负责。派用者顺位参考：Claude `claude → code → kollab-gateway-gpt-sol → grok → gemini`（仅文本）；GPT `code → kollab-gateway-gpt-sol → grok`，GPT 档含网关 gpt-sol。派用者按事实自行判断，用 `fleet-go relaunch <name> --to <产品>` 重派；网关 GPT 用底层 `fleet gpt`。认证检查使用 `safe-grep` / `redact`，只看存在状态。
+派单前读取最新 rollout 的 Codex 周窗口（`rate_limits.primary.window_minutes=10080`）：`used_percent` ≥ 95% 或用尽时停派 Codex，改 `fleet-go new --to gemini`（默认 Gemini 4 `gemini-4-argon`，Claude Agent SDK 通道，可编码）；非非常重要编程交 Gemini，非常重要交 Claude Sonnet，难的 Opus。Gemini 免费额度约 10 万美元、剩约 4–6 万美元且会过期，余额以实际为准。Codex 额度用尽可让 Kollab 派任务执行充值脚本，付款前先向用户确认金额。严苛架构或成本收缩、清理每秒 1000 行等硬指标多轮未达标时，派 executor-fable 子代理调研方案后再派执行者。失败如实上报执行者、档位、脱敏错误及产物。
 
 ## 中途插话
 
@@ -28,7 +28,7 @@ fleet resume <异常中断的任务> "继续完成剩余工作"
 
 运行中的 app-server 任务仍会显示在 Codex APP；任务终态及异常退出清理时仅归档该任务的 threadId，保留历史。归档失败只记降级，verdict 保持原判定。Codex 0.162.0 的归档线程须先取消归档再 resume；fleet 会先取消归档、续跑结束后再归档。
 
-每个 `fleet code` 任务优先启动独立 `codex app-server`，仅用 stdio，服务和通信限定在该任务的 stdio。`say` 在同一 thread/当前 turn 上调用 `turn/steer`；初始化期间先排队。简报保存 threadId、执行模式、steer/resume 次数与降级记录。`resume` 根据 threadId/sessionId 开新 run，沿用 cwd、simple/low/review、name/report。
+每个 `fleet code` 任务优先启动独立 `codex app-server`，仅用 stdio，服务和通信限定在该任务的 stdio。`say` 在同一 thread/当前 turn 上调用 `turn/steer`；初始化期间先排队。简报保存 threadId、执行模式、steer/resume 次数与降级记录。`resume` 根据 threadId/sessionId 开新 run，沿用 cwd、simple/luna/low/high/review、name/report。
 
 app-server 启动或握手失败时退回原 `codex exec`；已有会话的 steer 被拒时，先 SIGINT 并等待当前执行结束，再 `codex exec resume` 同一会话（新一轮）。没有可续跑会话或续跑不可用时，明确提示改用 `fleet-go amend --restart`。exec 兜底始终保留；`--review` 的 app-server 与 exec（含 resume）均使用 `danger-full-access`；项目只读依靠提示约定，不以沙箱限制联网、临时脚本和测试。
 

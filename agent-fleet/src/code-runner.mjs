@@ -72,12 +72,11 @@ async function threadLifecycle(codexBin, method, threadId) {
 }
 
 /** 执行 Codex 任务；自动续做保留 thread，用户插话仍走现有 steer/resume 链路。 */
-export async function runCode({ prompt, cwd = process.cwd(), low = false, simple = false, luna = false, fast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
+export async function runCode({ prompt, cwd = process.cwd(), low = false, high = false, simple = false, luna = false, fast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
   codexBin = process.env.FLEET_CODEX_BIN || 'codex' }) {
-  if (fast && !simple && !luna) throw new Error('--fast 必须与 --simple 或 --luna 同用。');
+  if (low && high) throw new Error('--low 不能与 --high 同用。');
   if (simple && review) throw new Error('--simple 不能与 --review 同用；复核固定使用 Sol。');
   if (luna && (simple || review)) throw new Error('--luna 不能与 --simple 或 --review 同用。');
-  low ||= luna;
   const model = luna ? 'gpt-6-luna' : simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol';
   const serviceTier = fast ? 'priority' : null;
   const workdir = resolve(cwd);
@@ -97,7 +96,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, simple
   let stderr = '', activeChild, closed, rpc, turnId, completed, turnFinished, stopping = false;
   let offsetQueue = [], drain = Promise.resolve(), activeDescendants = [];
   const metadata = { backend: 'codex-exec', threadId: resume || null, sessionId: resume || null,
-    steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, simple, luna, model, serviceTier, review, resumedFrom };
+    steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, high, simple, luna, model, serviceTier, review, resumedFrom };
   const record = (patch = {}) => {
     process.send?.({ codexMetadata: metadata });
     return patchPidRecord(runId, { pid: process.pid, command: processCommand(process.pid),
@@ -266,7 +265,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, simple
           completed = null;
           turnDone = turnFinished = new Promise(resolve => { finishTurn = resolve; });
           writeFileSync(resultPath, '');
-          const turn = await rpc('turn/start', { threadId: metadata.threadId, input: textInput(nextPrompt), effort: process.env.FLEET_CODEX_EFFORT || (low ? 'low' : 'medium') });
+          const turn = await rpc('turn/start', { threadId: metadata.threadId, input: textInput(nextPrompt), effort: high ? 'high' : low ? 'low' : process.env.FLEET_CODEX_EFFORT || 'medium' });
           turnId = turn.turn.id; record({ activeTurnId: turnId }); schedule();
           await turnDone;
           inbox.pump(); await drain;
@@ -314,7 +313,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, simple
       let nextPrompt = session ? offsetQueue.splice(0).join('\n\n') || fullPrompt : fullPrompt;
       do {
         writeFileSync(resultPath, '');
-        const args = ['exec', '--skip-git-repo-check', '--json', '-m', model, ...(serviceTier ? ['-c', 'service_tier="priority"'] : []), '-c', `model_reasoning_effort=${process.env.FLEET_CODEX_EFFORT || (low ? 'low' : 'medium')}`,
+        const args = ['exec', '--skip-git-repo-check', '--json', '-m', model, ...(serviceTier ? ['-c', 'service_tier="priority"'] : []), '-c', `model_reasoning_effort=${high ? 'high' : low ? 'low' : process.env.FLEET_CODEX_EFFORT || 'medium'}`,
           '--sandbox', 'danger-full-access', '-C', workdir, '-o', resultPath,
           ...(session ? ['resume', session, '-'] : ['-'])];
         if (session) {
@@ -365,7 +364,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, simple
   const git = inspectGit(workdir, before);
   return attachArtifacts({
     ...metadata,
-    tier: low ? 'low' : 'medium',
+    tier: high ? 'high' : low ? 'low' : 'medium',
     progress: { phase: outcome.error ? '启动执行器' : 'Codex 进程结束', exitCode: outcome.code ?? null },
     stderr: stderr.split(/\r?\n/).slice(-20).join('\n'),
     errorObject: outcome.error ? { ...outcome.error, message: outcome.error.message } : undefined,

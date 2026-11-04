@@ -34,7 +34,7 @@ export function resolveDetached(spec, cwd = process.cwd()) {
     if (records.some(r => r.runId === spec)) return spec;
     const matches = records.filter(r => r.name === spec || r.runId.startsWith(spec));
     if (matches.length === 1) return matches[0].runId;
-    if (matches.length > 1 && matches.every(r => r.name === spec && (r.model?.startsWith('grok-cli:') || ['gpt-6.1-sol', 'gpt-6.1-terra'].includes(r.model)))) {
+    if (matches.length > 1 && matches.every(r => r.name === spec && (r.model?.startsWith('grok-cli:') || ['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'].includes(r.model)))) {
       const active = matches.filter(r => detachedState(r) === 'running');
       if (active.length === 1) return active[0].runId;
       if (!active.length) return matches.sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0].runId;
@@ -246,7 +246,7 @@ export async function waitDetached(spec, { cwd, timeout, originalOutput = false 
       if (originalOutput && rec.stderr) process.stderr.write(rec.stderr);
       process.stdout.write(originalOutput && rec.output !== undefined && !['abnormal', 'stopped'].includes(state) ? rec.output : Array.isArray(brief) ? brief.map((b, i) => `--- task ${i + 1} ${b.model ?? ''} ---\n${formatBriefHuman(b)}`).join('\n') : formatBriefHuman(brief));
       if ((!originalOutput || rec.output === undefined || ['abnormal', 'stopped'].includes(state)) && brief.costSource) process.stdout.write(`费用来源：${brief.costSource}\n`);
-      if ((!originalOutput || rec.output === undefined || ['abnormal', 'stopped'].includes(state)) && ['gpt-6.1-sol', 'gpt-6.1-terra'].includes(rec.model)) {
+      if ((!originalOutput || rec.output === undefined || ['abnormal', 'stopped'].includes(state)) && ['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'].includes(rec.model)) {
         process.stdout.write(`Codex：steer ${brief.steerCount ?? rec.steerCount ?? 0} 次，resume ${brief.resumeCount ?? rec.resumeCount ?? 0} 次，降级 ${(brief.fallbacks ?? rec.fallbacks)?.length ?? 0} 次\n`);
       }
       return (Array.isArray(brief) ? brief.every(b => b.verdict === 'ok') : brief.verdict === 'ok') ? 0 : rec.exitCode || 1;

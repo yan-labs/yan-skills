@@ -222,8 +222,8 @@ try {
     for (const args of [['relaunch','fast-mode'], ['amend','fast-mode','继续','--say']]) {
       reset(); assert.equal(run(args).status, 7); assert(history().at(-1).args.includes('--fast'));
     }
-    const badFast = run(['new','bad-fast','--to','gpt','--fast','--dry-run']);
-    assert.equal(badFast.status, 1); assert.match(badFast.stderr, /--fast.*--simple/);
+    const solFast = run(['new','sol-fast','--to','gpt','--fast','--goal','x','--dry-run']);
+    assert.equal(solFast.status, 0);
     assert.equal(run(['new','compat','--to','gpt','--no-fast','--goal','x','--dry-run']).status, 0);
     for (const to of ['openai','claude','grok','gemini','jev']) {
       const bad = run(['new','bad-simple','--to',to,'--simple','--goal','x','--dry-run']);
@@ -247,8 +247,16 @@ try {
       assert.equal(r.status,1); assert.match(r.stderr,/--luna/);
       if (option === '--simple') assert.equal(run(['relaunch','luna-mode',option]).status,1);
     }
+    assert.equal(run(['new','luna-relaunch','--to','gpt','--goal','x','--no-launch']).status,0);
+    reset(); assert.equal(run(['relaunch','luna-relaunch','--luna']).status,7); assert(history().at(-1).args.includes('--luna'));
+    reset(); assert.equal(run(['relaunch','luna-relaunch']).status,7); assert(history().at(-1).args.includes('--luna'));
     assert.equal(run(['new','luna-amend','--to','gpt','--goal','x','--no-launch']).status,0);
     reset(); assert.equal(run(['amend','luna-amend','改用','--luna','--say']).status,7); assert(history().at(-1).args.includes('--luna'));
+    assert.equal(run(['new','luna-high','--to','gpt','--luna','--high','--goal','x','--no-launch']).status,0);
+    reset(); assert.equal(run(['relaunch','luna-high']).status,7); assert(history().at(-1).args.includes('--high'));
+    assert.equal(run(['new','luna-low-upgrade','--to','gpt','--luna','--low','--goal','x','--no-launch']).status,0);
+    reset(); assert.equal(run(['relaunch','luna-low-upgrade','--high']).status,7); assert(history().at(-1).args.includes('--high')); assert(!history().at(-1).args.includes('--low'));
+    assert.equal(run(['new','luna-conflict','--to','gpt','--low','--high','--goal','x','--dry-run']).status,1);
     assert.equal(run(['new','luna-fast','--to','gpt','--luna','--fast','--goal','x','--dry-run']).status,0);
   });
   test('relaunch --to/--tier 改执行者、保留 brief/name/report，拒绝运行中的重复派发', () => {
