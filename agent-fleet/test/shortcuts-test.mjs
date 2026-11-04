@@ -28,7 +28,7 @@ try {
   const custom = shortRunOptions('copy', ['--verbose', brief, '--model', 'custom', '--max-turns', '12', '--cwd', scratch, '--system-prompt', '额外']);
   assert(custom.model === 'custom' && custom.maxTurns === 12 && !custom.quiet && custom.cwd === scratch && custom.systemPrompt === '额外', '显式参数覆盖默认值');
   assert(splitShortArgs(['--review', brief]).positionals[0] === brief, '布尔选项在 brief 前也能解析');
-  assert(splitShortArgs(['--simple', '--no-fast', brief]).positionals[0] === brief, 'no-fast 不吞掉正文');
+  assert(splitShortArgs(['--simple', '--fast', '--no-fast', brief]).positionals[0] === brief, 'no-fast 不吞掉正文');
   assert(DEFAULT_EXECUTOR_SYSTEM_PROMPT.includes('禁止调用 Agent/Task 工具，禁止转派任务'), '默认系统提示禁止转派');
   assert(reviewPrompt().includes('你是独立 reviewer'), 'review 模板来自唯一文档段落');
   const missing = await runCode({ prompt: '不发送', cwd: scratch, codexBin: join(scratch, 'missing-codex') });

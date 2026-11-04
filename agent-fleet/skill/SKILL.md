@@ -72,7 +72,7 @@ fleet-go new gen-test --to gpt --auth paid,local --goal "..." --body body.md
 fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述" --body body.md
 ```
 - review 的只读是 brief 约定：项目文件保持原样，允许联网、运行测试和脚本，只在自己的 `mktemp -d` 临时目录建删文件；各执行路径不加只读工具名单、沙箱或文件快照失败判定。SDK 使用 `bypassPermissions`，Codex 使用 `danger-full-access`，Grok 使用 `--always-approve`。JEV 只有结构化 API，没有命令执行器。
-- `--to gpt|openai|claude|grok|gemini|jev` 必填；`--tier haiku|sonnet|opus|fable` 仅 Claude，默认 sonnet；`--review` 用于 GPT，只读（代码复核不派 Grok）；GPT 可用 `--simple`（Terra + priority/fast，搭配 `--no-fast` 时不设置 service tier；默认 Sol 不设置 service tier；不能与 `--review` 同用）和 `--low`（只调推理强度，可组合），Grok 可用 `--model <id>`、`--subagents`，Gemini 可用 `--bulk`。`--auth`、`--write/--read`、`--forbid`、`--pitfalls`、`--budget`、`--goal`、`--why`、`--report` 沿用，默认已知坑按产品选择。
+- `--to gpt|openai|claude|grok|gemini|jev` 必填；`--tier haiku|sonnet|opus|fable` 仅 Claude，默认 sonnet；`--review` 用于 GPT，只读（代码复核不派 Grok）；GPT 可用 `--simple`（Terra，默认不开 fast，加 `--fast` 才设置 priority；`--no-fast` 为兼容别名；默认 Sol 不设置 service tier；不能与 `--review` 同用）和 `--low`（只调推理强度，可组合），Grok 可用 `--model <id>`、`--subagents`，Gemini 可用 `--bulk`。`--auth`、`--write/--read`、`--forbid`、`--pitfalls`、`--budget`、`--goal`、`--why`、`--report` 沿用，默认已知坑按产品选择。
 - `--budget` 可选：用户给了预算与重试限制才传入并写进 brief；没给则不写、不设默认值。
 - 需要本地提交时用 `--auth local-commit` 代替 `local`：允许在本地分支提交；与 `deploy-prod` 同传时推送、合入环境分支、流水线发布都已授权（执行者不得因“本块不含推送”停下），单独使用时不推送；验收报告要列提交哈希。可与 `readonly-web`、`paid` 组合；与 `local` 同传时取代 `local`。只读审查、生产部署仍用各自的授权块。
 - `--make image` 叠加图片产物样板，沿用所选执行者：绝对输出目录、逐张编号文件名、尺寸比例、共享风格、纯画面（文字、字母、logo 与水印留空）、受阻时报告已完成部分与缺口、逐文件绝对路径/实际像素/字节数/alpha/方法回报。交付实际生成的图片；占位图、ASCII、纯色块或下载图按缺少生成产物报告。GPT 使用 imagegen 的 Codex `image_gen`；Grok 使用内置 `image_gen` / `image_edit`，这些工具没有 model 参数，仅传工具支持的输入，沿用工具自身模型。
@@ -103,7 +103,7 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 | `fleet bulk brief.md` | Gemini 批量处理 |
 | `fleet gpt brief.md` | 托管 GPT 任务 |
 | `node ~/Project/kcsx/macmini/yan-skills/agent-fleet/bin/fleet-archive-sweep.mjs [--dry-run]` | 派单前及 Codex 完成后补扫归档 |
-| `fleet code brief.md [--simple [--no-fast]] [--low] [--cwd dir]` | 本机 Codex GPT-6.1 Sol：默认 Sol，不设置 service tier；--simple 使用 Terra + priority（fast），加 --no-fast 关闭 fast |
+| `fleet code brief.md [--simple [--fast]] [--low] [--cwd dir]` | 本机 Codex GPT-6.1 Sol：默认 Sol，不设置 service tier；--simple 使用 Terra，默认不开 fast，加 --fast 才开启 |
 | `fleet code brief.md --review` | 本机 Codex 只读审查 |
 | `fleet haiku\|sonnet\|opus\|fable brief.md` | Claude 官方端点直连，走订阅附赠的每月 API 额度（`ANTHROPIC_CREDIT_API_KEY`），**使用独立于 Claude App 的用量**；Claude 侧任务优先走这里 |
 | `fleet judge state.txt questions.json` | JEV 结构化判断 |
@@ -134,10 +134,10 @@ Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定�
 
 下面的顺位表只供派用者自行判断，代码不消费：
 - Claude 额度档：`claude → code → kollab-gateway-gpt-sol → gemini`（Gemini 优先级靠后，能力不限于文本）。
-- **Codex 额度不多时默认 Terra**（用户 2026-11-03：“如果 Codex 额度不多的时候就用 terra而不是优先用 sol 了”）：派 GPT 单前读一次额度，取 `~/.codex/sessions/<今天>/` 里最新 rollout 的最后一条 `rate_limits`：`primary.used_percent`（`window_minutes=10080` 为周窗口，`resets_at` 为重置时间戳）≥ 80，或已到 100 靠 `credits.balance` 继续跑，就算“额度不多”，非 review 的 GPT 单一律派 Terra 且**关掉 fast**（`--simple --no-fast`，fast 即 priority 服务档，同样的活更费额度），不再优先 Sol；用户点名 Sol 或 review 单（`--simple` 不能配 `--review`）照旧。剩余 ≤ 20%（即 `used_percent` ≥ 80）时 fast 一律关闭，普通简单任务的 `--simple` 也要带 `--no-fast`（用户 2026-11-03：“如果他还剩 20% 额度，那这个时候 fast 模式就得关掉”）。额度回到 80% 以下恢复 Sol 优先、`--simple` 恢复 fast。报告「实际执行」写明因额度改派 Terra。
+- **Codex 额度不多时默认 Terra**（用户 2026-11-03：“如果 Codex 额度不多的时候就用 terra而不是优先用 sol 了”）：派 GPT 单前读一次额度，取 `~/.codex/sessions/<今天>/` 里最新 rollout 的最后一条 `rate_limits`：`primary.used_percent`（`window_minutes=10080` 为周窗口，`resets_at` 为重置时间戳）≥ 80，或已到 100 靠 `credits.balance` 继续跑，就算“额度不多”，非 review 的 GPT 单一律派 Terra 且**关掉 fast**（`--simple`，fast 即 priority 服务档，同样的活更费额度），不再优先 Sol；用户点名 Sol 或 review 单（`--simple` 不能配 `--review`）照旧。剩余 ≤ 20%（即 `used_percent` ≥ 80）时 fast 一律关闭，普通简单任务也不加 `--fast`（用户 2026-11-03：“如果他还剩 20% 额度，那这个时候 fast 模式就得关掉”）。额度回到 80% 以下恢复 Sol 优先、`--simple` 仍默认不开 fast。报告「实际执行」写明因额度改派 Terra。
 - GPT 档：`code`（Sol）→ **Terra**（`fleet-go relaunch <名字> --simple`，Sol 报 “Selected model is at capacity”等容量故障、同档重试一次仍失败时立即改派，用户 2026-11-03 定）→ `kollab-gateway-gpt-sol`（不转 Grok）；`--simple` 仅非 review 的 GPT 单，review 与总管类长任务改 Terra 时在报告写明换档。
 
-派用者决定后，用 `fleet-go relaunch <name> --to <产品> [--tier haiku|sonnet|opus|fable] [--simple] [--no-fast]` 沿用同份 brief、`--name` 与 `--report` 重派。切换至网关 GPT 用底层 `fleet gpt brief.md --name <name> --report <report>`。Gemini 的文本定位是优先级而非能力范围，不按编码/UI/`--expect-changes` 关键词硬拒绝。成功任务不产生失败上报。
+派用者决定后，用 `fleet-go relaunch <name> --to <产品> [--tier haiku|sonnet|opus|fable] [--simple] [--fast]` 沿用同份 brief、`--name` 与 `--report` 重派。切换至网关 GPT 用底层 `fleet gpt brief.md --name <name> --report <report>`。Gemini 的文本定位是优先级而非能力范围，不按编码/UI/`--expect-changes` 关键词硬拒绝。成功任务不产生失败上报。
 
 ## 产品与任务边界
 

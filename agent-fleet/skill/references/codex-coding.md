@@ -12,7 +12,7 @@ fleet code brief.md --review --cwd <项目目录>
 
 **分档（2026-10-30 用户）**：简单任务用 `--simple`（Terra 可开 fast，`priority` 服务档）；重要或复杂的编程任务用默认 `gpt-6.1-sol`，不开 fast；拿不准按复杂处理。**精准修复**：模板自动带「只修复核心流程问题，不增加多余门禁、安全边界、防御校验或附加动作」一句，手写 brief 也要写。
 
-默认本机 `gpt-6.1-sol`、medium、`danger-full-access`（全权限、可联网）；`--simple` 使用 `gpt-6.1-terra` + `service_tier="priority"`（fast），搭配 `--no-fast` 时仍用 Terra 但不设置 service tier；`--no-fast` 必须与 `--simple` 同用。默认 Sol 不设置 service tier。`--low` 只改推理强度，可与 `--simple` 组合；`--simple` 不能与 `--review` 同用，且仅用于 `fleet-go new --to gpt` / `fleet code`。`relaunch`、`amend` 与 `resume` 沿用任务档位。`--low` 改为 low，`--review` 沿用全权限沙箱并在 brief 前加入下方只读审查模板。`brief.md` 可换成直接输入的任务文本。结果和日志写入 `~/.agent-fleet/runs/`，结束后核对 diff、产物及相关测试；退出码 0 后仍按 brief 核验交付。
+默认本机 `gpt-6.1-sol`、medium、`danger-full-access`（全权限、可联网）；`--simple` 使用 `gpt-6.1-terra`，默认不设置 service tier；加 `--fast` 才设置 `service_tier="priority"`，且必须与 `--simple` 同用；`--no-fast` 为兼容别名，无副作用。默认 Sol 不设置 service tier。`--low` 只改推理强度，可与 `--simple` 组合；`--simple` 不能与 `--review` 同用，且仅用于 `fleet-go new --to gpt` / `fleet code`。`relaunch`、`amend` 与 `resume` 沿用任务档位。`--low` 改为 low，`--review` 沿用全权限沙箱并在 brief 前加入下方只读审查模板。`brief.md` 可换成直接输入的任务文本。结果和日志写入 `~/.agent-fleet/runs/`，结束后核对 diff、产物及相关测试；退出码 0 后仍按 brief 核验交付。
 
 失败只如实上报执行者/档位、脱敏原始错误、已完成步骤、产物与 dirty 状态；原因判断与执行者选择由派用者负责。派用者顺位参考：Claude `claude → code → kollab-gateway-gpt-sol → grok → gemini`（仅文本）；GPT `code → kollab-gateway-gpt-sol → grok`，GPT 档含网关 gpt-sol。派用者按事实自行判断，用 `fleet-go relaunch <name> --to <产品>` 重派；网关 GPT 用底层 `fleet gpt`。认证检查使用 `safe-grep` / `redact`，只看存在状态。
 

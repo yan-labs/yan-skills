@@ -130,7 +130,7 @@ const resumedArgs=readFileSync(resumeArgsPath,'utf8').trim().split('\n');
 assert(resumedArgs.includes('resume') && resumedArgs.includes('detached-thread'));
 assert(resumedArgs.includes('danger-full-access') && resumedArgs.includes('model_reasoning_effort=low'));
 console.log('Codex CLI resume: preserved thread, low/review/name/report and metadata');
-const simpleId = await launch('code', { FLEET_TEST_SESSION:'simple-thread' }, ['--simple','--low','--name','simple-continued']);
+const simpleId = await launch('code', { FLEET_TEST_SESSION:'simple-thread' }, ['--simple','--fast','--low','--name','simple-continued']);
 assert.equal((await cliRun(['wait',simpleId])).code,0);
 const simpleArgsPath=join(scratch,'simple-resume-args');
 const simpleContinued=await cliRun(['resume',simpleId,'继续','--no-wait'], {FLEET_TEST_SESSION:'simple-thread',FLEET_TEST_ARGS:simpleArgsPath});

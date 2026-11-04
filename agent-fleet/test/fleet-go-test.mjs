@@ -198,10 +198,16 @@ try {
     const simple = run(['new','simple-mode','--to','gpt','--simple','--low','--goal','x','--no-launch']);
     assert.equal(simple.status, 0, simple.stderr);
     const simplePath = join(home,'.agent-reports', report.split('/').at(-2), 'simple-mode.brief.md');
-    assert.equal(JSON.parse(readFileSync(simplePath.replace(/\.md$/,'.json'),'utf8')).simple, true);
+    const simpleMetaPath = simplePath.replace(/\.md$/,'.json');
+    const oldMeta = JSON.parse(readFileSync(simpleMetaPath,'utf8'));
+    assert.equal(oldMeta.simple, true);
+    delete oldMeta.fast;
+    delete oldMeta['no-fast'];
+    writeFileSync(simpleMetaPath, JSON.stringify(oldMeta));
     writeFileSync(states,'[]'); reset();
     assert.equal(run(['relaunch','simple-mode']).status, 7);
     assert(history().at(-1).args.includes('--simple'));
+    assert(!history().at(-1).args.includes('--fast'));
     assert(history().at(-1).args.includes('--low'));
     reset();
     assert.equal(run(['amend','simple-mode','继续','--say']).status, 7);
@@ -211,8 +217,14 @@ try {
     for (const args of [['relaunch','no-fast-mode'], ['amend','no-fast-mode','继续','--say']]) {
       reset(); assert.equal(run(args).status, 7); assert(history().at(-1).args.includes('--no-fast'));
     }
-    const badFast = run(['new','bad-fast','--to','gpt','--no-fast','--dry-run']);
-    assert.equal(badFast.status, 1); assert.match(badFast.stderr, /--no-fast.*--simple/);
+    const fast = run(['new','fast-mode','--to','gpt','--simple','--fast','--goal','x','--no-launch']);
+    assert.equal(fast.status, 0, fast.stderr);
+    for (const args of [['relaunch','fast-mode'], ['amend','fast-mode','继续','--say']]) {
+      reset(); assert.equal(run(args).status, 7); assert(history().at(-1).args.includes('--fast'));
+    }
+    const badFast = run(['new','bad-fast','--to','gpt','--fast','--dry-run']);
+    assert.equal(badFast.status, 1); assert.match(badFast.stderr, /--fast.*--simple/);
+    assert.equal(run(['new','compat','--to','gpt','--no-fast','--goal','x','--dry-run']).status, 0);
     for (const to of ['openai','claude','grok','gemini','jev']) {
       const bad = run(['new','bad-simple','--to',to,'--simple','--goal','x','--dry-run']);
       assert.equal(bad.status, 1); assert.match(bad.stderr, /--simple.*--to gpt/);

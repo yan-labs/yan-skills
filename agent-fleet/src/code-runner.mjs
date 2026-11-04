@@ -72,12 +72,12 @@ async function threadLifecycle(codexBin, method, threadId) {
 }
 
 /** 执行 Codex 任务；自动续做保留 thread，用户插话仍走现有 steer/resume 链路。 */
-export async function runCode({ prompt, cwd = process.cwd(), low = false, simple = false, noFast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
+export async function runCode({ prompt, cwd = process.cwd(), low = false, simple = false, fast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
   codexBin = process.env.FLEET_CODEX_BIN || 'codex' }) {
-  if (noFast && !simple) throw new Error('--no-fast 必须与 --simple 同用。');
+  if (fast && !simple) throw new Error('--fast 必须与 --simple 同用。');
   if (simple && review) throw new Error('--simple 不能与 --review 同用；复核固定使用 Sol。');
   const model = simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol';
-  const serviceTier = simple && !noFast ? 'priority' : null;
+  const serviceTier = fast ? 'priority' : null;
   const workdir = resolve(cwd);
   reportPath ||= prompt.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim();
   const continueEnabled = !review && !noContinue && process.env.FLEET_NO_CONTINUE !== '1';

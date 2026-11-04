@@ -77,14 +77,14 @@ chmodSync(mock, 0o755);
 process.env.AGENT_FLEET_RUNS_DIR = scratch;
 
 let scenarioNumber = 0;
-async function scenario(mode, { backend, say, stop, resume, review = false, low = false, simple = false, noFast = false } = {}) {
+async function scenario(mode, { backend, say, stop, resume, review = false, low = false, simple = false, fast = false } = {}) {
   const runId = `codex-${++scenarioNumber}-${mode}-${review ? 'review' : 'code'}`;
   process.env.FLEET_DETACHED_RUN_ID = runId;
   process.env.FLEET_STEER_TEST_MODE = mode;
   process.env.FLEET_STEER_TEST_TRACE = join(scratch, `${runId}.trace`);
   if (backend) process.env.FLEET_CODEX_BACKEND = backend;
   else delete process.env.FLEET_CODEX_BACKEND;
-  const pending = runCode({ noContinue: true, prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则', cwd: scratch, codexBin: mock, resume, review, low, simple, noFast });
+  const pending = runCode({ noContinue: true, prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则', cwd: scratch, codexBin: mock, resume, review, low, simple, fast });
   if (say || stop) {
     for (let attempt = 0; attempt < 500; attempt++) {
       if (existsSync(process.env.FLEET_STEER_TEST_TRACE) && readFileSync(process.env.FLEET_STEER_TEST_TRACE, 'utf8').includes('turn/start')) break;
@@ -119,13 +119,13 @@ try {
   assert.equal(normal.result.serviceTier, null);
   const defaultExec = await scenario('normal', { backend: 'exec' });
   assert(!defaultExec.trace.find(entry => entry.args?.[0] === 'exec').args.some(arg => arg.startsWith('service_tier=')));
-  const simpleApp = await scenario('normal', { simple: true, low: true });
+  const simpleApp = await scenario('normal', { simple: true, fast: true, low: true });
   const simpleStart = simpleApp.trace.find(entry => entry.method === 'thread/start').params;
   assert.equal(simpleStart.model, 'gpt-6.1-terra');
   assert.equal(simpleStart.serviceTier, 'priority');
   assert.equal(simpleApp.trace.find(entry => entry.method === 'turn/start').params.effort, 'low');
-  const simpleExec = await scenario('app-fail', { simple: true });
-  const simpleResume = await scenario('normal', { simple: true, resume: 'thread-one' });
+  const simpleExec = await scenario('app-fail', { simple: true, fast: true });
+  const simpleResume = await scenario('normal', { simple: true, fast: true, resume: 'thread-one' });
   for (const run of [simpleApp, simpleExec, simpleResume]) {
     assert.equal(run.result.ok, true);
     assert.equal(run.record.simple, true);
@@ -140,7 +140,7 @@ try {
     }
   }
   for (const mode of ['normal', 'app-fail']) {
-    const run = await scenario(mode, { simple: true, noFast: true });
+    const run = await scenario(mode, { simple: true });
     assert.equal(run.record.model, 'gpt-6.1-terra');
     assert.equal(run.record.serviceTier, null);
     const start = run.trace.find(entry => entry.method === 'thread/start');
@@ -148,7 +148,7 @@ try {
     const exec = run.trace.find(entry => entry.args?.[0] === 'exec');
     if (exec) assert(!exec.args.some(arg => arg.startsWith('service_tier=')));
   }
-  await assert.rejects(runCode({ prompt: 'x', noFast: true }), /--no-fast.*--simple/);
+  await assert.rejects(runCode({ prompt: 'x', fast: true }), /--fast.*--simple/);
   await assert.rejects(runCode({ prompt: 'x', simple: true, review: true }), /--simple.*--review/);
   const initial = normal.trace.find(entry => entry.method === 'turn/start');
   assert.equal(initial.params.effort, 'low');

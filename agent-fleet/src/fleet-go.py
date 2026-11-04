@@ -84,7 +84,7 @@ def command(meta):
     if to == 'jev':
         args.append(meta['questions'])
     args.extend(['--name', meta['name'], '--report', meta['report']])
-    for option in ['review', 'low', 'simple', 'no-fast', 'subagents', 'expect-changes']:
+    for option in ['review', 'low', 'simple', 'fast', 'no-fast', 'subagents', 'expect-changes']:
         if meta.get(option):
             args.append('--' + option)
     if meta.get('model'):
@@ -119,7 +119,7 @@ def locate(name):
     return path, meta
 
 
-def relaunch(name, to=None, tier=None, simple=False, no_fast=False):
+def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     path, meta = locate(name)
     matches = [r for r in running() if r.get('briefPath') == str(path) or r.get('name') == name]
@@ -130,13 +130,13 @@ def relaunch(name, to=None, tier=None, simple=False, no_fast=False):
         raise ValueError('--tier 仅用于 --to claude。')
     if simple and (target != 'gpt' or meta.get('review')):
         raise ValueError('--simple 仅用于非 review 的 --to gpt（Sol 容量故障时改派 Terra）。')
-    if no_fast and not simple:
-        raise ValueError('--no-fast 必须与 --simple 同用。')
+    if fast and not (simple or (target == 'gpt' and meta.get('simple'))):
+        raise ValueError('--fast 必须与 --simple 同用。')
     text = path.read_text()
     checked(text, target)
     if target != meta['to']:
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
-                                 ('low', ['gpt']), ('simple', ['gpt']), ('no-fast', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
+                                 ('low', ['gpt']), ('simple', ['gpt']), ('fast', ['gpt']), ('no-fast', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                                  ('bulk', ['gemini'])]:
             if target not in products:
                 meta.pop(option, None)
@@ -145,6 +145,8 @@ def relaunch(name, to=None, tier=None, simple=False, no_fast=False):
         meta['tier'] = tier
     if simple:
         meta['simple'] = True
+    if fast:
+        meta['fast'] = True
     if no_fast:
         meta['no-fast'] = True
     if target == 'jev' and not meta.get('questions'):
@@ -256,8 +258,8 @@ def new(args):
                              ('bulk', ['gemini'])]:
         if getattr(args, option) and args.to not in products:
             raise ValueError('--' + option + ' 仅用于 --to ' + '|'.join(products) + '。')
-    if args.no_fast and not args.simple:
-        raise ValueError('--no-fast 必须与 --simple 同用。')
+    if args.fast and not args.simple:
+        raise ValueError('--fast 必须与 --simple 同用。')
     if args.simple and args.review:
         raise ValueError('--simple 不能与 --review 同用；复核固定使用 Sol。')
     if args.make == 'video' and args.to != 'grok':
@@ -314,7 +316,7 @@ def new(args):
     text = '\n\n'.join(parts) + '\n'
     checked(text, args.to)
     meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
-            'tier': args.tier, 'review': args.review, 'low': args.low, 'simple': args.simple, 'no-fast': args.no_fast, 'model': args.model,
+            'tier': args.tier, 'review': args.review, 'low': args.low, 'simple': args.simple, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,
             'subagents': args.subagents, 'bulk': args.bulk, 'expect-changes': args.expect_changes}
     if args.to == 'jev':
         meta['questions'] = str(path.with_suffix('.questions.json'))
@@ -344,7 +346,7 @@ def main():
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
     p.add_argument('--model')
     p.add_argument('--make', choices=['image', 'video'])
-    for option in ['review', 'low', 'simple', 'no-fast', 'subagents', 'bulk', 'expect-changes']:
+    for option in ['review', 'low', 'simple', 'fast', 'no-fast', 'subagents', 'bulk', 'expect-changes']:
         p.add_argument('--' + option, action='store_true')
     for option in ['why', 'goal', 'body', 'budget', 'forbid', 'pitfalls', 'report']:
         p.add_argument('--' + option)
@@ -364,8 +366,9 @@ def main():
     p.add_argument('name')
     p.add_argument('--to', choices=PRODUCTS)
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
-    p.add_argument('--simple', action='store_true', help='GPT 任务改用 Terra + fast（Sol 容量故障时的改派）')
-    p.add_argument('--no-fast', action='store_true', help='使用 Terra 时关闭 fast')
+    p.add_argument('--simple', action='store_true', help='GPT 任务改用 Terra，默认不开 fast')
+    p.add_argument('--fast', action='store_true', help='与 --simple 同用，开启 fast')
+    p.add_argument('--no-fast', action='store_true', help='兼容旧用法，无副作用')
     p = sub.add_parser('lint')
     p.add_argument('brief')
     p.add_argument('--to', choices=PRODUCTS, default='gpt')
@@ -382,7 +385,7 @@ def main():
     elif args.action == 'amend':
         amend(args)
     elif args.action == 'relaunch':
-        relaunch(args.name, args.to, args.tier, args.simple, args.no_fast)
+        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast)
     elif args.action == 'team':
         os.execvp('fleet', ['fleet', 'team'])
     elif args.action == 'lint':

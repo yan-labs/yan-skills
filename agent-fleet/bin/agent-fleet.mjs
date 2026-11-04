@@ -44,7 +44,7 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
 
   fleet copy|grok|bulk|gpt|openai <brief文件或文本> [--cwd dir] [--verbose]
   fleet grok-cli <brief文件或文本> [--review] [--cwd dir] [--model id] [--name name] [--report path] [--no-subagents|--subagents]
-  fleet code <brief文件或文本> [--low] [--simple] [--review] [--no-continue] [--cwd dir]
+  fleet code <brief文件或文本> [--low] [--simple [--fast]] [--review] [--no-continue] [--cwd dir]
   fleet haiku|sonnet|opus|fable <brief.md|文本>   # Claude 官方端点，走每月 API 赠送额度
   fleet judge <state文件> <questions文件> [--json]
   fleet run --model name --prompt "任务" [--cwd dir] [--max-turns N]
@@ -396,7 +396,7 @@ async function cmdResume(argv) {
     const args = ['code', extra || '继续完成上次未完成的工作，给出最终结论。',
       '--resume-session', sessionId, '--resumed-from', runId, '--cwd', cwd];
     if (rec.simple) args.push('--simple');
-    if (rec.simple && rec.serviceTier === null) args.push('--no-fast');
+    if (rec.simple && rec.serviceTier === 'priority') args.push('--fast');
     if (rec.low || rec.tier === 'low' || flags.low) args.push('--low');
     if (rec.review || flags.review) args.push('--review');
     const name = flags.name ?? rec.name;
@@ -506,7 +506,7 @@ async function cmdCode(argv) {
   const { positionals, flags } = splitShortArgs(argv);
   if (flags.help) { console.log(HELP_TEXT); return; }
   const prompt = resolveBrief(flags.prompt ?? positionals[0]);
-  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), simple: Boolean(flags.simple), noFast: Boolean(flags['no-fast']), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
+  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), simple: Boolean(flags.simple), fast: Boolean(flags.fast), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
   await printRunResult(result, outputOptions(flags));
   process.exitCode = buildBrief(result, outputOptions(flags)).verdict === 'ok' ? 0 : 1;
 }
@@ -547,7 +547,7 @@ async function main() {
   }
 
   try {
-    if (rest.includes('--no-fast') && (command !== 'code' || !rest.includes('--simple'))) throw new Error('--no-fast 必须与 fleet code 的 --simple 同用。');
+    if (rest.includes('--fast') && (command !== 'code' || !rest.includes('--simple'))) throw new Error('--fast 必须与 fleet code 的 --simple 同用。');
     if (rest.includes('--simple')) {
       if (command !== 'code') throw new Error('--simple 仅用于 fleet code（fleet-go --to gpt）。');
       if (rest.includes('--review')) throw new Error('--simple 不能与 --review 同用；复核固定使用 Sol。');
