@@ -261,6 +261,13 @@ try {
     assert.equal(run(['new','luna-xhigh','--to','gpt','--luna','--xhigh','--goal','x','--no-launch']).status,0);
     for (const args of [['relaunch','luna-xhigh'], ['amend','luna-xhigh','继续','--say']]) { reset(); assert.equal(run(args).status,7); assert(history().at(-1).args.includes('--xhigh')); }
     for (const opts of [['--xhigh'], ['--luna','--low','--xhigh'], ['--luna','--high','--xhigh']]) assert.equal(run(['new','bad-xhigh','--to','gpt',...opts,'--goal','x','--dry-run']).status,1);
+    assert.equal(run(['new','luna-max','--to','gpt','--luna','--max','--goal','x','--no-launch']).status,0);
+    for (const args of [['relaunch','luna-max'], ['amend','luna-max','继续','--say']]) { reset(); assert.equal(run(args).status,7); assert(history().at(-1).args.includes('--max')); }
+    reset(); assert.equal(run(['relaunch','luna-max','--low']).status,7); assert(history().at(-1).args.includes('--low')); assert(!history().at(-1).args.includes('--max'));
+    reset(); assert.equal(run(['amend','luna-max','切换','--max','--say']).status,7); assert(history().at(-1).args.includes('--max')); assert(!history().at(-1).args.includes('--low'));
+    assert.equal(run(['relaunch','luna-max','--low','--max']).status,1);
+    assert.equal(run(['amend','luna-max','冲突','--low','--max','--say']).status,1);
+    for (const opts of [['--max'], ['--luna','--low','--max'], ['--luna','--high','--max'], ['--luna','--xhigh','--max']]) assert.equal(run(['new','bad-max','--to','gpt',...opts,'--goal','x','--dry-run']).status,1);
     assert.equal(run(['new','luna-fast','--to','gpt','--luna','--fast','--goal','x','--dry-run']).status,0);
   });
   test('relaunch --to/--tier 改执行者、保留 brief/name/report，拒绝运行中的重复派发', () => {

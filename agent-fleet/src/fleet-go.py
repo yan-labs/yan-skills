@@ -84,7 +84,7 @@ def command(meta):
     if to == 'jev':
         args.append(meta['questions'])
     args.extend(['--name', meta['name'], '--report', meta['report']])
-    for option in ['review', 'low', 'high', 'xhigh', 'simple', 'luna', 'fast', 'no-fast', 'subagents', 'expect-changes']:
+    for option in ['review', 'low', 'high', 'xhigh', 'max', 'simple', 'luna', 'fast', 'no-fast', 'subagents', 'expect-changes']:
         if meta.get(option):
             args.append('--' + option)
     if meta.get('model'):
@@ -119,7 +119,7 @@ def locate(name):
     return path, meta
 
 
-def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False):
+def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     path, meta = locate(name)
     matches = [r for r in running() if r.get('briefPath') == str(path) or r.get('name') == name]
@@ -138,17 +138,17 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         raise ValueError('--luna 不能与 --review 同用。')
     if selected_luna and selected_simple:
         raise ValueError('--luna 不能与 --simple 同用。')
-    if high and xhigh:
-        raise ValueError('--high 和 --xhigh 不能同用。')
-    if xhigh and not selected_luna:
-        raise ValueError('--xhigh 仅用于 --luna。')
-    if (fast or high or xhigh) and target != 'gpt':
+    if sum([low, high, xhigh, max]) > 1:
+        raise ValueError('--low、--high、--xhigh 和 --max 不能同用。')
+    if (xhigh or max) and not selected_luna:
+        raise ValueError('--xhigh 和 --max 仅用于 --luna。')
+    if (fast or low or high or xhigh or max) and target != 'gpt':
         raise ValueError('--fast 和 --high 仅用于 --to gpt。')
     text = path.read_text()
     checked(text, target)
     if target != meta['to']:
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
-                                 ('low', ['gpt']), ('high', ['gpt']), ('xhigh', ['gpt']), ('simple', ['gpt']), ('luna', ['gpt']), ('fast', ['gpt']), ('no-fast', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
+                                 ('low', ['gpt']), ('high', ['gpt']), ('xhigh', ['gpt']), ('max', ['gpt']), ('simple', ['gpt']), ('luna', ['gpt']), ('fast', ['gpt']), ('no-fast', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                                  ('bulk', ['gemini'])]:
             if target not in products:
                 meta.pop(option, None)
@@ -159,14 +159,24 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         meta['simple'] = True
     if luna:
         meta['luna'] = True
+    if low:
+        meta['low'] = True
+        meta['high'] = meta['xhigh'] = meta['max'] = False
     if high:
         meta['low'] = False
         meta['high'] = True
         meta['xhigh'] = False
+        meta['max'] = False
     if xhigh:
         meta['low'] = False
         meta['high'] = False
         meta['xhigh'] = True
+        meta['max'] = False
+    if max:
+        meta['low'] = False
+        meta['high'] = False
+        meta['xhigh'] = False
+        meta['max'] = True
     if fast:
         meta['fast'] = True
     if no_fast:
@@ -240,25 +250,35 @@ def restart(run, path, name):
 def amend(args):
     """保留修订正文，按需插话或停止本次 run 后通过 relaunch 重启。"""
     path, meta = locate(args.name)
-    if args.luna or args.high or args.xhigh:
+    if args.luna or args.low or args.high or args.xhigh or args.max:
         if meta['to'] != 'gpt':
             raise ValueError('--luna 仅用于 --to gpt。')
         if args.luna and (meta.get('review') or meta.get('simple')):
             raise ValueError('--luna 不能与 --review 或 --simple 同用。')
-        if args.high and args.xhigh:
-            raise ValueError('--high 和 --xhigh 不能同用。')
-        if args.xhigh and not (args.luna or meta.get('luna')):
-            raise ValueError('--xhigh 仅用于 --luna。')
+        if sum([args.low, args.high, args.xhigh, args.max]) > 1:
+            raise ValueError('--low、--high、--xhigh 和 --max 不能同用。')
+        if (args.xhigh or args.max) and not (args.luna or meta.get('luna')):
+            raise ValueError('--xhigh 和 --max 仅用于 --luna。')
         if args.luna:
             meta['luna'] = True
+        if args.low:
+            meta['low'] = True
+            meta['high'] = meta['xhigh'] = meta['max'] = False
         if args.high:
             meta['low'] = False
             meta['high'] = True
             meta['xhigh'] = False
+            meta['max'] = False
         if args.xhigh:
             meta['low'] = False
             meta['high'] = False
             meta['xhigh'] = True
+            meta['max'] = False
+        if args.max:
+            meta['low'] = False
+            meta['high'] = False
+            meta['xhigh'] = False
+            meta['max'] = True
         path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     original = path.read_text()
     if re.search(r'^## 【修订 \d+（[^\n]+）】\n' + re.escape(args.message) + r'(?=\n\n)', original, re.M):
@@ -296,16 +316,16 @@ def amend(args):
 def new(args):
     """组装标准 brief；预览不写盘，正文文件与 stdin 使用明确输入规则。"""
     for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
-                             ('low', ['gpt']), ('high', ['gpt']), ('xhigh', ['gpt']), ('simple', ['gpt']), ('luna', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
+                             ('low', ['gpt']), ('high', ['gpt']), ('xhigh', ['gpt']), ('max', ['gpt']), ('simple', ['gpt']), ('luna', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                              ('bulk', ['gemini'])]:
         if getattr(args, option) and args.to not in products:
             raise ValueError('--' + option + ' 仅用于 --to ' + '|'.join(products) + '。')
     if args.fast and args.to != 'gpt':
         raise ValueError('--fast 仅用于 --to gpt。')
-    if sum([args.low, args.high, args.xhigh]) > 1:
-        raise ValueError('--low、--high 和 --xhigh 不能同用。')
-    if args.xhigh and not args.luna:
-        raise ValueError('--xhigh 仅用于 --luna。')
+    if sum([args.low, args.high, args.xhigh, args.max]) > 1:
+        raise ValueError('--low、--high、--xhigh 和 --max 不能同用。')
+    if (args.xhigh or args.max) and not args.luna:
+        raise ValueError('--xhigh 和 --max 仅用于 --luna。')
     if args.luna and (args.simple or args.review):
         raise ValueError('--luna 不能与 --simple 或 --review 同用。')
     if args.simple and args.review:
@@ -364,7 +384,7 @@ def new(args):
     text = '\n\n'.join(parts) + '\n'
     checked(text, args.to)
     meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
-            'tier': args.tier, 'review': args.review, 'low': args.low, 'high': args.high, 'xhigh': args.xhigh, 'simple': args.simple, 'luna': args.luna, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,
+            'tier': args.tier, 'review': args.review, 'low': args.low, 'high': args.high, 'xhigh': args.xhigh, 'max': args.max, 'simple': args.simple, 'luna': args.luna, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,
             'subagents': args.subagents, 'bulk': args.bulk, 'expect-changes': args.expect_changes}
     if args.to == 'jev':
         meta['questions'] = str(path.with_suffix('.questions.json'))
@@ -394,7 +414,7 @@ def main():
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
     p.add_argument('--model')
     p.add_argument('--make', choices=['image', 'video'])
-    for option in ['review', 'low', 'high', 'xhigh', 'simple', 'luna', 'fast', 'no-fast', 'subagents', 'bulk', 'expect-changes']:
+    for option in ['review', 'low', 'high', 'xhigh', 'max', 'simple', 'luna', 'fast', 'no-fast', 'subagents', 'bulk', 'expect-changes']:
         p.add_argument('--' + option, action='store_true')
     for option in ['why', 'goal', 'body', 'budget', 'forbid', 'pitfalls', 'report']:
         p.add_argument('--' + option)
@@ -408,8 +428,10 @@ def main():
     p.add_argument('name')
     p.add_argument('message')
     p.add_argument('--luna', action='store_true', help='后续重派使用 Luna')
+    p.add_argument('--low', action='store_true', help='后续重派使用 low 推理')
     p.add_argument('--high', action='store_true', help='后续重派使用 high 推理')
     p.add_argument('--xhigh', action='store_true', help='后续重派使用 Luna xhigh 推理')
+    p.add_argument('--max', action='store_true', help='后续重派使用 Luna max 推理')
     group = p.add_mutually_exclusive_group()
     group.add_argument('--say', action='store_true')
     group.add_argument('--restart', action='store_true')
@@ -418,9 +440,11 @@ def main():
     p.add_argument('--to', choices=PRODUCTS)
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
     p.add_argument('--simple', action='store_true', help='GPT 任务改用 Terra，默认不开 fast')
-    p.add_argument('--luna', action='store_true', help='GPT 任务改用 Luna，默认 high 且不开 fast')
+    p.add_argument('--luna', action='store_true', help='GPT 任务改用 Luna，默认 xhigh 且不开 fast')
+    p.add_argument('--low', action='store_true', help='GPT 任务使用 low 推理')
     p.add_argument('--high', action='store_true', help='GPT 任务使用 high 推理')
     p.add_argument('--xhigh', action='store_true', help='Luna 使用 xhigh 推理')
+    p.add_argument('--max', action='store_true', help='Luna 使用 max 推理')
     p.add_argument('--fast', action='store_true', help='GPT 任务开启 fast')
     p.add_argument('--no-fast', action='store_true', help='兼容旧用法，无副作用')
     p = sub.add_parser('lint')
@@ -439,7 +463,7 @@ def main():
     elif args.action == 'amend':
         amend(args)
     elif args.action == 'relaunch':
-        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh)
+        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low)
     elif args.action == 'team':
         os.execvp('fleet', ['fleet', 'team'])
     elif args.action == 'lint':
