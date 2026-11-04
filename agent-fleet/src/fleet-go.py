@@ -397,7 +397,7 @@ def main():
     p.add_argument('--to', choices=PRODUCTS)
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
     p.add_argument('--simple', action='store_true', help='GPT 任务改用 Terra，默认不开 fast')
-    p.add_argument('--luna', action='store_true', help='GPT 任务改用 Luna，默认 medium 且不开 fast')
+    p.add_argument('--luna', action='store_true', help='GPT 任务改用 Luna，默认 low 且不开 fast')
     p.add_argument('--high', action='store_true', help='GPT 任务使用 high 推理')
     p.add_argument('--fast', action='store_true', help='GPT 任务开启 fast')
     p.add_argument('--no-fast', action='store_true', help='兼容旧用法，无副作用')

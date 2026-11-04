@@ -154,7 +154,7 @@ assert.equal((await cliRun(['wait',lunaContinuedId])).code,0);
 assert.equal(state(lunaContinuedId).model,'gpt-6-luna');
 assert.equal(state(lunaContinuedId).luna,true);
 const lunaArgs=readFileSync(lunaArgsPath,'utf8').trim().split('\n');
-assert(lunaArgs.includes('gpt-6-luna') && lunaArgs.includes('model_reasoning_effort=medium'));
+assert(lunaArgs.includes('gpt-6-luna') && lunaArgs.includes('model_reasoning_effort=low'));
 assert(!lunaArgs.some(arg=>arg.startsWith('service_tier=')));
 for (const option of ['--simple','--review']) {
   const conflict=await cliRun(['code','x','--luna',option]);

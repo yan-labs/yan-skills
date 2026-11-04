@@ -59,7 +59,7 @@ run 默认不限轮数、安静、当前目录；--verbose 显示进度。--quie
 --system-prompt、--json、--full、--brief-lines、--expect-changes、--judge 可选。
 code/grok-cli/copy/grok/bulk/gpt/run/run-many 默认独立运行并等待；--no-wait 立即返回，--attach 前台，--detach 兼容默认。
 --name 短名、--report 路径；status [--running] [--json]；wait/tail 支持短名或 runId 前缀。
-code 的 --luna 使用 gpt-6-luna，默认 medium 且不开 fast；不能与 --simple 或 --review 同用。
+code 的 --luna 使用 gpt-6-luna，默认 low 且不开 fast；不能与 --simple 或 --review 同用。
 code 的 --review 使用全权限沙箱与内置只读审查提示词；旧 agent-fleet 长命令继续可用。
 copy 自动注入文案语气规范；--no-voice 仅用于纯机械改写（长名 kollab-gateway-copy 同样支持）。
 `;

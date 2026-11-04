@@ -10,13 +10,13 @@ fleet team  # 五产品能力、顺位链与可用性；只显示存在性/登�
 
 | 让谁做 | 适合什么 | 命令示例 | 派用者顺位参考 |
 |---|---|---|---|
-| `gpt` | 正常开发用 Terra（`--simple`）；非常严谨开发才用 Sol；监工、定时、部署和发布执行用 Luna（`--luna`） | `fleet-go new fix --to gpt --simple --auth local --goal "修复问题" --body task.md` | 周用量 ≥ 95% 改 Gemini 4 |
+| `gpt` | 正常开发用 Terra（`--simple`）；非常严谨开发才用 Sol；最简单且可机械验证的子任务用 Luna（`--luna`） | `fleet-go new fix --to gpt --simple --auth local --goal "修复问题" --body task.md` | 周用量 ≥ 95% 改 Gemini 4 |
 | `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | 按额度规则选择 Terra 或 Gemini |
 | `grok` | 视频与图片（生成、搜索）、X 平台（热点与实时讨论）、编码、检索调研、成人题材 | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | 按任务与额度选择 Gemini |
 | `gemini` | 文案、翻译、摘要、批量机械任务（`--bulk`） | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | — |
 | `jev` | 分类、选择、打分等结构化判断 | `fleet-go new decide --to jev --goal "按正文判据分类" --body task.md` | — |
 
-`--to` 指定产品；GPT 用 `--simple` 选 Terra、`--luna` 选 Luna，默认 medium，可选 `--low` 或 `--high`；默认不开 fast，需要时显式 `--fast`。Luna 与 simple/review 不能同用。其他参数见 [Skill 命令速查](skill/SKILL.md#命令速查)。
+`--to` 指定产品；GPT 用 `--simple` 选 Terra、`--luna` 选 Luna，Luna 默认 low、其他档默认 medium，可选 `--low` 或 `--high`；默认不开 fast，需要时显式 `--fast`。Luna 与 simple/review 不能同用。其他参数见 [Skill 命令速查](skill/SKILL.md#命令速查)。
 
 `brief.md` 也可以直接写成任务文本；默认当前目录、不限轮数、安静模式。`--verbose` 显示进度。短命令和模型对应关系见 [skill](skill/SKILL.md)。
 
@@ -28,7 +28,7 @@ fleet team  # 五产品能力、顺位链与可用性；只显示存在性/登�
 
 下面的顺位表只供派用者自行判断，代码不消费：
 - Claude 额度档：按任务和 Codex 额度规则选择 Claude、Terra 或 Gemini。
-- GPT 档：正常开发 Terra（`--simple`）→ 非常严谨才用 Sol（medium、不开 fast，默认不派）→ 周用量 ≥ 95% 改 Gemini 4；监工、定时任务、部署及发布执行用 Luna（`--luna`）。
+- GPT 档：正常开发 Terra（`--simple`）→ 非常严谨才用 Sol（medium、不开 fast，默认不派）→ 周用量 ≥ 95% 改 Gemini 4；最简单且可机械验证的子任务用 Luna（`--luna`）。
 
 Codex 周用量取最新 rollout 的 `rate_limits.primary`（`window_minutes=10080`）的 `used_percent`；≥ 95% 或用尽时停派 Codex，改 `fleet-go new --to gemini`，默认 Gemini 4 `gemini-4-argon`，经 Claude Agent SDK，也可编码。非非常重要的编程交 Gemini，非常重要的交 Claude Sonnet，难的 Opus。Gemini 免费额度约 10 万美元、剩约 4–6 万美元且会过期，余额以实际为准；Codex 用尽可让 Kollab 派任务执行充值脚本，付款前须先向用户确认金额。严苛架构或成本收缩、清理每秒 1000 行等硬指标多轮未达标时，派 executor-fable 子代理调研方案，再派执行者。
 
@@ -178,7 +178,7 @@ node bin/agent-fleet.mjs judge --model jev --state-file state.txt --questions-fi
 
 ### 任务类型 → 推荐模型(agent-fleet 自己调研 + 真实验证后得出,会持续校准)
 
-编程与 review 优先规则见 [Codex 编程与 review](skill/references/codex-coding.md)。正常编程派 Terra，非常严谨的开发才派 Sol；监工及发布执行派 Luna。各模型默认 medium，Luna、Gemini 等较便宜模型可用 high。
+编程与 review 优先规则见 [Codex 编程与 review](skill/references/codex-coding.md)。正常编程派 Terra，非常严谨的开发才派 Sol；最简单且可机械验证的子任务派 Luna，带逻辑的改动用 Terra/Sol。Luna 默认 low，其他 Codex 模型默认 medium，Luna、Gemini 等较便宜模型可用 high。
 
 | 任务类型 | 推荐模型 / 友好名字 | 理由 |
 |---|---|---|

@@ -77,6 +77,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
   if (low && high) throw new Error('--low 不能与 --high 同用。');
   if (simple && review) throw new Error('--simple 不能与 --review 同用；复核固定使用 Sol。');
   if (luna && (simple || review)) throw new Error('--luna 不能与 --simple 或 --review 同用。');
+  low ||= luna && !high;
   const model = luna ? 'gpt-6-luna' : simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol';
   const serviceTier = fast ? 'priority' : null;
   const workdir = resolve(cwd);

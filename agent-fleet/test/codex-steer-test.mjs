@@ -155,9 +155,9 @@ try {
     assert.equal(run.result.serviceTier, null);
     assert.equal(run.record.luna, true);
     const start = run.trace.find(entry => entry.method === 'thread/start');
-    if (start) { assert.equal(start.params.model, 'gpt-6-luna'); assert.equal(start.params.serviceTier, undefined); assert.equal(run.trace.find(entry => entry.method === 'turn/start').params.effort, 'medium'); }
+    if (start) { assert.equal(start.params.model, 'gpt-6-luna'); assert.equal(start.params.serviceTier, undefined); assert.equal(run.trace.find(entry => entry.method === 'turn/start').params.effort, 'low'); }
     const exec = run.trace.find(entry => entry.args?.[0] === 'exec');
-    if (exec) { assert(exec.args.includes('gpt-6-luna')); assert(exec.args.includes('model_reasoning_effort=medium')); assert(!exec.args.some(arg => arg.startsWith('service_tier='))); }
+    if (exec) { assert(exec.args.includes('gpt-6-luna')); assert(exec.args.includes('model_reasoning_effort=low')); assert(!exec.args.some(arg => arg.startsWith('service_tier='))); }
   }
   const lunaFast = await scenario('normal', { luna: true, fast: true, low: true });
   assert.equal(lunaFast.trace.find(entry => entry.method === 'thread/start').params.serviceTier, 'priority');
