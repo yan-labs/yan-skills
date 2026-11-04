@@ -239,8 +239,9 @@ try {
     assert.equal(run(['new','luna-mode','--to','gpt','--luna','--low','--goal','x','--no-launch']).status, 0);
     const metaPath = join(home,'.agent-reports', report.split('/').at(-2), 'luna-mode.brief.json');
     assert.equal(JSON.parse(readFileSync(metaPath,'utf8')).luna, true);
+    assert.equal(JSON.parse(readFileSync(metaPath,'utf8')).low, true);
     for (const args of [['relaunch','luna-mode'], ['amend','luna-mode','继续','--say']]) {
-      reset(); assert.equal(run(args).status, 7); assert(history().at(-1).args.includes('--luna')); assert(!history().at(-1).args.includes('--fast'));
+      reset(); assert.equal(run(args).status, 7); assert(history().at(-1).args.includes('--luna')); assert(history().at(-1).args.includes('--low')); assert(!history().at(-1).args.includes('--fast'));
     }
     for (const option of ['--simple','--review']) {
       const r = run(['new','bad-luna','--to','gpt','--luna',option,'--goal','x','--dry-run']);
