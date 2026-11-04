@@ -44,7 +44,7 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
 
   fleet copy|grok|bulk|gpt|openai <brief文件或文本> [--cwd dir] [--verbose]
   fleet grok-cli <brief文件或文本> [--review] [--cwd dir] [--model id] [--name name] [--report path] [--no-subagents|--subagents]
-  fleet code <brief文件或文本> [--low|--high] [--simple|--luna] [--fast] [--review] [--no-continue] [--cwd dir]
+  fleet code <brief文件或文本> [--low|--high|--xhigh] [--simple|--luna] [--fast] [--review] [--no-continue] [--cwd dir]
   fleet haiku|sonnet|opus|fable <brief.md|文本>   # Claude 官方端点，走每月 API 赠送额度
   fleet judge <state文件> <questions文件> [--json]
   fleet run --model name --prompt "任务" [--cwd dir] [--max-turns N]
@@ -59,7 +59,7 @@ run 默认不限轮数、安静、当前目录；--verbose 显示进度。--quie
 --system-prompt、--json、--full、--brief-lines、--expect-changes、--judge 可选。
 code/grok-cli/copy/grok/bulk/gpt/run/run-many 默认独立运行并等待；--no-wait 立即返回，--attach 前台，--detach 兼容默认。
 --name 短名、--report 路径；status [--running] [--json]；wait/tail 支持短名或 runId 前缀。
-code 的 --luna 使用 gpt-6-luna，默认 medium 且不开 fast；不能与 --simple 或 --review 同用。
+code 的 --luna 使用 gpt-6-luna，默认 high，可用 --xhigh，且不开 fast；Terra/Sol 默认 medium；不能与 --simple 或 --review 同用。
 code 的 --review 使用全权限沙箱与内置只读审查提示词；旧 agent-fleet 长命令继续可用。
 copy 自动注入文案语气规范；--no-voice 仅用于纯机械改写（长名 kollab-gateway-copy 同样支持）。
 `;
@@ -396,11 +396,12 @@ async function cmdResume(argv) {
     const extra = typeof flags.prompt === 'string' ? flags.prompt : positionals.slice(1).join(' ').trim();
     const args = ['code', extra || '继续完成上次未完成的工作，给出最终结论。',
       '--resume-session', sessionId, '--resumed-from', runId, '--cwd', cwd];
+    if (flags.xhigh && !rec.luna) throw new Error('--xhigh 仅用于 --luna。');
     if (rec.simple) args.push('--simple');
     if (rec.luna) args.push('--luna');
     if (rec.serviceTier === 'priority') args.push('--fast');
-    if (flags.low || (!flags.high && (rec.low || rec.tier === 'low'))) args.push('--low');
-    if (flags.high || (!flags.low && (rec.high || rec.tier === 'high'))) args.push('--high');
+    const selectedEffort = flags.low ? 'low' : flags.high ? 'high' : flags.xhigh ? 'xhigh' : rec.xhigh || rec.tier === 'xhigh' ? 'xhigh' : rec.low || rec.tier === 'low' ? 'low' : rec.high || rec.tier === 'high' ? 'high' : null;
+    if (selectedEffort) args.push('--' + selectedEffort);
     if (rec.review || flags.review) args.push('--review');
     const name = flags.name ?? rec.name;
     const reportPath = flags.report ?? rec.reportPath;
@@ -509,7 +510,7 @@ async function cmdCode(argv) {
   const { positionals, flags } = splitShortArgs(argv);
   if (flags.help) { console.log(HELP_TEXT); return; }
   const prompt = resolveBrief(flags.prompt ?? positionals[0]);
-  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), high: Boolean(flags.high), simple: Boolean(flags.simple), luna: Boolean(flags.luna), fast: Boolean(flags.fast), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
+  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), high: Boolean(flags.high), xhigh: Boolean(flags.xhigh), simple: Boolean(flags.simple), luna: Boolean(flags.luna), fast: Boolean(flags.fast), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
   await printRunResult(result, outputOptions(flags));
   process.exitCode = buildBrief(result, outputOptions(flags)).verdict === 'ok' ? 0 : 1;
 }
@@ -552,7 +553,8 @@ async function main() {
   try {
     if (rest.includes('--fast') && command !== 'code') throw new Error('--fast 仅用于 fleet code。');
     if (rest.includes('--high') && command !== 'code' && command !== 'resume') throw new Error('--high 仅用于 fleet code。');
-    if (rest.includes('--high') && rest.includes('--low')) throw new Error('--low 不能与 --high 同用。');
+    if (['--low', '--high', '--xhigh'].filter(flag => rest.includes(flag)).length > 1) throw new Error('--low、--high 和 --xhigh 不能同用。');
+    if (rest.includes('--xhigh') && (command !== 'resume' && (command !== 'code' || !rest.includes('--luna')))) throw new Error('--xhigh 仅用于 --luna。');
     if (rest.includes('--luna')) {
       if (command !== 'code') throw new Error('--luna 仅用于 fleet code（fleet-go --to gpt）。');
       if (rest.includes('--simple') || rest.includes('--review')) throw new Error('--luna 不能与 --simple 或 --review 同用。');

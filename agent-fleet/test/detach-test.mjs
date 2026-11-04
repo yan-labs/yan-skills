@@ -144,7 +144,7 @@ const simpleArgs=readFileSync(simpleArgsPath,'utf8').trim().split('\n');
 assert(simpleArgs.includes('gpt-6.1-terra') && simpleArgs.includes('service_tier="priority"') && simpleArgs.includes('model_reasoning_effort=low'));
 assert.equal((await cliRun(['code','x','--simple','--review'])).code,1);
 assert.match((await cliRun(['copy','x','--simple'])).stderr,/--simple.*fleet code/);
-const lunaId = await launch('code', { FLEET_TEST_SESSION:'luna-thread' }, ['--luna']);
+const lunaId = await launch('code', { FLEET_TEST_SESSION:'luna-thread' }, ['--luna','--xhigh']);
 assert.equal((await cliRun(['wait',lunaId])).code,0);
 const lunaArgsPath=join(scratch,'luna-resume-args');
 const lunaContinued=await cliRun(['resume',lunaId,'继续','--no-wait'], {FLEET_TEST_SESSION:'luna-thread',FLEET_TEST_ARGS:lunaArgsPath});
@@ -154,7 +154,7 @@ assert.equal((await cliRun(['wait',lunaContinuedId])).code,0);
 assert.equal(state(lunaContinuedId).model,'gpt-6-luna');
 assert.equal(state(lunaContinuedId).luna,true);
 const lunaArgs=readFileSync(lunaArgsPath,'utf8').trim().split('\n');
-assert(lunaArgs.includes('gpt-6-luna') && lunaArgs.includes('model_reasoning_effort=medium'));
+assert(lunaArgs.includes('gpt-6-luna') && lunaArgs.includes('model_reasoning_effort=xhigh'));
 assert(!lunaArgs.some(arg=>arg.startsWith('service_tier=')));
 for (const option of ['--simple','--review']) {
   const conflict=await cliRun(['code','x','--luna',option]);

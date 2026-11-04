@@ -258,6 +258,9 @@ try {
     assert.equal(run(['new','luna-low-upgrade','--to','gpt','--luna','--low','--goal','x','--no-launch']).status,0);
     reset(); assert.equal(run(['relaunch','luna-low-upgrade','--high']).status,7); assert(history().at(-1).args.includes('--high')); assert(!history().at(-1).args.includes('--low'));
     assert.equal(run(['new','luna-conflict','--to','gpt','--low','--high','--goal','x','--dry-run']).status,1);
+    assert.equal(run(['new','luna-xhigh','--to','gpt','--luna','--xhigh','--goal','x','--no-launch']).status,0);
+    for (const args of [['relaunch','luna-xhigh'], ['amend','luna-xhigh','继续','--say']]) { reset(); assert.equal(run(args).status,7); assert(history().at(-1).args.includes('--xhigh')); }
+    for (const opts of [['--xhigh'], ['--luna','--low','--xhigh'], ['--luna','--high','--xhigh']]) assert.equal(run(['new','bad-xhigh','--to','gpt',...opts,'--goal','x','--dry-run']).status,1);
     assert.equal(run(['new','luna-fast','--to','gpt','--luna','--fast','--goal','x','--dry-run']).status,0);
   });
   test('relaunch --to/--tier 改执行者、保留 brief/name/report，拒绝运行中的重复派发', () => {
