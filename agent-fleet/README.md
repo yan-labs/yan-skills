@@ -16,7 +16,7 @@ fleet team  # 五产品能力、顺位链与可用性；只显示存在性/登�
 | `gemini` | 文案、翻译、摘要、批量机械任务（`--bulk`） | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | — |
 | `jev` | 分类、选择、打分等结构化判断 | `fleet-go new decide --to jev --goal "按正文判据分类" --body task.md` | — |
 
-`--to` 指定产品；GPT 用 `--simple` 选 Terra、`--luna` 选 Luna，Luna 默认 low、其他档默认 medium，可选 `--low` 或 `--high`；默认不开 fast，需要时显式 `--fast`。Luna 与 simple/review 不能同用。其他参数见 [Skill 命令速查](skill/SKILL.md#命令速查)。
+`--to` 指定产品；GPT 用 `--simple` 选 Terra、`--luna` 选 Luna，各档默认 medium，可选 `--low` 或 `--high`；默认不开 fast，需要时显式 `--fast`。Luna 与 simple/review 不能同用。其他参数见 [Skill 命令速查](skill/SKILL.md#命令速查)。
 
 `brief.md` 也可以直接写成任务文本；默认当前目录、不限轮数、安静模式。`--verbose` 显示进度。短命令和模型对应关系见 [skill](skill/SKILL.md)。
 
@@ -178,7 +178,7 @@ node bin/agent-fleet.mjs judge --model jev --state-file state.txt --questions-fi
 
 ### 任务类型 → 推荐模型(agent-fleet 自己调研 + 真实验证后得出,会持续校准)
 
-编程与 review 优先规则见 [Codex 编程与 review](skill/references/codex-coding.md)。正常编程派 Terra，非常严谨的开发才派 Sol；最简单且可机械验证的子任务派 Luna，带逻辑的改动用 Terra/Sol。Luna 默认 low，其他 Codex 模型默认 medium，Luna、Gemini 等较便宜模型可用 high。
+编程与 review 优先规则见 [Codex 编程与 review](skill/references/codex-coding.md)。正常编程派 Terra，非常严谨的开发才派 Sol；最简单且可机械验证的子任务派 Luna，带逻辑的改动用 Terra/Sol。所有 Codex 模型默认 medium，Luna、Gemini 等较便宜模型可用 high。
 
 | 任务类型 | 推荐模型 / 友好名字 | 理由 |
 |---|---|---|
