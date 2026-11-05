@@ -30,7 +30,7 @@
 |---|---|---|
 | ① 全量扫描 | 列出本轮动过的术语、脚本名、路径、阈值、结论关键词，跑 `node <rankup>/scripts/maintain/ref-scan.mjs <词或路径…> --rankup <项目>/.rankup`（工作区有根层记录再加 `--rankup <工作区根>/.rankup`；改 Skill 源码时不加也会扫 Skill 全目录与仓库 README），逐处判定改、删或保留；改完**再跑一次**，确认旧说法无残留。不凭回忆找引用 | 第二次扫描只剩有意保留的命中，并能说出每处为什么留 |
 | ② 结论原地修订 | 按下文「四」更新决策类文档：推翻的原地改写，否决写理由与复活条件，重复的收成一处；本轮新经验按「七」判归属（项目 / 用户全局 / Skill） | 同一结论只有一处全文，其余是指针 |
-| ③ 清理任务型内容 | 按下文「三」的判据清：已完成任务只留一行结论加报告路径，已收回的后台任务、过期接力删掉 | `rankup-doctor.mjs` 无「接力超长」「任务型残留」告警 |
+| ③ 清理任务型内容与过程数据 | 按下文「三」的判据清：已完成任务只留一行结论加报告路径，已收回的后台任务、过期接力删掉；跑 `node <rankup>/scripts/maintain/rankup-clean.mjs --project-root <项目> --apply` 将截图/图片、日志、trace/har、测试输出、压缩包与超阈值或未引用原始数据移入 `$RANKUP_HOME/trash/<项目名>/<时间戳>/` 并写清单，同时把 `.rankup/` 内 md 指向被清文件的相对链接改为行内文字「（原始数据已清理 <日期>）」 | `rankup-clean.mjs` 待清为 0，`doc-lint.mjs` 断链为 0，`rankup-doctor.mjs` 无「接力超长」「任务型残留」「过程数据残留」告警 |
 | ④ 脚本沉淀 | 满足「五」第 1 条的操作存成参数化脚本并用真实参数跑一次（细则见下文「五·1」） | 报告有「## 沉淀的脚本」一节（没有写「无，理由：…」） |
 | ⑤ 最后写接力 | 覆盖 `INDEX.md`「接力」为当前状态；同步 `plan.md` 与根层 `portfolio.md`、`projects.json`（按「四」的校验规则）；回复里用一行说明清了什么 | `grep -n "下一条要执行的动作" .rankup/INDEX.md` 有结果 |
 
@@ -45,7 +45,8 @@
 | 常驻文件大小 | 按[目录规范](project-memory.md#目录规范常驻文件保留什么去哪里多大)逐文件的上限（例如 `decisions.md` 150 行 / 16 KB，其余文件与 `journal/` 以目录规范表为准） | `rankup-doctor.mjs` |
 | 断链 | `.rankup/` 与 Skill references 里相对链接、锚点断链为 0 | `doc-lint.mjs --root <项目>/.rankup`；Skill 用 `doc-lint.mjs` |
 | 过期日期 | 时效契约覆盖的文件（`INDEX.md`、`plan.md`、`keywords.md`、`baseline.md`、`integrations.md`、`infrastructure.md`）最新日期超过 30 天：重新核实，或标「待核实」 | `rankup-doctor.mjs --stale-days 30` |
-| 备份与临时文件 | 备份一律 C 类，只列不动；经用户决定后移至 `$RANKUP_HOME/trash/` 等可恢复位置 | `rankup-doctor.mjs` |
+| 过程数据残留 | `.rankup/` 内截图和图片、日志、trace/har、测试输出（如 surefire xml）、压缩包、超阈值或未被常驻文件（`INDEX.md`、`plan.md`、`decisions.md`、`leftovers.md` 等）直接引用的原始 `json`/`jsonl` 等过程数据为 0；保留 md、脚本和代码（`mjs`/`js`/`cjs`/`ts`/`py`/`sh`/`sql`）、配置和状态文件（`skill-state.json`、`review-state.json`、`projects.json`、断点状态等）、`.rankup/.keep-data` 白名单及常驻文件直接引用的小体积结构化数据 | `rankup-clean.mjs --project-root <项目>`（默认只列计划，`--apply` 移至 `$RANKUP_HOME/trash/<项目名>/<时间戳>/` 并改写 md 链接；`--staged` 供 pre-commit 移出暂存）；`rankup-doctor.mjs` 归入 A 类 |
+| 备份与临时文件 | 备份副本（`*.bak*` / `*backup*` / `*.orig` / `*~`）仍一律按 C 类，只列不动；经用户决定后移至 `$RANKUP_HOME/trash/` 等可恢复位置 | `rankup-doctor.mjs` |
 | 目录外文件 | 顶层文件（含合法根层与已登记项目专属文件）都在[目录规范](project-memory.md#目录规范常驻文件保留什么去哪里多大)里；带日期的一次性文件归入 `research/` 或 `journal/` | `rankup-doctor.mjs` |
 | Skill 文档体积 | references 单文件 > 600 行或 > 80 KB 就拆，主文件留入口与判据 | `doc-lint.mjs`；拆用 `split-doc.mjs` |
 
@@ -97,10 +98,10 @@
 1. **只读诊断**：`node <rankup>/scripts/maintain/rankup-doctor.mjs --project-root . [--portfolio-root <工作区根>]`，再通读 `INDEX.md`、`plan.md`、`decisions.md`、`rejected.md`、`keywords.md` 与最近的 `journal/`；对要动的关键词跑 `ref-scan.mjs`。
 2. **经验分拣与回流**（整理里最重要的一步）：遍历 `topics/`、`experience.md`、`checks.md`、项目专属常驻文件、`tasks/briefs/`、`research/` 与非归档 `journal/` 里的坑与推翻记录、`rejected.md` 的复活条件、失败记录（脚本的「经验分拣候选」只列起点，关键词漏报不等于没有经验；归档内容不作新候选），逐条按下文「七」的判定问题序列判归属，输出分拣表：条目｜建议去向（① / ② / ③ / ④ / ⑤ / 待观察）｜理由｜证据等级。③ 直接写入用户全局层；④ 按「七」的回流方式处理（允许改动的源码检出直接改现有文件，禁止改源码或安装副本只写 `upstream-candidates.md`）；回流过的原条目改成一行指针或删除；待观察的不动。
 3. **出整理计划**，每条分进三类之一：
-   - **A 安全直接改**：断链、过期接力、已完成任务型条目压成一行、重复事实收成指针、`revived` 行按新口径迁移；
+   - **A 安全直接改**：断链、过期接力、已完成任务型条目压成一行、重复事实收成指针、`revived` 行按新口径迁移、过程数据残留（运行 `node <rankup>/scripts/maintain/rankup-clean.mjs --project-root . --apply` 移入 `$RANKUP_HOME/trash/<项目名>/<时间戳>/` 并改写 md 相对链接）；
    - **B 下沉并保留证据**：超长常驻文件拆分或把过程移进 `journal/` / `research/`，带日期的一次性文件归位，引用同步更新；
-   - **C 需要用户决定，只列不动**：备份与临时副本（只列不动）、整理后仍超标的文件、删整份文件、改决策或否决的结论、合并或废弃项目、动根层登记表里别的项目、任何拿不准的删除。
-4. **执行 A 与 B**：一次改一类；移动 Markdown 用 `scripts/maintain/split-doc.mjs` 同步出站相对链接与入站链接，归档摘录也要按新位置核对链接；移动文件后立刻 `ref-scan` 同步所有引用；拿不准的不删，只标「待确认」。
+   - **C 需要用户决定，只列不动**：备份与临时副本（备份类仍按 C 类，只列不动）、整理后仍超标的文件、删整份文件、改决策或否决的结论、合并或废弃项目、动根层登记表里别的项目、任何拿不准的删除。
+4. **执行 A 与 B**：一次改一类；过程数据跑 `node <rankup>/scripts/maintain/rankup-clean.mjs --project-root . --apply`；移动 Markdown 用 `scripts/maintain/split-doc.mjs` 同步出站相对链接与入站链接，归档摘录也要按新位置核对链接；移动文件后立刻 `ref-scan` 同步所有引用；拿不准的不删，只标「待确认」。
 5. **回读校验**：再跑 `rankup-doctor.mjs` 与 `doc-lint.mjs --root .rankup`，已处理的 A、B 不再出现，仍超标等拿不准项在报告列为待用户决定，不强行为零；有根层登记时 `projects.json` 条目数与整理前相同，没有则标 N/A；`INDEX.md` 四个导航字段与「接力」仍然完整。
 6. **收尾**：`journal/<日期>.md` 写一行（整理了什么、报告在哪）；输出整理报告：改了什么、删了什么（每项能从哪找回）、留了什么、经验分拣表、需要用户决定什么。
 

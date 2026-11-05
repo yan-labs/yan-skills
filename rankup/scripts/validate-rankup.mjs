@@ -16,7 +16,7 @@ import { lint as lintDocs } from "./maintain/doc-lint.mjs";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "3.39.2";
+const expectedVersion = "3.40.0";
 const requiredReferences = [
   "integrations/kie.md",
   "integrations/kie-models.md",
@@ -98,6 +98,7 @@ const requiredContent = {
     "## 强制流程（先读这张表，再做任何事）",
     "### `rankup doctor`",
     "scripts/maintain/rankup-doctor.mjs",
+    "scripts/maintain/rankup-clean.mjs",
     "ref-scan.mjs",
     "SEO/GEO 是主要手段，不是适用边界",
   ],
@@ -109,6 +110,7 @@ const requiredContent = {
     "## 五、维护 Skill 源码（rankup 本身）",
     "## 六、`/rankup doctor`：整理 `.rankup/` 的显式入口",
     "scripts/maintain/ref-scan.mjs",
+    "rankup-clean.mjs",
     "不能丢的东西",
     "## 七、经验分层与回流：四层归属（唯一判定表）",
     "RANKUP_HOME",
@@ -191,6 +193,7 @@ const requiredContent = {
     "iterations.md",
     "experience.md",
     "## 目录规范：常驻文件、保留什么、去哪里、多大",
+    "原始数据不常驻，结论进文档",
   ],
   "references/playbooks/site-review.md": [
     "G6 循环与费用止损",
@@ -528,6 +531,8 @@ async function validate() {
     "scripts/maintain/ref-scan.mjs",
     "scripts/maintain/split-doc.mjs",
     "scripts/maintain/rankup-doctor.mjs",
+    "scripts/maintain/rankup-clean.mjs",
+    "tests/rankup-clean.test.mjs",
   ]) {
     try {
       await read(requiredFile);

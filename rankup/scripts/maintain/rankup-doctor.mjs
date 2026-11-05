@@ -11,7 +11,7 @@
 //   1. 目录外文件：顶层不在 project-memory.md「目录规范」里的文件或目录；带日期的一次性文件；
 //   2. 备份与临时副本：*.bak* / *backup* / *.orig / *~；
 //   3. INDEX.md：存在、四个导航字段、「接力」一节存在且 ≤ 20 行、全文 ≤ 60 行、接力里的完成标记（任务型残留）；
-//   4. 体积：常驻 Markdown 按 LIMITS 的逐文件上限检查（默认 > 300 行或 > 24 KB）；journal/ 单篇 > 200 行或 > 16 KB；证据与脚本产物目录里超过 --stale-days 的旧运行；
+//   4. 体积与过程数据：常驻 Markdown 按 LIMITS 的逐文件上限检查（默认 > 300 行或 > 24 KB）；journal/ 单篇 > 200 行或 > 16 KB；复用 rankup-clean 检查过程数据残留（A 类），证据与脚本产物目录里超过 --stale-days 的旧运行（B 类），备份副本仍归 C 类；
 //   5. 断链：复用 doc-lint 检查 .rankup/ 内相对链接与锚点；
 //   6. 过期日期：时效契约文件里出现的最新日期早于 --stale-days；
 //   7. rejected.md：理由或复活条件为空的行、旧口径 revived 行；
@@ -27,6 +27,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { lint, stripFences } from "./doc-lint.mjs";
+import { formatBytes, planClean } from "./rankup-clean.mjs";
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -195,6 +196,20 @@ export async function diagnose({ rankupDir, portfolioRoot, staleDays = 30, now =
     if (old) add("B", "旧运行证据", `${dir}/`, `${old} 项运行日期超过 ${staleDays} 天（优先目录日期，无日期用 mtime）：先 ref-scan 确认无人引用，再移到可恢复位置`);
   }
 
+  // 4c 过程数据残留（复用 rankup-clean.mjs 计划；备份副本仍在上方按 C 类单独列出）
+  const cleanPlan = await planClean({ projectRoot: path.dirname(rankupDir), rankupDir });
+  if (cleanPlan.cleanFilesCount > 0) {
+    const breakdown = Object.entries(cleanPlan.byCategory)
+      .map(([cat, info]) => `${cat} ${info.count} 项/${formatBytes(info.bytes)}`)
+      .join("，");
+    add(
+      "A",
+      "过程数据残留",
+      ".rankup/",
+      `可清理过程数据 ${cleanPlan.cleanFilesCount} 个文件（${formatBytes(cleanPlan.cleanBytes)}：${breakdown}）：运行 node scripts/maintain/rankup-clean.mjs --project-root <项目目录> --apply 移入 $RANKUP_HOME/trash/ 并重写 md 断链`,
+    );
+  }
+
   // 5 断链
   const lr = await lint({ root: rankupDir, maxLines: 1e9, maxKb: 1e9 });
   for (const b of lr.broken.filter((b) => !inBackup(b.where))) add("A", "断链", b.where, `${b.target}（${b.reason}）`);
@@ -324,7 +339,21 @@ export async function diagnose({ rankupDir, portfolioRoot, staleDays = 30, now =
 
   const order = { A: 0, B: 1, C: 2 };
   findings.sort((a, b) => order[a.bucket] - order[b.bucket]);
-  return { rankupDir, staleDays, findings, portfolio, experiences, userLayer, sourceCheckout, codePathsChecked };
+  return {
+    rankupDir,
+    staleDays,
+    findings,
+    cleanSummary: {
+      cleanFilesCount: cleanPlan.cleanFilesCount,
+      cleanBytes: cleanPlan.cleanBytes,
+      byCategory: cleanPlan.byCategory,
+    },
+    portfolio,
+    experiences,
+    userLayer,
+    sourceCheckout,
+    codePathsChecked,
+  };
 }
 
 function render(r) {

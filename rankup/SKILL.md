@@ -2,7 +2,7 @@
 name: rankup
 description: 独立开发者的项目全生命周期管理：需求验证、选词选品、建站或做原生 App、上线接入、SEO/GEO 获客、支付变现、监控迭代与跨会话接力。以下情况使用：用户提到 rankup 或 /rankup（check、review、init；doctor 仅指整理项目 .rankup 记录）；当前目录或工作区有 .rankup/，或要读取、续做、整理项目计划、路线图、待办、PRD、交接或进度文档；在这些项目记录上下文里说「继续」「接着做」「上次做到哪」「下一步做什么」；以及项目规划、需求验证、关键词调研与 SERP、独立 Google Trends 热度查询或对比、AI 搜索推荐（GEO）、网站体检、sitemap/IndexNow/Search Console、流量、建站、上线、支付（Stripe、Anyway、PayPal）、变现与增长。SEO/GEO 是主要手段，不是适用边界，非 SEO 的项目计划与 macOS、iOS、iPad 原生 App 同样适用。纯文案（含 SEO 趋势博客等主题写作）、纯视觉设计、与项目管理无关的通用开发及基础设施排错（含 Cloudflare 部署报错、普通 CLI doctor）不触发；目录内有 .rankup/ 时仅叠加项目记录维护义务；外链执行交 backlink，浏览器驱动交 opencli，配图生成交 imagegen，多模型派单交 agent-fleet。
 metadata:
-  version: "3.39.2"
+  version: "3.40.0"
 ---
 
 # Rankup
@@ -21,7 +21,7 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 |---|---|---|---|
 | **开工**：项目任务（含工作区根） | [接力协议](references/project-memory.md#接力协议任务随时可能中断新会话必须立即接上)、项目接力记录 | 按接力与下文启动协议恢复、对账和记录状态 | 接力可续做 |
 | **里程碑**：产物、决定或后台任务状态变化 | 同上接力协议 | 覆盖当前接力与产物指针 | 接力反映最新状态 |
-| **收尾**：完成、放弃、叫停或等用户决定 | [维护「一」「二」](references/maintenance.md#二收尾维护五步顺序固定) | 按轻量路径或五步维护收口；扫描用 `scripts/maintain/ref-scan.mjs` | 回复有维护摘要与证据 |
+| **收尾**：完成、放弃、叫停或等用户决定 | [维护「一」「二」](references/maintenance.md#二收尾维护五步顺序固定) | 按轻量路径或五步维护收口；扫描用 `scripts/maintain/ref-scan.mjs`，清过程数据用 `scripts/maintain/rankup-clean.mjs --apply` | 回复有维护摘要与证据 |
 | 有项目记录上下文的「继续」「接着做」「上次做到哪」「我们开始执行这个项目的计划」，或读计划 / 交接 / 进度文档 | 同上「新会话怎么接」 | 定位项目 → 读接力（无 `.rankup/` 用 `HANDOFF.md`）→ 核对后台产物与改动 → 直接执行下一步 | 下一步已有执行证据 |
 | 选词、调研、找需求（**已有主词**） | [`playbooks/entry.md`](references/playbooks/entry.md) → [`research.md`](references/playbooks/research.md) | 按入口四步顺序与两路判读执行；方向未落主词先走 [`selection.md`](references/playbooks/selection.md)，无方向先走 [P1](references/playbooks/research/p1-discovery.md)，主词出现后回本行 | 入口卡写进 `.rankup/research/<词根>-<日期>.md` |
 | ChatGPT 问法链路、自然推荐验证 | [`seo-geo.md`](references/seo-geo.md) 步骤 2–3 | 采样与三清单按该唯一源；固定四问正文见其话术入口；词级编排与裁决回 [`entry.md`](references/playbooks/entry.md) | 入口卡②有三清单与原始证据指针 |
@@ -163,7 +163,7 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 
 ### `rankup init`
 
-全新项目，或做了很久还没有 `.rankup/` 的项目（常态，不得因为缺记忆就重建技术栈）：摸清 `package.json`、路由、部署配置、`git log`，已上线的再取线上 `sitemap.xml`、`robots.txt`、首页；外部系统一律实时查询；按 [`project-memory.md`](references/project-memory.md) 建 `.rankup/` 全套，取不到的写 `待确认`；`integrations.md` 用完整平台表初始化全部 ⬜（`discipline.md` 十）；已运行项目补 `baseline.md` 与 `audit.md`，`roadmap.md` 写阶段目标与放弃条件；绿地项目脚手架跑通即建**私有**远端仓。已有 `.rankup/` 时不覆盖，转为补齐并提示用 `review` 或 `doctor`。
+全新项目，或做了很久还没有 `.rankup/` 的项目（常态，不得因为缺记忆就重建技术栈）：摸清 `package.json`、路由、部署配置、`git log`，已上线的再取线上 `sitemap.xml`、`robots.txt`、首页；外部系统一律实时查询；按 [`project-memory.md`](references/project-memory.md) 建 `.rankup/` 全套，取不到的写 `待确认`；`integrations.md` 用完整平台表初始化全部 ⬜（`discipline.md` 十）；已运行项目补 `baseline.md` 与 `audit.md`，`roadmap.md` 写阶段目标与放弃条件；绿地项目脚手架跑通即建**私有**远端仓；建 git 仓库或初始化 `.rankup/` 时跑 `node "<rankup-skill-dir>/scripts/maintain/rankup-clean.mjs" --project-root . --install-hook --write-gitignore` 装好 pre-commit hook 与 `.rankup/.gitignore`。已有 `.rankup/` 时不覆盖，转为补齐并提示用 `review` 或 `doctor`。
 
 ### `rankup review`
 
