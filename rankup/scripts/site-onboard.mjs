@@ -3,6 +3,7 @@
  * 已部署 Cloudflare 站点的上线接入总入口；--check 只读，统计需在线上 HTML 回读。
  * 用法：node scripts/site-onboard.mjs --domain example.com [--repo <仓库>] [--branch <生产分支>] [--session 名] [--only cf,ga4,...] [--skip cf,ga4,...] [--check]
  * 依赖：cf-analytics-setup、ga4-setup、ga4-gsc-link、clarity-setup、indexnow-submit、gsc-domain-verify、
+ * sitemap 内容日期检查另用 sitemap-lastmod-check.mjs <域名>。
  * bing-import-from-gsc、yandex-setup、ahrefs-setup、webmaster-sitemap（均在同目录）。
  * 登录态：OpenCLI 所连接的 Chrome 已登录 GA4、Clarity、GSC、Bing、Yandex、Ahrefs；
  * Cloudflare API 凭据沿用各脚本。Bing 掉线时点「使用 Google 登录」；Ahrefs 冻结项目

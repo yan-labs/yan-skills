@@ -209,3 +209,9 @@ TDK 与内链检查覆盖**全站每一个 URL** 而非抽样；`is-agentic.mjs 
 | P7 | 按[建设中红线](../discipline.md#二十一禁止建设中内容与功能区域)重扫新增内页渲染产物，并逐入口回读实现；缺数据区块按唯一源处置。 |
 | P8 | 新内页上线前按 [`seo-geo.md` 的 GPT 推荐位自查清单](../seo-geo.md#新站上线后-gpt-推荐位自查清单)过一遍。 |
 
+
+### sitemap 的内容日期
+
+每个 URL 的 lastmod 取该页组件、文案/i18n、内容数据的最近 Git 提交日期与真实 updated 字段的较大者，格式 YYYY-MM-DD；列表页取自身与直接列出内容的最新日期。不要使用构建当天、手写统一日期；共享布局组件、robots、IndexNow key 与 CI 改动不刷新全站。构建/CI 使用完整 Git 历史（`fetch-depth: 0` 或等价方式）。静态框架在构建脚本生成 URL 日期映射；TanStack Start 在构建时注入映射供 sitemap 使用；Next.js 在 `app/sitemap.ts` 读取内容源 Git 历史并生成 MetadataRoute.Sitemap。按路由明确列依赖，不要把全目录或共享布局一概当全站内容。新增内容页同步登记依赖。
+
+运行 `node <rankup-skill-dir>/scripts/sitemap-lastmod-check.mjs <域名>`，再用实际内容变更前后证据验证对应日期变化；全站同日可能是新站历史真实情况，须人工核实，快照本身不能证明自动更新。

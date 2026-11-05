@@ -120,6 +120,7 @@ E 组依赖 A/B/D 的事实，先完成这些取数再综合判读。开放 API 
 
 | 阶段 | 并行/串行 | 跑什么 | 拿到什么 | 卡住了怎么办 |
 |---|---|---|---|---|
+| A0 sitemap 日期 | 串行 | `node <rankup>/scripts/sitemap-lastmod-check.mjs <domain>`；再对照内容提交前后日期 | 逐页日期与变更证据 | 同日需核实历史，快照不能证明自动更新 |
 | A1 全站 TDK/密度 | 串行（组内） | `mkdir -p .rankup/evidence && node <rankup>/scripts/seo-audit.mjs --sitemap <sitemap> --json > .rankup/evidence/seo-audit-<date>.json`（脚本**没有 `--out`**，只有 `--json` 打到 stdout，用重定向落盘；**`mkdir -p` 不能省**，见下方落点纪律） | **顶层是一个数组，每个元素是一整页**，10 个字段：`url` / `overview` / `issues` / `density` / `headings` / `images` / `links` / `social` / `hreflangs` / `structured`（抓取失败的元素只有 `url` + `fetchError` + 空 `issues`） | 有 `fetchError` 的页 → **抓取失败 ≠ 页面没问题**，换网络或去掉 UA 限制重跑那几条 URL，重跑不通就逐条记进 audit.md 待查 |
 | A2 密度单看 | 串行 | `node <rankup>/scripts/seo-audit.mjs --sitemap <sitemap> --density-only` | 1/2/3-gram 密度 | 密度没有「正确值」，只对照「这页声明的短语」是不是同一个字符串 |
 | A3 重定向 | 并行 | 对裸域/www/http/https 四种入口各跑 `curl -sIL -A 'Mozilla/5.0' <入口> \| grep -v 'Connection established' \| grep -iE '^(HTTP/\|location:)'` | 每个入口几跳、每跳是 301 还是 302（滤掉代理那行之后，**剩下几行 `HTTP/` 就是几跳**） | 302/307 出现即记必修（判据 [`../experiences/webcafe-topics.md`](../experiences/webcafe-topics.md) 五）。**忘了 `grep -v 'Connection established'` 会凭空多算一跳**：`HTTP/1.1 200 Connection established` 是 HTTPS 代理隧道的应答，不是目标站的响应，一个零跳首页会被读成 200→200 两跳并误记必修 |

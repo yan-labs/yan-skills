@@ -318,3 +318,5 @@ IndexNow 门禁见 [`checklists.md` 段 5 的 IndexNow 行](../checklists.md)；
 | `.rankup/releases.md`：部署标识与回滚点 | 段 7 排查线上异常时，把问题定位到具体版本而非笼统的「最近改动」 | 出现回归时无法快速判断是哪次发布引入的，回滚也没有明确目标版本 |
 | `hello@<domain>` | 段 6 的目录提交与外链联络用它 | 用个人邮箱联络，外链站主怀疑你不是站主 |
 
+
+发布内容后回读线上 sitemap，运行 `node <rankup-skill-dir>/scripts/sitemap-lastmod-check.mjs <域名>`，对照修改页的日期；用 `webmaster-sitemap.mjs` 向 GSC 与 Bing 重提 sitemap，并通过 `indexnow-submit.mjs` 推送改动页。日期实现见 [段 4](stage-4-prelaunch.md#sitemap-的内容日期)。

@@ -2,7 +2,7 @@
 name: rankup
 description: 独立开发者的项目全生命周期管理：需求验证、选词选品、建站或做原生 App、上线接入、SEO/GEO 获客、支付变现、监控迭代与跨会话接力。以下情况使用：用户提到 rankup 或 /rankup（check、review、init；doctor 仅指整理项目 .rankup 记录）；当前目录或工作区有 .rankup/，或要读取、续做、整理项目计划、路线图、待办、PRD、交接或进度文档；在这些项目记录上下文里说「继续」「接着做」「上次做到哪」「下一步做什么」；以及项目规划、需求验证、关键词调研与 SERP、独立 Google Trends 热度查询或对比、AI 搜索推荐（GEO）、网站体检、sitemap/IndexNow/Search Console、流量、建站、上线、支付（Stripe、Anyway、PayPal）、变现与增长。SEO/GEO 是主要手段，不是适用边界，非 SEO 的项目计划与 macOS、iOS、iPad 原生 App 同样适用。纯文案（含 SEO 趋势博客等主题写作）、纯视觉设计、与项目管理无关的通用开发及基础设施排错（含 Cloudflare 部署报错、普通 CLI doctor）不触发；目录内有 .rankup/ 时仅叠加项目记录维护义务；外链执行交 backlink，浏览器驱动交 opencli，配图生成交 imagegen，多模型派单交 agent-fleet。
 metadata:
-  version: "3.40.1"
+  version: "3.41.0"
 ---
 
 # Rankup
@@ -114,14 +114,14 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 
 ### 4 上线前 SEO / GEO · [全文](references/lifecycle/stage-4-prelaunch.md)
 
-- **入口**：判读 [`seo-box.md`](references/seo-box.md)、[`seo-webcafe.md`](references/seo-webcafe.md)、[`seo-ai-search.md`](references/seo-ai-search.md)。常用：`scripts/seo-audit.mjs --sitemap`、`scripts/pagespeed.mjs collect --strategy both`、`scripts/is-agentic.mjs scan --save`、`scripts/ai-crawler-access.mjs --url <正式域名>`、`scripts/ua-parity.mjs <url>`。
+- **入口**：判读 [`seo-box.md`](references/seo-box.md)、[`seo-webcafe.md`](references/seo-webcafe.md)、[`seo-ai-search.md`](references/seo-ai-search.md)。常用：`scripts/sitemap-lastmod-check.mjs <域名>`、`scripts/seo-audit.mjs --sitemap`、`scripts/pagespeed.mjs collect --strategy both`、`scripts/is-agentic.mjs scan --save`、`scripts/ai-crawler-access.mjs --url <正式域名>`、`scripts/ua-parity.mjs <url>`。
 - **原则与范围**：本段每次改动后按[段 4 全套验收](references/lifecycle/stage-4-prelaunch.md)重跑，因为 TDK、布局与性能会相互影响；适用范围与全部闸门按原规则执行。**图标专项未通过不许上线**。
 - **上线前与发布后复核入口**：复用 `checklists.md` D1 / D4 / D12 / D13 / P3（索引水合、Schema 语义、网格与键盘、SSR 可达性、分析去重与真实上报）；操作见段 4 文件与 `analytics-platforms.md`。
 - **闸门**：`checklists.md` 段 4。
 
 ### 5 上线与接入 · [全文](references/lifecycle/stage-5-launch.md)
 
-- **入口**：[`search-platforms.md`](references/search-platforms.md)、[`analytics-platforms.md`](references/analytics-platforms.md)、域名接入 [`cloudflare/domain-email.md`](references/cloudflare/domain-email.md)。常用：`scripts/site-onboard.mjs`、`scripts/gsc-domain-verify.mjs`、`scripts/bing-import-from-gsc.mjs`、`scripts/cf-analytics-setup.mjs`、`scripts/indexnow-submit.mjs`、`scripts/webmaster-sitemap.mjs`、`scripts/yandex-setup.mjs`、`scripts/ahrefs-site-audit.mjs`、`scripts/analytics-beacon-check.mjs`。
+- **入口**：[`search-platforms.md`](references/search-platforms.md)、[`analytics-platforms.md`](references/analytics-platforms.md)、域名接入 [`cloudflare/domain-email.md`](references/cloudflare/domain-email.md)。常用：`scripts/sitemap-lastmod-check.mjs <域名>`、`scripts/site-onboard.mjs`、`scripts/gsc-domain-verify.mjs`、`scripts/bing-import-from-gsc.mjs`、`scripts/cf-analytics-setup.mjs`、`scripts/indexnow-submit.mjs`、`scripts/webmaster-sitemap.mjs`、`scripts/yandex-setup.mjs`、`scripts/ahrefs-site-audit.mjs`、`scripts/analytics-beacon-check.mjs`。
 - **原则与范围**：按[段 5](references/lifecycle/stage-5-launch.md)完成部署、索引与接入，并以真实线上证据收口，避免用勾选代替生效状态。
 - **闸门**：`checklists.md` 段 5。
 
