@@ -10,13 +10,13 @@ fleet team  # 五产品能力、顺位链与可用性；只显示存在性/登�
 
 | 让谁做 | 适合什么 | 命令示例 | 派用者顺位参考 |
 |---|---|---|---|
-| `gpt` | 编码、调研、报告、只读复核；本机 Codex GPT-6.1 Sol | `fleet-go new fix --to gpt --auth local --goal "修复问题" --body task.md` | 网关 gpt-sol → Grok |
-| `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | code → 网关 gpt-sol → Grok → Gemini（仅文本） |
-| `grok` | 视频与图片（生成、搜索）、X 平台（热点与实时讨论）、编码、检索调研、成人题材 | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | Claude 顺位下一档 Gemini（仅文本） |
+| `gpt` | 正常开发用 Terra（`--simple`）；非常严谨开发才用 Sol；最简单且可机械验证的子任务用 Luna（`--luna`） | `fleet-go new fix --to gpt --simple --auth local --goal "修复问题" --body task.md` | 周用量 ≥ 95% 改 Gemini 4 |
+| `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | 按额度规则选择 Terra 或 Gemini |
+| `grok` | 视频与图片（生成、搜索）、X 平台（热点与实时讨论）、编码、检索调研、成人题材 | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | 按任务与额度选择 Gemini |
 | `gemini` | 文案、翻译、摘要、批量机械任务（`--bulk`） | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | — |
 | `jev` | 分类、选择、打分等结构化判断 | `fleet-go new decide --to jev --goal "按正文判据分类" --body task.md` | — |
 
-`--to` 必填且仅接受上表五产品。`--review` 用于 GPT/Grok 只读复核，GPT `--low`；Claude `--tier haiku|sonnet|opus|fable`，默认 sonnet；Gemini `--bulk`；Grok `--model <id>` 与 `--subagents`。底层短命令仍保留，见 [Skill 命令速查](skill/SKILL.md#命令速查)。
+`--to` 指定产品；GPT 用 `--simple` 选 Terra、`--luna` 选 Luna，Luna 默认 xhigh、可选 `--max`，Terra/Sol 默认 medium；可选 `--low` 或 `--high`，`--low`、`--high`、`--xhigh` 与 `--max` 互斥；默认不开 fast，需要时显式 `--fast`。Luna 与 simple/review 不能同用。其他参数见 [Skill 命令速查](skill/SKILL.md#命令速查)。
 
 `brief.md` 也可以直接写成任务文本；默认当前目录、不限轮数、安静模式。`--verbose` 显示进度。短命令和模型对应关系见 [skill](skill/SKILL.md)。
 
@@ -27,10 +27,10 @@ fleet team  # 五产品能力、顺位链与可用性；只显示存在性/登�
 失败上报给派用者：verdict 为 `fail`，结果文件和简报只记录执行者与档位、脱敏原始错误摘要（stderr 末尾、HTTP 状态、结构化错误）、已完成步骤、产物与 dirty 状态。fleet 不分类错误、不提供建议、不更换执行者。
 
 下面的顺位表只供派用者自行判断，代码不消费：
-- Claude 额度档：`claude → code → kollab-gateway-gpt-sol → grok → gemini`（Gemini 仅文本）。
-- GPT 档：`code → kollab-gateway-gpt-sol → grok`；GPT 档含本机 Codex 与网关 gpt-sol 两跳。
+- Claude 额度档：按任务和 Codex 额度规则选择 Claude、Terra 或 Gemini。
+- GPT 档：正常开发 Terra（`--simple`）→ 非常严谨才用 Sol（medium、不开 fast，默认不派）→ 周用量 ≥ 95% 改 Gemini 4；最简单且可机械验证的子任务用 Luna（`--luna`）。
 
-派用者决定后，用 `fleet-go relaunch <name> --to <产品> [--tier haiku|sonnet|opus|fable]` 沿用同份 brief、`--name` 与 `--report` 重派。切换至网关 GPT 用底层 `fleet gpt brief.md --name <name> --report <report>`。Gemini 静态拒绝编码、UI 或带 `--expect-changes` 的任务；这是产品边界检查。成功任务不产生失败上报。
+Codex 周用量取最新 rollout 的 `rate_limits.primary`（`window_minutes=10080`）的 `used_percent`；≥ 95% 或用尽时停派 Codex，改 `fleet-go new --to gemini`，默认 Gemini 4 `gemini-4-argon`，经 Claude Agent SDK，也可编码。非非常重要的编程交 Gemini，非常重要的交 Claude Sonnet，难的 Opus。Gemini 免费额度约 10 万美元、剩约 4–6 万美元且会过期，余额以实际为准；Codex 用尽可让 Kollab 派任务执行充值脚本，付款前须先向用户确认金额。严苛架构或成本收缩、清理每秒 1000 行等硬指标多轮未达标时，派 executor-fable 子代理调研方案，再派执行者。
 
 ## xAI Grok Build CLI
 
@@ -40,7 +40,7 @@ fleet grok-cli brief.md --review --cwd /path/to/project
 fleet-go new demo-grok --to grok --auth local --goal "完成编码任务" --body brief.md --dry-run
 ```
 
-`grok-cli` 使用本机 xAI 完整编码 Agent；`fleet grok` 仍使用 Kollab 网关单轮模型。先 `grok login --oauth`，模型默认取 `grok models`，可用 `--model` 覆盖。runner 解析 streaming-json，保存 sessionId、stopReason、usage；简报 cost/turns 为 Grok 自报。非 end_turn（尤其工具批准被取消的 cancelled）判 fail，无明确最终结论判 suspect。写任务和 review 都自动批准；本机沙箱实测不生效，review 只读靠提示与事后快照，改动文件判 suspect。支持 `fleet say <任务> "新指令"` / `fleet-go amend --say` / `fleet resume <任务>` 以 sessionId 续跑。代理变量 HTTPS_PROXY/HTTP_PROXY/ALL_PROXY（含小写）原样透传，Rust Grok 不认 NODE_USE_ENV_PROXY。默认禁止子代理，详见 [Grok CLI](skill/references/grok-cli.md)。
+`grok-cli` 使用本机 xAI 完整编码 Agent；`fleet grok` 仍使用 Kollab 网关单轮模型。先 `grok login --oauth`，模型默认取 `grok models`，可用 `--model` 覆盖。runner 解析 streaming-json，保存 sessionId、stopReason、usage；简报 cost/turns 为 Grok 自报。非 end_turn（尤其工具批准被取消的 cancelled）判 fail，无明确最终结论判 suspect。写任务和 review 都自动批准；本机沙箱实测不生效，review 只读靠 brief 约定，允许联网、临时脚本和测试，不因文件变化判 suspect。支持 `fleet say <任务> "新指令"` / `fleet-go amend --say` / `fleet resume <任务>` 以 sessionId 续跑。代理变量 HTTPS_PROXY/HTTP_PROXY/ALL_PROXY（含小写）原样透传，Rust Grok 不认 NODE_USE_ENV_PROXY。默认禁止子代理，详见 [Grok CLI](skill/references/grok-cli.md)。
 
 ## 默认独立运行：跨会话接续
 
@@ -63,9 +63,11 @@ Claude Code 派单写法与误加 `&` 后的补救见 [Skill 顶部「派单前�
 
 状态保存在 `~/.agent-fleet/runs/<runId>.json`，原子更新监督/执行 PID、每30秒心跳、结果/日志路径及简报。PID死亡或心跳超过90秒判为 abnormal；若最后心跳早于启动+10分钟，提示可能重启/强制休眠中断及 `fleet resume <id>`。`wait` 每两秒只读状态与 PID，终态立即返回简报；超时只结束等待，任务继续。`wait` / `tail` 支持短名、唯一runId前缀，`latest` 指当前目录最近任务（包括终态）；stop/say/resume 的 latest 保持当前目录最近存活任务规则。
 
+Codex app-server 默认使用两层续做闸门：部分完成、报告七节缺失或 brief 要求的提交哈希/读回结果缺失，直接同线程继续；写完成且规则放行后，用现有 JEV 判断验收证据、授权内剩余步骤和中途自查，并将具体缺项带回。置信度低于 0.55 只额外继续一次；JEV 不可用按规则结果走。最多续做 3 次，连续两次没有新提交、文件内容或报告变化时停止；结果记录每次进展及裁判结论/置信度，最终仍有缺项则 verdict 为 partial。`--no-continue` 或 `FLEET_NO_CONTINUE=1` 可关闭，review、exec 兜底与其他产品不适用；用户 amend/steer/relaunch 行为不变。脱离启动的运行中任务按监督器对应的执行进程和收件箱插话，嵌套 fleet 不继承外层任务身份；送不进会报告具体缺口。
+
 Codex app-server 任务运行中仍显示在 Codex APP，结束后自动归档本任务线程；归档失败只记降级。历史保留，fleet 续跑前取消归档，结束后再归档。
 
-网关与 Grok 任务支持 say/resume；Codex 默认用独立 stdio app-server 支持同轮 `turn/steer`，失败尝试 SIGINT 后 `codex exec resume`；启动/握手失败退回原 exec，没有可续跑会话时明确提示 `--restart`。`fleet-go amend --say` 同样生效，异常中断可用 threadId/sessionId `fleet resume`，沿用 cwd、low/review、name/report；简报记录 steer/resume 次数与降级。只读沙箱无法等价时保持 read-only exec。steer 接受不等于立即执行，也不能撤销已完成写入，详见 [中途插话](skill/references/codex-coding.md#中途插话)。macOS 沿用系统 caffeinate 防空闲睡眠；机器重启、合盖强制休眠仍会中断或暂停，不提供重启恢复。监督器被 SIGKILL 时标 abnormal，可用完整runId stop 清理存活执行器。
+网关与 Grok 任务支持 say/resume；Codex 默认用独立 stdio app-server 支持同轮 `turn/steer`，失败尝试 SIGINT 后 `codex exec resume`；启动/握手失败退回原 exec，没有可续跑会话时明确提示 `--restart`。`fleet-go amend --say` 同样生效，异常中断可用 threadId/sessionId `fleet resume`，沿用 cwd、low/review、name/report；简报记录 steer/resume 次数与降级。review 同样支持 app-server，及 exec/resume 兜底，两路均为 `danger-full-access`。steer 接受不等于立即执行，也不能撤销已完成写入，详见 [中途插话](skill/references/codex-coding.md#中途插话)。macOS 沿用系统 caffeinate 防空闲睡眠；机器重启、合盖强制休眠仍会中断或暂停，不提供重启恢复。监督器被 SIGKILL 时标 abnormal，可用完整runId stop 清理存活执行器。
 
 ## Kollab 文字模型与多模态
 
@@ -176,11 +178,11 @@ node bin/agent-fleet.mjs judge --model jev --state-file state.txt --questions-fi
 
 ### 任务类型 → 推荐模型(agent-fleet 自己调研 + 真实验证后得出,会持续校准)
 
-编程与 review 优先规则见 [Codex 编程与 review](skill/references/codex-coding.md)。本机 Codex 可用时优先 GPT-6.1 Sol；其他任务沿用下表已有的模型分工。模型目录和账号能力可能变化，始终以真实调用和任务验收为准。
+编程与 review 优先规则见 [Codex 编程与 review](skill/references/codex-coding.md)。正常编程派 Terra，非常严谨的开发才派 Sol；最简单且可机械验证的子任务派 Luna，带逻辑的改动用 Terra/Sol。Luna 默认 xhigh、可选 `--max`；Terra/Sol 默认 medium。
 
 | 任务类型 | 推荐模型 / 友好名字 | 理由 |
 |---|---|---|
-| 写代码 / 修 bug / 补测试 | 本机 Codex CLI 的 `gpt-6.1-sol`，默认 `medium`，简单任务 `low` | 主力编码通道；失败上报派用者自行判断重派 |
+| 写代码 / 修 bug / 补测试 | Codex Terra（`--simple`），默认 medium；非常严谨时 Sol | Codex 周额度 ≥ 95% 改 Gemini 4 |
 | 写作 / 翻译 / 调研 / 母语校对（写文档、写报告、核实资料） | `kollab-gateway-copy`(`gemini-4-argon`)或 `kollab-gateway`(默认同款) | 文案默认 `gemini-4-argon`(官方价输入 $4/百万、输出 $20/百万、缓存读 $0.20/百万)，2026-10-15 经 `fleet copy` 通道真实验证可用(verdict=ok，账本显示实际模型为 gemini-4-argon)；需 fleet key 绑定空间余额高于其最坏预留(约 845 积分)。长报告换 `gemini-3.1-pro`；批量继续 `fleet bulk`。**注意：实测 `gemini-3.8-flash` 做多文件代码改动容易跑满轮数零产出，绝对不要派它写代码** |
 | 批量翻译 / 格式转换 | `deepseek-v4.1-flash`(需配 `DEEPSEEK_API_KEY`)或 `kollab-gateway-bulk`(`gemini-3.5-flash-lite`,即用免配置) | 官方 Flash 档更便宜;没有 DeepSeek key 时 `kollab-gateway-bulk` 是免第三方审批的平替 |
 | 简单调研摘要 | `kimi`(需配 `MOONSHOT_API_KEY`,自带联网搜索)或 `kollab-gateway-research`(`grok-4.7`,即用免配置) | Kimi 官方端点自带联网检索能力,适合真正需要查资料的调研;不想等 key 审批时用 `kollab-gateway-research` 顶上 |
@@ -469,6 +471,10 @@ ANTHROPIC_DEFAULT_SONNET_MODEL=<subagentModel 的值>
 
 ## 安全边界
 
+review 的只读是 brief 约定，而非沙箱。项目文件保持原样；允许联网、运行测试和脚本，只在自己的 `mktemp -d` 临时目录建删文件。Codex 普通/review 的 app-server、exec 和 resume 均使用 `danger-full-access`；SDK（Claude haiku/sonnet/opus/fable、Gemini 与网关）均使用 `bypassPermissions`，不设只读 allowedTools/disallowedTools/canUseTool，也不带入受信项目配置中的 permissions、sandbox 或工具名单。Grok 普通/review 均使用 `--always-approve`、不传 sandbox、不做文件快照失败判定。Gemini 不因编码/UI/expect-changes 关键词硬拒绝；JEV 是结构化 API，没有 Bash/文件工具，不存在只读沙箱。
+
+各命令执行器保留宿主的 HTTP(S)_PROXY、ALL_PROXY、NO_PROXY 及小写形式，Node 子进程开启 `NODE_USE_ENV_PROXY=1`。全权限允许实际修改项目，执行者必须遵守 brief；这不是防止写入的安全隔离。密钥脱敏与凭据路由隔离、用户明确给出的费用上限、生产写授权继续保留；真实系统访问控制和上游协议能力不由 fleet 绕过。原有 git dirty 信息只作产物提示，不因 review 文件变化单独判失败。
+
 ### 谁说了算:信任模型
 
 这个工具的核心信任规则只有一条:
@@ -501,10 +507,10 @@ ANTHROPIC_DEFAULT_SONNET_MODEL=<subagentModel 的值>
 目标目录的 `.mcp.json` 也不自动加载(`strictMcpConfig`)。
 这不等于屏蔽所有项目文本:`CLAUDE.md` / 文件内容的 prompt injection 风险仍见下文。
 
-只有希望项目里的权限等行为配置生效时,才需要可选白名单。对自己控制的仓库,可在 agent-fleet 根目录的
+只有希望项目里的清理周期等行为配置生效时,才需要可选白名单。对自己控制的仓库,可在 agent-fleet 根目录的
 `.env` 或进程环境变量中设置 `AGENT_FLEET_TRUSTED_CWDS=/绝对路径/仓库一:/绝对路径/仓库二`（进程环境优先）。
 白名单按 realpath 后的目录边界覆盖自身及子目录,不覆盖同名前缀的兄弟目录,空值、相对路径和 `/` 均忽略。
-命中时会输出提示,并只加载过滤后的项目配置（如权限）：项目里的 `hooks`、`statusLine`、插件、`env`、凭据 helper
+命中时会输出提示,并只加载过滤后的项目配置（如清理周期），工具权限与沙箱配置不传入 SDK：项目里的 `hooks`、`statusLine`、插件、`env`、凭据 helper
 与登录方式设置一律不带进子任务;白名单目录的非法 JSON 仍会报错,因为这条可选路径需要解析配置。
 请求地址、凭据和自定义头仍只取自 `models.config.json` + 操作者的 `.env`/环境变量。
 仍建议只添加自己控制的目录,不要添加第三方项目。
@@ -564,8 +570,18 @@ agent-fleet 会把 `CLAUDE_CONFIG_DIR` 指向自己专属的 `~/.agent-fleet/cla
 
 ## fleet-go 快速派单
 
-`fleet-go new fix-card --to gpt --auth local --goal "修复窄屏卡片溢出" --write /path/to/project --body task.md` 按产品自动拼标准块、lint、写 brief 并前台执行 fleet；也支持 heredoc 正文。`--dry-run` 只打印，`--no-launch` 只落盘。块在 `skill/templates/blocks/`，可直接编辑；paid 必须传 `--budget`，生产目标与回滚条件写在独有正文。
+`fleet-go new fix-card --to gpt --auth local --goal "修复窄屏卡片溢出" --write /path/to/project --body task.md` 按产品自动拼标准块、lint、写 brief 并前台执行 fleet；也支持 heredoc 正文。`--dry-run` 只打印，`--no-launch` 只落盘。块在 `skill/templates/blocks/`，可直接编辑；`--budget` 可选，用户给了预算才写进 brief，没给不写、不设默认值，生产目标与回滚条件写在独有正文。
 
 修订用 `fleet-go amend fix-card "补充要求"`；优先 `--say`，不支持插话则保留修订并提示，确需重来才用 `--restart`（先 stop 并核验残留）。`fleet-go lint brief.md` 检查格式与启动禁令；`fleet-go status` 给运行摘要。brief 和用于恢复命令的 `.brief.json` 放在 `~/.agent-reports/<日期>/`，同名拒绝覆盖。启动仍用工具 `run_in_background:true`，脚本不后台化。需要 Python 3，无新增 npm 依赖。
 
 补扫漏归档线程：`node bin/fleet-archive-sweep.mjs [--dry-run] [--json] [--min-idle-minutes 10]`。派单前及 Codex 完成后运行；派单入口也会后台补扫（不等待、失败不阻断），`FLEET_NO_ARCHIVE_SWEEP=1` 可关闭自动扫描。
+
+## OpenAI 订阅 API 额度
+
+与 Claude 月度 API 额度入口并列：`fleet openai brief.md` 或 `fleet-go new name --to openai --auth local --goal "目标" --body brief.md`。默认 `gpt-6.1-sol`。把关联 API 组织的 Key 存入本工具 `.env` 的 `OPENAI_CREDIT_API_KEY`（0600）。
+
+该入口通过临时本机协议适配复用现有 Claude Agent SDK 工具、会话/续跑、插话与报告；上游直接 OpenAI Responses API。它不是 Codex，不占 signed-in Codex 额度；`fleet code` 与已有 `fleet gpt` 路由保持原样。不要把 OpenAI Key 直接当 Anthropic Key 发往 Anthropic。
+
+额度须先在 ChatGPT/API Billing 激活并发到 Key 所属组织；API 请求成功不能证明赠送额度到账。官方 grant 优先抵扣，但赠送用尽时已有购买余额仍可能继续使用。以平台 Credit grants/Usage 为准；本工具不自动购买、充值或改套餐。参考：[官方说明](https://help.openai.com/zh-hans-cn/articles/20001626-api-credits-benefit-for-eligible-chatgpt-subscriptions)。
+
+GPT 适配当前已验证普通文本、Bash/Read 工具往返和 SDK 原会话 resume。未知内容块、延迟工具注册、原生 web_search 或未支持选项会明确失败；不承诺所有 Claude 特殊工具完全等价。当前先等待 OpenAI 完整响应再转 SDK SSE，无实时首 token；报告保留 OpenAI 实际 token 用量，不用 SDK 的 Claude 估价冒充 GPT 实际账单。

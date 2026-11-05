@@ -53,6 +53,7 @@ export function browserCommand(web, args, options = {}) {
   if (!web.legacyKeepAlive) {
     const result = oc([...command, '--keep-alive'], options);
     if (result.status === 0 || !/unknown option[^\n]*--keep-alive/i.test(result.stderr + result.stdout)) return result;
+    if (web.strictKeepAlive) throw new Error('固定话术模式要求 OpenCLI 支持 --keep-alive；请升级后续跑，不退回有限时保活。');
     web.legacyKeepAlive = true;
     console.error('[提示] OpenCLI 不支持 --keep-alive，退回旧版 24 小时保活；用完仍需 close。');
   }
@@ -175,6 +176,10 @@ async function sendTurnChecked({ prompt, timeoutS, web, continuation = false, na
     deadline = Date.now() + timeoutS * 1000;
   }
   checkSessionHealth(web);
+  if (web.fixedScript) {
+    const privacy = ensurePrivacySwitches(web);
+    if (!privacy.ok) return privacy;
+  }
   await checkExit(web);
   const state = natural ? parseEvalJson(browser('eval', `JSON.stringify({count:document.querySelectorAll('[data-markdown-text-style="assistant-message"]').length,blocked:/验证码|captcha|verify you are human|too many requests|usage limit|reached the limit|达到.*上限/i.test(([...document.querySelectorAll('[data-markdown-text-style="assistant-message"]')].reduce((t,a)=>t.split(a.innerText).join(''),document.body.innerText))),auth:!document.querySelector('[contenteditable="true"][role="textbox"]') && /登录|log in|sign in/i.test(document.body.innerText)})`).stdout) : null;
   if (state?.blocked || state?.auth) return { ...failedPage(web), ok: false, failure: state.auth ? 'auth' : 'rate-limit', error: '临时页出现登录、验证码或限流提示', durationMs: Date.now() - t0 };
@@ -193,11 +198,12 @@ async function sendTurnChecked({ prompt, timeoutS, web, continuation = false, na
       const answer = answers.pop();
       const busy = !!document.querySelector('[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="停止"]');
       const links = answer ? [...answer.querySelectorAll('a[href^="http"]')].map(a => ({url:a.href,title:a.innerText,via:'dom-link'})) : [];
-      return {text:answer?.innerText || '',count:answers.length + (answer ? 1 : 0),sources:!!answer && /sources|来源|搜索|searching|searched/i.test(answer.closest('article')?.innerText || answer.innerText),links,busy,blocked:/验证码|captcha|verify you are human|too many requests|usage limit|reached the limit|达到.*上限/i.test(nonAnswer),blockedHit:(nonAnswer.match(/.{0,50}(验证码|captcha|verify you are human|too many requests|usage limit|reached the limit|达到.*上限).{0,50}/i)||[''])[0],auth:!document.querySelector('[contenteditable="true"][role="textbox"]') && /登录|log in|sign in/i.test(text),model:document.querySelector('button[aria-label="选择 ChatGPT 模型"]')?.innerText || null};
+      return {url:location.href,text:answer?.innerText || '',count:answers.length + (answer ? 1 : 0),sources:!!answer && /sources|来源|搜索|searching|searched/i.test(answer.closest('article')?.innerText || answer.innerText),links,busy,blocked:/验证码|captcha|verify you are human|too many requests|usage limit|reached the limit|达到.*上限/i.test(nonAnswer),blockedHit:(nonAnswer.match(/.{0,50}(验证码|captcha|verify you are human|too many requests|usage limit|reached the limit|达到.*上限).{0,50}/i)||[''])[0],auth:!document.querySelector('[contenteditable="true"][role="textbox"]') && /登录|log in|sign in/i.test(text),model:document.querySelector('button[aria-label="选择 ChatGPT 模型"]')?.innerText || null};
     })())`);
     const got = parseEvalJson(r.stdout);
     if (got?.blocked || got?.auth) return { ...failedPage(web), ok: false, failure: got.auth ? 'auth' : 'rate-limit', error: '临时页出现登录、验证码或限流提示 | hit=' + JSON.stringify(got.blockedHit||'') + ' auth=' + got.auth, durationMs: Date.now() - t0 };
     if (got?.text && !got.busy && (natural ? got.count > before : got.text.includes('---PROBE---'))) {
+      if (web.fixedScript && (new URL(got.url).origin !== 'https://chatgpt.com' || new URL(got.url).searchParams.get('temporary-chat') !== 'true')) return { ...failedPage(web), ok: false, failure: 'privacy-switch', error: '答后 URL 已离开临时聊天；停止。' };
       const cited = [...new Map(got.links.map(c => [c.url, {...c, domain:regDomain(c.url)}])).values()];
       return { ok: true, answer:got.text, text:got.text, failure:null, pageText:'', cited, searched:got.sources || cited.length > 0, durationMs:Date.now()-t0,
         web:{is_temporary_chat:true,temporaryNotice:notice,memory_scope:null,model:got.model,conversationUrl:'https://chatgpt.com/?temporary-chat=true',citedCount:cited.length,payloadVerified:false},

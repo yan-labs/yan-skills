@@ -1,6 +1,4 @@
 import assert from 'node:assert/strict';
-import { geminiBriefCases } from './gemini-brief-fixtures.mjs';
-import { geminiBlocked } from '../src/shortcuts.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,7 +22,7 @@ fs.appendFileSync(process.env.CALLS, JSON.stringify({args, pid:process.pid})+'\\
 if(args[0]==='status') { const rows=JSON.parse(fs.readFileSync(process.env.STATES,'utf8')); console.log(JSON.stringify(args.includes('--running')?rows.filter(r=>r.status==='running'):rows)); }
 if(args[0]==='stop') fs.writeFileSync(process.env.STATES,JSON.stringify(JSON.parse(fs.readFileSync(process.env.STATES,'utf8')).map(r=>r.runId===args[1]?{...r,status:'stopped'}:r)));
 if(args[0]==='say' && process.env.SAY_FAIL) process.exit(1);
-if(['code','copy','bulk','grok-cli','haiku','sonnet','opus','fable','judge'].includes(args[0])) process.exit(7);
+if(['code','openai','copy','bulk','grok-cli','haiku','sonnet','opus','fable','judge'].includes(args[0])) process.exit(7);
 `, { mode: 0o755 });
 writeFileSync(join(bin, 'pgrep'), '#!/bin/sh\nif [ -n "${RESIDUAL:-}" ]; then\n printf "%s\\n" "$RESIDUAL"\n exit 0\nfi\nexit 1\n', { mode: 0o755 });
 const env = { ...process.env, HOME: home, PATH: bin + ':' + process.env.PATH, CALLS: calls, STATES: states };
@@ -159,15 +157,23 @@ try {
       assert.equal(r.stdout,'');
     }
   });
-  test('body 文件、stdin、授权叠加、paid 必须预算、默认报告和 no-launch', () => {
+  test('body 文件、stdin、授权叠加、paid 预算可选、默认报告和 no-launch', () => {
     const body=join(temp,'body.md'); writeFileSync(body,'## 独有正文\n只处理本目标');
     let r=run(['new','--to','gpt','body','--body',body,'--auth','local,readonly-web','--no-launch']); assert.equal(r.status,0,r.stderr);
-    assert.equal(run(['new','--to','gpt','paid','--goal','付费','--auth','paid','--dry-run']).status,1);
-    r=run(['new','--to','gpt','paid','--goal','付费','--auth','paid','--budget','$2，重试 1 次','--dry-run']); assert.equal(r.status,0); assert.match(r.stdout,/\$2，重试 1 次/);
+    for (const auth of ['paid', 'paid,local']) {
+      r=run(['new','--to','gpt','paid','--goal','付费','--auth',auth,'--dry-run']);
+      assert.equal(r.status,0,r.stderr);
+      assert.match(r.stdout,/允许范围：当前目标必要的付费验证/);
+      assert.doesNotMatch(r.stdout,/\$5|## 预算与重试限制|付费由主线程另行授权|\{BUDGET\}/);
+      const preview=join(temp,'paid-preview.md'); writeFileSync(preview,r.stdout);
+      assert.equal(run(['lint',preview]).status,0);
+    }
+    r=run(['new','--to','gpt','paid','--goal','付费','--auth','paid','--budget','$2，重试 1 次','--dry-run']); assert.equal(r.status,0); assert.match(r.stdout,/## 预算与重试限制\n\$2，重试 1 次/);
+    assert.equal(r.stdout.split('$2，重试 1 次').length-1,1);
     r=spawnSync(script,['new','--to','gpt','stdin','--dry-run'],{encoding:'utf8',env,input:'## stdin 独有正文'}); assert.equal(r.status,0); assert.match(r.stdout,/stdin 独有正文/);
   });
   test('五产品、各档及选项映射，必填产品与旧参数拒绝', () => {
-    for(const [to,cmd] of Object.entries({gpt:'code',claude:'sonnet',grok:'grok-cli',gemini:'copy',jev:'judge'})) {
+    for(const [to,cmd] of Object.entries({gpt:'code',openai:'openai',claude:'sonnet',grok:'grok-cli',gemini:'copy',jev:'judge'})) {
       const r=run(['new',to,'--to',to,'--goal','是否满足判断条件','--dry-run']);
       assert.equal(r.status,0,r.stderr); assert.ok(r.stderr.includes('fleet '+cmd+' '));
       assert.match(r.stdout,/归类：/); assert.match(r.stdout,/REPORT: /); assert.ok(r.stdout.includes(rule));
@@ -185,6 +191,85 @@ try {
     const old=run(['new','old','--kind','code']); assert.equal(old.status,1); assert.match(old.stderr,/--to/); assert.equal(old.stderr.trim().split('\n').length,1);
     assert.equal(run(['new','bad','--to','gpt','--tier','opus','--goal','任务','--dry-run']).status,1);
   });
+  test('simple 两档、组合限制及 relaunch/amend 保留档位', () => {
+    const normal = run(['new','normal-mode','--to','gpt','--goal','x','--dry-run']);
+    assert.equal(normal.status, 0, normal.stderr);
+    assert(!normal.stderr.includes('--simple'));
+    const simple = run(['new','simple-mode','--to','gpt','--simple','--low','--goal','x','--no-launch']);
+    assert.equal(simple.status, 0, simple.stderr);
+    const simplePath = join(home,'.agent-reports', report.split('/').at(-2), 'simple-mode.brief.md');
+    const simpleMetaPath = simplePath.replace(/\.md$/,'.json');
+    const oldMeta = JSON.parse(readFileSync(simpleMetaPath,'utf8'));
+    assert.equal(oldMeta.simple, true);
+    delete oldMeta.fast;
+    delete oldMeta['no-fast'];
+    writeFileSync(simpleMetaPath, JSON.stringify(oldMeta));
+    writeFileSync(states,'[]'); reset();
+    assert.equal(run(['relaunch','simple-mode']).status, 7);
+    assert(history().at(-1).args.includes('--simple'));
+    assert(!history().at(-1).args.includes('--fast'));
+    assert(history().at(-1).args.includes('--low'));
+    reset();
+    assert.equal(run(['amend','simple-mode','继续','--say']).status, 7);
+    assert(history().at(-1).args.includes('--simple'));
+    const noFast = run(['new','no-fast-mode','--to','gpt','--simple','--no-fast','--goal','x','--no-launch']);
+    assert.equal(noFast.status, 0, noFast.stderr);
+    for (const args of [['relaunch','no-fast-mode'], ['amend','no-fast-mode','继续','--say']]) {
+      reset(); assert.equal(run(args).status, 7); assert(history().at(-1).args.includes('--no-fast'));
+    }
+    const fast = run(['new','fast-mode','--to','gpt','--simple','--fast','--goal','x','--no-launch']);
+    assert.equal(fast.status, 0, fast.stderr);
+    for (const args of [['relaunch','fast-mode'], ['amend','fast-mode','继续','--say']]) {
+      reset(); assert.equal(run(args).status, 7); assert(history().at(-1).args.includes('--fast'));
+    }
+    const solFast = run(['new','sol-fast','--to','gpt','--fast','--goal','x','--dry-run']);
+    assert.equal(solFast.status, 0);
+    assert.equal(run(['new','compat','--to','gpt','--no-fast','--goal','x','--dry-run']).status, 0);
+    for (const to of ['openai','claude','grok','gemini','jev']) {
+      const bad = run(['new','bad-simple','--to',to,'--simple','--goal','x','--dry-run']);
+      assert.equal(bad.status, 1); assert.match(bad.stderr, /--simple.*--to gpt/);
+    }
+    const review = run(['new','bad-simple','--to','gpt','--simple','--review','--goal','x','--dry-run']);
+    assert.equal(review.status, 1); assert.match(review.stderr, /--simple.*--review/);
+    reset();
+    assert.equal(run(['relaunch','simple-mode','--to','claude']).status, 7);
+    assert(!history().at(-1).args.includes('--simple'));
+  });
+  test('luna 新建、重派和修订保留模型及冲突限制', () => {
+    assert.equal(run(['new','luna-mode','--to','gpt','--luna','--low','--goal','x','--no-launch']).status, 0);
+    const metaPath = join(home,'.agent-reports', report.split('/').at(-2), 'luna-mode.brief.json');
+    assert.equal(JSON.parse(readFileSync(metaPath,'utf8')).luna, true);
+    assert.equal(JSON.parse(readFileSync(metaPath,'utf8')).low, true);
+    for (const args of [['relaunch','luna-mode'], ['amend','luna-mode','继续','--say']]) {
+      reset(); assert.equal(run(args).status, 7); assert(history().at(-1).args.includes('--luna')); assert(history().at(-1).args.includes('--low')); assert(!history().at(-1).args.includes('--fast'));
+    }
+    for (const option of ['--simple','--review']) {
+      const r = run(['new','bad-luna','--to','gpt','--luna',option,'--goal','x','--dry-run']);
+      assert.equal(r.status,1); assert.match(r.stderr,/--luna/);
+      if (option === '--simple') assert.equal(run(['relaunch','luna-mode',option]).status,1);
+    }
+    assert.equal(run(['new','luna-relaunch','--to','gpt','--goal','x','--no-launch']).status,0);
+    reset(); assert.equal(run(['relaunch','luna-relaunch','--luna']).status,7); assert(history().at(-1).args.includes('--luna'));
+    reset(); assert.equal(run(['relaunch','luna-relaunch']).status,7); assert(history().at(-1).args.includes('--luna'));
+    assert.equal(run(['new','luna-amend','--to','gpt','--goal','x','--no-launch']).status,0);
+    reset(); assert.equal(run(['amend','luna-amend','改用','--luna','--say']).status,7); assert(history().at(-1).args.includes('--luna'));
+    assert.equal(run(['new','luna-high','--to','gpt','--luna','--high','--goal','x','--no-launch']).status,0);
+    reset(); assert.equal(run(['relaunch','luna-high']).status,7); assert(history().at(-1).args.includes('--high'));
+    assert.equal(run(['new','luna-low-upgrade','--to','gpt','--luna','--low','--goal','x','--no-launch']).status,0);
+    reset(); assert.equal(run(['relaunch','luna-low-upgrade','--high']).status,7); assert(history().at(-1).args.includes('--high')); assert(!history().at(-1).args.includes('--low'));
+    assert.equal(run(['new','luna-conflict','--to','gpt','--low','--high','--goal','x','--dry-run']).status,1);
+    assert.equal(run(['new','luna-xhigh','--to','gpt','--luna','--xhigh','--goal','x','--no-launch']).status,0);
+    for (const args of [['relaunch','luna-xhigh'], ['amend','luna-xhigh','继续','--say']]) { reset(); assert.equal(run(args).status,7); assert(history().at(-1).args.includes('--xhigh')); }
+    for (const opts of [['--xhigh'], ['--luna','--low','--xhigh'], ['--luna','--high','--xhigh']]) assert.equal(run(['new','bad-xhigh','--to','gpt',...opts,'--goal','x','--dry-run']).status,1);
+    assert.equal(run(['new','luna-max','--to','gpt','--luna','--max','--goal','x','--no-launch']).status,0);
+    for (const args of [['relaunch','luna-max'], ['amend','luna-max','继续','--say']]) { reset(); assert.equal(run(args).status,7); assert(history().at(-1).args.includes('--max')); }
+    reset(); assert.equal(run(['relaunch','luna-max','--low']).status,7); assert(history().at(-1).args.includes('--low')); assert(!history().at(-1).args.includes('--max'));
+    reset(); assert.equal(run(['amend','luna-max','切换','--max','--say']).status,7); assert(history().at(-1).args.includes('--max')); assert(!history().at(-1).args.includes('--low'));
+    assert.equal(run(['relaunch','luna-max','--low','--max']).status,1);
+    assert.equal(run(['amend','luna-max','冲突','--low','--max','--say']).status,1);
+    for (const opts of [['--max'], ['--luna','--low','--max'], ['--luna','--high','--max'], ['--luna','--xhigh','--max']]) assert.equal(run(['new','bad-max','--to','gpt',...opts,'--goal','x','--dry-run']).status,1);
+    assert.equal(run(['new','luna-fast','--to','gpt','--luna','--fast','--goal','x','--dry-run']).status,0);
+  });
   test('relaunch --to/--tier 改执行者、保留 brief/name/report，拒绝运行中的重复派发', () => {
     writeFileSync(states,'[]'); reset();
     const current=readFileSync(path,'utf8');
@@ -197,42 +282,14 @@ try {
     state(); reset(); r=run(['relaunch','one','--to','grok']); assert.equal(r.status,1); assert.deepEqual(history().map(c=>c.args[0]),['status']);
     writeFileSync(states,'[]');
   });
-  test('两处 Gemini 闸门对完整/移动模板、正文、归类、expect-changes 口径一致', () => {
-    const r = spawnSync('python3', ['-B', '-c', `
-import importlib.util,json,sys
-spec=importlib.util.spec_from_file_location('fleet_go',sys.argv[1])
-m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
-results=[]
-for item in json.load(sys.stdin):
-    try:
-        m.gemini_check(item['text'],item.get('expectChanges',False));results.append(False)
-    except ValueError:
-        results.append(True)
-print(json.dumps(results))
-`, join(root,'src/fleet-go.py')], { encoding:'utf8', env, input:JSON.stringify(geminiBriefCases) });
-    assert.equal(r.status,0,r.stderr);
-    assert.deepEqual(JSON.parse(r.stdout),geminiBriefCases.map(item=>item.blocked));
-    for (const item of geminiBriefCases) assert.equal(geminiBlocked(item.text,item),item.blocked);
-    const body=join(temp,'text-with-templates.md');
-    writeFileSync(body,geminiBriefCases[1].text);
-    reset();
-    const preview=run(['new','template-text','--to','gemini','--auth','readonly-web','--goal','核对一段英文文案','--body',body,'--dry-run']);
-    assert.equal(preview.status,0,preview.stderr);
-    assert.equal(geminiBlocked(preview.stdout),false);
-    assert.equal(history().length,0);
-  });
-  test('Gemini new/relaunch 静态拒绝编码/UI/expect-changes，文本允许、不会派发', () => {
-    for(const goal of ['编码任务','实现 UI','修改 src/a.mjs 文件','write code','implement a component']) {
-      reset(); const r=run(['new','blocked','--to','gemini','--goal',goal,'--dry-run']); assert.equal(r.status,1,goal); assert.match(r.stderr,/Gemini.*编码\/UI\/--expect-changes/); assert.equal(history().length,0);
+  test('Gemini new/relaunch 允许复核代码、临时脚本及 expect-changes', () => {
+    for (const goal of ['复核代码并运行测试', '实现 UI', '修改 src/a.mjs 文件', 'write code']) {
+      reset(); const r = run(['new','gemini-check','--to','gemini','--goal',goal,'--dry-run']);
+      assert.equal(r.status,0,r.stderr); assert.equal(history().length,0);
     }
-    assert.equal(run(['new','blocked','--to','gemini','--goal','翻译短文','--expect-changes','--dry-run']).status,1);
-    reset(); assert.equal(run(['relaunch','one','--to','gemini']).status,1); assert.deepEqual(history().map(c=>c.args[0]),['status']);
-    for(const [name,goal,options] of [['ui-job','实现 UI',[]],['change-job','处理本目标',['--expect-changes']]]) {
-      const r=run(['new',name,'--to','claude','--goal',goal,...options,'--no-launch']); assert.equal(r.status,0,r.stderr);
-      reset(); assert.equal(run(['relaunch',name,'--to','gemini']).status,1); assert.deepEqual(history().map(c=>c.args[0]),['status']);
-    }
-    let r=run(['new','text-job','--to','claude','--goal','翻译短文','--no-launch']); assert.equal(r.status,0,r.stderr);
-    reset(); r=run(['relaunch','text-job','--to','gemini']); assert.equal(r.status,7,r.stderr); assert.equal(history().at(-1).args[0],'copy');
+    assert.equal(run(['new','gemini-check','--to','gemini','--goal','运行小测试','--expect-changes','--dry-run']).status,0);
+    reset(); const r = run(['relaunch','one','--to','gemini']);
+    assert.equal(r.status,7,r.stderr); assert.equal(history().at(-1).args[0],'copy');
   });
   test('图片六项、视频工具与隐私错误要求、JEV问题元信息', () => {
     for(const to of ['gpt','grok','claude','gemini','jev']) {

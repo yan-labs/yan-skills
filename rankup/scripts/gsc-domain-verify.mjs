@@ -12,9 +12,11 @@
  * 另一站实测已存在；2026-09-28 两站 status 再次实测可进入 sitemap 页面。
  * 2026-10-02：轮询资源弹窗与验证结果；DNS 提供商从 listbox 选择。
  * TXT 传播查询公共 DNS，避免本机负缓存阻塞；2026-10-02 实测 TXT 新增后 GSC 自动验证成功。
+ * 2026-10-27：实测新版欢迎页与已有未验证资源入口；遮挡窗口用截图推进绘制，手动 TXT 验证后可进入站点地图页。
  * 本机若设 HTTPS_PROXY，须将 api.cloudflare.com 加入 NO_PROXY（走代理会丢 TLS 握手）；例：NODE_USE_ENV_PROXY=1 NO_PROXY=api.cloudflare.com node scripts/gsc-domain-verify.mjs add-site --domain <域名>
  */
 import { execFileSync } from "node:child_process"
+import { randomUUID } from "node:crypto"
 import { cfAuthHeaders } from "./lib-cf-auth.mjs"
 
 const [action, ...rest] = process.argv.slice(2)
@@ -24,7 +26,7 @@ if (action === "--help" || action === "-h") {
   process.exit(0)
 }
 const domain = args["--domain"]
-const session = args["--session"] || "gsc-domain-verify"
+const session = args["--session"] || `gsc-domain-verify-${randomUUID().slice(0,8)}`
 if (!["status", "add-site"].includes(action) || !domain || !/^[a-z\d-]+(?:\.[a-z\d-]+)+$/i.test(domain)) {
   throw new Error("需要 status|add-site --domain <合法域名>")
 }
@@ -34,7 +36,12 @@ let opened = false
 let sitemapListed = false
 function browser(...parts) {
   return execFileSync("opencli", ["browser", session, "--window", "dedicated", ...parts],
-    { encoding: "utf8", timeout: 90000 }).trim()
+    { encoding: "utf8", timeout: 90000, stdio: ["ignore", "pipe", "pipe"] }).trim()
+}
+function render() {
+  // 被遮挡的专用窗口会暂停 GSC 的绘制；截图只推进合成帧，丢弃图像，不落盘或输出。
+  execFileSync("opencli", ["browser", session, "--window", "dedicated", "screenshot"],
+    { stdio: ["ignore", "ignore", "pipe"], timeout: 90000 })
 }
 function evalJs(source) { return browser("eval", `(()=>{${source}})()`) }
 function open(url) { opened = true; browser("open", url) }
@@ -59,9 +66,13 @@ function stamp(js, label) {
     `const el=${js};if(!el)throw new Error(${JSON.stringify(`找不到${label}`)});` +
     `el.setAttribute('data-gsc-target','1');return el.innerText||el.value||el.getAttribute('aria-label')||'OK'`
   evalJs(code)
+  guard()
   browser("click", "[data-gsc-target=\"1\"]")
+  render()
 }
 function dialogText() {
+  render()
+  guard()
   return evalJs("return [...document.querySelectorAll('[role=dialog]')].filter(e=>e.offsetParent!==null).map(e=>e.innerText).join('\\n').slice(0,8000)")
 }
 function accessible() {
@@ -69,6 +80,7 @@ function accessible() {
     if (!evalJs("return location.pathname").includes("/search-console/not-verified")) throw error
     return false
   }
+  render()
   const body = guard()
   sitemapListed = body.includes("sitemap.xml")
   return /站点地图|Sitemaps/.test(body) && evalJs(`return new URL(location.href).searchParams.get("resource_id")===${JSON.stringify(property)} && !![...document.querySelectorAll('input')].find(e=>e.offsetParent!==null&&/输入站点地图网址|Enter sitemap URL/i.test(e.getAttribute("aria-label")||""))`).includes("true")
@@ -121,23 +133,31 @@ try {
     console.log(`${property} 未在当前账号的站点地图页面显示；请用 add-site。`)
     process.exitCode = 1
   } else {
-    open("https://search.google.com/search-console/welcome")
-    guard()
-    stamp("[...document.querySelectorAll('button')].find(e=>e.offsetParent!==null&&/添加网站|Add (a )?(site|property)/i.test(e.innerText))", "添加网站")
-    const inputDeadline = Date.now() + 15000
-    while (!evalJs(`return !!(${visibleDomainInput()})`).includes("true") && Date.now() < inputDeadline) {
-      browser("wait", "time", "1")
+    const ownership = "[...document.querySelectorAll('button,[role=button]')].find(e=>e.offsetParent!==null&&/^(验证您的所有权|验证所有权|Verify (your )?ownership)$/i.test(e.innerText.trim()))"
+    if (evalJs(`return !!(${ownership})`).includes("true")) {
+      stamp(ownership, "验证所有权")
+    } else {
+      open("https://search.google.com/search-console/welcome")
+      render()
+      guard()
+      stamp("[...document.querySelectorAll('button')].find(e=>e.offsetParent!==null&&/添加网站|Add (a )?(site|property)/i.test(e.innerText))", "添加网站")
+      const inputDeadline = Date.now() + 15000
+      while (!evalJs(`return !!(${visibleDomainInput()})`).includes("true") && Date.now() < inputDeadline) {
+        browser("wait", "time", "1")
+        render()
+        guard()
+      }
+      if (!evalJs(`return !!(${visibleDomainInput()})`).includes("true")) {
+        throw new Error("资源类型弹窗未打开，不能输入域名")
+      }
+      evalJs(`const el=${visibleDomainInput()};el.setAttribute('data-gsc-input','1');return true`)
+      const filled = JSON.parse(browser("fill", "[data-gsc-input=\"1\"]", domain))
+      if (!filled.verified || filled.actual !== domain) throw new Error("网域输入未被 GSC 接受")
+      stamp("[...document.querySelectorAll('[role=dialog] [role=button]')].find(e=>e.offsetParent!==null&&e.getAttribute('aria-disabled')!=='true'&&/^(继续|Continue)$/i.test(e.innerText.trim()))", "网域继续")
     }
-    if (!evalJs(`return !!(${visibleDomainInput()})`).includes("true")) {
-      throw new Error("资源类型弹窗未打开，不能输入域名")
-    }
-    evalJs(`const el=${visibleDomainInput()};el.setAttribute('data-gsc-input','1');return true`)
-    const filled = JSON.parse(browser("fill", "[data-gsc-input=\"1\"]", domain))
-    if (!filled.verified || filled.actual !== domain) throw new Error("网域输入未被 GSC 接受")
-    stamp("[...document.querySelectorAll('[role=dialog] [role=button]')].find(e=>e.offsetParent!==null&&e.getAttribute('aria-disabled')!=='true'&&e.innerText.trim()==='继续')", "网域继续")
     let result = dialogText()
     const verificationDeadline = Date.now() + 30000
-    while (/正在验证|Verifying/i.test(result) && Date.now() < verificationDeadline) {
+    while (!/通过 DNS|DNS record|所有权验证|Ownership.*verified/i.test(result) && Date.now() < verificationDeadline) {
       browser("wait", "time", "1")
       result = dialogText()
     }
@@ -149,9 +169,9 @@ try {
         stamp("[...document.querySelectorAll('[role=option]')].find(e=>e.offsetParent!==null&&/任何 DNS 提供商|Any DNS provider/i.test(e.innerText))", "任何 DNS 提供商")
         result = dialogText()
       }
-      if (/授权访问|Authorize.*DNS|Connect.*provider/i.test(result)) throw new Error("页面仍在 DNS 授权路径，停止")
+      if (/授权访问|授权.*DNS|Authorize.*DNS|Connect.*provider/i.test(result)) throw new Error("页面仍在 DNS 授权路径，停止")
       const txt = verificationTxt(result) || verificationTxt(evalJs("return [...document.querySelectorAll('[role=dialog] input, [role=dialog] textarea')].filter(e=>e.offsetParent!==null).map(e=>e.value).join('\\n')"))
-      if (!txt) throw new Error(`未从验证弹窗读到 TXT；弹窗摘要: ${result.slice(0,300)}`)
+      if (!txt) throw new Error("未从验证弹窗读到 TXT，停止；不输出可能包含凭据的弹窗内容")
       console.log(`Cloudflare 验证 TXT ${await ensureTxt(txt) ? "已新增" : "已存在"}。`)
       const deadline = Date.now() + 20 * 60 * 1000
       while (true) {
@@ -164,12 +184,12 @@ try {
       stamp("[...document.querySelectorAll('[role=dialog] [role=button], [role=dialog] button')].find(e=>e.offsetParent!==null&&/^(验证|Verify)$/.test(e.innerText.trim()))", "验证")
       let final = dialogText()
       const finalDeadline = Date.now() + 30000
-      while (/正在验证|Verifying/i.test(final) && Date.now() < finalDeadline) {
+      while (!/已完成所有权验证|Ownership verified|验证成功|验证失败|Verification failed/i.test(final) && Date.now() < finalDeadline) {
         browser("wait", "time", "1")
         final = dialogText()
       }
       if (!/已完成所有权验证|Ownership verified|验证成功/i.test(final) && !accessible()) {
-        throw new Error(`验证点击后没有成功判据；弹窗摘要: ${final.slice(0,300)}`)
+        throw new Error("验证点击后没有成功判据；请检查 GSC 所有权状态")
       }
       console.log(`${property} GSC 验证成功。`)
     }

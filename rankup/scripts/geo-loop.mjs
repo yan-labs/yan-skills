@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** ChatGPT 网页推荐位闭环；参数/模板见 references/seo-geo-recommendation-loop.md。
- * 依赖已登录 Chrome + OpenCLI；只操作临时聊天、个性化开关与发送。
+ * 依赖已登录 Chrome + OpenCLI；标准 --script-file 只核对临时聊天并发送。
+ * 旧 pitch 工作流弃用保留兼容；固定模式跨整改、发布保留页面/会话/锁。
  * --smoke 只发一个通用问题；--recheck 是贴网址后的知情复审。
  * 页面选择器沿用共享驱动；未做 payload 核验，清单为 ChatGPT 自报待人工核对。
  */
@@ -19,11 +20,12 @@ const { values: args } = parseArgs({ options: {
   'followup-min': { type: 'string', default: '10' }, 'followup-max': { type: 'string', default: '25' },
   'hourly-limit': { type: 'string', default: '18' }, 'max-conversations': { type: 'string', default: '25' },
   domain: { type: 'string' }, prompt: { type: 'string', multiple: true },
-  'prompts-file': { type: 'string' }, pitch: { type: 'string' }, 'pitch-file': { type: 'string' }, reps: { type: 'string', default: '3' },
+  'script-file': { type: 'string' }, 'prompts-file': { type: 'string' }, pitch: { type: 'string' }, 'pitch-file': { type: 'string' }, reps: { type: 'string', default: '3' },
   out: { type: 'string' }, round: { type: 'string', default: '0' },
   'no-pitch': { type: 'boolean' }, recheck: { type: 'boolean' }, smoke: { type: 'boolean' }, help: { type: 'boolean' },
 } });
 if (args.help) {
+  console.log('推荐：--script-file <固定话术 Markdown>；整改后写 out/review.json，用户要求关闭时写 out/close.json。旧 --pitch/--pitch-file 兼容模式已弃用。');
   console.log('geo-loop.mjs --domain <域名> --prompt <随口问法>（可重复）或 --prompts-file <每行一题> --reps 3 --out <仓库外目录> [--round 0] [--pitch <可核实卖点> | --pitch-file <路径>] [--recheck | --smoke] [--no-pitch：仅发送 A/B，不发送本站网址或品牌]');
   console.log('--plan：离线计划（获取同一把锁，不开网页）；--resume：同目录续跑，跳过完成样本；默认每次最多 25 个新对话，剩余用 --resume 分段执行。\n--sample-min 30 --sample-max 90 / --followup-min 10 --followup-max 25（秒）；--hourly-limit 18（跨进程滚动一小时）；--max-conversations 25（显式调大）。登录/验证码/限流/出口变化即停，不自动重试。运行请设 NODE_USE_ENV_PROXY=1 并固定代理节点。');
   process.exit(0);
@@ -38,6 +40,12 @@ const domain = regDomain(args.domain);
 const url = /^[a-z]+:\/\//i.test(args.domain) ? args.domain : `https://${args.domain}`;
 const prompts = [...(args.prompt || []), ...(args['prompts-file'] ? readFileSync(args['prompts-file'], 'utf8').split(/\r?\n/).filter(s => s.trim()) : [])];
 if (!prompts.length) throw new Error('至少提供一个问法');
+if (args['script-file']) {
+  const { runFixedScript } = await import('./demand/_geo_fixed_script.mjs');
+  await runFixedScript({ args, numbers, domain, url, prompts });
+  process.exit(process.exitCode || 0);
+}
+console.error('[弃用] 旧 --pitch/--pitch-file 工作流仅为历史调用兼容；新采样使用 --script-file。');
 const out = resolve(args.out);
 const mode = args.smoke ? 'smoke' : args.recheck ? 'informed-recheck' : 'natural';
 const planKey = { domain, url, round: numbers.round, mode, prompts, reps: numbers.reps, noPitch: !!args['no-pitch'], pitch: args.pitch || null, pitchFile: args['pitch-file'] ? readFileSync(args['pitch-file'], 'utf8') : null };

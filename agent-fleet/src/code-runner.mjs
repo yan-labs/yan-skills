@@ -1,3 +1,7 @@
+// Codex 执行层：管理 app-server 回合、插话、自动续做与 exec 降级。
+import { readContinuationState, continuationProgress, continuationRules, judgeContinuation, CONTINUE_PROMPT } from './code-continue.mjs';
+import { judgeTask } from './judge-task.mjs';
+import { loadModelsConfig } from './config.mjs';
 import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -67,9 +71,19 @@ async function threadLifecycle(codexBin, method, threadId) {
   }
 }
 
-export async function runCode({ prompt, cwd = process.cwd(), low = false, review = false, resume, resumedFrom,
+/** 执行 Codex 任务；自动续做保留 thread，用户插话仍走现有 steer/resume 链路。 */
+export async function runCode({ prompt, cwd = process.cwd(), low = false, high = false, xhigh = false, max = false, simple = false, luna = false, fast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
   codexBin = process.env.FLEET_CODEX_BIN || 'codex' }) {
+  if ([low, high, xhigh, max].filter(Boolean).length > 1) throw new Error('--low、--high、--xhigh 和 --max 不能同用。');
+  if ((xhigh || max) && !luna) throw new Error('--xhigh 和 --max 仅用于 --luna。');
+  if (simple && review) throw new Error('--simple 不能与 --review 同用；复核固定使用 Sol。');
+  if (luna && (simple || review)) throw new Error('--luna 不能与 --simple 或 --review 同用。');
+  const effort = max ? 'max' : xhigh ? 'xhigh' : high ? 'high' : low ? 'low' : process.env.FLEET_CODEX_EFFORT || (luna ? 'xhigh' : 'medium');
+  const model = luna ? 'gpt-6-luna' : simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol';
+  const serviceTier = fast ? 'priority' : null;
   const workdir = resolve(cwd);
+  reportPath ||= prompt.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim();
+  const continueEnabled = !review && !noContinue && process.env.FLEET_NO_CONTINUE !== '1';
   const fullPrompt = review ? `${reviewPrompt()}\n\n${prompt}` : `${SCOPE_LOCK}\n\n${prompt}`;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   mkdirSync(runsDir(), { recursive: true });
@@ -84,11 +98,11 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
   let stderr = '', activeChild, closed, rpc, turnId, completed, turnFinished, stopping = false;
   let offsetQueue = [], drain = Promise.resolve(), activeDescendants = [];
   const metadata = { backend: 'codex-exec', threadId: resume || null, sessionId: resume || null,
-    steerCount: 0, resumeCount: 0, numTurns: 0, fallbacks: [], low, review, resumedFrom };
+    steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, high, xhigh, max, simple, luna, model, tier: effort, serviceTier, review, resumedFrom };
   const record = (patch = {}) => {
     process.send?.({ codexMetadata: metadata });
     return patchPidRecord(runId, { pid: process.pid, command: processCommand(process.pid),
-    model: 'gpt-6.1-sol', cwd: workdir, startedAt: new Date(startedAt).toISOString(), logPath,
+    model, cwd: workdir, startedAt: new Date(startedAt).toISOString(), logPath,
     ...metadata, ...patch });
   };
   const log = text => {
@@ -97,7 +111,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
   };
   const fallback = reason => { metadata.fallbacks.push(reason); log(`\n[codex] fallback: ${reason}\n`); record(); };
   const start = args => {
-    const child = spawn(codexBin, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(codexBin, args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, NODE_USE_ENV_PROXY: '1' } });
     activeChild = child;
     activeDescendants = [];
     child.stdin.on('error', () => {});
@@ -198,13 +212,13 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
   };
   let outcome;
   try {
-    if (!stopping && !review && !resume && process.env.FLEET_CODEX_BACKEND !== 'exec') {
+    if (!stopping && !resume && process.env.FLEET_CODEX_BACKEND !== 'exec') {
       metadata.backend = 'codex-app-server';
       const child = start(['app-server', '--stdio']);
       const pending = new Map();
       let counter = 0, buffer = '';
       let finishTurn;
-      const turnDone = turnFinished = new Promise(resolve => { finishTurn = resolve; });
+      let turnDone;
       rpc = (method, params) => new Promise((resolve, reject) => {
         const id = ++counter;
         const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timeout`)); }, 15000);
@@ -240,17 +254,53 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
       });
       closed.then(result => {
         for (const request of pending.values()) { clearTimeout(request.timer); request.reject(result.error || new Error('app-server closed')); }
-        pending.clear(); finishTurn();
+        pending.clear(); finishTurn?.();
       });
       try {
         await rpc('initialize', { clientInfo: { name: 'agent_fleet', version: '0.7.0' }, capabilities: { experimentalApi: true } });
         child.stdin.write('{"method":"initialized"}\n');
-        const response = await rpc('thread/start', { cwd: workdir, model: 'gpt-6.1-sol', sandbox: 'danger-full-access', approvalPolicy: 'never' });
+        const response = await rpc('thread/start', { cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
         metadata.threadId = metadata.sessionId = response.thread.id; ownsAppThread = true; record();
-        const turn = await rpc('turn/start', { threadId: metadata.threadId, input: textInput(fullPrompt), effort: process.env.FLEET_CODEX_EFFORT || (low ? 'low' : 'medium') });
-        turnId = turn.turn.id; record({ activeTurnId: turnId }); schedule();
-        await turnDone;
-        inbox.pump(); await drain;
+        let nextPrompt = fullPrompt, previous, stagnant = 0, lowConfidenceUsed = false;
+        while (true) {
+          // 每轮都先安装完成监听，避免很快结束的回合漏掉通知。
+          completed = null;
+          turnDone = turnFinished = new Promise(resolve => { finishTurn = resolve; });
+          writeFileSync(resultPath, '');
+          const turn = await rpc('turn/start', { threadId: metadata.threadId, input: textInput(nextPrompt), effort });
+          turnId = turn.turn.id; record({ activeTurnId: turnId }); schedule();
+          await turnDone;
+          inbox.pump(); await drain;
+          if (completed?.status !== 'completed' || stopping || offsetQueue.length || review) break;
+          const state = readContinuationState(workdir, reportPath);
+          metadata.reportConclusion = state.conclusion;
+          if (previous) {
+            const progress = continuationProgress(previous, state);
+            metadata.continuation.push({ attempt: metadata.continueCount, ...progress });
+            stagnant = progress.progress ? 0 : stagnant + 1;
+          }
+          let missing = [], judgment;
+          if (continueEnabled && reportPath && !state.conclusion.startsWith('失败')) {
+            missing = continuationRules(state, prompt);
+            if (!missing.length && state.conclusion.startsWith('完成')) {
+              judgment = await judgeContinuation({ brief: prompt, report: state.report,
+                finalReply: readFileSync(resultPath, 'utf8'), judge: continuationJudge, lowConfidenceUsed });
+              if (judgment.uncertain) lowConfidenceUsed = true;
+              if (judgment.decision === 'continue') missing = judgment.missing;
+            }
+            metadata.continuationChecks.push({ turn: metadata.numTurns, rules: missing, judge: judgment ?? null });
+          }
+          metadata.continueRequired = missing.length > 0;
+          if (metadata.continueRequired && stagnant >= 2) metadata.continueStop = '连续两次续做无进展';
+          else if (metadata.continueRequired && metadata.continueCount >= 3) metadata.continueStop = '达到最多 3 次续做';
+          record();
+          if (!metadata.continueRequired || metadata.continueStop) break;
+          previous = state;
+          metadata.continueCount++;
+          nextPrompt = state.conclusion.startsWith('部分完成') && !judgment ? CONTINUE_PROMPT
+            : `继续完成本任务，具体缺项：\n${missing.map(item => `- ${item}`).join('\n')}\n只做 brief 已授权范围；做完更新报告七节及要求的交付凭据，中途自查不是最终交付。`;
+          log(`[codex] 续做 ${metadata.continueCount} 次`);
+        }
         if (completed?.status === 'completed') outcome = { code: 0 };
         else outcome = { error: new Error(completed?.error?.message || `Codex turn ${completed?.status || 'disconnected'}`) };
       } catch (error) {
@@ -265,8 +315,8 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
       let nextPrompt = session ? offsetQueue.splice(0).join('\n\n') || fullPrompt : fullPrompt;
       do {
         writeFileSync(resultPath, '');
-        const args = ['exec', '--skip-git-repo-check', '--json', '-m', 'gpt-6.1-sol', '-c', `model_reasoning_effort=${process.env.FLEET_CODEX_EFFORT || (low ? 'low' : 'medium')}`, '-c', 'service_tier="fast"',
-          '--sandbox', review ? 'read-only' : 'danger-full-access', '-C', workdir, '-o', resultPath,
+        const args = ['exec', '--skip-git-repo-check', '--json', '-m', model, ...(serviceTier ? ['-c', 'service_tier="priority"'] : []), '-c', `model_reasoning_effort=${effort}`,
+          '--sandbox', 'danger-full-access', '-C', workdir, '-o', resultPath,
           ...(session ? ['resume', session, '-'] : ['-'])];
         if (session) {
           try { await threadLifecycle(codexBin, 'thread/unarchive', session); }
@@ -298,7 +348,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
         if (!offsetQueue.length || stopping) break;
         if (!metadata.threadId) { fallback('Codex 不支持插话，改方向请用 --restart'); break; }
         session = metadata.threadId;
-        nextPrompt = `${review ? '只读审查，不修改文件。\n' : ''}${offsetQueue.splice(0).join('\n\n')}`;
+        nextPrompt = `${review ? `${reviewPrompt()}\n\n` : ''}${offsetQueue.splice(0).join('\n\n')}`;
         log('\n[codex] say: exec resume same thread\n');
       } while (true);
       if (outcome.code !== 0 && metadata.resumeCount) fallback('exec resume failed；改方向请用 --restart');
@@ -316,7 +366,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
   const git = inspectGit(workdir, before);
   return attachArtifacts({
     ...metadata,
-    tier: low ? 'low' : 'medium',
+    tier: effort,
     progress: { phase: outcome.error ? '启动执行器' : 'Codex 进程结束', exitCode: outcome.code ?? null },
     stderr: stderr.split(/\r?\n/).slice(-20).join('\n'),
     errorObject: outcome.error ? { ...outcome.error, message: outcome.error.message } : undefined,
@@ -325,7 +375,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, review
     result,
     error: outcome.error?.message ?? (outcome.code === 0 ? (result.trim() ? null : 'Codex 没有写出结果') : `Codex 退出码 ${outcome.code ?? outcome.signal ?? '?'}`),
     durationMs: Date.now() - startedAt,
-    model: 'gpt-6.1-sol',
+    model,
     cwd: workdir,
     resultPath,
     logPath,

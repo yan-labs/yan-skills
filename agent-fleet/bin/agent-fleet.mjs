@@ -31,7 +31,7 @@ import { tailLatestLog } from '../src/tail-log.mjs';
 import { buildBrief, DEFAULT_BRIEF_LINES, renderManyOutput, renderRunOutput, failureReport, redactEvidence, inspectGit } from '../src/brief.mjs';
 import { collectStatus, deliverSay, formatStatusHuman, requestStop } from '../src/control.mjs';
 import { readPidRecord, resolveRunId, isPidAlive, patchPidRecord, runIdFromLogPath } from '../src/pid.mjs';
-import { shortRunOptions, splitShortArgs, resolveBrief, geminiBlocked } from '../src/shortcuts.mjs';
+import { shortRunOptions, splitShortArgs, resolveBrief } from '../src/shortcuts.mjs';
 import { runCode, launchArchiveSweep } from '../src/code-runner.mjs';
 import { runGrok } from '../src/grok-runner.mjs';
 import { launchDetached, readState, resolveDetached, supervise, waitDetached } from '../src/detach.mjs';
@@ -42,9 +42,9 @@ const PKG_VERSION = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf
 
 const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
 
-  fleet copy|grok|bulk|gpt <brief文件或文本> [--cwd dir] [--verbose]
+  fleet copy|grok|bulk|gpt|openai <brief文件或文本> [--cwd dir] [--verbose]
   fleet grok-cli <brief文件或文本> [--review] [--cwd dir] [--model id] [--name name] [--report path] [--no-subagents|--subagents]
-  fleet code <brief文件或文本> [--low] [--review] [--cwd dir]
+  fleet code <brief文件或文本> [--low|--high|--xhigh|--max] [--simple|--luna] [--fast] [--review] [--no-continue] [--cwd dir]
   fleet haiku|sonnet|opus|fable <brief.md|文本>   # Claude 官方端点，走每月 API 赠送额度
   fleet judge <state文件> <questions文件> [--json]
   fleet run --model name --prompt "任务" [--cwd dir] [--max-turns N]
@@ -59,7 +59,8 @@ run 默认不限轮数、安静、当前目录；--verbose 显示进度。--quie
 --system-prompt、--json、--full、--brief-lines、--expect-changes、--judge 可选。
 code/grok-cli/copy/grok/bulk/gpt/run/run-many 默认独立运行并等待；--no-wait 立即返回，--attach 前台，--detach 兼容默认。
 --name 短名、--report 路径；status [--running] [--json]；wait/tail 支持短名或 runId 前缀。
-code 的 --review 使用只读沙箱与内置审查提示词；旧 agent-fleet 长命令继续可用。
+code 的 --luna 使用 gpt-6-luna，默认 xhigh，可用 --max，且不开 fast；Terra/Sol 默认 medium；不能与 --simple 或 --review 同用。
+code 的 --review 使用全权限沙箱与内置只读审查提示词；旧 agent-fleet 长命令继续可用。
 copy 自动注入文案语气规范；--no-voice 仅用于纯机械改写（长名 kollab-gateway-copy 同样支持）。
 `;
 
@@ -117,7 +118,7 @@ async function printRunResult(result, options) {
           modelUsage: result.modelUsage, costSource: 'grok 自报', changedFiles: result.changedFiles });
         if (result.suspectNote) Object.assign(brief, { ok: false, verdict: brief.verdict === 'ok' ? 'suspect' : brief.verdict, verdictNote: result.suspectNote, error: [result.error, result.suspectNote].filter(Boolean).join('；') });
       }
-      if (result.model === 'gpt-6.1-sol') {
+      if (result.backend?.startsWith('codex-')) {
         Object.assign(brief, { backend: result.backend, threadId: result.threadId, sessionId: result.sessionId,
           steerCount: result.steerCount, resumeCount: result.resumeCount, fallbacks: result.fallbacks,
           numTurns: result.numTurns, usage: result.usage, resumedFrom: result.resumedFrom });
@@ -129,7 +130,7 @@ async function printRunResult(result, options) {
   });
   if (options.full && !options.json && result.suspectNote) output = output.replace('状态: 成功', `状态: suspect（${result.suspectNote}）`);
   if (result.model?.startsWith('grok-cli:') && !options.json) output += '费用来源：grok 自报\n';
-  if (result.model === 'gpt-6.1-sol' && !options.json) {
+  if (result.backend?.startsWith('codex-') && !options.json) {
     output += `Codex：steer ${result.steerCount ?? 0} 次，resume ${result.resumeCount ?? 0} 次，降级 ${result.fallbacks?.length ?? 0} 次\n`;
   }
   process.send?.({ output });
@@ -145,7 +146,6 @@ async function cmdRun(argv, { copyVoice = false } = {}) {
     return;
   }
 
-  if (/^kollab-gateway(?:-copy|-bulk)?$/.test(flags.model) && geminiBlocked(flags.prompt, { expectChanges: Boolean(flags['expect-changes']) })) throw new Error('Gemini 拒绝编码/UI/--expect-changes；只接文本任务。');
   const config = loadModelsConfig(flags['models-config'] ? resolvePath(flags['models-config']) : undefined);
   // 进度行实时打到 stderr,并同步写进 ~/.agent-fleet/runs/<ISO时间>-<模型名>.log(tail 的
   // 数据源);--quiet 时 stderr 静音,文件照写。日志文件路径在启动时已由进度对象打到 stderr。
@@ -385,7 +385,7 @@ async function cmdResume(argv) {
     if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true });
     return;
   }
-  if (rec.model === 'gpt-6.1-sol') {
+  if (['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'].includes(rec.model)) {
     if (rec.resumeBlocked) throw new Error('Codex 无法确认旧工具已结束，未启动续跑；改方向请用 --restart。');
     const sessionId = rec.threadId || rec.sessionId;
     if (!sessionId) throw new Error('Codex 任务没有 threadId/sessionId，无法 fleet resume；改方向请用 --restart。');
@@ -396,14 +396,19 @@ async function cmdResume(argv) {
     const extra = typeof flags.prompt === 'string' ? flags.prompt : positionals.slice(1).join(' ').trim();
     const args = ['code', extra || '继续完成上次未完成的工作，给出最终结论。',
       '--resume-session', sessionId, '--resumed-from', runId, '--cwd', cwd];
-    if (rec.low || rec.tier === 'low' || flags.low) args.push('--low');
+    if ((flags.xhigh || flags.max) && !rec.luna) throw new Error('--xhigh 和 --max 仅用于 --luna。');
+    if (rec.simple) args.push('--simple');
+    if (rec.luna) args.push('--luna');
+    if (rec.serviceTier === 'priority') args.push('--fast');
+    const selectedEffort = flags.low ? 'low' : flags.high ? 'high' : flags.xhigh ? 'xhigh' : flags.max ? 'max' : rec.luna && (rec.max || rec.tier === 'max') ? 'max' : rec.luna && (rec.xhigh || rec.tier === 'xhigh') ? 'xhigh' : rec.low || rec.tier === 'low' ? 'low' : rec.high || rec.tier === 'high' ? 'high' : null;
+    if (selectedEffort) args.push('--' + selectedEffort);
     if (rec.review || flags.review) args.push('--review');
     const name = flags.name ?? rec.name;
     const reportPath = flags.report ?? rec.reportPath;
     if (name) args.push('--name', name);
     if (reportPath) args.push('--report', reportPath);
     if (flags.attach) { await cmdCode(args); return; }
-    const nextId = await launchDetached(fileURLToPath(import.meta.url), args, { cwd, model: 'gpt-6.1-sol',
+    const nextId = await launchDetached(fileURLToPath(import.meta.url), args, { cwd, model: rec.model,
       briefPath: rec.briefPath, name, reportPath, noWait: Boolean(flags['no-wait']) });
     if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true });
     return;
@@ -481,12 +486,13 @@ async function cmdTeam() {
   const key = name => process.env[name] ? '已配置' : '未配置';
   console.log('产品  | 擅长 | 派用者重派顺位 | 当前可用性');
   console.log(`gpt   | 编码、调研、只读复核 | code → 网关 gpt-sol → grok | Codex ${available(codex)}`);
+  console.log(`openai| ChatGPT API组织额度，默认 GPT-6.1 Sol | 官方 Responses API + 原 Agent SDK | OPENAI_CREDIT_API_KEY ${key('OPENAI_CREDIT_API_KEY')}`);
   console.log(`claude| 月度额度任务，默认 sonnet | claude → code → 网关 gpt-sol → grok → gemini | ANTHROPIC_CREDIT_API_KEY ${key('ANTHROPIC_CREDIT_API_KEY')}`);
   console.log(`grok  | 视频与图片、X 平台、编码、检索调研、成人题材 | 由派用者决定 | grok models ${available(grok)}`);
   console.log(`gemini| 文案、翻译、摘要、批量 | 无；拒绝编码/UI/改文件 | KOLLAB_PROD_API_KEY ${key('KOLLAB_PROD_API_KEY')}`);
   console.log(`jev   | 结构化判断 | 无 | TYPESAFE_API_KEY ${key('TYPESAFE_API_KEY')}`);
   console.log('GPT 档含本机 code 与网关 kollab-gateway-gpt-sol；失败只上报事实，派用者自行判断并用 relaunch --to 重派；状态只检查登录/凭据存在。');
-  console.log('中途插话：fleet say <任务> "新指令" / fleet-go amend <名字> --say；gpt 同轮 steer，grok 同会话续跑，claude/gemini 经收件箱，jev 无需（--review 的只读 exec 不支持，用 --restart）。');
+  console.log('中途插话：fleet say <任务> "新指令" / fleet-go amend <名字> --say；gpt 同轮 steer，grok 同会话续跑，claude/gemini 经收件箱，jev 无需；Codex review 同样支持 steer/resume。');
 }
 
 function flagArgs(flags, omitted = []) {
@@ -504,7 +510,7 @@ async function cmdCode(argv) {
   const { positionals, flags } = splitShortArgs(argv);
   if (flags.help) { console.log(HELP_TEXT); return; }
   const prompt = resolveBrief(flags.prompt ?? positionals[0]);
-  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), review: Boolean(flags.review), resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
+  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), high: Boolean(flags.high), xhigh: Boolean(flags.xhigh), max: Boolean(flags.max), simple: Boolean(flags.simple), luna: Boolean(flags.luna), fast: Boolean(flags.fast), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
   await printRunResult(result, outputOptions(flags));
   process.exitCode = buildBrief(result, outputOptions(flags)).verdict === 'ok' ? 0 : 1;
 }
@@ -525,6 +531,14 @@ async function cmdShortJudge(argv) {
 
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
+  // 执行器身份只属于监督器直接启动的进程，嵌套 fleet 必须创建自己的 runId 和收件箱。
+  if (process.env.FLEET_DETACHED_RUN_ID) {
+    const owner = readState(process.env.FLEET_DETACHED_RUN_ID);
+    if (owner?.childPid && owner.childPid !== process.pid) {
+      delete process.env.FLEET_DETACHED_RUN_ID;
+      delete process.env.FLEET_DETACHED_BATCH;
+    }
+  }
   if (command !== 'media') loadEnvFile(join(PKG_ROOT, '.env'));
 
   if (!command || command === 'help' || command === '--help' || command === '-h') {
@@ -537,10 +551,22 @@ async function main() {
   }
 
   try {
+    if (rest.includes('--fast') && command !== 'code') throw new Error('--fast 仅用于 fleet code。');
+    if (rest.includes('--high') && command !== 'code' && command !== 'resume') throw new Error('--high 仅用于 fleet code。');
+    if (['--low', '--high', '--xhigh', '--max'].filter(flag => rest.includes(flag)).length > 1) throw new Error('--low、--high、--xhigh 和 --max 不能同用。');
+    if ((rest.includes('--xhigh') || rest.includes('--max')) && (command !== 'resume' && (command !== 'code' || !rest.includes('--luna')))) throw new Error('--xhigh 和 --max 仅用于 --luna。');
+    if (rest.includes('--luna')) {
+      if (command !== 'code') throw new Error('--luna 仅用于 fleet code（fleet-go --to gpt）。');
+      if (rest.includes('--simple') || rest.includes('--review')) throw new Error('--luna 不能与 --simple 或 --review 同用。');
+    }
+    if (rest.includes('--simple')) {
+      if (command !== 'code') throw new Error('--simple 仅用于 fleet code（fleet-go --to gpt）。');
+      if (rest.includes('--review')) throw new Error('--simple 不能与 --review 同用；复核固定使用 Sol。');
+    }
     if (command === '__supervise') { await supervise(fileURLToPath(import.meta.url)); return; }
-    if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many', 'judge'].includes(command)
+    if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many', 'judge'].includes(command)
       && !process.env.FLEET_DETACHED_RUN_ID && !rest.includes('--help')) launchArchiveSweep();
-    if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many'].includes(command)
+    if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many'].includes(command)
       && !process.env.FLEET_DETACHED_RUN_ID && !rest.includes('--attach')) {
       const { flags, positionals } = splitShortArgs(rest);
       if (flags.help) { console.log(HELP_TEXT); return; }
@@ -548,11 +574,11 @@ async function main() {
       if (command === 'run-many' && !flags.config) throw new Error('run-many 需要 --config');
       const brief = command === 'run-many' ? flags.config : flags.prompt ?? positionals[0];
       const text = command === 'run-many' ? '' : resolveBrief(brief);
-      const args = flagArgs(flags, ['detach', 'attach', 'no-wait', 'name', 'report', 'prompt']);
+      const args = flagArgs(flags, ['detach', 'attach', 'no-wait', 'name', 'prompt']);
       if (flags.prompt !== undefined) args.push('--prompt', flags.prompt);
       const runId = await launchDetached(fileURLToPath(import.meta.url), [command, ...positionals, ...args], {
         cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(),
-        model: command === 'code' ? 'gpt-6.1-sol' : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : flags.model ?? shortRunOptions(command, rest).model,
+        model: command === 'code' ? (flags.luna ? 'gpt-6-luna' : flags.simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : flags.model ?? shortRunOptions(command, rest).model,
         briefPath: brief && existsSync(brief) ? resolvePath(brief) : null,
         name: flags.name ?? text.match(/^归类[^\r\n]*/m)?.[0],
         reportPath: flags.report || text.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim(),
@@ -572,6 +598,7 @@ async function main() {
       case 'grok':
       case 'bulk':
       case 'gpt':
+      case 'openai':
       case 'haiku':
       case 'sonnet':
       case 'opus':

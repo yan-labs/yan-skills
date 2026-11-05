@@ -42,7 +42,7 @@ const VALID_AUTH_HEADERS = new Set(['x-api-key', 'auth-token', 'bearer-raw']);
  *     Claude-Code-CLI 专用的 x-api-key/auth-token 环境变量映射(那套映射只对 Claude Agent
  *     SDK 的上游生效,typesafe-systemone 协议不经过 SDK,不需要也不应该套用它)。
  */
-const VALID_PROTOCOLS = new Set(['anthropic-messages', 'typesafe-systemone']);
+const VALID_PROTOCOLS = new Set(['anthropic-messages', 'openai-responses', 'typesafe-systemone']);
 
 /** RFC 7230 的 header field-name 允许字符集。用来挡住带空格/冒号/换行的畸形头名。 */
 const HEADER_NAME_RE = /^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/;
@@ -190,9 +190,9 @@ function validateEntry(name, def) {
   // typesafe-systemone 协议不经过 isolated-env.mjs 的 x-api-key/auth-token 映射
   // (那套映射是 Claude Agent SDK 专用的),强制用 bearer-raw 避免有人以为配了
   // x-api-key/auth-token 就能拿去跑 run/run-many。
-  if (protocol === 'typesafe-systemone' && authHeader !== 'bearer-raw') {
+  if (['typesafe-systemone', 'openai-responses'].includes(protocol) && authHeader !== 'bearer-raw') {
     throw new ConfigError(
-      `models.config.json 里的 "${name}" protocol 是 "typesafe-systemone",authHeader 必须是 "bearer-raw",当前是 "${authHeader}"。`,
+      `models.config.json 里的 "${name}" protocol 是 "${protocol}",authHeader 必须是 "bearer-raw",当前是 "${authHeader}"。`,
     );
   }
 

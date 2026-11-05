@@ -54,9 +54,9 @@ export function collectStatus({ cwd } = {}) {
       duration: formatDuration(rec.startedAt, rec.finishedAt),
       state,
       logPath: rec.logPath ?? null,
-      ...(rec.model === 'gpt-6.1-sol' ? { backend: rec.backend, threadId: rec.threadId, sessionId: rec.sessionId,
+      ...(['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'].includes(rec.model) ? { backend: rec.backend, threadId: rec.threadId, sessionId: rec.sessionId,
         steerCount: rec.steerCount, resumeCount: rec.resumeCount, fallbacks: rec.fallbacks,
-        low: rec.low, review: rec.review, resumedFrom: rec.resumedFrom } : {}),
+        low: rec.low, high: rec.high, xhigh: rec.xhigh, max: rec.max, simple: rec.simple, luna: rec.luna, serviceTier: rec.serviceTier, review: rec.review, resumedFrom: rec.resumedFrom } : {}),
     });
   }
   rows.sort((a, b) => String(b.startedAt ?? '').localeCompare(String(a.startedAt ?? '')));
@@ -74,13 +74,22 @@ export function formatStatusHuman(rows) {
   return `${lines.join('\n')}\n`;
 }
 
+/** say 以 detach 的监督状态判断存活，收件箱始终绑定精确 runId。 */
 export function deliverSay(spec, text, { cwd } = {}) {
   if (!text) throw new Error('缺少消息。用法: agent-fleet say <run-id|latest> "<消息>"');
-  const runId = resolveRunId(spec && spec !== 'latest' ? resolveDetached(spec, cwd) : spec, cwd);
-  const rec = readPidRecord(runId);
+  const selected = spec === 'latest' ? collectStatus({ cwd: cwd ?? process.cwd() }).find(row => row.state === 'running')?.runId : spec;
+  const runId = resolveRunId(selected && selected !== 'latest' ? resolveDetached(selected, cwd) : spec, cwd);
+  let rec = readPidRecord(runId);
+  const detached = readState(runId);
+  if (detached?.status === 'running') {
+    if (detachedState(detached) !== 'running') throw new Error(`任务 ${runId} 的监督器已退出或心跳超时，无法确认插话通道可用。`);
+    if (!isPidAlive(detached.childPid)) throw new Error(`任务 ${runId} 的监督器仍在运行，但执行器尚未就绪或已退出，无法投递插话。`);
+    // 嵌套 fleet 的历史记录可能覆盖 finished/pid；真正监听此收件箱的是监督器的执行子进程。
+    rec = { ...rec, ...detached, pid: detached.childPid, finished: false };
+  }
   if (!rec) throw new Error(`找不到任务 ${runId} 的 pid.json`);
   if (rec.model?.startsWith('grok-cli:') && !rec.sessionId) throw new Error('Grok CLI 尚未提供 sessionId，暂不支持 fleet say；当前任务继续运行。');
-  const codex = rec.model === 'gpt-6.1-sol';
+  const codex = ['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'].includes(rec.model);
   if (codex && rec.backend !== 'codex-app-server' && !rec.threadId && !rec.sessionId) {
     throw new Error('Codex 任务不支持 fleet say（当前没有可续跑的会话）；改方向请用 fleet-go amend --restart。');
   }

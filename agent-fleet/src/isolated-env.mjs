@@ -139,6 +139,7 @@ export function buildIsolatedEnv(resolved) {
   env.CLAUDE_CONFIG_DIR = configDir;
 
   Object.assign(env, NONESSENTIAL_TRAFFIC_OFF);
+  env.NODE_USE_ENV_PROXY = '1';
 
   // 两种鉴权头对应 Claude Code CLI 认的两个不同环境变量:
   //   ANTHROPIC_API_KEY    -> 发 `x-api-key` 头(DeepSeek 的 Anthropic 兼容端点只认这个)

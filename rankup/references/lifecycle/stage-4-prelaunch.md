@@ -203,9 +203,15 @@ TDK 与内链检查覆盖**全站每一个 URL** 而非抽样；`is-agentic.mjs 
 | P2 | **内容形状随模板带**，不是写完正文才想起来补：规格类信息用 `<table>`；至少一条外部来源用 `<cite>` + 真实外链；FAQ 用 H3 结构并配 `FAQPage` JSON-LD（页面结构卫生项，不是被 ChatGPT 引用的收益依据，见 [`seo-ai-search.md`](../seo-ai-search.md)「FAQ Rich Results 下架」）；页面带更新日期。**模板化生成的内页正文 ≥ 150 字且必须含本页独有的事实**——同一模板生成两百多页却是同一套话术，会被判定为薄内容；首屏第一句话就说清这一页解决什么，不要让用户往下滚才明白 |
 | P3 | **每页独立 og 图**（真实图片，体积 > 10KB，不是共享同一张模板底图）；canonical 自引；内链闭环三件套：面包屑、同类上一项/下一项、回分类页。批量新增与分页时，全部可索引内容须从分类页或可抓取分页的 SSR 真实 `<a href>` 到达，不能只靠客户端按钮、搜索或无限滚动；无需全塞首页或全部进 sitemap。分类页样板控件文案放进 aria-label，不进 SSR 正文；抓取内链图并与可索引路由清单对账，包含 sitemap 外页面 |
 | P4 | 新页上线要同步进四张清单，缺一个页面就在某处静默失效：边缘缓存白名单（[`cloudflare-stack.md`](../cloudflare-stack.md)「12. 匿名页面 HTML 边缘缓存」的适用范围）、markdown 内容协商白名单（本段 D9）、sitemap（仅当有独立搜索意图，见本段 D10）、IndexNow 增量推送 |
-| P4a | 页面注册表 lastmod 新页填创建当天（UTC），内容修改填修改当天，sitemap 同步输出；日期纪律与上线收尾见 [IndexNow 操作](../search-platforms.md#无状态-lastmod-窗口与页面日期) |
+| P4a | 页面 lastmod 从实际内容源 Git 历史与真实 updated 字段自动生成；日期纪律与上线收尾见 [IndexNow 操作](../search-platforms.md#无状态-lastmod-窗口与页面日期) |
 | P5 | **新模板上线前，PageSpeed 抽样必须专门覆盖这个模板**，不能只抽已有模板的页面代表全站——**实测某分类页模板加了规格表和 FAQ 之后 DOM 体积变大，TBT 从 120ms 回落到 280ms**，同样的改动放到内容更简单的模板上可能完全没有影响。任何一次改动都要按 [`checklists.md`](../checklists.md) 闸门 6 全套重跑，不是只测改动的那一页 |
 | P6 | **无 JS 内容占比**：shadcn/Tailwind 的类名天然会拉高 HTML 里非文本字符的占比，这本身不是问题，但正文文本量要够——判据仍是本段闸门 3 的密度检测；重复出现的样板区块（如 P3 提到的批量控件文案）不进 SSR 正文，理由同上 |
 | P7 | 按[建设中红线](../discipline.md#二十一禁止建设中内容与功能区域)重扫新增内页渲染产物，并逐入口回读实现；缺数据区块按唯一源处置。 |
 | P8 | 新内页上线前按 [`seo-geo.md` 的 GPT 推荐位自查清单](../seo-geo.md#新站上线后-gpt-推荐位自查清单)过一遍。 |
 
+
+### sitemap 的内容日期
+
+每个 URL 的 lastmod 取该页组件、文案/i18n、内容数据的最近 Git 提交日期与真实 updated 字段的较大者，格式 YYYY-MM-DD；列表页取自身与直接列出内容的最新日期。不要使用构建当天、手写统一日期；共享布局组件、robots、IndexNow key 与 CI 改动不刷新全站。构建/CI 使用完整 Git 历史（`fetch-depth: 0` 或等价方式）。静态框架在构建脚本生成 URL 日期映射；TanStack Start 在构建时注入映射供 sitemap 使用；Next.js 在 `app/sitemap.ts` 读取内容源 Git 历史并生成 MetadataRoute.Sitemap。按路由明确列依赖，不要把全目录或共享布局一概当全站内容。新增内容页同步登记依赖。
+
+运行 `node <rankup-skill-dir>/scripts/sitemap-lastmod-check.mjs <域名>`，再用实际内容变更前后证据验证对应日期变化；全站同日可能是新站历史真实情况，须人工核实，快照本身不能证明自动更新。

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 用途：在测试后台通过 OpenCLI 完成测试卡结账，并用只读 Merchant API 复核订单。
 // 参数：--link <支付链接> --ref <引用> --email <邮箱> [--env stg|prod] [--env-file <path>] [--meta k=v]
-//       [--session anyway-paytest] [--address-line1 <街道地址>] [--city <城市>]。
+//       [--amount-cents <预期分>] [--currency <ISO币种>] [--session anyway-paytest] [--address-line1 <街道地址>] [--city <城市>]。
 // 登录态：OpenCLI 已连接用户浏览器；目标商户后台已登录；复核需要该环境 API key。
 // 已知坑：stg 用 Stripe 借记测试卡 4000056655665556（4242 信用卡在 Anyway 沙盒被拒，2026-10-20 确认），
 // prod 的卡信息从进程环境变量读取；币种切换可能重建表单；必须用
@@ -71,6 +71,7 @@ if (!flags.ref) {
 
 const SESSION = flags.session || 'anyway-paytest';
 const TIMEOUT_S = Number(flags.timeout || 120);
+if (!Number.isFinite(TIMEOUT_S) || TIMEOUT_S <= 0) throw new Error('--timeout must be a positive number');
 const EMAIL = flags.email;
 // Stripe debit test card: 4242 credit card is declined by Anyway sandbox (confirmed 2026-10-20).
 const CARD_NUMBER = ENV === 'stg' ? '4000056655665556' : process.env.ANYWAY_CARD_NUMBER;
@@ -237,25 +238,108 @@ function futureExpiry() {
   return `12${String(year).slice(-2)}`;
 }
 
-async function pollUrlForOrderId(deadlineMs) {
-  const start = Date.now();
-  while (Date.now() - start < deadlineMs) {
-    const url = oc(['get', 'url'], { allowFail: true });
-    if (url && url.includes('anyway_order_id=')) return url;
-    await sleep(2000);
+// OpenCLI starts session-level network capture before `open`, preserving intermediate
+// requests across navigations. Read URLs only; never log captured bodies or headers.
+function observedOrderIds() {
+  const urls = [oc(['get', 'url'], { allowFail: true })];
+  try {
+    const capture = JSON.parse(oc(['network', '--all'], { allowFail: true }));
+    urls.push(...(capture?.entries || []).map((entry) => entry.url));
+  } catch { /* API lookup remains available with older bridges. */ }
+  try {
+    const pageUrls = `JSON.stringify([
+      location.href,
+      ...performance.getEntriesByType('navigation').map(e => e.name),
+      ...performance.getEntriesByType('resource').map(e => e.name),
+      ...Array.from(document.querySelectorAll('[href],[action],input[name="anyway_order_id"],[data-anyway-order-id]'),
+        e => e.href || e.action || ('?anyway_order_id=' + encodeURIComponent(e.value || e.dataset.anywayOrderId || '')))
+    ])`;
+    urls.push(...JSON.parse(oc(['eval', pageUrls], { allowFail: true })));
+  } catch { /* A redirect may temporarily destroy the execution context. */ }
+  const ids = new Set();
+  for (const url of urls) {
+    try {
+      const id = new URL(url, 'https://checkout.invalid').searchParams.get('anyway_order_id');
+      if (id) ids.add(id);
+    } catch { /* Not a URL. */ }
   }
-  return null;
+  return [...ids];
 }
 
-async function pollOrderPaid(orderId, deadlineMs) {
-  const start = Date.now();
-  let last = null;
-  while (Date.now() - start < deadlineMs) {
-    last = runAnywayApi(['orders', 'get', orderId]);
-    if (last.status === 'PAID') return last;
-    await sleep(3000);
+function expectedPayment(payUrl) {
+  let amountCents = flags['amount-cents'] === undefined ? null : Number(flags['amount-cents']);
+  let currency = flags.currency && String(flags.currency).toUpperCase();
+  const linkId = new URL(payUrl).pathname.split('/').filter(Boolean).at(-1);
+  if (amountCents === null || !currency) {
+    const products = runAnywayApi(['products', 'list', '--all']);
+    let link;
+    for (const product of products.records || []) {
+      const links = runAnywayApi(['products', 'links', product.productId || product.id]);
+      link = (Array.isArray(links) ? links : links.records || links.paymentLinks || []).find(l => l.linkId === linkId);
+      if (link) break;
+    }
+    if (!link) throw new Error('Cannot resolve payment link price; supply --amount-cents and --currency before paying.');
+    amountCents ??= Math.round(Number(link.amount) * 100);
+    currency ||= String(link.currency || '').toUpperCase();
   }
-  return last;
+  if (!Number.isSafeInteger(amountCents) || amountCents <= 0 || !/^[A-Z]{3}$/.test(currency)) {
+    throw new Error('Expected payment requires positive integer --amount-cents and ISO --currency.');
+  }
+  return { amountCents, currency, linkId };
+}
+
+function matchesOrder(order, expected, startedAt, until) {
+  const created = Date.parse(order.createdAt);
+  return order.merchantReference === String(flags.ref) &&
+    created >= startedAt && created <= until &&
+    order.amountCents === expected.amountCents && order.currency === expected.currency &&
+    (!order.paymentLinkId || order.paymentLinkId === expected.linkId);
+}
+
+async function resolvePaidOrder(expected, startedAt) {
+  const redirectDeadline = Date.now() + TIMEOUT_S * 1000;
+  // The timeout changes observation to API-only; it must never return to checkout.
+  const deadline = redirectDeadline + 60_000;
+  const ids = new Set();
+  let lastStatus = 'no matching order';
+  let apiFailed = false;
+  do {
+    if (Date.now() <= redirectDeadline) {
+      for (const id of observedOrderIds()) ids.add(id);
+    }
+    const until = Date.now();
+    try {
+      const orders = [];
+      for (const id of ids) {
+        try { orders.push(runAnywayApi(['orders', 'get', id])); }
+        catch { /* A stale captured ID must not block reference lookup. */ }
+      }
+      let matches = orders.filter(order => matchesOrder(order, expected, startedAt, until));
+      if (!matches.some(order => order.status === 'PAID')) {
+        const listed = runAnywayApi(['orders', 'list', '--merchant-ref', String(flags.ref),
+          '--from', new Date(startedAt).toISOString(), '--to', new Date(until).toISOString(), '--all']);
+        matches = (listed.records || []).filter(order => matchesOrder(order, expected, startedAt, until));
+      }
+      const paid = matches.filter(order => order.status === 'PAID');
+      if (paid.length > 1) throw new Error('Ambiguous payment: multiple matching PAID orders; refusing to choose.');
+      if (paid.length === 1) {
+        // List results are candidates: independently read the full order before success.
+        const order = runAnywayApi(['orders', 'get', paid[0].orderId]);
+        if (!matchesOrder(order, expected, startedAt, Date.now()) || order.status !== 'PAID') {
+          throw new Error('Order changed during final verification.');
+        }
+        log(ids.has(order.orderId) ? '[verify] captured return order is PAID' : '[verify] payment PAID; return URL parameter absent, recovered via Merchant API');
+        return order;
+      }
+      lastStatus = matches.length ? matches.map(o => o.status).join(', ') : 'no matching reference/time/amount/currency';
+    } catch (err) {
+      if (/Ambiguous payment|Order changed/.test(err.message)) throw err;
+      apiFailed = true;
+      log('[verify] Merchant API unavailable; retrying read-only lookup');
+    }
+    await sleep(3000);
+  } while (Date.now() < deadline);
+  throw new Error(`Payment not verified PAID (last: ${lastStatus}${apiFailed ? '; API lookup failed during observation' : ''}). No payment resubmitted.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -263,9 +347,10 @@ async function pollOrderPaid(orderId, deadlineMs) {
 // ---------------------------------------------------------------------------
 
 async function main() {
-  checkDoctor();
-
   const payUrl = buildPayUrl();
+  const expected = expectedPayment(payUrl);
+  const startedAt = Date.now();
+  checkDoctor();
   fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
   log(`[open] session="${SESSION}" payment link opened`);
 
@@ -446,11 +531,12 @@ async function main() {
   // — panel goes back to a translucent "still has old values but re-loading"
   // state, client_reference_id changes again, and the click that landed on
   // the pre-reset button is lost). So the fill-through-submit sequence is
-  // wrapped in a cycle that re-verifies (and re-does) every step rather than
-  // assuming a one-shot fill+click is durable.
+  // retried only before submission. After any submit attempt, use read-only
+  // verification: a missing click acknowledgement cannot prove no charge happened.
   const baseCheckoutUrl = oc(['get', 'url'], { allowFail: true });
   const maxCycles = 4;
   let movedOffBase = false;
+  let submitted = false;
   for (let cycle = 1; cycle <= maxCycles && !movedOffBase; cycle += 1) {
     const tag = ` cycle ${cycle}/${maxCycles}`;
     log(`[${tag.trim()}] ensuring payment method + fields, then submitting`);
@@ -544,12 +630,13 @@ async function main() {
     }
 
     log(`[submit${tag}] clicking pay button...`);
+    submitted = true; // Even a command timeout may have delivered the click.
     try {
       oc(['click', '[data-testid=hosted-payment-submit-button]']);
     } catch (err) {
       screenshotEvidence(`submit-failed-cycle${cycle}`);
-      if (cycle === maxCycles) throw err;
-      continue;
+      log('[submit] click acknowledgement failed; switching to read-only verification');
+      break;
     }
 
     const attemptDeadline = Date.now() + 15_000;
@@ -561,39 +648,22 @@ async function main() {
         break;
       }
     }
-    if (!movedOffBase) {
-      log(`[submit${tag}] no progress after 15s — checking whether the panel silently reset before retrying`);
-    }
+    break; // Once submitted, all remaining work is read-only, even without navigation.
   }
-  if (!movedOffBase) {
+  if (!submitted) {
     screenshotEvidence('submit-never-progressed');
-    throw new Error(`Submit was attempted ${maxCycles} times but the URL never moved off the base checkout page.`);
+    throw new Error('Checkout never became ready; no payment was submitted.');
   }
 
-  log(`[poll] waiting up to ${TIMEOUT_S}s for a redirect URL containing anyway_order_id=...`);
-  const redirectUrl = await pollUrlForOrderId(TIMEOUT_S * 1000);
-  if (!redirectUrl) {
-    screenshotEvidence('redirect-timeout');
-    throw new Error(`Timed out after ${TIMEOUT_S}s waiting for anyway_order_id= to appear in the current URL.`);
+  log('[verify] observing return URLs and Merchant API (read-only)...');
+  let order;
+  try {
+    order = await resolvePaidOrder(expected, startedAt);
+  } catch (err) {
+    screenshotEvidence('order-not-verified');
+    throw err;
   }
-  log(`[redirect] returned from checkout`);
-
-  const redirect = new URL(redirectUrl);
-  const orderId = redirect.searchParams.get('anyway_order_id');
-
-  if (!orderId) {
-    screenshotEvidence('order-id-missing');
-    throw new Error('Redirect URL had no anyway_order_id param');
-  }
-
-  log(`[verify] polling Merchant API for order ${orderId} to reach PAID (up to 60s)...`);
-  const order = await pollOrderPaid(orderId, 60_000);
-  if (!order || order.status !== 'PAID') {
-    screenshotEvidence('order-not-paid');
-    throw new Error(
-      `Order ${orderId} did not reach PAID within 60s (last status: ${order && order.status}).`,
-    );
-  }
+  const orderId = order.orderId;
   log(`[ok] order ${orderId} is PAID (${order.amountCents} ${order.currency})`);
 
   let webhookCheck;

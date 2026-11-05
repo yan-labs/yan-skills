@@ -13,7 +13,7 @@ import time
 
 BLOCKS = Path(__file__).resolve().parents[1] / 'skill/templates/blocks'
 LEGACY_RULE = "禁止单纯转发，允许分发子步骤：不能把整个任务原样甩给另一个 agent 后只回'已启动/等结果'就结束当轮；可以拆出边界清晰的子步骤交给更便宜的 agent 做，但你必须自己掌握全局、消化并验证子任务结果，最终给出真正的结论作为你的最终答案"
-PRODUCTS = {'gpt': '(a) Codex 编码', 'claude': 'Claude 月度额度',
+PRODUCTS = {'gpt': '(a) Codex 编码', 'claude': 'Claude 月度额度', 'openai': 'OpenAI 月度API额度',
             'grok': 'Grok Build CLI', 'gemini': 'Gemini 文本任务', 'jev': 'JEV 判断'}
 AUTH = ['local', 'local-commit', 'readonly-web', 'deploy-prod', 'paid', 'review']
 PITFALLS = ['node-proxy', 'zsh', 'pnpm-entry', 'local-preview', 'playwright-clean', 'shared-tree', 'secrets', 'fleet-bg', 'ssr-check']
@@ -62,7 +62,7 @@ def lint(text, to='gpt'):
         # 只检查启动命令；禁令和标明的错误示范是说明文字。
         if re.search(r'禁止|不加|不要|错误示范|绝不|不得', line):
             continue
-        if re.search(r'(?:^|[\s`$;(])(?:fleet|fleet-go)\s+(?:code|copy|bulk|grok-cli|grok|haiku|sonnet|opus|fable|judge|run|new)\b|^\s*(?:\$\s*)?`?(?:nohup|node|npm|pnpm|python3?|bash|sh)\s+', line):
+        if re.search(r'(?:^|[\s`$;(])(?:fleet|fleet-go)\s+(?:code|copy|bulk|grok-cli|grok|openai|haiku|sonnet|opus|fable|judge|run|new)\b|^\s*(?:\$\s*)?`?(?:nohup|node|npm|pnpm|python3?|bash|sh)\s+', line):
             if re.search(r'\b(?:nohup|setsid|disown)\b|(?<![&>])&(?![&\d])', line):
                 errors.append('发现脱离启动命令；请使用工具 run_in_background。')
     if to in ('gpt', 'grok') and not all(word in text for word in ['授权覆盖', '允许范围']):
@@ -78,13 +78,13 @@ def checked(text, to):
 
 def command(meta):
     to = meta['to']
-    entry = {'gpt': 'code', 'claude': meta.get('tier') or 'sonnet', 'grok': 'grok-cli',
+    entry = {'gpt': 'code', 'openai': 'openai', 'claude': meta.get('tier') or 'sonnet', 'grok': 'grok-cli',
              'gemini': 'bulk' if meta.get('bulk') else 'copy', 'jev': 'judge'}[to]
     args = ['fleet', entry, meta['brief']]
     if to == 'jev':
         args.append(meta['questions'])
     args.extend(['--name', meta['name'], '--report', meta['report']])
-    for option in ['review', 'low', 'subagents', 'expect-changes']:
+    for option in ['review', 'low', 'high', 'xhigh', 'max', 'simple', 'luna', 'fast', 'no-fast', 'subagents', 'expect-changes']:
         if meta.get(option):
             args.append('--' + option)
     if meta.get('model'):
@@ -119,27 +119,7 @@ def locate(name):
     return path, meta
 
 
-def gemini_task_text(text):
-    # 两处闸门同规格：统一换行，仅移除完整模板块；{大写占位符}匹配单行值。
-    text = text.replace('\r\n', '\n')
-    for path in sorted(BLOCKS.glob('*.md')):
-        template = path.read_text().strip().replace('\r\n', '\n')
-        parts = re.split(r'(\{[A-Z]+\})', template)
-        pattern = ''.join(r'[^\n]*?' if re.fullmatch(r'\{[A-Z]+\}', part) else re.escape(part) for part in parts)
-        text = re.sub(pattern, '', text)
-    return text
-
-
-def gemini_check(text, expect_changes=False):
-    """静态路由限制，只判断任务要求，不判断执行失败原因。"""
-    text = gemini_task_text(text)
-    classifications = re.findall(r'^归类[^\r\n]*', text, re.M)
-    coding = r'编码|\bUI\b|前端实现|写代码|(?:修改|改动|改|编辑|重写|创建|新增|删除|更新).{0,12}(?:文件|代码|源码|组件|\S+\.(?:mjs|js|ts|tsx|jsx|py|html|css|json))|实现.{0,12}(?:界面|页面|功能)|(?:edit|modify|write|create|delete|update)\s+(?:\S+\s+){0,3}(?:files?|code|components?)|implement\s+(?:\S+\s+){0,3}(?:UI|code|component)'
-    if expect_changes or any(re.search(r'编码|code|UI|前端实现', line, re.I) for line in classifications) or re.search(coding, text, re.I):
-        raise ValueError('Gemini 只接文本任务，拒绝编码/UI/--expect-changes。')
-
-
-def relaunch(name, to=None, tier=None):
+def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     path, meta = locate(name)
     matches = [r for r in running() if r.get('briefPath') == str(path) or r.get('name') == name]
@@ -148,19 +128,59 @@ def relaunch(name, to=None, tier=None):
     target = to or meta['to']
     if tier and target != 'claude':
         raise ValueError('--tier 仅用于 --to claude。')
+    if simple and (target != 'gpt' or meta.get('review')):
+        raise ValueError('--simple 仅用于非 review 的 --to gpt（Sol 容量故障时改派 Terra）。')
+    selected_luna = luna or (target == 'gpt' and meta.get('luna'))
+    selected_simple = simple or (target == 'gpt' and meta.get('simple'))
+    if selected_luna and target != 'gpt':
+        raise ValueError('--luna 仅用于 --to gpt。')
+    if selected_luna and meta.get('review'):
+        raise ValueError('--luna 不能与 --review 同用。')
+    if selected_luna and selected_simple:
+        raise ValueError('--luna 不能与 --simple 同用。')
+    if sum([low, high, xhigh, max]) > 1:
+        raise ValueError('--low、--high、--xhigh 和 --max 不能同用。')
+    if (xhigh or max) and not selected_luna:
+        raise ValueError('--xhigh 和 --max 仅用于 --luna。')
+    if (fast or low or high or xhigh or max) and target != 'gpt':
+        raise ValueError('--fast 和 --high 仅用于 --to gpt。')
     text = path.read_text()
-    if target == 'gemini':
-        gemini_check(text, meta.get('expect-changes', False))
     checked(text, target)
     if target != meta['to']:
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
-                                 ('low', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
+                                 ('low', ['gpt']), ('high', ['gpt']), ('xhigh', ['gpt']), ('max', ['gpt']), ('simple', ['gpt']), ('luna', ['gpt']), ('fast', ['gpt']), ('no-fast', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                                  ('bulk', ['gemini'])]:
             if target not in products:
                 meta.pop(option, None)
     meta.update(to=target, name=name, brief=str(path))
     if tier:
         meta['tier'] = tier
+    if simple:
+        meta['simple'] = True
+    if luna:
+        meta['luna'] = True
+    if low:
+        meta['low'] = True
+        meta['high'] = meta['xhigh'] = meta['max'] = False
+    if high:
+        meta['low'] = False
+        meta['high'] = True
+        meta['xhigh'] = False
+        meta['max'] = False
+    if xhigh:
+        meta['low'] = False
+        meta['high'] = False
+        meta['xhigh'] = True
+        meta['max'] = False
+    if max:
+        meta['low'] = False
+        meta['high'] = False
+        meta['xhigh'] = False
+        meta['max'] = True
+    if fast:
+        meta['fast'] = True
+    if no_fast:
+        meta['no-fast'] = True
     if target == 'jev' and not meta.get('questions'):
         meta['questions'] = str(path.with_suffix('.questions.json'))
         Path(meta['questions']).write_text(json.dumps({'decision': {'type': 'noul', 'instructions': text}}, ensure_ascii=False) + '\n')
@@ -230,6 +250,36 @@ def restart(run, path, name):
 def amend(args):
     """保留修订正文，按需插话或停止本次 run 后通过 relaunch 重启。"""
     path, meta = locate(args.name)
+    if args.luna or args.low or args.high or args.xhigh or args.max:
+        if meta['to'] != 'gpt':
+            raise ValueError('--luna 仅用于 --to gpt。')
+        if args.luna and (meta.get('review') or meta.get('simple')):
+            raise ValueError('--luna 不能与 --review 或 --simple 同用。')
+        if sum([args.low, args.high, args.xhigh, args.max]) > 1:
+            raise ValueError('--low、--high、--xhigh 和 --max 不能同用。')
+        if (args.xhigh or args.max) and not (args.luna or meta.get('luna')):
+            raise ValueError('--xhigh 和 --max 仅用于 --luna。')
+        if args.luna:
+            meta['luna'] = True
+        if args.low:
+            meta['low'] = True
+            meta['high'] = meta['xhigh'] = meta['max'] = False
+        if args.high:
+            meta['low'] = False
+            meta['high'] = True
+            meta['xhigh'] = False
+            meta['max'] = False
+        if args.xhigh:
+            meta['low'] = False
+            meta['high'] = False
+            meta['xhigh'] = True
+            meta['max'] = False
+        if args.max:
+            meta['low'] = False
+            meta['high'] = False
+            meta['xhigh'] = False
+            meta['max'] = True
+        path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     original = path.read_text()
     if re.search(r'^## 【修订 \d+（[^\n]+）】\n' + re.escape(args.message) + r'(?=\n\n)', original, re.M):
         print('相同修订已存在，未重复插入。')
@@ -266,10 +316,20 @@ def amend(args):
 def new(args):
     """组装标准 brief；预览不写盘，正文文件与 stdin 使用明确输入规则。"""
     for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
-                             ('low', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
+                             ('low', ['gpt']), ('high', ['gpt']), ('xhigh', ['gpt']), ('max', ['gpt']), ('simple', ['gpt']), ('luna', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                              ('bulk', ['gemini'])]:
         if getattr(args, option) and args.to not in products:
             raise ValueError('--' + option + ' 仅用于 --to ' + '|'.join(products) + '。')
+    if args.fast and args.to != 'gpt':
+        raise ValueError('--fast 仅用于 --to gpt。')
+    if sum([args.low, args.high, args.xhigh, args.max]) > 1:
+        raise ValueError('--low、--high、--xhigh 和 --max 不能同用。')
+    if (args.xhigh or args.max) and not args.luna:
+        raise ValueError('--xhigh 和 --max 仅用于 --luna。')
+    if args.luna and (args.simple or args.review):
+        raise ValueError('--luna 不能与 --simple 或 --review 同用。')
+    if args.simple and args.review:
+        raise ValueError('--simple 不能与 --review 同用；复核固定使用 Sol。')
     if args.make == 'video' and args.to != 'grok':
         raise ValueError('--make video 仅用于 --to grok。')
     day = datetime.date.today().isoformat()
@@ -283,15 +343,13 @@ def new(args):
         raise ValueError('未知授权块。可用：' + ','.join(AUTH))
     if 'local-commit' in auth:
         auth = [a for a in auth if a != 'local']
-    if 'paid' in auth and not args.budget:
-        raise ValueError('paid 必须提供 --budget（上限与重试次数）。')
     pitfalls = args.pitfalls.split(',') if args.pitfalls is not None else (['node-proxy', 'zsh', 'secrets', 'shared-tree'] if args.to in ('gpt', 'grok') else ['secrets', 'fleet-bg'])
     if args.pitfalls is None and 'deploy-prod' in auth:
         pitfalls.append('pnpm-entry')
         pitfalls.extend(p.stem[8:] for p in BLOCKS.glob('pitfall-deploy-*.md'))
     if any(p not in PITFALLS and not (BLOCKS / ('pitfall-' + p + '.md')).exists() for p in pitfalls if p):
         raise ValueError('未知已知坑块。')
-    values = {'NAME': args.name, 'REPORT': report, 'BUDGET': args.budget or '付费由主线程另行授权', 'DATE': day,
+    values = {'NAME': args.name, 'REPORT': report, 'DATE': day,
               'COMMITS': '本地提交仅限授权分支，报告列出本地提交哈希' if 'local-commit' in auth else '提交按授权覆盖执行'}
     if args.body and args.body != '-':
         body_path = Path(args.body).expanduser()
@@ -302,13 +360,13 @@ def new(args):
         body = sys.stdin.read() if args.body == '-' or not sys.stdin.isatty() else ''
     if not args.goal and not body.strip():
         raise ValueError('请提供 --goal、--body 或 stdin 正文。')
-    if args.to == 'gemini':
-        gemini_check('\n'.join([args.goal or '', body, args.why or '']), args.expect_changes)
     classification = PRODUCTS[args.to] + (' 只读复核' if args.review else '')
     if args.to == 'claude':
         classification += ' ' + (args.tier or 'sonnet')
-    parts = [f'归类：{classification}；理由：{args.why or classification + "任务，按既有路由执行"}\nREPORT: {report}', block('style-sol', values),
+    parts = [f'归类：{classification}；理由：{args.why or classification + "任务，按既有路由执行"}\nREPORT: {report}', block('style-sol', values), block('time-box', values),
              '## 授权覆盖\n' + '\n\n'.join(block('auth-' + a, values) for a in dict.fromkeys(auth))]
+    if args.budget:
+        parts.append('## 预算与重试限制\n' + args.budget)
     if args.goal:
         parts.append('## 目标\n' + args.goal)
     if body.strip():
@@ -318,7 +376,7 @@ def new(args):
         if args.make == 'image':
             parts.append('执行方法：' + ('使用 imagegen Skill 和 Codex 内置 image_gen 工具。' if args.to == 'gpt' else 'Grok 使用内置 image_gen / image_edit 工具，model 参数留空。' if args.to == 'grok' else '使用当前产品可用的真实图片生成工具，生成受阻时如实报告缺口。'))
     writes = [report, '/tmp/' + args.name + '/', *(args.write or [])]
-    parts.append('## 允许范围\n允许写：\n' + '\n'.join('- ' + p for p in dict.fromkeys(writes)) + '\n只读：\n' + ('\n'.join('- ' + p for p in (args.read or [])) or '按正文指定路径读取。'))
+    parts.append('## 允许范围\n允许写：\n' + '\n'.join('- ' + p for p in dict.fromkeys(writes)) + '\n- 正文明确写了“允许读写”的路径（含源码仓与其 .git）\n只读：\n' + ('\n'.join('- ' + p for p in (args.read or [])) or '按正文指定路径读取。'))
     if args.forbid:
         parts.append('另行授权事项：' + args.forbid)
     parts.append('## 已知坑\n' + '\n\n'.join(block('pitfall-' + p, values) for p in dict.fromkeys(pitfalls) if p))
@@ -326,7 +384,7 @@ def new(args):
     text = '\n\n'.join(parts) + '\n'
     checked(text, args.to)
     meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
-            'tier': args.tier, 'review': args.review, 'low': args.low, 'model': args.model,
+            'tier': args.tier, 'review': args.review, 'low': args.low, 'high': args.high, 'xhigh': args.xhigh, 'max': args.max, 'simple': args.simple, 'luna': args.luna, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,
             'subagents': args.subagents, 'bulk': args.bulk, 'expect-changes': args.expect_changes}
     if args.to == 'jev':
         meta['questions'] = str(path.with_suffix('.questions.json'))
@@ -356,7 +414,7 @@ def main():
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
     p.add_argument('--model')
     p.add_argument('--make', choices=['image', 'video'])
-    for option in ['review', 'low', 'subagents', 'bulk', 'expect-changes']:
+    for option in ['review', 'low', 'high', 'xhigh', 'max', 'simple', 'luna', 'fast', 'no-fast', 'subagents', 'bulk', 'expect-changes']:
         p.add_argument('--' + option, action='store_true')
     for option in ['why', 'goal', 'body', 'budget', 'forbid', 'pitfalls', 'report']:
         p.add_argument('--' + option)
@@ -369,6 +427,11 @@ def main():
     p = sub.add_parser('amend')
     p.add_argument('name')
     p.add_argument('message')
+    p.add_argument('--luna', action='store_true', help='后续重派使用 Luna')
+    p.add_argument('--low', action='store_true', help='后续重派使用 low 推理')
+    p.add_argument('--high', action='store_true', help='后续重派使用 high 推理')
+    p.add_argument('--xhigh', action='store_true', help='后续重派使用 Luna xhigh 推理')
+    p.add_argument('--max', action='store_true', help='后续重派使用 Luna max 推理')
     group = p.add_mutually_exclusive_group()
     group.add_argument('--say', action='store_true')
     group.add_argument('--restart', action='store_true')
@@ -376,6 +439,14 @@ def main():
     p.add_argument('name')
     p.add_argument('--to', choices=PRODUCTS)
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
+    p.add_argument('--simple', action='store_true', help='GPT 任务改用 Terra，默认不开 fast')
+    p.add_argument('--luna', action='store_true', help='GPT 任务改用 Luna，默认 xhigh 且不开 fast')
+    p.add_argument('--low', action='store_true', help='GPT 任务使用 low 推理')
+    p.add_argument('--high', action='store_true', help='GPT 任务使用 high 推理')
+    p.add_argument('--xhigh', action='store_true', help='Luna 使用 xhigh 推理')
+    p.add_argument('--max', action='store_true', help='Luna 使用 max 推理')
+    p.add_argument('--fast', action='store_true', help='GPT 任务开启 fast')
+    p.add_argument('--no-fast', action='store_true', help='兼容旧用法，无副作用')
     p = sub.add_parser('lint')
     p.add_argument('brief')
     p.add_argument('--to', choices=PRODUCTS, default='gpt')
@@ -383,7 +454,7 @@ def main():
     p = sub.add_parser('status')
     p.add_argument('--all', action='store_true')
     if any(a == '--kind' or a.startswith('--kind=') for a in sys.argv[1:]):
-        raise ValueError('请使用 --to gpt|claude|grok|gemini|jev。')
+        raise ValueError('请使用 --to gpt|openai|claude|grok|gemini|jev。')
     args = parser.parse_args()
     if hasattr(args, 'name') and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.name):
         raise ValueError('名称只能包含字母、数字、下划线与连字符。')
@@ -392,7 +463,7 @@ def main():
     elif args.action == 'amend':
         amend(args)
     elif args.action == 'relaunch':
-        relaunch(args.name, args.to, args.tier)
+        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low)
     elif args.action == 'team':
         os.execvp('fleet', ['fleet', 'team'])
     elif args.action == 'lint':

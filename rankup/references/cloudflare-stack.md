@@ -3,7 +3,7 @@
 ## 目录
 
 - [1. 默认项目脚手架](#1-默认项目脚手架)
-- [2. TanStack Start SSR 和 API](#2-tanstack-start-ssr-和-api)
+- [2. 页面渲染与 API：静态优先，Worker 只管动态](#2-页面渲染与-api静态优先worker-只管动态)
 - [3. 按需求选择资源](#3-按需求选择资源)
 - [4. cf CLI、Wrangler 和 bindings 工作流](#4-cf-cliwrangler-和-bindings-工作流)
 - [5. D1 数据与迁移](#5-d1-数据与迁移)
@@ -19,7 +19,7 @@
 - [11. 已验证的部署陷阱(2026-08 回流)](#11-已验证的部署陷阱2026-08-回流)
 - [12. 匿名页面 HTML 边缘缓存（Cache API）](#12-匿名页面-html-边缘缓存cache-api)
 
-本文件定义 `rankup` 新网站的默认运行平台和资源选择方法。Cloudflare-first 的含义是：没有已批准的例外时，TanStack Start 的 SSR、API、数据、对象存储、异步任务和部署统一使用 Cloudflare；它不意味着预先创建全部 Cloudflare 产品。每项资源都必须由当前需求驱动，并在目标环境完成真实验证。
+本文件定义 `rankup` 新网站的默认运行平台和资源选择方法。Cloudflare-first 的含义是：没有已批准的例外时，公开内容页静态优先，Worker 承载 API 与必须动态的页面，数据、对象存储、异步任务和部署统一使用 Cloudflare；它不意味着预先创建全部 Cloudflare 产品。每项资源都必须由当前需求驱动，并在目标环境完成真实验证。
 
 ## 1. 默认项目脚手架
 
@@ -34,22 +34,37 @@ pnpm dlx shadcn@latest init --preset b1D0eCA4 --template start --monorepo --rtl 
 
 两种起点都不是成功证明。执行后必须检查实际生成的项目结构、应用目录、UI 配置、TypeScript 配置和 scripts；默认起点还须核对 workspace、共享 UI 包与 TanStack Start 配置，并运行项目实际提供的类型检查与生产构建。模板已有的 shadcn 初始化配置视为同等有效，追加组件仍用 `shadcn add`，UI 只来自组件库的规则不变。两种方式均须通过脚手架真实可运行、站点身份不是模板占位、建设中为零等原闸门；用模板时尤其要核对模板占位已全部替换，grep 模板占位站名与文案。journal 缺完整记录即不通过；不得另用 `create-next-app`、`create-vite` 等脚手架，模板自身使用的栈不算此类痕迹，但必须在记录中说明。已有网站应从当前架构进入对应生命周期阶段。
 
-## 2. TanStack Start SSR 和 API
+## 2. 页面渲染与 API：静态优先，Worker 只管动态
 
-- 使用 Cloudflare Workers 承载 TanStack Start SSR、路由、API 和服务端逻辑。
+### 2.0 默认静态优先（2026-10-27 CPU 降耗回流）
+
+**公开内容页（首页、列表/分类、内页、说明/法律页、工具落地页、sitemap/robots/llms.txt、OG 图）默认在构建时预渲染成静态资产，由 Workers Static Assets 直接返回，不经过 Worker 代码。** 每次请求都 SSR 的 Worker 会把 CPU 花在每个访客、每只爬虫、每次扫描上，而内容页的 HTML 在两次发版之间根本不变；2026-10-27 把 22 个站点改成静态优先后，同一小时的账号 CPU 下降约 71%（见 `.rankup/` 的 `cf-cpu-fix` 报告）。
+
+- **默认路径**：内容页预渲染（TanStack Start / Astro 的 prerender 或 SSG）；工具类页面的交互部分做客户端岛，用户态、生成、支付、上传等走 `/api/*` 由 Worker 处理。Worker 只承载 API、鉴权、Webhook、Cron、Queue。
+- **`run_worker_first` 只放动态路径**（如 `/api/*`、`/checkout*`、`/auth*`），其余全部直接命中静态资产；不要用"全站先进 Worker 再回落资产"的写法。
+- **需要 SSR 才算例外**，并在 `.rankup/PROJECT.md` 写明原因：页面内容依赖登录态/每次不同的数据且不能拆成客户端岛；页面总量大到构建时间不可接受（先试增量预渲染或只预渲染有流量的页，其余走 §12 的边缘缓存）。例外页面仍要走 §12，不直出。
+- **内容更新靠重新构建发布**：数据日更的站（如榜单、日更内容）把更新链路写成"拉数据 → 构建 → 发布"，并在 `.rankup/` 记录触发方式与回读方法。
+- **HTTP 语义不能因静态化退化**：上线前对账新旧 URL 全集（sitemap 与实际页面），title/description/canonical/hreflang/robots/H1/JSON-LD 逐项一致，301/410/404 语义保留；`Accept: text/markdown` 之类的内容协商静态资产做不到，需要时用 zone 规则或显式替代入口。
+- **边缘兜底**：每个 zone 配一条扫描路径 WAF 规则（`/wp-admin`、`/wp-login.php`、`/xmlrpc.php`、`/.env`、`/.git/` 等，排除 `/api/` 与 `/.well-known/`），让爬虫扫描不进 Worker；按 §8.7 管 AI 爬虫。
+- **验收加一条**：造一次请求确认静态页的响应不经过 Worker（Worker 日志/请求数不增长，或 `run_worker_first` 配置读回），并看上线后第一个干净整点的 Worker 请求数与 CPU ms（Cloudflare GraphQL `workersInvocationsAdaptive`），与同期基线对比写进 `.rankup/releases.md`。
+- 记新站时：起站模板（`saas-template`）已默认静态优先；改动平台层先回写模板再同步各站。
+
+### 2.1 Worker 承载的部分（API 与必须动态的页面）
+
+- 使用 Cloudflare Workers 承载 TanStack Start 的 API、必须动态渲染的页面和服务端逻辑。
 - 通过 `@cloudflare/vite-plugin` 将 Worker 运行时、bindings 和 Vite/TanStack Start 构建串联。
 - 配置必须明确 Worker 入口、兼容日期、静态资产、路由或 custom domain，以及各环境 bindings。
 - 通过 `cloudflare:workers` 或当前官方集成提供的类型化环境访问 bindings，不把账号 ID、数据库 ID 等环境常量散落在业务代码中。
 - 本地开发、预览和 production 的运行时差异必须有显式测试；Node.js 本地通过不代表 Workers 运行时可用。
 
-SSR 最小验收不是进程启动，而是请求真实路由后同时确认：
+动态/SSR 页面最小验收不是进程启动，而是请求真实路由后同时确认：
 
 1. 响应状态、content type 和关键响应头正确。
 2. 返回的原始 HTML 已包含预期服务端内容，而不是只能依靠客户端 JavaScript 出现。
 3. 客户端水合后关键交互正常且没有运行时错误。
 4. API 错误与未授权路径不会泄露堆栈、配置或密钥。
 
-### 2.1 New Module Registry（可选 flag，2026-09 关注，本仓库尚未实测）
+### 2.2 New Module Registry（可选 flag，2026-09 关注，本仓库尚未实测）
 
 2026-09-09 Cloudflare 官方博客（`workers-module-registry-nodejs`）宣布重写了 `workerd`
 底层的 Module Registry，是 ESM/CJS/Wasm 解析加载体系本身的重写，不是 `nodejs_compat`
@@ -88,7 +103,8 @@ Start 的 `@cloudflare/vite-plugin` 构建链目前没有把我们逼到这些�
 
 | 需求 | 默认资源 | 适用边界 | 最小验证 |
 |---|---|---|---|
-| SSR、API、服务端业务逻辑 | Workers | 每次请求计算、路由和服务集成 | 真实 SSR HTML、API 成功/失败路径、Worker 日志 |
+| 公开内容页 | Workers Static Assets（构建时预渲染） | 默认；不进 Worker，不计 CPU | 原始 HTML 含完整内容、响应不经 Worker、URL 与 SEO 对账 |
+| API、鉴权、Webhook、必须动态的页面 | Workers | 每次请求计算、路由和服务集成 | API 成功/失败路径、Worker 日志；动态页看真实 SSR HTML |
 | 关系型、可查询、事务型数据 | D1 | 用户、订单、内容元数据、关系和迁移 | 目标环境迁移状态及最小读写事务 |
 | 文件、图片、导出物、用户上传 | R2 | 大对象与对象生命周期，不作为关系数据库 | 上传、读取、权限、content type、删除/保留策略 |
 | 缓存和读多写少配置 | KV | 可接受最终一致性的缓存、特性配置、派生数据 | 命中、失效、过期和源数据回退 |
@@ -315,7 +331,7 @@ DO 官方保证至少执行一次，异常自动重试有限；**应用重新 `s
 只有同时满足以下条件才可宣布上线完成：
 
 1. Cloudflare 部署状态关联到预期提交或版本。
-2. 真实域名返回预期 SSR HTML 和静态资源。
+2. 真实域名返回预期 HTML（静态页为预渲染内容）和静态资源。
 3. 关键 API 与所有实际使用的 bindings 在目标环境通过验证。
 4. 上传、鉴权、支付回调等适用路径通过端到端验证。
 5. 监控没有出现阻断性错误。

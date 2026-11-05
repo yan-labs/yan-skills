@@ -67,6 +67,8 @@
 
 ## 方法层实测回流指针
 
+【实测·2026-11-05】来源：用户提供的当日站群 sitemap 复查（24 个站，12 个缺 lastmod、2 个停在旧日期）；用户要求今后随内容自动更新。站点细节留项目侧；实施与核验见 [段 4 sitemap 日期](../lifecycle/stage-4-prelaunch.md#sitemap-的内容日期)。
+
 【实测·2026-10-05】CI 无本地状态、只看 package.json 误判的两条部署推送经验，属于自己的接入 SOP，全文归 [搜索平台的 lastmod 窗口与实际配置回读](../search-platforms.md#无状态-lastmod-窗口与页面日期)，不另建经验文件。
 
 ## 什么时候回流到这里

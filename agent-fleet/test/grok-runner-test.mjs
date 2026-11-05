@@ -80,14 +80,15 @@ syncBuiltinESMExports();
   assert.equal(incomplete.output.status, 1); assert.equal(incomplete.brief.verdict, 'suspect'); assert.match(incomplete.brief.error, /最终结论/);
   const cleanReview = run('normal', true); assert.equal(cleanReview.brief.verdict, 'ok');
   const changed = run('write', true);
-  assert.equal(changed.output.status, 1); assert.equal(changed.brief.verdict, 'suspect'); assert.match(changed.brief.error, /changed.txt/);
-  assert.equal(changed.brief.changedFiles.length, 1);
-  assert.match(readFileSync(changed.brief.logPath, 'utf8'), /done error verdict=suspect/);
+  assert.equal(changed.output.status, 0); assert.equal(changed.brief.verdict, 'ok');
+  assert.equal(changed.brief.error, null);
+  assert.equal(changed.brief.changedFiles, undefined, 'review 不再扫描文件快照');
+  assert.match(readFileSync(changed.brief.logPath, 'utf8'), /done ok/);
   assert.ok(JSON.parse(readFileSync(join(changed.dir, 'args.json'), 'utf8')).args.includes('--always-approve'));
   const failedReview = run('cancelled-nonzero', true);
   assert.equal(failedReview.output.status, 1); assert.equal(failedReview.brief.verdict, 'fail');
   assert.match(failedReview.brief.error, /stopReason=cancelled/);
-  assert.match(failedReview.brief.error, /changed.txt/);
+  assert.doesNotMatch(failedReview.brief.error, /changed.txt/);
   for (const scenario of ['bad-json', 'null-event', 'no-end']) { const r = run(scenario); assert.equal(r.brief.verdict, 'fail'); }
   const timeout = run('timeout', false, true);
   assert.match(timeout.brief.error, /终端未设置 HTTPS_PROXY/);
@@ -98,5 +99,5 @@ syncBuiltinESMExports();
   const proxiedTimeout = run('exec-timeout');
   assert.equal(proxiedTimeout.brief.verdict, 'fail');
   assert.doesNotMatch(proxiedTimeout.brief.error, /终端未设置 HTTPS_PROXY/);
-  console.log('grok-runner 桩通过：NDJSON、收尾判定、正文、元数据、review 快照、代理透传/提示');
+  console.log('grok-runner 桩通过：NDJSON、收尾判定、正文、元数据、review 写入不误判、代理透传/提示');
 } finally { rmSync(scratch, { recursive: true, force: true }); }

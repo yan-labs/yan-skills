@@ -2,7 +2,7 @@
 name: rankup
 description: 独立开发者的项目全生命周期管理：需求验证、选词选品、建站或做原生 App、上线接入、SEO/GEO 获客、支付变现、监控迭代与跨会话接力。以下情况使用：用户提到 rankup 或 /rankup（check、review、init；doctor 仅指整理项目 .rankup 记录）；当前目录或工作区有 .rankup/，或要读取、续做、整理项目计划、路线图、待办、PRD、交接或进度文档；在这些项目记录上下文里说「继续」「接着做」「上次做到哪」「下一步做什么」；以及项目规划、需求验证、关键词调研与 SERP、独立 Google Trends 热度查询或对比、AI 搜索推荐（GEO）、网站体检、sitemap/IndexNow/Search Console、流量、建站、上线、支付（Stripe、Anyway、PayPal）、变现与增长。SEO/GEO 是主要手段，不是适用边界，非 SEO 的项目计划与 macOS、iOS、iPad 原生 App 同样适用。纯文案（含 SEO 趋势博客等主题写作）、纯视觉设计、与项目管理无关的通用开发及基础设施排错（含 Cloudflare 部署报错、普通 CLI doctor）不触发；目录内有 .rankup/ 时仅叠加项目记录维护义务；外链执行交 backlink，浏览器驱动交 opencli，配图生成交 imagegen，多模型派单交 agent-fleet。
 metadata:
-  version: "3.38.12"
+  version: "3.41.1"
 ---
 
 # Rankup
@@ -21,12 +21,12 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 |---|---|---|---|
 | **开工**：项目任务（含工作区根） | [接力协议](references/project-memory.md#接力协议任务随时可能中断新会话必须立即接上)、项目接力记录 | 按接力与下文启动协议恢复、对账和记录状态 | 接力可续做 |
 | **里程碑**：产物、决定或后台任务状态变化 | 同上接力协议 | 覆盖当前接力与产物指针 | 接力反映最新状态 |
-| **收尾**：完成、放弃、叫停或等用户决定 | [维护「一」「二」](references/maintenance.md#二收尾维护五步顺序固定) | 按轻量路径或五步维护收口；扫描用 `scripts/maintain/ref-scan.mjs` | 回复有维护摘要与证据 |
+| **收尾**：完成、放弃、叫停或等用户决定 | [维护「一」「二」](references/maintenance.md#二收尾维护五步顺序固定) | 按轻量路径或五步维护收口；扫描用 `scripts/maintain/ref-scan.mjs`，清过程数据用 `scripts/maintain/rankup-clean.mjs --apply` | 回复有维护摘要与证据 |
 | 有项目记录上下文的「继续」「接着做」「上次做到哪」「我们开始执行这个项目的计划」，或读计划 / 交接 / 进度文档 | 同上「新会话怎么接」 | 定位项目 → 读接力（无 `.rankup/` 用 `HANDOFF.md`）→ 核对后台产物与改动 → 直接执行下一步 | 下一步已有执行证据 |
 | 选词、调研、找需求（**已有主词**） | [`playbooks/entry.md`](references/playbooks/entry.md) → [`research.md`](references/playbooks/research.md) | 按入口四步顺序与两路判读执行；方向未落主词先走 [`selection.md`](references/playbooks/selection.md)，无方向先走 [P1](references/playbooks/research/p1-discovery.md)，主词出现后回本行 | 入口卡写进 `.rankup/research/<词根>-<日期>.md` |
-| ChatGPT 问法链路、自然推荐验证 | [`seo-geo.md`](references/seo-geo.md) 步骤 2–3 | 问法、采样、追问与三清单只按该唯一源；词级编排与裁决回 [`entry.md`](references/playbooks/entry.md) | 入口卡②有三清单与原始证据指针 |
+| ChatGPT 问法链路、自然推荐验证 | [`seo-geo.md`](references/seo-geo.md) 步骤 2–3 | 采样与三清单按该唯一源；固定四问正文见其话术入口；词级编排与裁决回 [`entry.md`](references/playbooks/entry.md) | 入口卡②有三清单与原始证据指针 |
 | 「谷歌质量」「HCU」「E-E-A-T」「AI 内容会不会被打」「内容 review」「垃圾内容政策」 | [`seo-helpful-content.md`](references/seo-helpful-content.md) | 区分官方口径与业内推断；按单页或站点级自检表核对并留证据 | 对应自检表通过且无红线 |
-| 建站、做功能、写 UI | [`lifecycle/stage-3-build.md`](references/lifecycle/stage-3-build.md)、[`cloudflare-stack.md`](references/cloudflare-stack.md) | 用用户指定模板，未指定则用默认 shadcn 命令；UI 来自组件库，不手写基础控件；当天过完 Day-1 清单；核[建设中红线](references/discipline.md#二十一禁止建设中内容与功能区域) | [`checklists.md`](references/checklists.md) 段 3 通过 |
+| 建站、做功能、写 UI | [`lifecycle/stage-3-build.md`](references/lifecycle/stage-3-build.md)、[`cloudflare-stack.md`](references/cloudflare-stack.md) | 用用户指定模板，未指定则用默认 shadcn 命令；UI 来自组件库，不手写基础控件；**公开内容页默认构建时预渲染成静态资产，Worker 只管 API 与必须动态的页面，减少 CPU 浪费**（[静态优先](references/cloudflare-stack.md#20-默认静态优先2026-10-27-cpu-降耗回流)）；当天过完 Day-1 清单；核[建设中红线](references/discipline.md#二十一禁止建设中内容与功能区域) | [`checklists.md`](references/checklists.md) 段 3 通过 |
 | 写页面内容、写文章、写 blog、model 页面、模型对比、产品对比、补参考视频、封面图 | [`blog`](../blog/SKILL.md)（`blog/SKILL.md`） | 按其分工与流程执行（X 调研交 Grok、成文交 Gemini、review 交 Sonnet），不自己编内容；站内英文页面内容一律走 `/blog` | sources、成文、review、评判（哥飞评分、AITDK、ChatGPT 匿名问答）、回读证据齐全 |
 | 做内页、「把这个词做成页面」 | [`lifecycle/stage-4-prelaunch.md`「新增内页随手清单」](references/lifecycle/stage-4-prelaunch.md#新增内页--新模板的随手清单2026-09-12-回流) | 页面映射按 [段 2 §2.3](references/lifecycle/stage-2-positioning.md#23-问法簇--页面--faqdescription与站点结构)；目标词登记到 `keywords.md`；按段 4 完成页面与体检；核[建设中红线](references/discipline.md#二十一禁止建设中内容与功能区域) | `checks.md` 记 ✅ 与证据 |
 | 上线前体检、「能不能上线」 | `checklists.md` 段 4、[`lifecycle/stage-4-prelaunch.md`](references/lifecycle/stage-4-prelaunch.md) | 全套体检：AITDK、PageSpeed、图标专项、占位专项；重跑不采信上一轮；核[建设中红线](references/discipline.md#二十一禁止建设中内容与功能区域) | 段 4 闸门全绿，或写明改不动的理由 |
@@ -56,7 +56,7 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 | 「运行趋势监控」「扫描种子 Rising」「美日韩趋势追踪」 | 1–2 | [`trends-system.md`](references/trends-system.md)：三区串行扫描、去重、健康台账与追踪复查 |
 | 「XX 和 YY 哪个更火」「今天美国在搜什么」「这个词有没有量」 | 1–2 | [`trends.md`](references/trends.md)（[gpts 基线判读](references/trends.md#gpts-基线判读到底怎么才算有搜索量唯一判据源)），`scripts/gt.py` |
 | 「这个词在 AI 里有多大需求」「候选会不会被 ChatGPT 推荐」「竞品为什么被 AI 推荐」 | 1 / 4 验证 | 词级编排先读 [`entry.md`](references/playbooks/entry.md)，问法链路只按 [`seo-geo.md`](references/seo-geo.md)；面板数据见 [`provider-capabilities.md`](references/provider-capabilities.md)「三·五」 |
-| 「已上线站 ChatGPT 会不会推荐我们」「问 ChatGPT 为什么不推荐」「推荐位整改」「GEO 闭环」「复审」 | 5 / 6 上线后 | [`seo-geo-recommendation-loop.md`](references/seo-geo-recommendation-loop.md)：复用问法与三清单 → 建议甄别 → 整改发布 → 复审；采样规则只指 [`seo-geo.md`](references/seo-geo.md) |
+| 「已上线站 ChatGPT 会不会推荐我们」「问 ChatGPT 为什么不推荐」「推荐位整改」「GEO 闭环」「复审」 | 5 / 6 上线后 | [`seo-geo-recommendation-loop.md`](references/seo-geo-recommendation-loop.md)：固定四问 → 建议甄别 → 整改发布 → 原聊天发链接再复审；采样规则只指 [`seo-geo.md`](references/seo-geo.md) |
 | 「有什么游戏站能做」「小游戏机会采集 / 决策」 | 1–2 | [`game-sites.md`](references/game-sites.md)：平台监控、sitemap 差分、新标题筛选；旧每日决策协议仅部分覆盖 |
 | 「做不做」「做哪个语种」「要不要多语言」「做成工具还是内容站」 | 2 | [`lifecycle/stage-2-positioning.md`](references/lifecycle/stage-2-positioning.md) |
 | 「我们做个网站吧」「帮我搭起来」 | 2→3 | 先过段 2 立项，再段 3 按用户指定模板起站，未指定则用默认 shadcn 命令；手上没有词树先回段 1 |
@@ -108,19 +108,20 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 - **适用**：shadcn、TanStack、Cloudflare 与段 4–6 的网页规则只约束 Web 面；macOS 按 `build-macos-apps` 专项 Skill，iOS/iPad 按对应原生工具，商店分发读 `monetization.md` 五；只有 App 时网页项标 N/A。
 - **入口**：[`cloudflare-stack.md`](references/cloudflare-stack.md)（用户指定模板 / 未指定时的默认脚手架命令、资源选择）；三方库优先见 [`integrations.md`](references/integrations.md)。
 - **原则与范围**：Web 面复用现有可访问组件；用户指定模板已有的 shadcn 初始化配置视为同等有效，追加组件仍用 `shadcn add`，保留键盘、焦点与 ARIA 能力；基础控件边界见[纪律十六](references/discipline.md#十六组件库红线段-3--段-4ui-只准来自组件库不许自己造控件)。**品牌图标在开发当天做齐**，Day-1 清单见[段 3](references/lifecycle/stage-3-build.md)。
+- **静态优先**：新站的内容页一律预渲染，每页都 SSR 需写明原因；见 [cloudflare-stack.md §2.0](references/cloudflare-stack.md#20-默认静态优先2026-10-27-cpu-降耗回流)。
 - **红线**：建站、上线前与每次 review 必查 [Cloudflare 循环消耗与账单熔断](references/cloudflare-stack.md#89-循环消耗与账单熔断红线)；不能证明有界的付费后台触发不得启用，预算告警不当消费硬顶。
 - **闸门**：`checklists.md` 段 3。
 
 ### 4 上线前 SEO / GEO · [全文](references/lifecycle/stage-4-prelaunch.md)
 
-- **入口**：判读 [`seo-box.md`](references/seo-box.md)、[`seo-webcafe.md`](references/seo-webcafe.md)、[`seo-ai-search.md`](references/seo-ai-search.md)。常用：`scripts/seo-audit.mjs --sitemap`、`scripts/pagespeed.mjs collect --strategy both`、`scripts/is-agentic.mjs scan --save`、`scripts/ai-crawler-access.mjs --url <正式域名>`、`scripts/ua-parity.mjs <url>`。
+- **入口**：判读 [`seo-box.md`](references/seo-box.md)、[`seo-webcafe.md`](references/seo-webcafe.md)、[`seo-ai-search.md`](references/seo-ai-search.md)。常用：`scripts/sitemap-lastmod-check.mjs <域名>`、`scripts/seo-audit.mjs --sitemap`、`scripts/pagespeed.mjs collect --strategy both`、`scripts/is-agentic.mjs scan --save`、`scripts/ai-crawler-access.mjs --url <正式域名>`、`scripts/ua-parity.mjs <url>`。
 - **原则与范围**：本段每次改动后按[段 4 全套验收](references/lifecycle/stage-4-prelaunch.md)重跑，因为 TDK、布局与性能会相互影响；适用范围与全部闸门按原规则执行。**图标专项未通过不许上线**。
 - **上线前与发布后复核入口**：复用 `checklists.md` D1 / D4 / D12 / D13 / P3（索引水合、Schema 语义、网格与键盘、SSR 可达性、分析去重与真实上报）；操作见段 4 文件与 `analytics-platforms.md`。
 - **闸门**：`checklists.md` 段 4。
 
 ### 5 上线与接入 · [全文](references/lifecycle/stage-5-launch.md)
 
-- **入口**：[`search-platforms.md`](references/search-platforms.md)、[`analytics-platforms.md`](references/analytics-platforms.md)、域名接入 [`cloudflare/domain-email.md`](references/cloudflare/domain-email.md)。常用：`scripts/site-onboard.mjs`、`scripts/gsc-domain-verify.mjs`、`scripts/bing-import-from-gsc.mjs`、`scripts/cf-analytics-setup.mjs`、`scripts/indexnow-submit.mjs`、`scripts/webmaster-sitemap.mjs`、`scripts/yandex-setup.mjs`、`scripts/ahrefs-site-audit.mjs`、`scripts/analytics-beacon-check.mjs`。
+- **入口**：[`search-platforms.md`](references/search-platforms.md)、[`analytics-platforms.md`](references/analytics-platforms.md)、域名接入 [`cloudflare/domain-email.md`](references/cloudflare/domain-email.md)。常用：`scripts/sitemap-lastmod-check.mjs <域名>`、`scripts/site-onboard.mjs`、`scripts/gsc-domain-verify.mjs`、`scripts/bing-import-from-gsc.mjs`、`scripts/cf-analytics-setup.mjs`、`scripts/indexnow-submit.mjs`、`scripts/webmaster-sitemap.mjs`、`scripts/yandex-setup.mjs`、`scripts/ahrefs-site-audit.mjs`、`scripts/analytics-beacon-check.mjs`。
 - **原则与范围**：按[段 5](references/lifecycle/stage-5-launch.md)完成部署、索引与接入，并以真实线上证据收口，避免用勾选代替生效状态。
 - **闸门**：`checklists.md` 段 5。
 
@@ -142,6 +143,7 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 
 - **浏览器通道与公开页面例外统一按纪律五执行**，以复用登录态与可复现会话；见[纪律五](references/discipline.md#五浏览器与取数规则在-opencli-skill这里只留判据)。
 - **所有 AI 爬虫必须放行**并逐 UA 实测，使公开内容具备被发现与读取的资格；见[基础安全](references/cloudflare-stack.md)与 `checklists.md` 段 5。
+- **部署前必须先把代码合并到对应环境的分支并推送，再经团队流水线部署**，防止别人发布时冲掉我们、或我们覆盖别人；见[纪律二十二](references/discipline.md#二十二部署红线先合入对应环境分支并推送再部署)。
 - 令牌保护见文末「令牌与项目中立」；密钥不进回复、日志或仓库，防止泄漏与误提交。
 
 ## 主线：维护 checklist，使用 checklist
@@ -161,7 +163,7 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 
 ### `rankup init`
 
-全新项目，或做了很久还没有 `.rankup/` 的项目（常态，不得因为缺记忆就重建技术栈）：摸清 `package.json`、路由、部署配置、`git log`，已上线的再取线上 `sitemap.xml`、`robots.txt`、首页；外部系统一律实时查询；按 [`project-memory.md`](references/project-memory.md) 建 `.rankup/` 全套，取不到的写 `待确认`；`integrations.md` 用完整平台表初始化全部 ⬜（`discipline.md` 十）；已运行项目补 `baseline.md` 与 `audit.md`，`roadmap.md` 写阶段目标与放弃条件；绿地项目脚手架跑通即建**私有**远端仓。已有 `.rankup/` 时不覆盖，转为补齐并提示用 `review` 或 `doctor`。
+全新项目，或做了很久还没有 `.rankup/` 的项目（常态，不得因为缺记忆就重建技术栈）：摸清 `package.json`、路由、部署配置、`git log`，已上线的再取线上 `sitemap.xml`、`robots.txt`、首页；外部系统一律实时查询；按 [`project-memory.md`](references/project-memory.md) 建 `.rankup/` 全套，取不到的写 `待确认`；`integrations.md` 用完整平台表初始化全部 ⬜（`discipline.md` 十）；已运行项目补 `baseline.md` 与 `audit.md`，`roadmap.md` 写阶段目标与放弃条件；绿地项目脚手架跑通即建**私有**远端仓；建 git 仓库或初始化 `.rankup/` 时跑 `node "<rankup-skill-dir>/scripts/maintain/rankup-clean.mjs" --project-root . --install-hook --write-gitignore` 装好 pre-commit hook 与 `.rankup/.gitignore`。已有 `.rankup/` 时不覆盖，转为补齐并提示用 `review` 或 `doctor`。
 
 ### `rankup review`
 

@@ -4,6 +4,7 @@
  * 用法：node scripts/site-onboard.mjs --domain example.com [--repo <仓库>] [--branch <生产分支>] [--session 名] [--only cf,ga4,...] [--skip cf,ga4,...] [--check]
  * 依赖：cf-analytics-setup、ga4-setup、ga4-gsc-link、clarity-setup、indexnow-submit、gsc-domain-verify、
  * bing-import-from-gsc、yandex-setup、ahrefs-setup、webmaster-sitemap（均在同目录）。
+ * sitemap 内容日期检查另用 sitemap-lastmod-check.mjs <域名>。
  * 登录态：OpenCLI 所连接的 Chrome 已登录 GA4、Clarity、GSC、Bing、Yandex、Ahrefs；
  * Cloudflare API 凭据沿用各脚本。Bing 掉线时点「使用 Google 登录」；Ahrefs 冻结项目
  * 会挡新建，GSC 验证不过才考虑 DNS；Google 账户下拉默认选第一项。
@@ -18,6 +19,7 @@ import { cfAuthHeaders, resolveCfAccountId } from "./lib-cf-auth.mjs"
 const argv = process.argv.slice(2)
 if (argv.includes("--help") || argv.includes("-h")) {
   console.log("用法：node scripts/site-onboard.mjs --domain <域名> [--repo <仓库>] [--branch <生产分支>] [--session <名>] [--only cf,ga4,clarity,indexnow,gsc,ga4gsc,bing,yandex,ahrefs] [--skip <列表>] [--check]")
+  console.log("sitemap 日期核验：node scripts/sitemap-lastmod-check.mjs <域名>")
   process.exit(0)
 }
 const arg = name => argv[argv.indexOf(name) + 1]

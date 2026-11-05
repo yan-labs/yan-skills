@@ -215,7 +215,7 @@ SKILL.md 段 6 与取数纪律只一行指回本文件，改脚本入口时只�
 | 2026 AI 搜索范式 | AI Overviews / AI Mode / Preferred Sources / Discover 独立算法 / Information Gain；引用优先于排名 | [`references/seo-ai-search.md`](seo-ai-search.md) | 「怎么被 AI 引用」「AEO 怎么做」 |
 | Agent 就绪度评分 | `scan` 评分+待修项、`diff` 与上次对比、`history`；`--save` 存 `.rankup/agentic/` | `scripts/is-agentic.mjs` | 「llms.txt 要不要写」「对 AI 友好吗」 |
 | 全网基线分母 | Cloudflare Radar 的全网 AI Agent Readiness 聚合通过率（**不是站点扫描器**） | `scripts/cf-agent-baseline.mjs` | 「我这个分数算高吗」 |
-| ChatGPT 问法链路 | 问法生成、自然采样、追问与三清单的方法入口 | [seo-geo.md](seo-geo.md#geo-反推测试ai-需求验证流程)；`scripts/demand/geo-multimodel-questions.sh` 造问法，`ai-probe.mjs` 的通道默认与解析限制见该唯一源 | 「ChatGPT 会推荐谁」「为什么推荐或筛掉其他产品」 |
+| ChatGPT 问法链路 | 问法生成、自然采样、追问与三清单的方法入口 | [seo-geo.md](seo-geo.md#geo-反推测试ai-需求验证流程)；`scripts/demand/geo-multimodel-questions.sh` 造问法，`geo-loop.mjs --script-file` 执行固定四问，正文与常驻控制见 [推荐闭环](seo-geo-recommendation-loop.md) | 「ChatGPT 会推荐谁」「为什么推荐或筛掉其他产品」 |
 | 逐问法 Google 核验 | 将长尾问法关联到 SERP 卡与页面证据 | [seo-serp.md](seo-serp.md#逐问法-google-读法)；工具取数见 [seo-webcafe.md](seo-webcafe.md#官方研究工具口径) | 「这些问法在 Google 上是什么结果」 |
 | AI 爬虫读到的 raw HTML | 用四个爬虫 UA 抓同一页，比较 raw HTML 是否一致、是否客户端渲染空壳 | `scripts/ua-parity.mjs`，判读 [`references/seo-ssr.md`](seo-ssr.md)「三-E」 | 「AI 爬虫读得到正文吗」 |
 

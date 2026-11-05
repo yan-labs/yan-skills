@@ -111,6 +111,7 @@
 3. 建远端仓库，**强制私有**：`gh repo create <name> --private --source . --push`。
    要公开必须是用户明确说出「公开」；「默认」「随便」「你看着办」都是私有。
 4. 项目记忆目录**随仓库一起提交**——它是这个项目最贵的资产，留在单机上没有意义。
+   建 git 仓库或初始化 `.rankup/` 时运行 `node "<rankup-skill-dir>/scripts/maintain/rankup-clean.mjs" --project-root . --install-hook --write-gitignore`，装好 `pre-commit` hook 与 `.rankup/.gitignore` 模板，挡住截图、日志和原始过程数据。
    例外仍然是那条老规矩：跨项目资产登记表与真实凭据永不入库。
 
 #### 步骤 check

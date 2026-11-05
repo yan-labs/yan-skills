@@ -33,7 +33,7 @@ Grok CLI 内置 `image_gen`、`image_edit`、`image_to_video`（6 或 10 秒，4
 
 runner 逐行解析 `streaming-json`，text 拼接为原格式 `.result.md`；end 的 stopReason/sessionId/num_turns/total_cost_usd/usage/modelUsage 存进 run 的 `.grok.json`、`.pid.json` 和独立任务状态。简报 cost/turns 来自 Grok 自报，费用不等同于订阅实际账单；插话后显示最近 end 的统计，打断前未发 end 的段无法计入完整费用/轮数。只有 `end_turn` 能正常通过；`cancelled`/`max_turns` 等一律 fail，结束判定同时核验 stopReason。无明确最终结论判 suspect。
 
-写任务与 review 都传 `--always-approve`，避免无头工具批准被自动取消导致 `stopReason=cancelled`。**本机实测沙箱不生效**，runner 不传 `--sandbox`，使用当前真实权限；review 只读靠提示与事后文件快照检查，发现监控目录文件新增、删除或内容改变判 suspect 并列出路径。此检查在写入之后发现变化，不自动撤销；发现的改动由主线程决定后续处置。默认由当前执行者完成，显式 `--subagents` 才放开。
+写任务与 review 都传 `--always-approve`，避免无头工具批准被自动取消导致 `stopReason=cancelled`。**本机实测沙箱不生效**，runner 不传 `--sandbox`，使用当前真实权限；review 只读靠 brief 约定：项目文件保持原样，允许联网、运行测试和脚本，只在自己的 `mktemp -d` 临时目录建删文件。不做事后文件快照或因文件变化判 suspect；缺失最终结论等收尾异常仍如实上报。默认由当前执行者完成，显式 `--subagents` 才放开。
 
 ## 登录与常见坑
 

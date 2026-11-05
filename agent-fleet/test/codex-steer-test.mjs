@@ -10,8 +10,9 @@ import { readPidRecord, processCommand } from '../src/pid.mjs';
 import { buildBrief, formatBriefHuman } from '../src/brief.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'fleet-codex-steer-'));
-const envKeys = ['AGENT_FLEET_RUNS_DIR', 'FLEET_DETACHED_RUN_ID', 'FLEET_CODEX_BACKEND', 'FLEET_STEER_TEST_MODE', 'FLEET_STEER_TEST_TRACE'];
+const envKeys = ['AGENT_FLEET_RUNS_DIR', 'FLEET_DETACHED_RUN_ID', 'FLEET_CODEX_BACKEND', 'FLEET_STEER_TEST_MODE', 'FLEET_STEER_TEST_TRACE', 'HTTPS_PROXY', 'FLEET_EXPECTED_PROXY'];
 const saved = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
+process.env.HTTPS_PROXY = process.env.FLEET_EXPECTED_PROXY = 'http://127.0.0.1:19876';
 const mock = join(scratch, 'codex-mock');
 writeFileSync(mock, String.raw`#!/usr/bin/env node
 const fs = require('node:fs');
@@ -20,6 +21,7 @@ const args = process.argv.slice(2), mode = process.env.FLEET_STEER_TEST_MODE;
 const trace = value => fs.appendFileSync(process.env.FLEET_STEER_TEST_TRACE, JSON.stringify(value) + '\n');
 const send = value => process.stdout.write(JSON.stringify(value) + '\n');
 trace({ args });
+trace({ nodeProxy: process.env.NODE_USE_ENV_PROXY, proxyInherited: process.env.HTTPS_PROXY === process.env.FLEET_EXPECTED_PROXY });
 process.on('SIGINT', () => { trace({ signal: 'SIGINT' }); process.exit(130); });
 if (args[0] === 'app-server') {
   if (mode === 'app-fail') { process.stderr.write('mock app-server unavailable\n'); process.exit(2); }
@@ -75,14 +77,14 @@ chmodSync(mock, 0o755);
 process.env.AGENT_FLEET_RUNS_DIR = scratch;
 
 let scenarioNumber = 0;
-async function scenario(mode, { backend, say, stop, resume, review = false, low = false } = {}) {
+async function scenario(mode, { backend, say, stop, resume, review = false, low = false, high = false, xhigh = false, max = false, simple = false, luna = false, fast = false } = {}) {
   const runId = `codex-${++scenarioNumber}-${mode}-${review ? 'review' : 'code'}`;
   process.env.FLEET_DETACHED_RUN_ID = runId;
   process.env.FLEET_STEER_TEST_MODE = mode;
   process.env.FLEET_STEER_TEST_TRACE = join(scratch, `${runId}.trace`);
   if (backend) process.env.FLEET_CODEX_BACKEND = backend;
   else delete process.env.FLEET_CODEX_BACKEND;
-  const pending = runCode({ prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则', cwd: scratch, codexBin: mock, resume, review, low });
+  const pending = runCode({ noContinue: true, prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则', cwd: scratch, codexBin: mock, resume, review, low, high, xhigh, max, simple, luna, fast });
   if (say || stop) {
     for (let attempt = 0; attempt < 500; attempt++) {
       if (existsSync(process.env.FLEET_STEER_TEST_TRACE) && readFileSync(process.env.FLEET_STEER_TEST_TRACE, 'utf8').includes('turn/start')) break;
@@ -112,6 +114,72 @@ try {
   assert.equal(normal.result.usage.total.totalTokens, 17);
   const threadStart = normal.trace.find(entry => entry.method === 'thread/start');
   assert.deepEqual([threadStart.params.cwd, threadStart.params.model, threadStart.params.sandbox, threadStart.params.approvalPolicy], [scratch, 'gpt-6.1-sol', 'danger-full-access', 'never']);
+  assert.equal('serviceTier' in threadStart.params, false);
+  assert.equal(normal.record.simple, false);
+  assert.equal(normal.result.serviceTier, null);
+  const defaultExec = await scenario('normal', { backend: 'exec' });
+  assert(!defaultExec.trace.find(entry => entry.args?.[0] === 'exec').args.some(arg => arg.startsWith('service_tier=')));
+  const simpleApp = await scenario('normal', { simple: true, fast: true, low: true });
+  const simpleStart = simpleApp.trace.find(entry => entry.method === 'thread/start').params;
+  assert.equal(simpleStart.model, 'gpt-6.1-terra');
+  assert.equal(simpleStart.serviceTier, 'priority');
+  assert.equal(simpleApp.trace.find(entry => entry.method === 'turn/start').params.effort, 'low');
+  const simpleExec = await scenario('app-fail', { simple: true, fast: true });
+  const simpleResume = await scenario('normal', { simple: true, fast: true, resume: 'thread-one' });
+  for (const run of [simpleApp, simpleExec, simpleResume]) {
+    assert.equal(run.result.ok, true);
+    assert.equal(run.record.simple, true);
+    assert.equal(run.record.model, 'gpt-6.1-terra');
+    assert.equal(run.record.serviceTier, 'priority');
+    assert.match(readFileSync(run.result.resultPath, 'utf8'), /model: gpt-6.1-terra\nservice_tier: priority/);
+    assert.match(formatBriefHuman(buildBrief(run.result)), /service_tier: priority/);
+    const args = run.trace.find(entry => entry.args?.[0] === 'exec')?.args;
+    if (args) {
+      assert.equal(args[args.indexOf('-m') + 1], 'gpt-6.1-terra');
+      assert(args.includes('service_tier="priority"'));
+    }
+  }
+  for (const mode of ['normal', 'app-fail']) {
+    const run = await scenario(mode, { simple: true });
+    assert.equal(run.record.model, 'gpt-6.1-terra');
+    assert.equal(run.record.serviceTier, null);
+    const start = run.trace.find(entry => entry.method === 'thread/start');
+    if (start) assert.equal('serviceTier' in start.params, false);
+    const exec = run.trace.find(entry => entry.args?.[0] === 'exec');
+    if (exec) assert(!exec.args.some(arg => arg.startsWith('service_tier=')));
+  }
+  for (const mode of ['normal', 'app-fail']) {
+    const run = await scenario(mode, { luna: true });
+    assert.equal(run.result.model, 'gpt-6-luna');
+    assert.equal(buildBrief({ ...run.result, ok: false }).failureReport.executor, 'gpt-6-luna');
+    assert.equal(run.result.serviceTier, null);
+    assert.equal(run.record.luna, true);
+    const start = run.trace.find(entry => entry.method === 'thread/start');
+    if (start) { assert.equal(start.params.model, 'gpt-6-luna'); assert.equal(start.params.serviceTier, undefined); assert.equal(run.trace.find(entry => entry.method === 'turn/start').params.effort, 'xhigh'); }
+    const exec = run.trace.find(entry => entry.args?.[0] === 'exec');
+    if (exec) { assert(exec.args.includes('gpt-6-luna')); assert(exec.args.includes('model_reasoning_effort=xhigh')); assert(!exec.args.some(arg => arg.startsWith('service_tier='))); }
+  }
+  const lunaFast = await scenario('normal', { luna: true, fast: true, low: true });
+  assert.equal(lunaFast.trace.find(entry => entry.method === 'thread/start').params.serviceTier, 'priority');
+  assert.equal(lunaFast.trace.find(entry => entry.method === 'turn/start').params.effort, 'low');
+  const lunaResume = await scenario('normal', { luna: true, resume: 'thread-one' });
+  assert.equal(lunaResume.record.model, 'gpt-6-luna');
+  assert.equal(lunaResume.record.serviceTier, null);
+  await assert.rejects(runCode({ prompt: 'x', luna: true, review: true }), /--luna.*--review/);
+  await assert.rejects(runCode({ prompt: 'x', luna: true, simple: true }), /--luna.*--simple/);
+  const lunaHigh = await scenario('normal', { luna: true, high: true });
+  assert.equal(lunaHigh.trace.find(entry => entry.method === 'turn/start').params.effort, 'high');
+  assert.equal(lunaHigh.record.high, true);
+  const lunaXhigh = await scenario('normal', { luna: true, xhigh: true });
+  assert.equal(lunaXhigh.trace.find(entry => entry.method === 'turn/start').params.effort, 'xhigh');
+  assert.equal(lunaXhigh.record.xhigh, true);
+  const lunaMax = await scenario('normal', { luna: true, max: true });
+  assert.equal(lunaMax.trace.find(entry => entry.method === 'turn/start').params.effort, 'max');
+  assert.equal(lunaMax.record.max, true);
+  for (const options of [{ low: true, high: true }, { luna: true, low: true, xhigh: true }, { luna: true, high: true, xhigh: true }, { luna: true, low: true, max: true }, { luna: true, high: true, max: true }, { luna: true, xhigh: true, max: true }]) await assert.rejects(runCode({ prompt: 'x', ...options }), /不能同用/);
+  await assert.rejects(runCode({ prompt: 'x', xhigh: true }), /--xhigh.*--luna/);
+  await assert.rejects(runCode({ prompt: 'x', max: true }), /--max.*--luna/);
+  await assert.rejects(runCode({ prompt: 'x', simple: true, review: true }), /--simple.*--review/);
   const initial = normal.trace.find(entry => entry.method === 'turn/start');
   assert.equal(initial.params.effort, 'low');
   assert.match(initial.params.input[0].text, /归类：\(a\) Codex 编码\nREPORT: \/tmp\/report\n原任务规则$/);
@@ -201,8 +269,22 @@ try {
 
   const review = await scenario('normal', { review: true });
   assert.equal(review.result.ok, true);
-  assert.equal(review.trace[0].args[0], 'exec');
-  assert(review.trace[0].args.includes('read-only'));
+  assert.equal(review.result.backend, 'codex-app-server');
+  assert.equal(review.trace.find(entry => entry.method === 'thread/start').params.sandbox, 'danger-full-access');
+  assert.equal(review.trace.find(entry => entry.method === 'thread/start').params.approvalPolicy, 'never');
+  assert.match(review.trace.find(entry => entry.method === 'turn/start').params.input[0].text, /自己的.*mktemp -d/);
+  const reviewExec = await scenario('normal', { review: true, backend: 'exec' });
+  const reviewFallback = await scenario('app-fail', { review: true });
+  const reviewResume = await scenario('normal', { review: true, resume: 'thread-one' });
+  for (const run of [review, reviewExec, reviewFallback, reviewResume]) {
+    assert.equal(run.result.ok, true);
+    for (const { args } of run.trace.filter(entry => entry.args?.[0] === 'exec')) {
+      assert.equal(args[args.indexOf('--sandbox') + 1], 'danger-full-access');
+      assert(!args.includes('read-only'));
+    }
+    assert.equal(buildBrief(run.result).verdict, 'ok', 'review 不按项目 dirty 状态判 suspect');
+    assert(run.trace.some(entry => entry.nodeProxy === '1' && entry.proxyInherited), '保留宿主代理环境并开启 Node 代理支持');
+  }
   console.log('PASS - Codex app-server/steer、SIGINT + resume、exec 兜底、元数据及简报桩测试');
 } finally {
   for (const key of envKeys) {
