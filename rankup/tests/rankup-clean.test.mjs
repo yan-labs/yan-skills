@@ -256,3 +256,31 @@ test("rankup-clean CLI --help exits 0", () => {
   assert.equal(res.status, 0);
   assert.match(res.stdout, /rankup-clean\.mjs/);
 });
+
+test("rankup-clean works when .rankup is its own git repo and the project root is not", async () => {
+  const projectRoot = await mkdtemp(path.join(tmpdir(), "rankup-clean-standalone-"));
+  const rankupDir = path.join(projectRoot, ".rankup");
+  const git = (...args) =>
+    execFileSync("git", ["-C", rankupDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const script = fileURLToPath(new URL("../scripts/maintain/rankup-clean.mjs", import.meta.url));
+  try {
+    await mkdir(rankupDir, { recursive: true });
+    git("init", "-q");
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "test");
+    execFileSync("node", [script, "--project-root", projectRoot, "--install-hook"], {
+      encoding: "utf8",
+      env: { ...process.env, RANKUP_HOME: path.join(projectRoot, "home") },
+    });
+    await writeFile(path.join(rankupDir, "note.md"), "# note\n");
+    await writeFile(path.join(rankupDir, "shot.png"), "png");
+    git("add", "note.md", "shot.png");
+    execFileSync("git", ["-C", rankupDir, "commit", "-q", "-m", "test"], {
+      env: { ...process.env, RANKUP_HOME: path.join(projectRoot, "home") },
+      stdio: "pipe",
+    });
+    assert.equal(git("show", "--name-only", "--format=", "HEAD").trim(), "note.md");
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});

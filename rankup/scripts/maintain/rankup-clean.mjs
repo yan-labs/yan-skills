@@ -529,7 +529,7 @@ function getGitCandidates(projectRoot, rankupDir) {
   let gitRoot;
   try {
     gitRoot = safeRealpath(
-      execFileSync("git", ["-C", projectRoot, "rev-parse", "--show-toplevel"], {
+      execFileSync("git", ["-C", rankupDir, "rev-parse", "--show-toplevel"], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
       }).trim(),
@@ -1022,7 +1022,7 @@ export function buildPreCommitHookBlock({ gitRoot, projectRoot }) {
     "  RANKUP_GIT_ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"",
     `  RANKUP_PROJECT_ROOT=${targetExpr}`,
     `  RANKUP_CLEAN_SCRIPT=${JSON.stringify(scriptPath)}`,
-    "  if [ -d \"$RANKUP_PROJECT_ROOT/.rankup\" ] && [ -f \"$RANKUP_CLEAN_SCRIPT\" ]; then",
+    "  if { [ -d \"$RANKUP_PROJECT_ROOT/.rankup\" ] || [ \"$(basename \"$RANKUP_PROJECT_ROOT\")\" = \".rankup\" ]; } && [ -f \"$RANKUP_CLEAN_SCRIPT\" ]; then",
     "    node \"$RANKUP_CLEAN_SCRIPT\" --project-root \"$RANKUP_PROJECT_ROOT\" --staged --apply >/dev/null",
     "  fi",
     "fi",
@@ -1125,7 +1125,7 @@ if (isMain) {
   let hookResult = null;
   let gitignoreResult = null;
   if (opts.installHook) {
-    hookResult = await installPreCommitHook(opts.projectRoot);
+    hookResult = await installPreCommitHook(opts.rankupDir);
   }
   if (opts.writeGitignore) {
     gitignoreResult = await writeRankupGitignore(opts.rankupDir);
