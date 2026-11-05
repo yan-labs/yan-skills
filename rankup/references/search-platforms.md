@@ -111,7 +111,7 @@ pnpm exec wrangler deploy --config dist/server/wrangler.json && node scripts/ind
 
 通用 CLI 为兼容现有调用，**仅显式传 `--days` / `--since` 时启用窗口**；无窗口参数仍按原有全量模式执行，位置参数或 `--file` 明确列出的 URL 照常推送。新站用部署命令带 `--days 2` 实现默认窗口，不改变旧调用。
 
-**lastmod 写在页面注册表里**：新增页面填创建当天（UTC），改了页面内容就更新为修改当天，内容没变保留旧日期；sitemap 从该清单输出 lastmod，不能每次构建把全站日期改成今天。遗漏日期更新的旧页不会进入窗口。窗口不读 `.rankup/indexnow-last.json`，不靠 gitignore 的本地状态做差分。
+**lastmod 自动从页面内容源的 Git 历史生成**，与真实 updated 字段取较大者；列表页包括直接列出的内容。不要手填日期或使用构建当天，具体方法与完整历史要求见 [段 4](lifecycle/stage-4-prelaunch.md#sitemap-的内容日期)。窗口不读 `.rankup/indexnow-last.json`，不靠 gitignore 的本地状态做差分。
 
 【实测·2026-10-05，来源：已验证项目经验回流】两个坑：Workers Builds 等 CI 没有本地推送记录，按本地状态做 diff 会在每次部署全量重推；只看 package.json 曾把「CI 已在推送」误判成「没推送」。因此核对时读 **Cloudflare 实际触发器配置与最近一次构建日志**，不能只看仓库命令：
 

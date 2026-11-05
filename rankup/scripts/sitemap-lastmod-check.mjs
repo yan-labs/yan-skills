@@ -30,7 +30,11 @@ async function scan(url) {
 }
 try {
   await scan(root)
-  const valid = pages.filter(p => /^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(p.lastmod || '') && !Number.isNaN(Date.parse(p.lastmod)))
+  const valid = pages.filter(({ lastmod }) => {
+    if (!/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2}))?$/.test(lastmod || '')) return false
+    const day = lastmod.slice(0, 10), parsed = Date.parse(day)
+    return !Number.isNaN(parsed) && new Date(parsed).toISOString().slice(0, 10) === day && !Number.isNaN(Date.parse(lastmod))
+  })
   const dates = [...new Set(valid.map(p => p.lastmod.slice(0, 10)))].sort()
   const today = new Date().toISOString().slice(0, 10)
   const future = dates.filter(d => d > today)
