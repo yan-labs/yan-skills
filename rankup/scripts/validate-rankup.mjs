@@ -16,7 +16,7 @@ import { lint as lintDocs } from "./maintain/doc-lint.mjs";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "3.41.1";
+const expectedVersion = "3.41.2";
 const requiredReferences = [
   "integrations/kie.md",
   "integrations/kie-models.md",
@@ -183,6 +183,11 @@ const requiredContent = {
     "缺登录通道不等于缺输入",
     "只动该账号自己拥有的测试空间与测试页面",
     "不购买、不升级套餐、不绕过产品权益限制",
+    "测试线通过不等于生产线通过",
+    "构建期装配检查，红灯不出镜像",
+    "预发验证",
+    "发布后自测",
+    "循环引用加装饰器注入",
   ],
   "references/project-memory.md": [
     "测试身份：位置/取 token 命令",

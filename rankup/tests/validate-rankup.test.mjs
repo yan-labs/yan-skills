@@ -286,6 +286,30 @@ test("release validator rejects missing Cloudflare loop cost protections", async
   });
 });
 
+test("release validator requires production-line staging, build check and post-deploy self-test rules", async () => {
+  await withSkillCopy(async (skillRoot) => {
+    for (const phrase of [
+      "测试线通过不等于生产线通过",
+      "构建期装配检查，红灯不出镜像",
+      "预发验证",
+      "发布后自测",
+      "循环引用加装饰器注入",
+    ]) {
+      const target = path.join(skillRoot, "references/discipline.md");
+      const original = await readFile(target, "utf8");
+      assert.ok(original.includes(phrase), phrase);
+      await writeFile(target, original.replaceAll(phrase, "[removed]"));
+      try {
+        const result = validate(skillRoot);
+        assert.equal(result.status, 1, phrase);
+        assert.match(result.stderr, /missing required content/);
+      } finally {
+        await writeFile(target, original);
+      }
+    }
+  });
+});
+
 test("release validator requires reusable test identity and login route rules", async () => {
   await withSkillCopy(async (skillRoot) => {
     for (const [file, phrase] of [
