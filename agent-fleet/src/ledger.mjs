@@ -154,12 +154,13 @@ export function buildRow(rec, index, { useReport = true, backfilled = false } = 
     : verdict === 'partial' ? 'partial' : 'failed';
   const trailer = parseTrailer(result) ?? parseTrailer(report);
   const isReview = meta.type === 'review' || (!meta.type && Boolean(rec.review || meta.review || meta.for || guessMakerName(name)));
+  const executor = executorOf(rec.model, brief.resolvedModel);
   const row = {
     v: LEDGER_VERSION, runId: rec.runId, name,
     date: localDate(rec.startedAt), startedAt: rec.startedAt, finishedAt: rec.finishedAt ?? null,
     durationSec: rec.finishedAt ? Math.round((Date.parse(rec.finishedAt) - Date.parse(rec.startedAt)) / 1000) : null,
-    executor: executorOf(rec.model, brief.resolvedModel), model: brief.resolvedModel ?? rec.model, route: rec.model,
-    effort: rec.tier ?? brief.effort ?? (rec.max || meta.max ? 'max' : rec.xhigh || meta.xhigh ? 'xhigh' : rec.high || meta.high ? 'high' : rec.low || meta.low ? 'low' : null),
+    executor, model: brief.resolvedModel ?? rec.model, route: rec.model,
+    effort: rec.tier ?? brief.effort ?? (rec.max || meta.max ? 'max' : rec.xhigh || meta.xhigh ? 'xhigh' : rec.high || meta.high ? 'high' : rec.low || meta.low ? 'low' : executor === 'gemini' ? 'xhigh' : null),
     level: meta.level ?? null,
     type: meta.type ?? (isReview ? 'review' : /orchestrat/i.test(name) ? 'orchestrate' : 'work'),
     status: rec.status, verdict, outcome, failure: classifyFailure(rec),

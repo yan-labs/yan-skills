@@ -185,6 +185,8 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         meta['high'] = False
         meta['xhigh'] = False
         meta['max'] = True
+    if target == 'gemini' and not (meta.get('low') or meta.get('high') or meta.get('xhigh')):
+        meta['xhigh'] = True
     if fast:
         meta['fast'] = True
     if no_fast:
@@ -486,7 +488,9 @@ def new(args):
     text = '\n\n'.join(parts) + '\n'
     checked(text, args.to)
     meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
-            'tier': args.tier, 'review': args.review, 'low': args.low, 'high': args.high, 'xhigh': args.xhigh, 'max': args.max, 'simple': args.simple, 'luna': args.luna, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,
+            'tier': args.tier, 'review': args.review, 'low': args.low, 'high': args.high,
+            'xhigh': True if (args.to == 'gemini' and not (args.low or args.high)) else args.xhigh,
+            'max': args.max, 'simple': args.simple, 'luna': args.luna, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,
             'subagents': args.subagents, 'bulk': args.bulk, 'expect-changes': args.expect_changes,
             # 账本用：难度档、任务类型、被复核任务名；relaunch/amend 沿用 meta，不另存。
             'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
@@ -537,7 +541,7 @@ def main():
     p.add_argument('--luna', action='store_true', help='后续重派使用 Luna')
     p.add_argument('--low', action='store_true', help='后续重派使用 low 推理')
     p.add_argument('--high', action='store_true', help='后续重派使用 high 推理')
-    p.add_argument('--xhigh', action='store_true', help='后续重派使用 xhigh 推理（GPT 需 --luna，或 Gemini）')
+    p.add_argument('--xhigh', action='store_true', help='后续重派使用 xhigh 推理（GPT 需 --luna，Gemini 默认 xhigh）')
     p.add_argument('--max', action='store_true', help='后续重派使用 Luna max 推理')
     group = p.add_mutually_exclusive_group()
     group.add_argument('--say', action='store_true')
@@ -550,7 +554,7 @@ def main():
     p.add_argument('--luna', action='store_true', help='GPT 任务改用 Luna，默认 xhigh 且不开 fast')
     p.add_argument('--low', action='store_true', help='GPT/Gemini 任务使用 low 推理')
     p.add_argument('--high', action='store_true', help='GPT/Gemini 任务使用 high 推理')
-    p.add_argument('--xhigh', action='store_true', help='Luna/Gemini 使用 xhigh 推理')
+    p.add_argument('--xhigh', action='store_true', help='Luna/Gemini 使用 xhigh 推理（Gemini 默认 xhigh）')
     p.add_argument('--max', action='store_true', help='Luna 使用 max 推理')
     p.add_argument('--fast', action='store_true', help='GPT 任务开启 fast')
     p.add_argument('--no-fast', action='store_true', help='兼容旧用法，无副作用')

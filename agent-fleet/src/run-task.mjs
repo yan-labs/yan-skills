@@ -54,11 +54,26 @@ export const DEFAULT_EXECUTOR_SYSTEM_PROMPT =
  * @param {{ resolved: object, cwd: string, maxTurns?: number, systemPrompt?: string, resume?: string }} params
  * @returns {object} 传给 query() 的 options
  */
+export const DEFAULT_GEMINI_EFFORT = 'xhigh';
+
 export const GEMINI_THINKING_BUDGETS = Object.freeze({
   low: 2048,
   high: 16000,
   xhigh: 31999,
 });
+
+export function isGeminiTaskModel(friendlyModel = '', config = null) {
+  const configured = config?.[friendlyModel]?.model ?? '';
+  return /^gemini-/i.test(configured) || /^(?:copy|bulk|gemini(?:-|$)|kollab-gateway(?:-(?:copy|bulk))?$)/i.test(String(friendlyModel));
+}
+
+export function resolveTaskEffort({ effort, friendlyModel = '', resolvedModel = '', config = null } = {}) {
+  if (effort) return effort;
+  if (/^gemini-/i.test(String(resolvedModel)) || isGeminiTaskModel(friendlyModel, config)) {
+    return DEFAULT_GEMINI_EFFORT;
+  }
+  return undefined;
+}
 
 export function buildQueryOptions({ resolved, cwd, maxTurns, systemPrompt, resume, projectSettings, effort }) {
   const settings = { ...projectSettings, ...buildPinnedSettings(resolved) };
@@ -66,11 +81,12 @@ export function buildQueryOptions({ resolved, cwd, maxTurns, systemPrompt, resum
   for (const key of ['permissions', 'sandbox', 'allowedTools', 'disallowedTools']) delete settings[key];
   const env = buildIsolatedEnv(resolved);
   const isGemini = /^gemini-/i.test(resolved.model ?? '');
-  const thinkingBudget = isGemini && effort ? GEMINI_THINKING_BUDGETS[effort] : undefined;
+  const effectiveEffort = resolveTaskEffort({ effort, resolvedModel: resolved.model });
+  const thinkingBudget = isGemini && effectiveEffort ? GEMINI_THINKING_BUDGETS[effectiveEffort] : undefined;
   if (thinkingBudget) {
     // Claude CLI 默认把未知模型视为支持 adaptive_thinking，会忽略 budgetTokens 并改成
-    // thinking:{type:'adaptive'}，而 Kollab 网关对非 Claude 模型会剥掉 output_config 和
-    // adaptive thinking，只透传 thinking:{type:'enabled', budget_tokens}。
+    // thinking:{type:'adaptive'}；待 Kollab 网关将 output_config.effort 映射为 Gemini thinking
+    // 的修复部署到生产后可移除此 budgetTokens 绕行，当前保留以兼容生产环境。
     env.CLAUDE_CODE_MODEL_CAPABILITIES = '-adaptive_thinking';
     if (Number(env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || 0) <= thinkingBudget) {
       env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '32768';
@@ -98,7 +114,7 @@ export function buildQueryOptions({ resolved, cwd, maxTurns, systemPrompt, resum
     // mcpServers,所以关掉它不损失任何现有能力。
     strictMcpConfig: true,
     ...(maxTurns ? { maxTurns } : {}),
-    ...(effort ? { effort } : {}),
+    ...(effectiveEffort ? { effort: effectiveEffort } : {}),
     ...(thinkingBudget ? { thinking: { type: 'enabled', budgetTokens: thinkingBudget } } : {}),
     // 见上方 DEFAULT_EXECUTOR_SYSTEM_PROMPT 的注释:用 preset+append 叠加,不替换 Claude Code
     // 自己的默认系统提示(工具定义等)。调用方传入的 systemPrompt 接在默认文本之后,两者共存。
@@ -128,6 +144,7 @@ export function buildQueryOptions({ resolved, cwd, maxTurns, systemPrompt, resum
  */
 export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, systemPrompt, progress, resume, resumedFrom, noVoice, copyVoice, effort }) {
   const startedAt = Date.now();
+  const effectiveEffort = resolveTaskEffort({ effort, friendlyModel, config });
 
   // 进度输出对象:调用方(bin 的 run、run-many)注入,各自决定 quiet 和 label;以库方式
   // 直接调用且没传时,退化成一个只写日志文件、不打扰 stderr 的静默进度——日志文件这一层
@@ -148,7 +165,7 @@ export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, sy
     command: processCommand(process.pid),
     resume: resume ?? null,
     resumedFrom: resumedFrom ?? null,
-    ...(effort ? { tier: effort, [effort]: true } : {}),
+    ...(effectiveEffort ? { tier: effectiveEffort, [effectiveEffort]: true } : {}),
     finished: false,
   });
   try {
@@ -164,18 +181,18 @@ export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, sy
       systemPrompt,
       resume,
       resumedFrom,
-      effort,
+      effort: effectiveEffort,
       startedAt,
       log: line => output.log(redactEvidence(line)),
       runId,
     });
-    const withMeta = { ...inner, ...(resumedFrom ? { resumedFrom } : {}), ...(effort ? { effort } : {}) };
+    const withMeta = { ...inner, ...(resumedFrom ? { resumedFrom } : {}), ...(effectiveEffort ? { effort: effectiveEffort } : {}) };
     return attachArtifacts(withMeta, output.logPath, inspectGit(cwd, gitBefore));
   } catch (err) {
     // 未预见的异常:同样补一行 done error 再抛,保住"日志必有 done 行收尾"的不变量,
     // 否则 tail --follow 会对这份日志永远等下去。
     output.log(`done error ${oneLine(redactEvidence(err?.message ?? String(err)), 160)}`);
-    const failed = { ok: false, model: friendlyModel, cwd, error: err.message, durationMs: wallClockDurationMs(startedAt), ...(effort ? { effort } : {}) };
+    const failed = { ok: false, model: friendlyModel, cwd, error: err.message, durationMs: wallClockDurationMs(startedAt), ...(effectiveEffort ? { effort: effectiveEffort } : {}) };
     return attachArtifacts({ ...failed, httpStatus: err.status ?? err.statusCode, errorObject: err.error ?? { code: err.code, type: err.type, message: err.message }, stderr: err.stderr }, output.logPath, inspectGit(cwd, gitBefore));
   } finally {
     markPidFinished(runId);

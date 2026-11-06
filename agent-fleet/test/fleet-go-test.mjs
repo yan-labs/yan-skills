@@ -289,7 +289,11 @@ try {
     }
     assert.equal(run(['new','gemini-check','--to','gemini','--goal','运行小测试','--expect-changes','--dry-run']).status,0);
     reset(); const r = run(['relaunch','one','--to','gemini']);
-    assert.equal(r.status,7,r.stderr); assert.equal(history().at(-1).args[0],'copy');
+    assert.equal(r.status,7,r.stderr); assert.equal(history().at(-1).args[0],'copy'); assert(history().at(-1).args.includes('--xhigh'));
+    const gemDef = run(['new', 'gemini-default-xhigh', '--to', 'gemini', '--goal', '默认高思考档位', '--no-launch']);
+    assert.equal(gemDef.status, 0, gemDef.stderr);
+    reset(); assert.equal(run(['relaunch', 'gemini-default-xhigh']).status, 7);
+    assert(history().at(-1).args.includes('--xhigh'));
     for (const flag of ['--low', '--high', '--xhigh']) {
       const g = run(['new', 'gemini-' + flag.slice(2), '--to', 'gemini', flag, '--goal', '测试思考档位', '--no-launch']);
       assert.equal(g.status, 0, g.stderr);

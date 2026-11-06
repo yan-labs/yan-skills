@@ -24,8 +24,10 @@ import {
   buildQueryOptions,
   collectAssistantText,
   DEFAULT_EXECUTOR_SYSTEM_PROMPT,
+  DEFAULT_GEMINI_EFFORT,
   GEMINI_THINKING_BUDGETS,
   resolveSuccessfulResult,
+  resolveTaskEffort,
 } from '../src/run-task.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -520,5 +522,13 @@ for (const [tier, budget] of Object.entries(GEMINI_THINKING_BUDGETS)) {
 }
 const gemHighBudget = buildQueryOptions({ resolved: resolvedGemini, cwd: '/tmp', effort: 'xhigh' });
 assert(gemHighBudget.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS === '32768', 'Gemini xhigh 自动放宽 CLAUDE_CODE_MAX_OUTPUT_TOKENS 到 32768 避免 16000 截断');
+const gemDefaultOpts = buildQueryOptions({ resolved: resolvedGemini, cwd: '/tmp' });
+assert(DEFAULT_GEMINI_EFFORT === 'xhigh', 'Gemini 默认思考档位常量为 xhigh');
+assert(gemDefaultOpts.effort === 'xhigh', 'Gemini 未显式传 effort 时默认解析为 xhigh');
+assert(gemDefaultOpts.thinking?.budgetTokens === GEMINI_THINKING_BUDGETS.xhigh, 'Gemini 默认档位同样附带 xhigh thinking budget 兜底');
+assert(resolveTaskEffort({ friendlyModel: 'kollab-gateway-copy' }) === 'xhigh', 'copy/Gemini 友好模型默认 effort 为 xhigh');
+assert(resolveTaskEffort({ friendlyModel: 'kollab-gateway-bulk', effort: 'low' }) === 'low', 'Gemini 友好模型支持 --low 覆盖默认 xhigh');
+assert(resolveTaskEffort({ friendlyModel: 'kollab-gateway-copy', effort: 'high' }) === 'high', 'Gemini 友好模型支持 --high 覆盖默认 xhigh');
+assert(resolveTaskEffort({ friendlyModel: 'claude-sonnet', resolvedModel: 'claude-sonnet-4-6' }) === undefined, '非 Gemini 模型未传 effort 时保持 undefined');
 
 finish();

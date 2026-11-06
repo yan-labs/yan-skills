@@ -23,7 +23,7 @@ import { dirname, join, resolve as resolvePath } from 'node:path';
 
 import { loadEnvFile } from '../src/env.mjs';
 import { loadModelsConfig, defaultConfigPath, ConfigError } from '../src/config.mjs';
-import { runTask } from '../src/run-task.mjs';
+import { runTask, resolveTaskEffort } from '../src/run-task.mjs';
 import { runMany } from '../src/run-many.mjs';
 import { judgeTask } from '../src/judge-task.mjs';
 import { createProgress } from '../src/progress.mjs';
@@ -61,7 +61,7 @@ code/grok-cli/copy/grok/bulk/gpt/run/run-many 默认独立运行并等待；--no
 --name 短名、--report 路径；status [--running] [--json]；wait/tail 支持短名或 runId 前缀。
 code 的 --luna 使用 gpt-6-luna，默认 xhigh，可用 --max，且不开 fast；Terra/Sol 默认 medium；不能与 --simple 或 --review 同用。
 code 的 --review 使用全权限沙箱与内置只读审查提示词；旧 agent-fleet 长命令继续可用。
-copy 自动注入文案语气规范；--no-voice 仅用于纯机械改写（长名 kollab-gateway-copy 同样支持）。
+copy/bulk（Gemini）默认 xhigh，可用 --low 或 --high 覆盖；copy 自动注入文案语气规范，--no-voice 仅用于纯机械改写（长名 kollab-gateway-copy 同样支持）。
 `;
 
 /** 去掉 `--flag value` / `--flag` 后剩下的位置参数。 */
@@ -151,7 +151,7 @@ async function cmdRun(argv, { copyVoice = false } = {}) {
   }
 
   const config = loadModelsConfig(flags['models-config'] ? resolvePath(flags['models-config']) : undefined);
-  const effort = resolveEffortFlag(flags);
+  const effort = resolveTaskEffort({ effort: resolveEffortFlag(flags), friendlyModel: flags.model, config });
   // 进度行实时打到 stderr,并同步写进 ~/.agent-fleet/runs/<ISO时间>-<模型名>.log(tail 的
   // 数据源);--quiet 时 stderr 静音,文件照写。日志文件路径在启动时已由进度对象打到 stderr。
   const result = await runTask({ friendlyModel: flags.model, prompt: flags.prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), config, maxTurns: flags['max-turns'] === undefined ? undefined : Number(flags['max-turns']), systemPrompt: flags['system-prompt'], noVoice: Boolean(flags['no-voice']), copyVoice, effort, progress: createProgress({ quiet: !flags.verbose || Boolean(flags.quiet), label: flags.model }) });
@@ -428,7 +428,11 @@ async function cmdResume(argv) {
   const config = loadModelsConfig(flags['models-config'] ? resolvePath(flags['models-config']) : undefined);
   const model = flags.model || rec.model;
   const cwd = flags.cwd ? resolvePath(flags.cwd) : rec.cwd || process.cwd();
-  const effort = resolveEffortFlag(flags) ?? rec.tier ?? (rec.xhigh ? 'xhigh' : rec.high ? 'high' : rec.low ? 'low' : undefined);
+  const effort = resolveTaskEffort({
+    effort: resolveEffortFlag(flags) ?? rec.tier ?? (rec.xhigh ? 'xhigh' : rec.high ? 'high' : rec.low ? 'low' : undefined),
+    friendlyModel: model,
+    config,
+  });
   const progress = createProgress({ quiet: !flags.verbose || Boolean(flags.quiet), label: String(model) });
   const result = await runTask({
     friendlyModel: model,
@@ -586,13 +590,14 @@ async function main() {
       const text = command === 'run-many' ? '' : resolveBrief(brief);
       const args = flagArgs(flags, ['detach', 'attach', 'no-wait', 'name', 'prompt']);
       if (flags.prompt !== undefined) args.push('--prompt', flags.prompt);
+      const selectedModel = command === 'code' ? (flags.luna ? 'gpt-6-luna' : flags.simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : flags.model ?? shortRunOptions(command, rest).model;
       const runId = await launchDetached(fileURLToPath(import.meta.url), [command, ...positionals, ...args], {
         cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(),
-        model: command === 'code' ? (flags.luna ? 'gpt-6-luna' : flags.simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : flags.model ?? shortRunOptions(command, rest).model,
+        model: selectedModel,
         briefPath: brief && existsSync(brief) ? resolvePath(brief) : null,
         name: flags.name ?? text.match(/^归类[^\r\n]*/m)?.[0],
         reportPath: flags.report || text.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim(),
-        effort: resolveEffortFlag(flags),
+        effort: resolveTaskEffort({ effort: resolveEffortFlag(flags), friendlyModel: selectedModel }),
         noWait: Boolean(flags['no-wait']),
       });
       if (!flags['no-wait']) process.exitCode = await waitDetached(runId, { originalOutput: true });
