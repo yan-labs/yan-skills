@@ -56,7 +56,8 @@ try {
   assert(trace.some(q => q.method === 'turn/steer' && q.params.input[0].text === '修订后的具体要求'));
   assert(trace.some(q => q.method === 'turn/steer' && q.params.input[0].text === '嵌套任务要求'));
   // 监督器活着但没有执行器时，应报告具体问题，不误报整个任务已退出。
-  const broken = { ...outer, runId: 'broken', name: 'broken', status: 'running', pid: process.pid, childPid: null, heartbeatAt: new Date().toISOString() };
+  const selfCommand = execFileSync('ps', ['-o', 'command=', '-p', String(process.pid)], { encoding: 'utf8' }).trim();
+  const broken = { ...outer, runId: 'broken', name: 'broken', status: 'running', pid: process.pid, command: selfCommand, childPid: null, heartbeatAt: new Date().toISOString() };
   writeFileSync(join(scratch, 'broken.json'), JSON.stringify(broken));
   assert.throws(() => run(['say', 'broken', '要求']), error => /监督器仍在运行.*执行器/.test(error.stderr));
   console.log('PASS - detach 短名/runId 插话实际进入 turn/steer、嵌套身份隔离、历史污染兼容及明确失败说明');

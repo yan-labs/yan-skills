@@ -105,7 +105,7 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 | `node ~/Project/kcsx/macmini/yan-skills/agent-fleet/bin/fleet-archive-sweep.mjs [--dry-run]` | 派单前及 Codex 完成后补扫归档 |
 | `fleet code brief.md [--simple|--luna] [--fast] [--low|--high|--xhigh|--max] [--cwd dir]` | 默认 Sol；`--simple` Terra、`--luna` Luna；Luna 默认 xhigh、可用 --max；Terra/Sol 默认 medium；不设 fast |
 | `fleet code brief.md --review` | 本机 Codex 只读审查 |
-| `fleet haiku\|sonnet\|opus\|fable brief.md` | Claude 官方端点直连，走订阅附赠的每月 API 额度（`ANTHROPIC_CREDIT_API_KEY`），**使用独立于 Claude App 的用量**；Claude 侧任务优先走这里 |
+| `fleet haiku\|sonnet\|opus\|fable brief.md` | Claude 官方端点直连，走订阅附赠的每月 API 额度（`ANTHROPIC_CREDIT_API_KEY`；用户级 key 另需 `ANTHROPIC_WORKSPACE_ID`，见 .env.example），**使用独立于 Claude App 的用量**；Claude 侧任务优先走这里 |
 | `fleet judge state.txt questions.json` | JEV 结构化判断 |
 | `fleet run --model name --prompt "任务"` | 旧的完整模型入口 |
 | `fleet run-many --config batch.json` | 批量任务 |

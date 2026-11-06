@@ -3,7 +3,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { runsDir } from './progress.mjs';
-import { assertSafeToSignal, isPidAlive, sameCwd, signalProcessTree, processCommand, collectDescendantPids, readPidPpidTable, readPidRecord, writePidRecord } from './pid.mjs';
+import { assertSafeToSignal, isPidAlive, isRecordedProcessAlive, sameCwd, signalProcessTree, processCommand, collectDescendantPids, readPidPpidTable, readPidRecord, writePidRecord } from './pid.mjs';
 import { buildBrief, formatBriefHuman, redactEvidence, snapshotGit, inspectGit } from './brief.mjs';
 
 export const statePath = (id) => join(runsDir(), `${id}.json`);
@@ -21,7 +21,32 @@ export function readState(id) {
 }
 export function detachedState(rec) {
   if (rec.status !== 'running') return rec.status;
-  return isPidAlive(rec.pid) && Date.now() - Date.parse(rec.heartbeatAt) < 90_000 ? 'running' : 'abnormal';
+  return isRecordedProcessAlive(rec.pid, rec.command) && Date.now() - Date.parse(rec.heartbeatAt) < 90_000 ? 'running' : 'abnormal';
+}
+/**
+ * 状态还写着 running,但监督进程和执行进程都已不在(含 pid 被别的进程复用):没人会再写终态了,
+ * 由读到它的人补写,之后它按普通终态记录 24 小时后退出 status 列表。
+ * 进程还活着只是心跳过期、或监督进程已死但执行进程还在跑,仍是 abnormal(要人处理),不动。
+ * status 默认 failed;用户要求停止一个已死任务时传 'stopped'。返回最新记录。
+ */
+export function reconcileDetached(rec, { status = 'failed', reason } = {}) {
+  if (!rec || rec.status !== 'running') return rec;
+  if (isRecordedProcessAlive(rec.pid, rec.command)) return rec;
+  if (rec.childPid && isRecordedProcessAlive(rec.childPid, rec.childCommand)) return rec;
+  const fresh = readState(rec.runId);
+  if (!fresh || fresh.status !== 'running') return fresh ?? rec;
+  const stopped = status === 'stopped';
+  const error = reason ?? `监督进程与执行进程均已不存在，任务异常终止；最后心跳 ${fresh.heartbeatAt}`;
+  const finishedAt = Number.isFinite(Date.parse(fresh.heartbeatAt ?? '')) ? fresh.heartbeatAt : new Date().toISOString();
+  const next = { ...fresh, status, verdict: stopped ? 'stopped' : 'fail', exitCode: 1, finishedAt, abnormalExit: true, error };
+  next.brief = buildBrief({ model: next.model, tier: next.model, ok: false, stopped, error,
+    resultPath: next.resultPath, logPath: next.logPath, durationMs: Date.parse(finishedAt) - Date.parse(next.startedAt) });
+  try {
+    if (next.resultPath && !existsSync(next.resultPath)) writeFileSync(next.resultPath, `${error}\n`);
+    if (next.logPath && existsSync(next.logPath)) appendFileSync(next.logPath, `[agent-fleet] done error ${status} (reconciled)\n`);
+  } catch { /* 结果/日志文件写不了不影响补写终态 */ }
+  writeState(next);
+  return next;
 }
 export function listDetached() {
   if (!existsSync(runsDir())) return [];
@@ -235,7 +260,7 @@ export async function waitDetached(spec, { cwd, timeout, originalOutput = false 
   const id = resolveDetached(spec, cwd);
   const started = Date.now();
   for (;;) {
-    const rec = readState(id);
+    const rec = reconcileDetached(readState(id));
     if (!rec) throw new Error(`找不到 detach 任务 ${id}`);
     const state = detachedState(rec);
     if (state !== 'running') {
@@ -257,8 +282,11 @@ export async function waitDetached(spec, { cwd, timeout, originalOutput = false 
 }
 
 export async function stopDetached(rec) {
-  if (!isPidAlive(rec.pid)) {
-    if (rec.status !== 'running' || !isPidAlive(rec.childPid)) return { runId: rec.runId, signaled: false, exited: true };
+  if (!isRecordedProcessAlive(rec.pid, rec.command)) {
+    if (rec.status !== 'running' || !isRecordedProcessAlive(rec.childPid, rec.childCommand)) {
+      reconcileDetached(rec, { status: 'stopped', reason: '收到停止请求时监督进程与执行进程均已不存在；按停止结束记录' });
+      return { runId: rec.runId, signaled: false, exited: true };
+    }
     const worker = readPidRecord(rec.runId);
     const record = worker?.pid === rec.childPid ? worker : { pid: rec.childPid, command: rec.childCommand };
     if (!record.command) throw new Error('监督进程已死，缺少执行器身份记录，拒绝误杀。');

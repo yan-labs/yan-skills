@@ -1,11 +1,12 @@
 // status / say / stop 的控制面。只按 pid.json 里的 pid 操作,绝不 pkill/killall。
 
 import { existsSync, readFileSync } from 'node:fs';
-import { detachedState, listDetached, readState, resolveDetached, stopDetached } from './detach.mjs';
+import { detachedState, listDetached, readState, reconcileDetached, resolveDetached, stopDetached } from './detach.mjs';
 import { appendInbox } from './inbox.mjs';
 import {
   assertSafeToSignal,
-  isPidAlive,
+  finalizeDeadPidRecord,
+  isRecordedProcessAlive,
   listAllPidRecords,
   patchPidRecord,
   readPidRecord,
@@ -27,20 +28,23 @@ function formatDuration(startedAt, finishedAt) {
 export function collectStatus({ cwd } = {}) {
   const rows = [];
   const detached = listDetached();
-  for (const rec of detached) {
-    if (cwd && !sameCwd(rec.cwd, cwd)) continue;
+  for (const listed of detached) {
+    if (cwd && !sameCwd(listed.cwd, cwd)) continue;
+    const rec = reconcileDetached(listed);
     const state = detachedState(rec);
     if (!['running', 'abnormal'].includes(state) && Date.now() - Date.parse(rec.finishedAt) > 86_400_000) continue;
     rows.push({ ...rec, status: state, state, duration: formatDuration(rec.startedAt, rec.finishedAt) });
   }
-  for (const rec of listAllPidRecords()) {
-    if (detached.some(d => d.runId === rec.runId || rec.runId.startsWith(`${d.runId}-task-`))) continue;
-    if (cwd && !sameCwd(rec.cwd, cwd)) continue;
-    const alive = isPidAlive(rec.pid);
+  for (const listed of listAllPidRecords()) {
+    if (detached.some(d => d.runId === listed.runId || listed.runId.startsWith(`${d.runId}-task-`))) continue;
+    if (cwd && !sameCwd(listed.cwd, cwd)) continue;
+    let rec = listed;
+    if (!rec.finished && !isRecordedProcessAlive(rec.pid, rec.command)) {
+      rec = { ...rec, ...finalizeDeadPidRecord(rec.runId, rec) };
+    }
     if (rec.finished && Date.now() - Date.parse(rec.finishedAt ?? rec.startedAt) > 86_400_000) continue;
     let state = 'running';
-    if (!alive && !rec.finished) state = 'abnormal';
-    else if (rec.finished) {
+    if (rec.finished) {
       const log = rec.logPath && existsSync(rec.logPath) ? readFileSync(rec.logPath, 'utf8') : '';
       state = rec.verdict ? rec.verdict === 'ok' ? 'done' : 'failed' : /\] done error/.test(log) ? 'failed' : 'done';
     }
@@ -67,7 +71,7 @@ export function formatStatusHuman(rows) {
   if (rows.length === 0) return '没有运行中的任务。\n';
   const lines = rows.map((r) => {
     const line = `${r.runId}  ${r.name ?? '(无短名)'}  ${r.model}  ${r.state}  ${r.duration}  cwd=${r.cwd}  report=${r.reportPath ?? '(无)'}  最后心跳=${r.heartbeatAt ?? '(无)'}`;
-    if (r.state !== 'abnormal') return line;
+    if (r.state !== 'abnormal' && !r.abnormalExit) return line;
     const interrupted = Date.parse(r.heartbeatAt) < Date.parse(r.startedAt) + 600_000;
     return `${line}  异常终止（可能被外部信号杀掉）${interrupted ? `；可能因机器重启/强制休眠中断，可用 fleet resume ${r.runId}` : ''}`;
   });
@@ -83,9 +87,9 @@ export function deliverSay(spec, text, { cwd } = {}) {
   const detached = readState(runId);
   if (detached?.status === 'running') {
     if (detachedState(detached) !== 'running') throw new Error(`任务 ${runId} 的监督器已退出或心跳超时，无法确认插话通道可用。`);
-    if (!isPidAlive(detached.childPid)) throw new Error(`任务 ${runId} 的监督器仍在运行，但执行器尚未就绪或已退出，无法投递插话。`);
+    if (!isRecordedProcessAlive(detached.childPid, detached.childCommand)) throw new Error(`任务 ${runId} 的监督器仍在运行，但执行器尚未就绪或已退出，无法投递插话。`);
     // 嵌套 fleet 的历史记录可能覆盖 finished/pid；真正监听此收件箱的是监督器的执行子进程。
-    rec = { ...rec, ...detached, pid: detached.childPid, finished: false };
+    rec = { ...rec, ...detached, pid: detached.childPid, command: detached.childCommand, finished: false };
   }
   if (!rec) throw new Error(`找不到任务 ${runId} 的 pid.json`);
   if (rec.model?.startsWith('grok-cli:') && !rec.sessionId) throw new Error('Grok CLI 尚未提供 sessionId，暂不支持 fleet say；当前任务继续运行。');
@@ -93,7 +97,7 @@ export function deliverSay(spec, text, { cwd } = {}) {
   if (codex && rec.backend !== 'codex-app-server' && !rec.threadId && !rec.sessionId) {
     throw new Error('Codex 任务不支持 fleet say（当前没有可续跑的会话）；改方向请用 fleet-go amend --restart。');
   }
-  if (rec.finished || !isPidAlive(rec.pid)) {
+  if (rec.finished || !isRecordedProcessAlive(rec.pid, rec.command)) {
     throw new Error(`任务 ${runId} 已不在运行,无法投递插话。`);
   }
   appendInbox(runId, { type: 'say', text });
@@ -122,19 +126,19 @@ export async function requestStop(spec, { grace = 60, sleepFn = sleep, cwd } = {
   const deadline = Date.now() + graceSec * 1000;
   while (Date.now() < deadline) {
     const latest = readPidRecord(runId);
-    if (!latest || latest.finished || !isPidAlive(latest.pid)) {
+    if (!latest || latest.finished || !isRecordedProcessAlive(latest.pid, latest.command)) {
       return { runId, delivered: true, signaled: false, exited: true };
     }
     await sleepFn(200);
   }
 
   const latest = readPidRecord(runId);
-  if (!latest || latest.finished || !isPidAlive(latest.pid)) {
+  if (!latest || latest.finished || !isRecordedProcessAlive(latest.pid, latest.command)) {
     return { runId, delivered: true, signaled: false, exited: true };
   }
 
   const others = listAllPidRecords().filter(
-    (r) => r.runId !== runId && !r.finished && r.pid === latest.pid && isPidAlive(r.pid),
+    (r) => r.runId !== runId && !r.finished && r.pid === latest.pid && isRecordedProcessAlive(r.pid, r.command),
   );
   if (others.length > 0) {
     return {
@@ -154,7 +158,7 @@ export async function requestStop(spec, { grace = 60, sleepFn = sleep, cwd } = {
   patchPidRecord(runId, { stopSignal: true });
   signalProcessTree(latest.pid, 'SIGTERM');
   await sleepFn(5000);
-  if (isPidAlive(latest.pid)) {
+  if (isRecordedProcessAlive(latest.pid, latest.command)) {
     const again = assertSafeToSignal(readPidRecord(runId) ?? latest);
     if (again.ok) signalProcessTree(latest.pid, 'SIGKILL');
   }
@@ -162,6 +166,6 @@ export async function requestStop(spec, { grace = 60, sleepFn = sleep, cwd } = {
     runId,
     delivered: true,
     signaled: true,
-    exited: !isPidAlive(latest.pid),
+    exited: !isRecordedProcessAlive(latest.pid, latest.command),
   };
 }

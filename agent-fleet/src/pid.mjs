@@ -61,6 +61,33 @@ export function isPidAlive(pid) {
   }
 }
 
+/**
+ * pid 存活且仍是记录里的那个进程。只看 kill -0 会把「pid 被系统复用给别的进程」当成任务还活着,
+ * 所以记录里存了启动时 command 的,要求当前 command 与之一致(监督进程的 command 带 runId,复用后不会重名)。
+ * 只有拿到「进程已不存在」或「command 明确不同」的证据才判死:EPERM(进程存在但无权发信号)、
+ * ps 读不到 command 都按存活处理,避免在受限环境里把活任务误判成已死再补写终态。
+ * 旧记录没有 command 时退回只看存活。
+ */
+export function isRecordedProcessAlive(pid, command) {
+  const n = Number(pid);
+  if (!pid || !Number.isFinite(n)) return false;
+  try {
+    process.kill(n, 0);
+  } catch (err) {
+    if (err.code !== 'EPERM') return false;
+  }
+  if (!command) return true;
+  const current = processCommand(n);
+  return !current || current === command;
+}
+
+/** 前台任务的 pid.json 已无对应进程却没写终态:补写成失败终态(最后心跳/启动时间作为结束时间),让它按普通终态 24 小时后退出列表。 */
+export function finalizeDeadPidRecord(runId, rec) {
+  const valid = (t) => Number.isFinite(Date.parse(t ?? ''));
+  const finishedAt = valid(rec.heartbeatAt) ? rec.heartbeatAt : valid(rec.startedAt) ? rec.startedAt : new Date().toISOString();
+  return patchPidRecord(runId, { finished: true, finishedAt, verdict: 'fail', abnormalExit: true });
+}
+
 export function commandLooksLikeAgentFleet(cmd) {
   const s = String(cmd ?? '');
   return s.includes('agent-fleet');
@@ -192,10 +219,10 @@ export function sameCwd(a, b) {
  * @param {object[]} [records]
  * @param {{ cwd?: string, isAlive?: (pid: number) => boolean }} [opts]
  */
-export function latestLiveRunIdFrom(records, { cwd, isAlive = isPidAlive } = {}) {
+export function latestLiveRunIdFrom(records, { cwd, isAlive = (pid, rec) => isRecordedProcessAlive(pid, rec?.command) } = {}) {
   const want = normalizeCwd(cwd ?? process.cwd());
   const live = (records ?? []).filter(
-    (r) => !r.finished && isAlive(r.pid) && sameCwd(r.cwd, want),
+    (r) => !r.finished && isAlive(r.pid, r) && sameCwd(r.cwd, want),
   );
   if (live.length === 0) return null;
   live.sort((a, b) => {
@@ -209,7 +236,7 @@ export function latestLiveRunIdFrom(records, { cwd, isAlive = isPidAlive } = {})
 
 /** 最近启动且仍存活、cwd 等于给定目录(默认 process.cwd())的任务。不回退到全局。 */
 export function latestLiveRunId(cwd) {
-  return latestLiveRunIdFrom(listAllPidRecords(), { cwd, isAlive: isPidAlive });
+  return latestLiveRunIdFrom(listAllPidRecords(), { cwd });
 }
 
 export const LATEST_MISS =

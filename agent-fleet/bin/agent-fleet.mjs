@@ -30,7 +30,7 @@ import { createProgress } from '../src/progress.mjs';
 import { tailLatestLog } from '../src/tail-log.mjs';
 import { buildBrief, DEFAULT_BRIEF_LINES, renderManyOutput, renderRunOutput, failureReport, redactEvidence, inspectGit } from '../src/brief.mjs';
 import { collectStatus, deliverSay, formatStatusHuman, requestStop } from '../src/control.mjs';
-import { readPidRecord, resolveRunId, isPidAlive, patchPidRecord, runIdFromLogPath } from '../src/pid.mjs';
+import { readPidRecord, resolveRunId, isRecordedProcessAlive, patchPidRecord, runIdFromLogPath } from '../src/pid.mjs';
 import { shortRunOptions, splitShortArgs, resolveBrief } from '../src/shortcuts.mjs';
 import { runCode, launchArchiveSweep } from '../src/code-runner.mjs';
 import { runGrok } from '../src/grok-runner.mjs';
@@ -365,7 +365,7 @@ async function cmdResume(argv) {
   }
   if (rec.model?.startsWith('grok-cli:')) {
     if (!rec.sessionId) throw new Error('Grok CLI 没有 sessionId，暂不支持 fleet resume。');
-    if ((!rec.finished && isPidAlive(rec.pid)) || (rec.childPid && isPidAlive(rec.childPid))) {
+    if ((!rec.finished && isRecordedProcessAlive(rec.pid, rec.command)) || (rec.childPid && isRecordedProcessAlive(rec.childPid, rec.childCommand))) {
       const stopped = await requestStop(runId, { grace: 0 });
       if (!stopped.exited) throw new Error('旧 Grok 任务尚未停止，未启动续跑。');
     }
@@ -389,7 +389,7 @@ async function cmdResume(argv) {
     if (rec.resumeBlocked) throw new Error('Codex 无法确认旧工具已结束，未启动续跑；改方向请用 --restart。');
     const sessionId = rec.threadId || rec.sessionId;
     if (!sessionId) throw new Error('Codex 任务没有 threadId/sessionId，无法 fleet resume；改方向请用 --restart。');
-    if ((!rec.finished && isPidAlive(rec.pid)) || (rec.childPid && isPidAlive(rec.childPid)) || (rec.codexPid && isPidAlive(rec.codexPid))) {
+    if ((!rec.finished && isRecordedProcessAlive(rec.pid, rec.command)) || (rec.childPid && isRecordedProcessAlive(rec.childPid, rec.childCommand)) || (rec.codexPid && isRecordedProcessAlive(rec.codexPid, rec.codexCommand))) {
       throw new Error('Codex 任务或执行器仍在运行；请用 fleet say 插话，未启动重复续跑。');
     }
     const cwd = flags.cwd ? resolvePath(flags.cwd) : rec.cwd || process.cwd();
