@@ -1,0 +1,1 @@
+复核结论末尾单独写一行机读尾注，供账本统计，格式固定：`LEDGER: blockers=<n> verdict=<pass|fail|partial>`。blockers 是必须修复才能放行的项数（P0/P1，以及你判定必须修的 P2），没有写 0；verdict：pass 可放行，fail 不可放行，partial 只能部分判断。该行单独占一行、不加引号或反引号；写在最终回复最后一行，若同时写 REPORT，也在其「结论」节写同一行。

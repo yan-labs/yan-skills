@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { runsDir } from './progress.mjs';
 import { assertSafeToSignal, isPidAlive, isRecordedProcessAlive, sameCwd, signalProcessTree, processCommand, collectDescendantPids, readPidPpidTable, readPidRecord, writePidRecord } from './pid.mjs';
 import { buildBrief, formatBriefHuman, redactEvidence, snapshotGit, inspectGit } from './brief.mjs';
+import { recordRun } from './ledger.mjs';
 
 export const statePath = (id) => join(runsDir(), `${id}.json`);
 export function writeState(rec) {
@@ -12,6 +13,7 @@ export function writeState(rec) {
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(rec, null, 2)}\n`);
   renameSync(tmp, path);
+  recordRun(rec); // 到终态才会写账本一行;内部吞掉所有错误,不影响任务
 }
 export function readState(id) {
   const path = statePath(id);

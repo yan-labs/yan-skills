@@ -10,6 +10,7 @@ import shlex
 import subprocess
 import sys
 import time
+import unicodedata
 
 BLOCKS = Path(__file__).resolve().parents[1] / 'skill/templates/blocks'
 LEGACY_RULE = "禁止单纯转发，允许分发子步骤：不能把整个任务原样甩给另一个 agent 后只回'已启动/等结果'就结束当轮；可以拆出边界清晰的子步骤交给更便宜的 agent 做，但你必须自己掌握全局、消化并验证子任务结果，最终给出真正的结论作为你的最终答案"
@@ -313,6 +314,94 @@ def amend(args):
     restart(run, path, args.name)
 
 
+def level_arg(value):
+    """难度档 L1–L4，也接受 1–4，统一存成 L1–L4。"""
+    match = re.fullmatch(r'[Ll]?([1-4])', value)
+    if not match:
+        raise argparse.ArgumentTypeError('难度档只能是 L1–L4。')
+    return 'L' + match.group(1)
+
+
+NONCAP = [('quota', '额度'), ('capacity', '容量/429'), ('zombie', '僵尸'), ('stopped', '被停'), ('auth-gateway', '鉴权/网关')]
+MIN_SAMPLE = 8
+
+
+def ledger_rows():
+    """读账本 ~/.agent-fleet/ledger.jsonl（环境变量 AGENT_FLEET_LEDGER 可改路径）；坏行跳过。"""
+    path = Path(os.environ.get('AGENT_FLEET_LEDGER') or Path.home() / '.agent-fleet/ledger.jsonl')
+    if not path.exists():
+        raise ValueError(f'账本不存在：{path}。先运行 bin/fleet-ledger-backfill.mjs 回填，或等新任务结束自动写入。')
+    rows = []
+    for line in path.read_text().splitlines():
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            pass
+    return path, rows
+
+
+def cells(rows):
+    """按显示宽度对齐中文表格。"""
+    def width(text):
+        return sum(2 if unicodedata.east_asian_width(c) in 'WF' else 1 for c in text)
+    sizes = [max(width(str(row[i])) for row in rows) for i in range(len(rows[0]))]
+    return '\n'.join('  '.join(str(cell) + ' ' * (sizes[i] - width(str(cell))) for i, cell in enumerate(row)).rstrip() for row in rows)
+
+
+def mean_text(values):
+    return f'{sum(values) / len(values):.2f} (n={len(values)})' if values else '-'
+
+
+def score(args):
+    """只读账本，按执行者给出计数；不设总分权重。样本少于 8 的标「样本不足」。"""
+    path, rows = ledger_rows()
+    total_rows = len(rows)
+    if args.since:
+        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', args.since):
+            raise ValueError('--since 需要 YYYY-MM-DD。')
+        rows = [r for r in rows if (r.get('date') or '') >= args.since]
+    makers = [r for r in rows if r.get('type') != 'review']
+    checkers = [r for r in rows if r.get('type') == 'review']
+    # 复核单 -> 被复核的那次做活 run：同名、更早开始、取最近一次。
+    by_name = {}
+    for r in sorted(makers, key=lambda r: r.get('startedAt') or ''):
+        by_name.setdefault(r['name'], []).append(r)
+    linked = {}
+    for review in checkers:
+        earlier = [m for m in by_name.get(review.get('reviewOf'), []) if (m.get('startedAt') or '') < (review.get('startedAt') or '')]
+        if earlier:
+            linked.setdefault(earlier[-1]['runId'], []).append(review)
+    print(f"账本 {path}：共 {total_rows} 行；统计范围 {'自 ' + args.since + ' 起' if args.since else '全部'}，{len(rows)} 行（其中回填 {sum(1 for r in rows if r.get('backfilled'))} 行）。")
+    print('剔除的非能力因素：额度、容量/429、僵尸、被停、鉴权/网关，不计入真完成/部分/失败；样本 = 运行数 - 剔除数；少于 %d 标「样本不足」。' % MIN_SAMPLE)
+    for title, group in [('做活（非复核）', makers), ('复核者', checkers)]:
+        if not group:
+            continue
+        head = ['执行者', '运行(任务)', '样本', '真完成', '部分', '失败'] + ['剔除' + label for _, label in NONCAP]
+        head += ['被复核(次)', '必修项均值'] if group is makers else ['有尾注', 'pass/fail/partial', '必修项均值']
+        table = [head + ['备注']]
+        for name in sorted({r.get('executor') or 'unknown' for r in group}):
+            mine = [r for r in group if (r.get('executor') or 'unknown') == name]
+            dropped = {k: sum(1 for r in mine if r.get('failure') == k) for k, _ in NONCAP}
+            kept = [r for r in mine if r.get('failure') not in dropped]
+            count = lambda o: sum(1 for r in kept if r.get('outcome') == o)
+            line = [name, f"{len(mine)}({len({r['name'] for r in mine})})", len(kept), count('complete'), count('partial'), count('failed')]
+            line += [dropped[k] for k, _ in NONCAP]
+            if group is makers:
+                reviews = [rv for r in mine for rv in linked.get(r['runId'], [])]
+                counted = [rv['blockers'] for rv in reviews if rv.get('blockers') is not None]
+                line += [f"{sum(1 for r in mine if r['runId'] in linked)}({len(reviews)})", mean_text(counted)]
+            else:
+                trailers = [r for r in mine if r.get('blockers') is not None]
+                verdicts = [sum(1 for r in trailers if r.get('reviewVerdict') == v) for v in ('pass', 'fail', 'partial')]
+                line += [len(trailers), '/'.join(map(str, verdicts)), mean_text([r['blockers'] for r in trailers])]
+            line.append('样本不足' if len(kept) < MIN_SAMPLE else '')
+            table.append(line)
+        print(f'\n{title}\n' + cells(table))
+    if checkers:
+        paired = sum(1 for r in checkers if r.get('reviewOf'))
+        print(f'\n复核单 {len(checkers)} 条，已关联被复核任务 {paired} 条（--for 显式 {sum(1 for r in checkers if r.get("pairSource") == "explicit")}，同名前缀推测 {sum(1 for r in checkers if r.get("pairSource") == "inferred")}）。')
+
+
 def new(args):
     """组装标准 brief；预览不写盘，正文文件与 stdin 使用明确输入规则。"""
     for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
@@ -332,6 +421,8 @@ def new(args):
         raise ValueError('--simple 不能与 --review 同用；复核固定使用 Sol。')
     if args.make == 'video' and args.to != 'grok':
         raise ValueError('--make video 仅用于 --to grok。')
+    if args.for_name and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.for_name):
+        raise ValueError('--for 需要被复核的任务名（字母、数字、下划线与连字符）。')
     day = datetime.date.today().isoformat()
     folder = Path.home() / '.agent-reports' / day
     path = folder / (args.name + '.brief.md')
@@ -363,6 +454,7 @@ def new(args):
     classification = PRODUCTS[args.to] + (' 只读复核' if args.review else '')
     if args.to == 'claude':
         classification += ' ' + (args.tier or 'sonnet')
+    is_review = bool(args.review or args.for_name or (args.type or '').lower() == 'review')
     parts = [f'归类：{classification}；理由：{args.why or classification + "任务，按既有路由执行"}\nREPORT: {report}', block('style-sol', values), block('time-box', values),
              '## 授权覆盖\n' + '\n\n'.join(block('auth-' + a, values) for a in dict.fromkeys(auth))]
     if args.budget:
@@ -380,12 +472,15 @@ def new(args):
     if args.forbid:
         parts.append('另行授权事项：' + args.forbid)
     parts.append('## 已知坑\n' + '\n\n'.join(block('pitfall-' + p, values) for p in dict.fromkeys(pitfalls) if p))
-    parts.extend(['## 验收\n' + block('accept-boilerplate', values) + '\n\n' + block('report-template', values), rule()])
+    parts.extend(['## 验收\n' + block('accept-boilerplate', values) + '\n\n' + block('report-template', values)
+                  + ('\n\n' + block('review-ledger', values) if is_review else ''), rule()])
     text = '\n\n'.join(parts) + '\n'
     checked(text, args.to)
     meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
             'tier': args.tier, 'review': args.review, 'low': args.low, 'high': args.high, 'xhigh': args.xhigh, 'max': args.max, 'simple': args.simple, 'luna': args.luna, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,
-            'subagents': args.subagents, 'bulk': args.bulk, 'expect-changes': args.expect_changes}
+            'subagents': args.subagents, 'bulk': args.bulk, 'expect-changes': args.expect_changes,
+            # 账本用：难度档、任务类型、被复核任务名；relaunch/amend 沿用 meta，不另存。
+            'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
     if args.to == 'jev':
         meta['questions'] = str(path.with_suffix('.questions.json'))
     if args.dry_run:
@@ -418,6 +513,9 @@ def main():
         p.add_argument('--' + option, action='store_true')
     for option in ['why', 'goal', 'body', 'budget', 'forbid', 'pitfalls', 'report']:
         p.add_argument('--' + option)
+    p.add_argument('--level', type=level_arg, help='难度档 L1–L4，记入账本')
+    p.add_argument('--type', type=str.lower, help='任务类型，记入账本：work|review|research|copy|media|orchestrate|judge|ops 等')
+    p.add_argument('--for', dest='for_name', help='本单复核的任务名，记入账本做 maker/checker 配对')
     p.add_argument('--auth', default='local')
     for option in ['write', 'read']:
         p.add_argument('--' + option, nargs='+', action='extend')
@@ -453,6 +551,8 @@ def main():
     sub.add_parser('team')
     p = sub.add_parser('status')
     p.add_argument('--all', action='store_true')
+    p = sub.add_parser('score')
+    p.add_argument('--since', help='只统计该日期（YYYY-MM-DD）及以后的账本行')
     if any(a == '--kind' or a.startswith('--kind=') for a in sys.argv[1:]):
         raise ValueError('请使用 --to gpt|openai|claude|grok|gemini|jev。')
     args = parser.parse_args()
@@ -469,6 +569,8 @@ def main():
     elif args.action == 'lint':
         checked(Path(args.brief).read_text(), args.to)
         print('lint 通过。')
+    elif args.action == 'score':
+        score(args)
     else:
         rows = running(False)
         # fleet status 只返回最近 24 小时；补入本地已结束的历史记录。

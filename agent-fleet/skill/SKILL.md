@@ -7,11 +7,11 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 
 | 让谁做 | 适合什么 | 命令示例 | 派用者顺位参考 |
 |---|---|---|---|
-| `gpt` | 正常开发与编程用 Terra（`--simple`）；非常严谨、内容紧密的开发才用 Sol；最简单、边界清楚且可机械验证的改名、小修、格式化、按清单核对和摘要用 Luna（`--luna`）；带逻辑的改动用 Terra/Sol | `fleet-go new fix --to gpt --simple --auth local --goal "修复问题" --body task.md` | 周用量 ≥ 95% 改 Gemini 4 |
+| `gpt` | 正常开发与编程用 Terra（`--simple`）；非常严谨、内容紧密的开发才用 Sol；最简单、边界清楚且可机械验证的改名、小修、格式化、按清单核对和摘要用 Luna（`--luna`）；带逻辑的改动用 Terra/Sol | `fleet-go new fix --to gpt --simple --auth local --goal "修复问题" --body task.md` | 周用量 ≥ 95% 或并发满改 Grok Build，见[工具链](references/fallback-chains.md) |
 | `openai` | 官方 GPT API / ChatGPT 关联组织额度，复用原 Agent SDK | `fleet-go new task --to openai --auth local --goal "目标" --body task.md` | 单独入口，不改 Codex 默认 |
 | `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | 按额度规则选择 Terra 或 Gemini |
-| `grok` | 视频与图片（生成、搜索）、X 平台（热点与实时讨论）、X/社媒实时检索、成人题材；默认不派编码与代码复核（优先级安排） | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | 按任务与额度选择 Gemini |
-| `gemini` | 文案、翻译、摘要、批量任务与编码；默认 Gemini 4 `gemini-4-argon`，经 Claude Agent SDK | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | Codex 周用量 ≥ 95% 时使用 |
+| `grok` | 视频与图片（生成、搜索）、X 平台（热点与实时讨论）、X/社媒实时检索、成人题材；Codex 不可用或并发满时优先承接编码 | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | 见[工具链](references/fallback-chains.md) |
+| `gemini` | 文案、翻译、摘要、批量任务与编码；默认 Gemini 4 `gemini-4-argon`，经 Claude Agent SDK | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | Grok Build 不可用时接编码，见[工具链](references/fallback-chains.md) |
 | `jev` | 分类、选择、打分等结构化判断 | `fleet-go new decide --to jev --goal "按正文判据分类" --body task.md` | — |
 
 ## OpenAI 订阅 API 额度
@@ -84,6 +84,7 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 
 - **改方向**：用 `fleet-go amend <name> "补充要求"`，它给 brief 顶部追加「修订 N」并（`--say`）尽量发给运行中的任务；Codex 优先同轮 steer，失败尝试中断后续会话；任务已结束（常见：部分完成交回）时 `--say` 直接按修订后的 brief relaunch（整条命令放 `run_in_background`），不必再单独 relaunch；运行中且两者都不可用时会提示，此时才考虑 `--restart`（只停止所选 run，按 runId/brief/`--name` 核验残留，最多等 60 秒、每 0.5 秒轮询，再走 `relaunch`，以 run 身份判断。超时已确认 stopped 且无同一 runId 存活时告警并重新拉起，否则保留修订并报错）。调整沿用 `amend` / `relaunch` 保存的 brief 与任务身份。`amend --luna` 保存 Luna 档位，重启或下次重派生效，运行中插话不会切换当前模型。
 - 看进度：`fleet-go status`（默认非终态及最近 1 小时，`--all` 查看全部本地历史；脱离启动的任务带 ⚠）；仍可用 `fleet status --running --json`。
+- 账本与打分：每个 run 结束自动往 `~/.agent-fleet/ledger.jsonl` 追加一行元数据；`fleet-go new` 可带 `--level L1-L4`、`--type`、`--for <被复核任务名>`，复核结论末尾写 `LEDGER: blockers=<n> verdict=<pass|fail|partial>`；`fleet-go score [--since 日期]` 按执行者输出计数。字段、配对、回填见[账本与 score](references/ledger.md)。
 - 一个任务一次 Bash 调用；多个独立任务同一条消息里并行发多条 Bash。同一份共享工作树按单写入者串行执行。
 - 已有 Claude Code 的 PreToolUse hook `~/.claude/hooks/check-fleet-launch.py`：命令里带 `fleet`/`fleet-go` 派单子命令又带 `&`、`nohup`、`setsid`、`disown` 会被直接拦下。
 - 标准块在 `skill/templates/blocks/`（规则句由 `rule-sentence.md` 生成新句，校验兼容全局完整旧句；全局 `~/.claude/CLAUDE.md` §4.1、§4.2 提供规则与报告的上下文），调整样板时在这里统一修改。
@@ -134,8 +135,8 @@ Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定�
 
 下面的顺位表只供派用者自行判断，代码不消费：
 - Claude 额度档：按任务和以下 Codex 额度规则选择 Claude、Terra 或 Gemini。
-- **Codex 周额度 ≥ 95% 或用尽**：派单前读取 `~/.codex/sessions/<今天>/` 最新 rollout 的 `rate_limits.primary`（`window_minutes=10080`）的 `used_percent`；达到 95% 或用尽时不再派 Terra/Sol/Luna，改用 `fleet-go new --to gemini`（默认 Gemini 4 `gemini-4-argon`，经 Claude Agent SDK，编码也可做）。Gemini 约 10 万美元免费额度、剩约 4–6 万美元且会过期，可放开使用；余额以实际为准。非非常重要的编程交 Gemini 4，非常重要的编程交 Claude 子代理 Sonnet，难的用 Opus。额度用尽可让 Kollab 派任务执行充值脚本，付款前须先与用户确认金额。
-- GPT 档：正常开发 Terra（`--simple`）→ 非常严谨、内容紧密的开发才用 Sol（medium、不开 fast，默认不派）→ 周用量 ≥ 95% 改 Gemini 4；最简单、边界清楚且可机械验证的改名、小修、格式化、按清单核对和摘要用 Luna（`--luna`）；带逻辑的改动用 Terra/Sol。
+- **工具额度用尽或并发满**：完整顺位、不可用信号和子代理用法见 [额度用尽时的工具链](references/fallback-chains.md)，派单前先对表。常规编程 Codex → Grok Build → Gemini 4 → Sonnet；写 UI 走 Sonnet；重要规划走 Fable；一般 Claude 任务走 Sonnet；个别难题走 Opus。Codex 周额度看最近修改的 rollout 里 `rate_limits.primary`（`window_minutes=10080`）的 `used_percent`，≥95% 不再派 Terra/Sol/Luna。Gemini 约 10 万美元免费额度、剩约 4–6 万美元且会过期，可放开使用，余额以实际为准。额度用尽可让 Kollab 派任务执行充值脚本，付款前须先与用户确认金额。
+- GPT 档：正常开发 Terra（`--simple`）→ 非常严谨、内容紧密的开发才用 Sol（medium、不开 fast，默认不派）→ 周用量 ≥ 95% 或并发满按[工具链](references/fallback-chains.md)换手；最简单、边界清楚且可机械验证的改名、小修、格式化、按清单核对和摘要用 Luna（`--luna`）；带逻辑的改动用 Terra/Sol。
 
 派用者决定后，用 `fleet-go relaunch <name> --to <产品> [--tier haiku|sonnet|opus|fable] [--simple|--luna] [--low|--high|--xhigh|--max] [--fast]` 沿用 brief、name 与 report 重派。成功任务不产生失败上报。
 
