@@ -35,5 +35,22 @@ try {
     }
   }
   assert.ok(count >= 5);
+  // Claude 官方通道：用户级 key 没绑定工作区，必须带 anthropic-workspace-id 头，否则 400。
+  const savedClaude = { key: process.env.ANTHROPIC_CREDIT_API_KEY, workspace: process.env.ANTHROPIC_WORKSPACE_ID };
+  process.env.ANTHROPIC_CREDIT_API_KEY = 'local-mock-only';
+  try {
+    for (const name of ['claude-haiku', 'claude-sonnet', 'claude-opus', 'claude-fable']) {
+      process.env.ANTHROPIC_WORKSPACE_ID = 'wrkspc_mockmockmockmockmockmock';
+      const resolved = resolveModel(name, config);
+      assert.equal(resolved.headers['anthropic-workspace-id'], 'wrkspc_mockmockmockmockmockmock', `${name} 带工作区头`);
+      assert.match(buildIsolatedEnv(resolved).ANTHROPIC_CUSTOM_HEADERS, /^anthropic-workspace-id: wrkspc_mockmockmockmockmockmock$/m, `${name} 经 ANTHROPIC_CUSTOM_HEADERS 发给上游`);
+      delete process.env.ANTHROPIC_WORKSPACE_ID;
+      assert.throws(() => resolveModel(name, config), /ANTHROPIC_WORKSPACE_ID/, `${name} 缺工作区 ID 时给出可操作的报错`);
+    }
+  } finally {
+    for (const [key, env] of [['key', 'ANTHROPIC_CREDIT_API_KEY'], ['workspace', 'ANTHROPIC_WORKSPACE_ID']]) {
+      if (savedClaude[key] === undefined) delete process.env[env]; else process.env[env] = savedClaude[key];
+    }
+  }
   console.log(`模型映射桩通过：${count} 个网关配置，env/settings/本地请求均为 ${allowedModel}`);
 } finally { await mock.close(); }

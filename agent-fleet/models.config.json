@@ -100,6 +100,7 @@
     "model": "claude-haiku-5-5",
     "apiKeyEnv": "ANTHROPIC_CREDIT_API_KEY",
     "authHeader": "x-api-key",
+    "headerEnvs": { "anthropic-workspace-id": "ANTHROPIC_WORKSPACE_ID" },
     "subagentModel": "claude-haiku-5-5"
   },
   "claude-sonnet": {
@@ -108,6 +109,7 @@
     "model": "claude-sonnet-5-5",
     "apiKeyEnv": "ANTHROPIC_CREDIT_API_KEY",
     "authHeader": "x-api-key",
+    "headerEnvs": { "anthropic-workspace-id": "ANTHROPIC_WORKSPACE_ID" },
     "subagentModel": "claude-sonnet-5-5"
   },
   "claude-opus": {
@@ -116,6 +118,7 @@
     "model": "claude-opus-5-5",
     "apiKeyEnv": "ANTHROPIC_CREDIT_API_KEY",
     "authHeader": "x-api-key",
+    "headerEnvs": { "anthropic-workspace-id": "ANTHROPIC_WORKSPACE_ID" },
     "subagentModel": "claude-opus-5-5"
   },
   "claude-fable": {
@@ -124,6 +127,7 @@
     "model": "claude-fable-5-1",
     "apiKeyEnv": "ANTHROPIC_CREDIT_API_KEY",
     "authHeader": "x-api-key",
+    "headerEnvs": { "anthropic-workspace-id": "ANTHROPIC_WORKSPACE_ID" },
     "subagentModel": "claude-fable-5-1"
   },
   "openai-gpt-sol": {
