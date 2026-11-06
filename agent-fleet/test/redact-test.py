@@ -59,6 +59,44 @@ def main():
                   'cloud key masked with surrounding structure preserved')
         for ordinary_value in ('word' + value, value[:4] + 'ordinary'):
             check(run(ordinary_value).stdout == ordinary_value, 'cloud-like ordinary word preserved')
+    redis_secret = 'fake' + '-redis-pass'
+    redis_cases = [
+        ('requirepass ' + redis_secret, 'requirepass <redacted:password>'),
+        ('  REQUIREPASS "' + redis_secret + ' x"', '  REQUIREPASS "<redacted:password>"'),
+        ('requirepass=' + redis_secret, 'requirepass=<redacted:requirepass>'),
+        ('requirepass: ' + redis_secret, 'requirepass: <redacted:requirepass>'),
+        ('masterauth ' + redis_secret, 'masterauth <redacted:password>'),
+        ('REDIS_PASS=' + redis_secret, 'REDIS_PASS=<redacted:redis_pass>'),
+        ('sentinel auth-pass mymaster ' + redis_secret, 'sentinel auth-pass mymaster <redacted:password>'),
+        ('SENTINEL SET mymaster auth-pass ' + redis_secret, 'SENTINEL SET mymaster auth-pass <redacted:password>'),
+        ('tls-key-file-pass ' + redis_secret, 'tls-key-file-pass <redacted:password>'),
+        ('CONFIG SET requirepass ' + redis_secret, 'CONFIG SET requirepass <redacted:password>'),
+        ('redis-server --requirepass ' + redis_secret, 'redis-server --requirepass <redacted:password>'),
+        ('user alice on >' + redis_secret + ' ~* +@all', 'user alice on ><redacted:password> ~* +@all'),
+        ('user bob on #' + 'ab' * 32 + ' ~* +@all', 'user bob on #<redacted:password_hash> ~* +@all'),
+        ('ACL SETUSER alice on >' + redis_secret + ' <old-' + redis_secret,
+         'ACL SETUSER alice on ><redacted:password> <<redacted:password>'),
+        ('AUTH ' + redis_secret, 'AUTH <redacted:password>'),
+        ('AUTH fake-user ' + redis_secret, 'AUTH fake-user <redacted:password>'),
+        ('127.0.0.1:6379> auth "' + redis_secret + '"', '127.0.0.1:6379> auth "<redacted:password>"'),
+        ('redis-cli -h cache -a ' + redis_secret + ' --no-auth-warning',
+         'redis-cli -h cache -a <redacted:password> --no-auth-warning'),
+        ("redis-cli -a '" + redis_secret + "' ping", "redis-cli -a '<redacted:password>' ping"),
+        ('redis-cli --user fake-user --pass=' + redis_secret, 'redis-cli --user fake-user --pass=<redacted:password>'),
+        ('redis-benchmark -a ' + redis_secret + ' -n 10', 'redis-benchmark -a <redacted:password> -n 10'),
+    ]
+    for source, expected in redis_cases:
+        got = run(source + '\n').stdout
+        check(got == expected + '\n', 'redis credential masked: ' + expected)
+        check(redis_secret not in got and 'old-' + redis_secret not in got, 'redis credential removed')
+        check(run(got).stdout == got, 'redis redaction idempotent')
+    redis_ordinary = '\n'.join([
+        'ls -a /tmp', 'tar -a file.tar', 'grep -a pattern file', 'user alice logged in',
+        'user alice on ~* +@all nopass', 'port 6379', 'maxmemory 256mb', 'requirepass', 'masterauth',
+        'redis-cli -h cache -p 6379 ping', 'redis-cli --no-auth-warning info', 'AUTH', 'auth failed for user alice',
+        'bind 127.0.0.1', 'sentinel monitor mymaster 127.0.0.1 6379 2', 'ACL SETUSER alice on ~* +@all',
+    ]) + '\n'
+    check(run(redis_ordinary).stdout == redis_ordinary, 'redis-flavoured ordinary lines preserved byte-for-byte')
     bearer = 'fake' + '-bearer-value'
     jwt = '.'.join(['eyJ' + 'mYWtl', 'ZmFrZQ', 'ZmFrZQ'])
     random_value = ('Fake0' + 'aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT')
@@ -102,6 +140,10 @@ def main():
         hidden = subprocess.run(['safe-grep', 'token', directory], capture_output=True, text=True, env=env)
         check(hidden.returncode == 0 and '.env:1:token=<redacted:token>' in hidden.stdout
               and secret not in hidden.stdout, 'hidden ignored configuration included')
+        (Path(directory) / 'redis.conf').write_text('port 6379\nrequirepass ' + redis_secret + '\n')
+        redis_grep = subprocess.run(['safe-grep', 'requirepass', directory], capture_output=True, text=True, env=env)
+        check(redis_grep.returncode == 0 and 'redis.conf:2:requirepass <redacted:password>' in redis_grep.stdout
+              and redis_secret not in redis_grep.stdout, 'safe-grep masks redis.conf requirepass')
         grep = subprocess.run(['safe-grep', 'password|' + pem_body, directory],
                               capture_output=True, text=True, env=env)
         check(grep.returncode == 0, 'safe-grep success')

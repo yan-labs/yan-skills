@@ -5,7 +5,7 @@ import re
 import subprocess
 import sys
 
-SENSITIVE = re.compile(r'password|passwd|pwd|secret|token|api_?key|access_key|private_key|credential|auth', re.I)
+SENSITIVE = re.compile(r'password|passwd|pwd|secret|token|api_?key|access_key|private_key|credential|auth|requirepass|redis[_.-]?pass$', re.I)
 ASSIGNMENT = re.compile(
     r'''(?P<prefix>(?<![\w])(?P<key>"[^"\r\n]+"|'[^'\r\n]+'|[\w.-]+)[ \t]*[:=][ \t]*)'''
     r'''(?P<value>"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|Bearer[ \t]+[^\s,;}]+|[^\s,;}]+)''', re.I)
@@ -14,6 +14,18 @@ CLOUD_KEY = re.compile(
     r'(?:(?<![\w])|(?<=%[0-9A-Fa-f]{2}))'
     r'(?:(?P<aws>AKIA[A-Z0-9]{16}|ASIA[A-Z0-9]{16})|'
     r'(?P<aliyun>LTAI[A-Za-z0-9]{16,32})|(?P<tencent>AKID[A-Za-z0-9]{16,32}))(?![\w])')
+# Redis passwords outside key=value shapes (redis.conf, sentinel.conf, ACL files, AUTH, redis-cli).
+QUOTED_OR_BARE = r'''"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s,;}]+'''
+REDIS_DIRECTIVE = re.compile(
+    r'(?P<prefix>(?<![\w.])(?:sentinel[ \t]+auth-pass[ \t]+\S+|requirepass|masterauth|auth-pass|'
+    r'tls-(?:client-)?key-file-pass)[ \t]+)(?P<value>' + QUOTED_OR_BARE + ')', re.I)
+REDIS_ACL_LINE = re.compile(r'^[ \t]*user[ \t]+\S+|\bACL[ \t]+SETUSER\b', re.I)
+REDIS_ACL_SECRET = re.compile(r'(?<=[ \t])(?P<sign>[><#])(?P<value>(?!<?redacted:)\S+)')
+REDIS_AUTH_CMD = re.compile(
+    r'^(?P<prefix>[ \t]*(?:(?:[^\s>]+>[ \t]*(?i:auth)|AUTH)[ \t]+))'
+    r'(?P<args>(?:' + QUOTED_OR_BARE + r')(?:[ \t]+(?:' + QUOTED_OR_BARE + r'))?)(?P<tail>[ \t]*(?:\r?\n)?)$')
+REDIS_CLI_LINE = re.compile(r'\bredis-(?:cli|benchmark|server|sentinel)\b', re.I)
+REDIS_CLI_PASS = re.compile(r'(?P<prefix>(?<!\S)(?:-a|--pass)(?:[ \t]+|=))(?P<value>' + QUOTED_OR_BARE + ')')
 BEARER = re.compile(r'\b(Bearer[ \t]+)[A-Za-z0-9._~+/=-]+', re.I)
 JWT = re.compile(r'\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b')
 RANDOM = re.compile(r'(?<![\w/+.-])[A-Za-z0-9_+/-]{32,}={0,2}(?![\w/+.=-])')
@@ -28,6 +40,30 @@ def assignment(match):
         return match[0]
     quote = value[0] if value[0] in "\"'" else ''
     return match['prefix'] + quote + '<redacted:' + kind[0].lower() + '>' + quote
+
+
+def redis_value(match, kind='password'):
+    value = match['value']
+    if value.startswith('<redacted:'):
+        return match[0]
+    quote = value[0] if value[0] in "\"'" else ''
+    return match['prefix'] + quote + '<redacted:' + kind + '>' + quote
+
+
+def redis_acl_secret(match):
+    sign, value = match['sign'], match['value']
+    if sign == '#' and not re.fullmatch(r'[0-9a-fA-F]{64}', value):
+        return match[0]
+    return sign + '<redacted:' + ('password_hash' if sign == '#' else 'password') + '>'
+
+
+def redis_auth_cmd(match):
+    if match['args'].startswith('<redacted:'):
+        return match[0]
+    # AUTH <password> or AUTH <user> <password>: keep the username, mask the last token.
+    tokens = re.findall(QUOTED_OR_BARE, match['args'])
+    quote = tokens[-1][0] if tokens[-1][0] in "\"'" else ''
+    return match['prefix'] + ' '.join(tokens[:-1] + [quote + '<redacted:password>' + quote]) + match['tail']
 
 
 def random_secret(match):
@@ -50,6 +86,12 @@ def redact_lines(lines):
             in_private_key = end is None
             line = prefix + '<redacted:private_key>' + suffix
         line = ASSIGNMENT.sub(assignment, line)
+        line = REDIS_DIRECTIVE.sub(redis_value, line)
+        if REDIS_ACL_LINE.search(line):
+            line = REDIS_ACL_SECRET.sub(redis_acl_secret, line)
+        line = REDIS_AUTH_CMD.sub(redis_auth_cmd, line)
+        if REDIS_CLI_LINE.search(line):
+            line = REDIS_CLI_PASS.sub(redis_value, line)
         line = URL_AUTH.sub(r'\1<redacted:password>@', line)
         line = CLOUD_KEY.sub(lambda m: '<redacted:' + {'aws': 'aws_access_key',
                                   'aliyun': 'aliyun_access_key',
