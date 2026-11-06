@@ -197,6 +197,7 @@ export function buildBrief(result, { briefLines = DEFAULT_BRIEF_LINES, expectCha
     hasUncommittedChanges: Boolean(result?.hasUncommittedChanges),
     hasControlTokens: control,
     model: result?.model ?? null,
+    ...(result?.effort ? { effort: result.effort } : {}),
     ...(result?.backend?.startsWith('codex-') ? { simple: result.simple, serviceTier: result.serviceTier } : {}),
     resolvedModel: result?.resolvedModel ?? null,
     stopReason: result?.stopReason ?? null,

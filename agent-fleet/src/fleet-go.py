@@ -141,18 +141,25 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         raise ValueError('--luna 不能与 --simple 同用。')
     if sum([low, high, xhigh, max]) > 1:
         raise ValueError('--low、--high、--xhigh 和 --max 不能同用。')
-    if (xhigh or max) and not selected_luna:
+    if max and target != 'gpt':
+        raise ValueError('--max 仅用于 --to gpt。')
+    if target == 'gpt' and (xhigh or max) and not selected_luna:
         raise ValueError('--xhigh 和 --max 仅用于 --luna。')
-    if (fast or low or high or xhigh or max) and target != 'gpt':
-        raise ValueError('--fast 和 --high 仅用于 --to gpt。')
+    if fast and target != 'gpt':
+        raise ValueError('--fast 仅用于 --to gpt。')
+    if (low or high or xhigh) and target not in ('gpt', 'gemini'):
+        raise ValueError('--low、--high 和 --xhigh 仅用于 --to gpt|gemini。')
     text = path.read_text()
     checked(text, target)
     if target != meta['to']:
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
-                                 ('low', ['gpt']), ('high', ['gpt']), ('xhigh', ['gpt']), ('max', ['gpt']), ('simple', ['gpt']), ('luna', ['gpt']), ('fast', ['gpt']), ('no-fast', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
+                                 ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('luna', ['gpt']), ('fast', ['gpt']), ('no-fast', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                                  ('bulk', ['gemini'])]:
             if target not in products:
                 meta.pop(option, None)
+        if target == 'gpt' and not selected_luna:
+            meta.pop('xhigh', None)
+            meta.pop('max', None)
     meta.update(to=target, name=name, brief=str(path))
     if tier:
         meta['tier'] = tier
@@ -252,13 +259,15 @@ def amend(args):
     """保留修订正文，按需插话或停止本次 run 后通过 relaunch 重启。"""
     path, meta = locate(args.name)
     if args.luna or args.low or args.high or args.xhigh or args.max:
-        if meta['to'] != 'gpt':
-            raise ValueError('--luna 仅用于 --to gpt。')
+        if (args.luna or args.max) and meta['to'] != 'gpt':
+            raise ValueError('--luna 和 --max 仅用于 --to gpt。')
+        if (args.low or args.high or args.xhigh) and meta['to'] not in ('gpt', 'gemini'):
+            raise ValueError('--low、--high 和 --xhigh 仅用于 --to gpt|gemini。')
         if args.luna and (meta.get('review') or meta.get('simple')):
             raise ValueError('--luna 不能与 --review 或 --simple 同用。')
         if sum([args.low, args.high, args.xhigh, args.max]) > 1:
             raise ValueError('--low、--high、--xhigh 和 --max 不能同用。')
-        if (args.xhigh or args.max) and not (args.luna or meta.get('luna')):
+        if meta['to'] == 'gpt' and (args.xhigh or args.max) and not (args.luna or meta.get('luna')):
             raise ValueError('--xhigh 和 --max 仅用于 --luna。')
         if args.luna:
             meta['luna'] = True
@@ -405,7 +414,7 @@ def score(args):
 def new(args):
     """组装标准 brief；预览不写盘，正文文件与 stdin 使用明确输入规则。"""
     for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
-                             ('low', ['gpt']), ('high', ['gpt']), ('xhigh', ['gpt']), ('max', ['gpt']), ('simple', ['gpt']), ('luna', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
+                             ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('luna', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                              ('bulk', ['gemini'])]:
         if getattr(args, option) and args.to not in products:
             raise ValueError('--' + option + ' 仅用于 --to ' + '|'.join(products) + '。')
@@ -413,7 +422,7 @@ def new(args):
         raise ValueError('--fast 仅用于 --to gpt。')
     if sum([args.low, args.high, args.xhigh, args.max]) > 1:
         raise ValueError('--low、--high、--xhigh 和 --max 不能同用。')
-    if (args.xhigh or args.max) and not args.luna:
+    if args.to == 'gpt' and (args.xhigh or args.max) and not args.luna:
         raise ValueError('--xhigh 和 --max 仅用于 --luna。')
     if args.luna and (args.simple or args.review):
         raise ValueError('--luna 不能与 --simple 或 --review 同用。')
@@ -528,7 +537,7 @@ def main():
     p.add_argument('--luna', action='store_true', help='后续重派使用 Luna')
     p.add_argument('--low', action='store_true', help='后续重派使用 low 推理')
     p.add_argument('--high', action='store_true', help='后续重派使用 high 推理')
-    p.add_argument('--xhigh', action='store_true', help='后续重派使用 Luna xhigh 推理')
+    p.add_argument('--xhigh', action='store_true', help='后续重派使用 xhigh 推理（GPT 需 --luna，或 Gemini）')
     p.add_argument('--max', action='store_true', help='后续重派使用 Luna max 推理')
     group = p.add_mutually_exclusive_group()
     group.add_argument('--say', action='store_true')
@@ -539,9 +548,9 @@ def main():
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
     p.add_argument('--simple', action='store_true', help='GPT 任务改用 Terra，默认不开 fast')
     p.add_argument('--luna', action='store_true', help='GPT 任务改用 Luna，默认 xhigh 且不开 fast')
-    p.add_argument('--low', action='store_true', help='GPT 任务使用 low 推理')
-    p.add_argument('--high', action='store_true', help='GPT 任务使用 high 推理')
-    p.add_argument('--xhigh', action='store_true', help='Luna 使用 xhigh 推理')
+    p.add_argument('--low', action='store_true', help='GPT/Gemini 任务使用 low 推理')
+    p.add_argument('--high', action='store_true', help='GPT/Gemini 任务使用 high 推理')
+    p.add_argument('--xhigh', action='store_true', help='Luna/Gemini 使用 xhigh 推理')
     p.add_argument('--max', action='store_true', help='Luna 使用 max 推理')
     p.add_argument('--fast', action='store_true', help='GPT 任务开启 fast')
     p.add_argument('--no-fast', action='store_true', help='兼容旧用法，无副作用')

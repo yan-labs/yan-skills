@@ -159,7 +159,7 @@ export function buildRow(rec, index, { useReport = true, backfilled = false } = 
     date: localDate(rec.startedAt), startedAt: rec.startedAt, finishedAt: rec.finishedAt ?? null,
     durationSec: rec.finishedAt ? Math.round((Date.parse(rec.finishedAt) - Date.parse(rec.startedAt)) / 1000) : null,
     executor: executorOf(rec.model, brief.resolvedModel), model: brief.resolvedModel ?? rec.model, route: rec.model,
-    effort: rec.tier ?? (rec.max ? 'max' : rec.xhigh ? 'xhigh' : rec.high ? 'high' : rec.low ? 'low' : null),
+    effort: rec.tier ?? brief.effort ?? (rec.max || meta.max ? 'max' : rec.xhigh || meta.xhigh ? 'xhigh' : rec.high || meta.high ? 'high' : rec.low || meta.low ? 'low' : null),
     level: meta.level ?? null,
     type: meta.type ?? (isReview ? 'review' : /orchestrat/i.test(name) ? 'orchestrate' : 'work'),
     status: rec.status, verdict, outcome, failure: classifyFailure(rec),

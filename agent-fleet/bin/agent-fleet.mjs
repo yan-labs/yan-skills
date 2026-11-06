@@ -42,7 +42,7 @@ const PKG_VERSION = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf
 
 const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
 
-  fleet copy|grok|bulk|gpt|openai <brief文件或文本> [--cwd dir] [--verbose]
+  fleet copy|grok|bulk|gpt|openai <brief文件或文本> [--low|--high|--xhigh] [--cwd dir] [--verbose]
   fleet grok-cli <brief文件或文本> [--review] [--cwd dir] [--model id] [--name name] [--report path] [--no-subagents|--subagents]
   fleet code <brief文件或文本> [--low|--high|--xhigh|--max] [--simple|--luna] [--fast] [--review] [--no-continue] [--cwd dir]
   fleet haiku|sonnet|opus|fable <brief.md|文本>   # Claude 官方端点，走每月 API 赠送额度
@@ -137,6 +137,10 @@ async function printRunResult(result, options) {
   process.stdout.write(output);
 }
 
+function resolveEffortFlag(flags) {
+  return flags.max ? 'max' : flags.xhigh ? 'xhigh' : flags.high ? 'high' : flags.low ? 'low' : undefined;
+}
+
 async function cmdRun(argv, { copyVoice = false } = {}) {
   const flags = parseFlags(argv);
   if (flags.help) { console.log(HELP_TEXT); return; }
@@ -147,9 +151,10 @@ async function cmdRun(argv, { copyVoice = false } = {}) {
   }
 
   const config = loadModelsConfig(flags['models-config'] ? resolvePath(flags['models-config']) : undefined);
+  const effort = resolveEffortFlag(flags);
   // 进度行实时打到 stderr,并同步写进 ~/.agent-fleet/runs/<ISO时间>-<模型名>.log(tail 的
   // 数据源);--quiet 时 stderr 静音,文件照写。日志文件路径在启动时已由进度对象打到 stderr。
-  const result = await runTask({ friendlyModel: flags.model, prompt: flags.prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), config, maxTurns: flags['max-turns'] === undefined ? undefined : Number(flags['max-turns']), systemPrompt: flags['system-prompt'], noVoice: Boolean(flags['no-voice']), copyVoice, progress: createProgress({ quiet: !flags.verbose || Boolean(flags.quiet), label: flags.model }) });
+  const result = await runTask({ friendlyModel: flags.model, prompt: flags.prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), config, maxTurns: flags['max-turns'] === undefined ? undefined : Number(flags['max-turns']), systemPrompt: flags['system-prompt'], noVoice: Boolean(flags['no-voice']), copyVoice, effort, progress: createProgress({ quiet: !flags.verbose || Boolean(flags.quiet), label: flags.model }) });
   await printRunResult(result, outputOptions(flags, config));
   process.exitCode = buildBrief(result, outputOptions(flags, config)).verdict === 'ok' ? 0 : 1;
 }
@@ -423,6 +428,7 @@ async function cmdResume(argv) {
   const config = loadModelsConfig(flags['models-config'] ? resolvePath(flags['models-config']) : undefined);
   const model = flags.model || rec.model;
   const cwd = flags.cwd ? resolvePath(flags.cwd) : rec.cwd || process.cwd();
+  const effort = resolveEffortFlag(flags) ?? rec.tier ?? (rec.xhigh ? 'xhigh' : rec.high ? 'high' : rec.low ? 'low' : undefined);
   const progress = createProgress({ quiet: !flags.verbose || Boolean(flags.quiet), label: String(model) });
   const result = await runTask({
     friendlyModel: model,
@@ -434,6 +440,7 @@ async function cmdResume(argv) {
     progress,
     resume: rec.sessionId,
     resumedFrom: runId,
+    effort,
   });
   await printRunResult(result, outputOptions(flags, config));
   process.exitCode = result.ok ? 0 : 1;
@@ -551,10 +558,13 @@ async function main() {
   }
 
   try {
+    const geminiEffortCommands = new Set(['copy', 'bulk', 'run', 'resume']);
     if (rest.includes('--fast') && command !== 'code') throw new Error('--fast 仅用于 fleet code。');
-    if (rest.includes('--high') && command !== 'code' && command !== 'resume') throw new Error('--high 仅用于 fleet code。');
+    if (rest.includes('--low') && command !== 'code' && !geminiEffortCommands.has(command)) throw new Error('--low 仅用于 fleet code|copy|bulk。');
+    if (rest.includes('--high') && command !== 'code' && !geminiEffortCommands.has(command)) throw new Error('--high 仅用于 fleet code|copy|bulk。');
     if (['--low', '--high', '--xhigh', '--max'].filter(flag => rest.includes(flag)).length > 1) throw new Error('--low、--high、--xhigh 和 --max 不能同用。');
-    if ((rest.includes('--xhigh') || rest.includes('--max')) && (command !== 'resume' && (command !== 'code' || !rest.includes('--luna')))) throw new Error('--xhigh 和 --max 仅用于 --luna。');
+    if (rest.includes('--max') && (command !== 'resume' && (command !== 'code' || !rest.includes('--luna')))) throw new Error('--max 仅用于 --luna。');
+    if (rest.includes('--xhigh') && (!geminiEffortCommands.has(command) && (command !== 'code' || !rest.includes('--luna')))) throw new Error('--xhigh 仅用于 --luna 或 Gemini（copy/bulk）。');
     if (rest.includes('--luna')) {
       if (command !== 'code') throw new Error('--luna 仅用于 fleet code（fleet-go --to gpt）。');
       if (rest.includes('--simple') || rest.includes('--review')) throw new Error('--luna 不能与 --simple 或 --review 同用。');
@@ -582,6 +592,7 @@ async function main() {
         briefPath: brief && existsSync(brief) ? resolvePath(brief) : null,
         name: flags.name ?? text.match(/^归类[^\r\n]*/m)?.[0],
         reportPath: flags.report || text.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim(),
+        effort: resolveEffortFlag(flags),
         noWait: Boolean(flags['no-wait']),
       });
       if (!flags['no-wait']) process.exitCode = await waitDetached(runId, { originalOutput: true });

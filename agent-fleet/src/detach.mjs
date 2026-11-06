@@ -75,7 +75,7 @@ export function resolveDetached(spec, cwd = process.cwd()) {
   return rec.runId;
 }
 
-export async function launchDetached(cli, args, { cwd, model, briefPath, name, reportPath, noWait = false }) {
+export async function launchDetached(cli, args, { cwd, model, briefPath, name, reportPath, effort, noWait = false }) {
   const launcherParent = process.ppid;
   const claudeTool = Boolean(process.env.CLAUDECODE || process.env.CLAUDE_CODE_ENTRYPOINT);
   mkdirSync(runsDir(), { recursive: true });
@@ -84,6 +84,7 @@ export async function launchDetached(cli, args, { cwd, model, briefPath, name, r
   const rec = { detach: true, runId, status: 'running', pid: null, childPid: null,
     startedAt: new Date().toISOString(), heartbeatAt: new Date().toISOString(), finishedAt: null,
     exitCode: null, verdict: null, briefPath: briefPath ?? null, cwd, model, name: name ?? null, reportPath: reportPath ?? null,
+    ...(effort ? { tier: effort, [effort]: true } : {}),
     resultPath: `${base}.result.md`, logPath: `${base}.log` };
   // 任务参数只经 IPC 传递，避免把 prompt 或认证参数留在进程命令行/状态文件。
   const fd = openSync(rec.logPath, 'a');

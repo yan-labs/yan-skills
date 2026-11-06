@@ -24,6 +24,7 @@ import {
   buildQueryOptions,
   collectAssistantText,
   DEFAULT_EXECUTOR_SYSTEM_PROMPT,
+  GEMINI_THINKING_BUDGETS,
   resolveSuccessfulResult,
 } from '../src/run-task.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
@@ -507,5 +508,17 @@ assistantCandidate = collectAssistantText(assistantCandidate, {
 assert(assistantCandidate.text === '', '新一轮只有工具调用时清空上一轮过程文本');
 assert(resolveSuccessfulResult('SDK 结果', 'assistant 结果') === 'SDK 结果', '非空 SDK result 保持原值');
 assert(resolveSuccessfulResult(' ', 'assistant 结果') === 'assistant 结果', '空白 SDK result 取最后一条 assistant 文本');
+
+// 7g. Gemini thinking effort 映射:low/high/xhigh 同时写入 effort 与 thinking.budgetTokens，
+// 并设置 CLAUDE_CODE_MODEL_CAPABILITIES=-adaptive_thinking 以通过 Kollab 网关向 LiteLLM 透传。
+const resolvedGemini = { baseURL: 'https://kollab.im/api/llm', model: 'gemini-4-argon', apiKey: 'k', authHeader: 'x-api-key', maxOutputTokens: 16000, headers: {} };
+for (const [tier, budget] of Object.entries(GEMINI_THINKING_BUDGETS)) {
+  const gemOpts = buildQueryOptions({ resolved: resolvedGemini, cwd: '/tmp', effort: tier });
+  assert(gemOpts.effort === tier, `Gemini effort=${tier} 透传给 SDK options.effort`);
+  assert(gemOpts.thinking?.type === 'enabled' && gemOpts.thinking?.budgetTokens === budget, `Gemini effort=${tier} 映射 thinking.budgetTokens=${budget}`);
+  assert(gemOpts.env.CLAUDE_CODE_MODEL_CAPABILITIES === '-adaptive_thinking', `Gemini effort=${tier} 关闭 CLI adaptive_thinking 覆写`);
+}
+const gemHighBudget = buildQueryOptions({ resolved: resolvedGemini, cwd: '/tmp', effort: 'xhigh' });
+assert(gemHighBudget.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS === '32768', 'Gemini xhigh 自动放宽 CLAUDE_CODE_MAX_OUTPUT_TOKENS 到 32768 避免 16000 截断');
 
 finish();

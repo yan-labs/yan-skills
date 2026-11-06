@@ -108,6 +108,11 @@ try {
   const rrow = rows().find(r => r.runId === rv.runId);
   assert(rrow.type === 'review' && rrow.reviewOf === 'alpha' && rrow.pairSource === 'explicit' && rrow.level === 'L3', '--for 显式配对且带难度档');
   assert(rrow.blockers === 2 && rrow.reviewVerdict === 'fail' && rrow.executor === 'gemini' && rrow.model === 'gemini-4-argon', '尾注与执行者/模型');
+  for (const effort of ['low', 'high', 'xhigh']) {
+    const gemRec = rec({ name: `gem-${effort}`, model: 'kollab-gateway-copy', [effort]: true, tier: effort, brief: { resolvedModel: 'gemini-4-argon', effort } });
+    writeState(gemRec);
+    assert(rows().find(r => r.runId === gemRec.runId).effort === effort, `Gemini 账本记录 effort=${effort}`);
+  }
   const rv2 = rec({ name: 'alpha-review2', model: 'gpt-6.1-sol', review: true, startedAt: iso(-900_000) });
   writeState(rv2);
   const r2 = rows().find(r => r.runId === rv2.runId);

@@ -290,6 +290,20 @@ try {
     assert.equal(run(['new','gemini-check','--to','gemini','--goal','运行小测试','--expect-changes','--dry-run']).status,0);
     reset(); const r = run(['relaunch','one','--to','gemini']);
     assert.equal(r.status,7,r.stderr); assert.equal(history().at(-1).args[0],'copy');
+    for (const flag of ['--low', '--high', '--xhigh']) {
+      const g = run(['new', 'gemini-' + flag.slice(2), '--to', 'gemini', flag, '--goal', '测试思考档位', '--no-launch']);
+      assert.equal(g.status, 0, g.stderr);
+      reset(); assert.equal(run(['relaunch', 'gemini-' + flag.slice(2)]).status, 7);
+      assert(history().at(-1).args.includes(flag));
+    }
+    reset(); assert.equal(run(['relaunch', 'gemini-low', '--xhigh']).status, 7);
+    assert(history().at(-1).args.includes('--xhigh') && !history().at(-1).args.includes('--low'));
+    reset(); assert.equal(run(['amend', 'gemini-low', '切到高档', '--high', '--say']).status, 7);
+    assert(history().at(-1).args.includes('--high') && !history().at(-1).args.includes('--xhigh'));
+    for (const bad of [['--low', '--high'], ['--high', '--xhigh'], ['--low', '--xhigh'], ['--max']]) {
+      assert.equal(run(['new', 'bad-gemini', '--to', 'gemini', ...bad, '--goal', '冲突', '--dry-run']).status, 1);
+      assert.equal(run(['relaunch', 'gemini-low', ...bad]).status, 1);
+    }
   });
   test('图片六项、视频工具与隐私错误要求、JEV问题元信息', () => {
     for(const to of ['gpt','grok','claude','gemini','jev']) {
