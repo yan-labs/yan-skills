@@ -32,7 +32,7 @@
 | Sol | `at capacity` | 同档重试 1 次，再改 Terra |
 | Grok | 额度或登录错误（额度只有用户在 TUI `/usage` 能看，周重置，无充值） | 换下一顺位，提醒用户可看 `/usage` |
 | Gemini | 402、空结果 | 重试 1 次后换手；Kollab 充值要用户确认金额 |
-| Gemini | 429 `workspace concurrent request limit`（Kollab 网关默认单 key 同时 4 个请求，余额 ≥5000 时单空间 32 个；线上是否覆盖未核） | 不算额度用尽，等在跑任务结束后重派；同一时间 fleet Gemini 任务控制在 3 个左右，不让等待中的任务占名额 |
+| Gemini | 429 `workspace concurrent request limit`（Kollab 网关按空间实时余额分档：余额 ≥5000 时单 key 同时 20 个请求、单空间 32 个，<5000 时单 key 4 个、单空间 8 个；2026-11-06 生产 `2026.11.06` 起生效，线上无环境变量覆盖，10 个并发 Gemini 探针实测零 429） | 不算额度用尽；同一时间 fleet Gemini 任务控制在约 15 个以内；若出现 429，先核对是不是 Kollab 生产正在滚动发布（旧任务摘流约 30 分钟内仍按旧上限 4 拒绝），等发布完再重派 |
 | `fleet` Claude 通道 | 402、月度额度耗尽（走 `ANTHROPIC_CREDIT_API_KEY`，每月 $200） | 改对应 `executor-*`，它走订阅用量 |
 | `executor-*` | usage limit、后台任务标记失败 | 改 `fleet <档位>`；两边都没有时走表里的非 Claude 顺位 |
 | Claude 子代理并发 | `Concurrent subagent limit reached`（默认 20） | 不重试，等通知或改派第三方 |
