@@ -1,22 +1,28 @@
 # 额度用尽时的工具链
 
-用户 2026-11-06 定：Codex 不能用或并发满时优先 Grok Build，部分任务给 Gemini 4，写 UI、重要规划、一般 Claude 任务和个别难题走 Claude 子代理。关键是某个工具额度用完后，下一步该接谁。
+用户 2026-11-06 重定（覆盖此前版本）：
 
-用法：按任务类型找到行，从左往右取第一个可用的。用户点名优先。换手用 `fleet-go relaunch <名字> --to <产品>` 沿用同一 brief，报告写明换手原因。
+**基础顺位：** Codex 订阅 → Codex API 额度（`--to openai`）→ Grok Build → Gemini 4。
+**OpenAI API 额度烧得快：** 走 `--to openai` 不用 Sol，用 Terra 等其他模型，绝不开 fast；偏慢，着急的活不派，不急的正经编程可派，且优先于 Grok/Gemini。
+**按类别：** 一般任务 Gemini；UI Sonnet；调查、出方案 Fable；较难编程 Opus。
+**Claude 用量顺序：** Sonnet/Opus/Fable（含 Gemini 任务里需要它们时）先走 Claude API 额度（`fleet sonnet|opus|fable`），没额度才用子代理（`executor-*`）。
+**拒绝改派：** 任一执行者拒绝或不肯改，改派 Gemini。
+
+用法：按任务类型找到行，从左往右取第一个可用的；用户点名优先。换手用 `fleet-go relaunch <名字> --to <产品>` 沿用同一 brief，报告写明换手原因。
 
 ## 顺位表
 
 | 任务 | 第 1 | 第 2 | 第 3 | 第 4 |
 |---|---|---|---|---|
-| 常规编程、修 bug、补测试、脚本 | Terra | Grok Build | Gemini 4 | `fleet sonnet` |
+| 常规编程、修 bug、补测试、脚本 | Terra（Codex 订阅） | Terra（`--to openai`，不急才派） | Grok Build | Gemini 4 |
 | 严谨开发，不可逆或很重要 | Sol | `fleet sonnet`，难的 `fleet opus` | Grok Build，Claude 只读复核 | Gemini 4，Claude 只读复核 |
 | 部署、发布、监工、定时 | Luna | Grok Build | Gemini 4 | `fleet sonnet` |
-| 批量读源码、调研、文档、数据整理 | Terra | Grok Build | Gemini 4 | `fleet haiku` 或 `fleet sonnet` |
+| 批量读源码、调研、文档、数据整理、一般任务 | Gemini 4 | Grok Build | Terra | `fleet haiku` 或 `fleet sonnet` |
 | 文案、翻译、多语言 | Gemini 4 | `fleet sonnet` | Grok Build | Terra |
 | 写 UI、样式、视觉交互、3D、游戏内容 | `fleet sonnet`（要 Browser pane 用 `executor-sonnet`） | `executor-sonnet` | Gemini 4，Sonnet 或用户验收 | Grok Build，同上 |
 | 特别重要的规划：方案、技术方案、架构 | `executor-fable` / `fleet fable` | `fleet opus` / `executor-opus` | Sol 只读 | Gemini 4 出稿，Opus 复核 |
 | Claude 侧一般任务 | `fleet sonnet` | `executor-sonnet` | Gemini 4 | Grok Build |
-| 个别难题、Sonnet 反复打转 | `fleet opus` | `executor-opus` | `executor-fable` 给方案后交执行者 | Sol |
+| 较难编程、个别难题、Sonnet 反复打转 | `fleet opus` | `executor-opus` | `executor-fable` 给方案后交执行者 | Sol |
 | 小杂活、摘要、核实、机械替换 | `fleet haiku` | `executor-haiku` | Gemini 4 | Terra |
 | 代码只读复核 | 只读 Sol | Gemini 4 | `fleet sonnet` | Grok 另起任务 |
 | 需要本应用工具、MCP、本机登录态 | `executor-*`，按上面任务类型选档 | 无替代时写明缺什么交回主线程 | | |
