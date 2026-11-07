@@ -56,12 +56,6 @@ export const DEFAULT_EXECUTOR_SYSTEM_PROMPT =
  */
 export const DEFAULT_GEMINI_EFFORT = 'xhigh';
 
-export const GEMINI_THINKING_BUDGETS = Object.freeze({
-  low: 2048,
-  high: 16000,
-  xhigh: 31999,
-});
-
 export function isGeminiTaskModel(friendlyModel = '', config = null) {
   const configured = config?.[friendlyModel]?.model ?? '';
   return /^gemini-/i.test(configured) || /^(?:copy|bulk|gemini(?:-|$)|kollab-gateway(?:-(?:copy|bulk))?$)/i.test(String(friendlyModel));
@@ -80,18 +74,7 @@ export function buildQueryOptions({ resolved, cwd, maxTurns, systemPrompt, resum
   // Project tool restrictions must not block checker scripts, tests or temporary files.
   for (const key of ['permissions', 'sandbox', 'allowedTools', 'disallowedTools']) delete settings[key];
   const env = buildIsolatedEnv(resolved);
-  const isGemini = /^gemini-/i.test(resolved.model ?? '');
   const effectiveEffort = resolveTaskEffort({ effort, resolvedModel: resolved.model });
-  const thinkingBudget = isGemini && effectiveEffort ? GEMINI_THINKING_BUDGETS[effectiveEffort] : undefined;
-  if (thinkingBudget) {
-    // Claude CLI 默认把未知模型视为支持 adaptive_thinking，会忽略 budgetTokens 并改成
-    // thinking:{type:'adaptive'}；待 Kollab 网关将 output_config.effort 映射为 Gemini thinking
-    // 的修复部署到生产后可移除此 budgetTokens 绕行，当前保留以兼容生产环境。
-    env.CLAUDE_CODE_MODEL_CAPABILITIES = '-adaptive_thinking';
-    if (Number(env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || 0) <= thinkingBudget) {
-      env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '32768';
-    }
-  }
   return {
     model: resolved.model,
     cwd,
@@ -115,7 +98,6 @@ export function buildQueryOptions({ resolved, cwd, maxTurns, systemPrompt, resum
     strictMcpConfig: true,
     ...(maxTurns ? { maxTurns } : {}),
     ...(effectiveEffort ? { effort: effectiveEffort } : {}),
-    ...(thinkingBudget ? { thinking: { type: 'enabled', budgetTokens: thinkingBudget } } : {}),
     // 见上方 DEFAULT_EXECUTOR_SYSTEM_PROMPT 的注释:用 preset+append 叠加,不替换 Claude Code
     // 自己的默认系统提示(工具定义等)。调用方传入的 systemPrompt 接在默认文本之后,两者共存。
     systemPrompt: {

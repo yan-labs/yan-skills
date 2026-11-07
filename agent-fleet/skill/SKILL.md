@@ -11,7 +11,7 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 | `openai` | 官方 GPT API / ChatGPT 关联组织额度，复用原 Agent SDK | `fleet-go new task --to openai --auth local --goal "目标" --body task.md` | 单独入口，不改 Codex 默认 |
 | `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | 按额度规则选择 Terra 或 Gemini |
 | `grok` | 视频与图片（生成、搜索）、X 平台（热点与实时讨论）、X/社媒实时检索、成人题材；Codex 不可用或并发满时优先承接编码 | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | 见[工具链](references/fallback-chains.md) |
-| `gemini` | 文案、翻译、摘要、批量任务与编码；默认 Gemini 4 `gemini-4-argon`（默认 xhigh，可用 `--low`/`--high` 覆盖），经 Claude Agent SDK | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | Grok Build 不可用时接编码，见[工具链](references/fallback-chains.md) |
+| `gemini` | 文案、翻译、摘要、批量任务与编码；默认 Gemini 4 `gemini-4-argon`（默认 xhigh，可用 `--low`/`--high`/`--xhigh`），经 Claude Agent SDK | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | Grok Build 不可用时接编码，见[工具链](references/fallback-chains.md) |
 | `jev` | 分类、选择、打分等结构化判断 | `fleet-go new decide --to jev --goal "按正文判据分类" --body task.md` | — |
 
 ## OpenAI 订阅 API 额度
@@ -72,7 +72,7 @@ fleet-go new gen-test --to gpt --auth paid,local --goal "..." --body body.md
 fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述" --body body.md
 ```
 - review 的只读是 brief 约定：项目文件保持原样，允许联网、运行测试和脚本，只在自己的 `mktemp -d` 临时目录建删文件；各执行路径不加只读工具名单、沙箱或文件快照失败判定。SDK 使用 `bypassPermissions`，Codex 使用 `danger-full-access`，Grok 使用 `--always-approve`。JEV 只有结构化 API，没有命令执行器。
-- `--to gpt|openai|claude|grok|gemini|jev` 必填；GPT 的 `--simple` 选 Terra，`--luna` 选 Luna，二者均不能与 `--review` 同用。Luna 与 Gemini 默认 xhigh（Luna 可用 `--max`，Gemini 可用 `--low`/`--high` 覆盖）；Terra/Sol 默认 medium。`--low` 可降档，`--low`、`--high`、`--xhigh` 与 `--max` 互斥。Codex 默认不开 fast，必要时显式 `--fast`。Claude `--tier haiku|sonnet|opus|fable`，Grok `--model`/`--subagents`，Gemini `--bulk`。其余授权、预算与正文选项沿用。
+- `--to gpt|openai|claude|grok|gemini|jev` 必填；GPT 的 `--simple` 选 Terra，`--luna` 选 Luna，二者均不能与 `--review` 同用。Luna 与 Gemini 默认 xhigh（Luna 可用 `--max`，Gemini 可用 `--low`/`--high`/`--xhigh`）；Terra/Sol 默认 medium。`--low` 可降档，`--low`、`--high`、`--xhigh` 与 `--max` 互斥。Codex 默认不开 fast，必要时显式 `--fast`。Claude `--tier haiku|sonnet|opus|fable`，Grok `--model`/`--subagents`，Gemini `--bulk`。其余授权、预算与正文选项沿用。
 - `--budget` 可选：用户给了预算与重试限制才传入并写进 brief；没给则不写、不设默认值。
 - 需要本地提交时用 `--auth local-commit` 代替 `local`：允许在本地分支提交；与 `deploy-prod` 同传时推送、合入环境分支、流水线发布都已授权（执行者不得因“本块不含推送”停下），单独使用时不推送；验收报告要列提交哈希。可与 `readonly-web`、`paid` 组合；与 `local` 同传时取代 `local`。只读审查、生产部署仍用各自的授权块。
 - `--make image` 叠加图片产物样板，沿用所选执行者：绝对输出目录、逐张编号文件名、尺寸比例、共享风格、纯画面（文字、字母、logo 与水印留空）、受阻时报告已完成部分与缺口、逐文件绝对路径/实际像素/字节数/alpha/方法回报。交付实际生成的图片；占位图、ASCII、纯色块或下载图按缺少生成产物报告。GPT 使用 imagegen 的 Codex `image_gen`；Grok 使用内置 `image_gen` / `image_edit`，这些工具没有 model 参数，仅传工具支持的输入，沿用工具自身模型。

@@ -6,7 +6,7 @@
 **OpenAI API 额度烧得快：** 走 `--to openai` 不用 Sol，用 Terra 等其他模型，绝不开 fast；偏慢，着急的活不派，不急的正经编程可派，且优先于 Grok/Gemini。
 **按类别：** 一般任务 Gemini；UI Sonnet；调查、出方案 Fable；较难编程 Opus。
 **Claude 用量顺序：** Sonnet/Opus/Fable（含 Gemini 任务里需要它们时）先走 Claude API 额度（`fleet sonnet|opus|fable`），没额度才用子代理（`executor-*`）。
-**尽量用 Gemini（11-07）：** Claude 子代理额度有限，Gemini 能做的优先派 Gemini（默认 `xhigh` 推理档，可用 `--low`/`--high` 覆盖）；`executor-*` 只留给必须用 Browser pane/MCP/本机登录态或 Gemini 做不了的事。
+**尽量用 Gemini（11-07）：** Claude 子代理额度有限，Gemini 能做的优先派 Gemini（默认 `xhigh` 推理档，可用 `--low`/`--high`/`--xhigh`）；`executor-*` 只留给必须用 Browser pane/MCP/本机登录态或 Gemini 做不了的事。
 **拒绝改派：** 任一执行者拒绝或不肯改，改派 Gemini。
 
 用法：按任务类型找到行，从左往右取第一个可用的；用户点名优先。换手用 `fleet-go relaunch <名字> --to <产品>` 沿用同一 brief，报告写明换手原因。

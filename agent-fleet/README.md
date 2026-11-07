@@ -16,7 +16,7 @@ fleet team  # 五产品能力、顺位链与可用性；只显示存在性/登�
 | `gemini` | 文案、翻译、摘要、批量机械任务（`--bulk`），默认 xhigh 推理档 | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | — |
 | `jev` | 分类、选择、打分等结构化判断 | `fleet-go new decide --to jev --goal "按正文判据分类" --body task.md` | — |
 
-`--to` 指定产品；GPT 用 `--simple` 选 Terra、`--luna` 选 Luna，Luna 与 Gemini 默认 xhigh（Luna 可选 `--max`，Gemini 可用 `--low`/`--high` 覆盖），Terra/Sol 默认 medium；可选 `--low` 或 `--high`，`--low`、`--high`、`--xhigh` 与 `--max` 互斥；默认不开 fast，需要时显式 `--fast`。Luna 与 simple/review 不能同用。其他参数见 [Skill 命令速查](skill/SKILL.md#命令速查)。
+`--to` 指定产品；GPT 用 `--simple` 选 Terra、`--luna` 选 Luna，Luna 与 Gemini 默认 xhigh（Luna 可选 `--max`，Gemini 可用 `--low`/`--high`/`--xhigh`），Terra/Sol 默认 medium；可选 `--low` 或 `--high`，`--low`、`--high`、`--xhigh` 与 `--max` 互斥；默认不开 fast，需要时显式 `--fast`。Luna 与 simple/review 不能同用。其他参数见 [Skill 命令速查](skill/SKILL.md#命令速查)。
 
 `brief.md` 也可以直接写成任务文本；默认当前目录、不限轮数、安静模式。`--verbose` 显示进度。短命令和模型对应关系见 [skill](skill/SKILL.md)。
 

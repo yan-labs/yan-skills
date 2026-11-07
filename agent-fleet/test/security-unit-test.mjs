@@ -25,7 +25,6 @@ import {
   collectAssistantText,
   DEFAULT_EXECUTOR_SYSTEM_PROMPT,
   DEFAULT_GEMINI_EFFORT,
-  GEMINI_THINKING_BUDGETS,
   resolveSuccessfulResult,
   resolveTaskEffort,
 } from '../src/run-task.mjs';
@@ -511,24 +510,23 @@ assert(assistantCandidate.text === '', '新一轮只有工具调用时清空上�
 assert(resolveSuccessfulResult('SDK 结果', 'assistant 结果') === 'SDK 结果', '非空 SDK result 保持原值');
 assert(resolveSuccessfulResult(' ', 'assistant 结果') === 'assistant 结果', '空白 SDK result 取最后一条 assistant 文本');
 
-// 7g. Gemini thinking effort 映射:low/high/xhigh 同时写入 effort 与 thinking.budgetTokens，
-// 并设置 CLAUDE_CODE_MODEL_CAPABILITIES=-adaptive_thinking 以通过 Kollab 网关向 LiteLLM 透传。
+// 7g. Gemini thinking effort 映射:low/high/xhigh 通过 SDK options.effort 透传给 Kollab 网关，
+// 不在客户端注入 thinking.budgetTokens 或 CLAUDE_CODE_MODEL_CAPABILITIES=-adaptive_thinking。
 const resolvedGemini = { baseURL: 'https://kollab.im/api/llm', model: 'gemini-4-argon', apiKey: 'k', authHeader: 'x-api-key', maxOutputTokens: 16000, headers: {} };
-for (const [tier, budget] of Object.entries(GEMINI_THINKING_BUDGETS)) {
+for (const tier of ['low', 'high', 'xhigh']) {
   const gemOpts = buildQueryOptions({ resolved: resolvedGemini, cwd: '/tmp', effort: tier });
   assert(gemOpts.effort === tier, `Gemini effort=${tier} 透传给 SDK options.effort`);
-  assert(gemOpts.thinking?.type === 'enabled' && gemOpts.thinking?.budgetTokens === budget, `Gemini effort=${tier} 映射 thinking.budgetTokens=${budget}`);
-  assert(gemOpts.env.CLAUDE_CODE_MODEL_CAPABILITIES === '-adaptive_thinking', `Gemini effort=${tier} 关闭 CLI adaptive_thinking 覆写`);
+  assert(gemOpts.thinking === undefined, `Gemini effort=${tier} 不注入客户端 thinking.budgetTokens 绕行`);
+  assert(gemOpts.env.CLAUDE_CODE_MODEL_CAPABILITIES === undefined, `Gemini effort=${tier} 不注入 CLAUDE_CODE_MODEL_CAPABILITIES 绕行`);
 }
-const gemHighBudget = buildQueryOptions({ resolved: resolvedGemini, cwd: '/tmp', effort: 'xhigh' });
-assert(gemHighBudget.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS === '32768', 'Gemini xhigh 自动放宽 CLAUDE_CODE_MAX_OUTPUT_TOKENS 到 32768 避免 16000 截断');
 const gemDefaultOpts = buildQueryOptions({ resolved: resolvedGemini, cwd: '/tmp' });
 assert(DEFAULT_GEMINI_EFFORT === 'xhigh', 'Gemini 默认思考档位常量为 xhigh');
 assert(gemDefaultOpts.effort === 'xhigh', 'Gemini 未显式传 effort 时默认解析为 xhigh');
-assert(gemDefaultOpts.thinking?.budgetTokens === GEMINI_THINKING_BUDGETS.xhigh, 'Gemini 默认档位同样附带 xhigh thinking budget 兜底');
+assert(gemDefaultOpts.thinking === undefined, 'Gemini 默认档位不注入客户端 thinking.budgetTokens');
 assert(resolveTaskEffort({ friendlyModel: 'kollab-gateway-copy' }) === 'xhigh', 'copy/Gemini 友好模型默认 effort 为 xhigh');
 assert(resolveTaskEffort({ friendlyModel: 'kollab-gateway-bulk', effort: 'low' }) === 'low', 'Gemini 友好模型支持 --low 覆盖默认 xhigh');
 assert(resolveTaskEffort({ friendlyModel: 'kollab-gateway-copy', effort: 'high' }) === 'high', 'Gemini 友好模型支持 --high 覆盖默认 xhigh');
+assert(resolveTaskEffort({ friendlyModel: 'kollab-gateway-copy', effort: 'xhigh' }) === 'xhigh', 'Gemini 友好模型支持 --xhigh 显式指定');
 assert(resolveTaskEffort({ friendlyModel: 'claude-sonnet', resolvedModel: 'claude-sonnet-4-6' }) === undefined, '非 Gemini 模型未传 effort 时保持 undefined');
 
 finish();
