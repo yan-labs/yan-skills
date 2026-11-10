@@ -6,6 +6,7 @@ import os
 import re
 from pathlib import Path
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -47,10 +48,22 @@ def available():
     except (OSError, subprocess.TimeoutExpired):
         return False
 
-def call(script, payload, timeout=30):
+def call(script, payload, timeout=30, kill_group=False):
     data = base64.b64encode(json.dumps(payload, ensure_ascii=False).encode()).decode()
     cmd = 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(data)
-    return subprocess.run([MM, cmd], capture_output=True, text=True, timeout=timeout)
+    if not kill_group:
+        return subprocess.run([MM, cmd], capture_output=True, text=True, timeout=timeout)
+    proc = subprocess.Popen([MM, cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try: os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError: pass
+        proc.stdout.close()
+        proc.stderr.close()
+        proc.wait()
+        raise
+    return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
 
 def records():
     if not STORE.exists(): return []
@@ -182,13 +195,16 @@ r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini'
     print('Mini runId: ' + rec['id'], flush=True)
     return wait(rec, meta.get('pull', False))
 
-def query(rec):
+def query(rec, timeout=20, kill_group=False):
     script = '''import base64,json,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary; r=subprocess.run([str(binary),'status','--json'],capture_output=True,text=True,check=True); rows=json.loads(r.stdout); row=next((x for x in rows if x.get('runId')==p['id']),None)
 if row is None: row=json.loads((pathlib.Path.home()/'.agent-fleet/runs'/(p['id']+'.json')).read_text())
 print(json.dumps({k:row.get(k) for k in ('runId','status','state','verdict','exitCode','resultPath','startedAt','finishedAt','model','duration','heartbeatAt','launchDetached')}))
 '''
-    p = call(script, {**rec, 'bin': REMOTE_BIN}, timeout=20)
+    if kill_group:
+        p = call(script, {**rec, 'bin': REMOTE_BIN}, timeout=timeout, kill_group=True)
+    else:
+        p = call(script, {**rec, 'bin': REMOTE_BIN}, timeout=timeout)
     if p.returncode: raise ConnectionError('Mini 状态暂不可读')
     return json.loads(p.stdout)
 

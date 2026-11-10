@@ -511,6 +511,26 @@ try {
   test('status 提醒 launchDetached 与 wait',()=> {
     state(); const r=run(['status']); assert.equal(r.status,0); assert.match(r.stdout,/⚠/); assert.match(r.stdout,/fleet wait fake-run/);
   });
+  test('status 远端超时保留本机结果，正常时合并',()=> {
+    state();
+    const records=join(home,'.agent-fleet/mini-runs'); mkdirSync(records,{recursive:true});
+    writeFileSync(join(records,'remote.json'),JSON.stringify({id:'remote-run',name:'remote',brief:'remote'}));
+    const mm=join(bin,'fake-mm');
+    const opts={FLEET_MINI_MM:mm,FLEET_MINI_STATUS_TIMEOUT:'0.2'};
+    try {
+      writeFileSync(mm,'#!/bin/sh\nsleep 30 &\nexit 0\n',{mode:0o755});
+      for (const args of [['status'],['status','--all']]) {
+        const start=Date.now(), r=spawnSync(script,args,{encoding:'utf8',env:{...env,...opts},timeout:3000});
+        assert.equal(r.status,0,r.stderr); assert.ok(Date.now()-start<3000);
+        assert.match(r.stdout,/fake-run/); assert.match(r.stderr,/Mini 状态未取到/);
+      }
+      writeFileSync(mm,'#!/bin/sh\nprintf \'%s\\n\' \'{"runId":"remote-run","status":"running"}\'\n',{mode:0o755});
+      for (const args of [['status'],['status','--all']]) {
+        const r=run(args,opts); assert.equal(r.status,0,r.stderr);
+        assert.match(r.stdout,/fake-run/); assert.match(r.stdout,/remote-run/); assert.doesNotMatch(r.stderr,/Mini 状态未取到/);
+      }
+    } finally { rmSync(records,{recursive:true,force:true}); }
+  });
   test('源码不包含真实后台化调用', () => {
     const shell=readFileSync(script,'utf8'); assert.doesNotMatch(shell,/&|nohup|setsid|disown/);
     const python=readFileSync(join(root,'src/fleet-go.py'),'utf8');
