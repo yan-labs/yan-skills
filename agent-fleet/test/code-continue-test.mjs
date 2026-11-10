@@ -148,6 +148,13 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   const readonlyBrief = '## 授权覆盖\n本块不含 git 写操作。\n## 目标\n验收：分析并报告，列出提交哈希。';
   assert.deepEqual(continuationRules(completeReport, readonlyBrief), []);
   assert(continuationRules(completeReport, authorizedCommit).some(x => x.includes('提交哈希')));
+  assert(continuationRules(completeReport, '## 授权覆盖\n允许在本地分支提交。\n## 目标\n验收：提交修复。').some(x => x.includes('提交哈希')));
+  for (const negative of ['无权限问题', '不缺授权']) {
+    const report = completeReport.report + '\n' + negative;
+    assert(continuationRules({ ...completeReport, report }, authorizedCommit).some(x => x.includes('提交哈希')), negative);
+    const decision = await judgeContinuation({ brief: authorizedCommit, report, finalReply: '', judge: async () => ({ ok: true, answers: { deliverable: { choice: 'commit', confidence: 0.9 } } }) });
+    assert.equal(decision.decision, 'continue', negative);
+  }
   assert.deepEqual(continuationRules(completeReport, '## 授权覆盖\n允许在本地分支提交。\n## 目标\n验收：分析并报告。'), []);
   for (const blocker of ['缺少 Git 写授权', '缺少团队发布入口', '缺少必需外部输入', '需要主线程提供复现信息']) {
     const blocked = { conclusion: '完成授权内步骤', report: completeReport.report + '\n' + blocker };

@@ -85,13 +85,14 @@ function commitRequired(brief) {
   const body = brief.replace(authBlock, '');
   const requirements = body.split('\n').filter(line => !/收工前对照|完成标志|^## 改动与产物|^REPORT 按/.test(line))
     .flatMap(line => line.split(/[。；;]/))
-    .filter(clause => /要求|必须|需要|给出|给|列出|提供|包含|附上|记录|补齐|验收[：:]|提交(?:一次|代码|改动|并)/.test(clause));
-  return requirements.some(clause => /提交哈希|commit hash|(?:本地)?提交(?:一次|代码|改动|并)|(?:必须|需要|要求)提交/i.test(clause)
+    .filter(clause => /要求|必须|需要|给出|给|列出|提供|包含|附上|记录|补齐|验收[：:]|提交(?:一次|代码|改动|修复|并)/.test(clause));
+  return requirements.some(clause => /提交哈希|commit hash|(?:本地)?提交(?:一次|代码|改动|修复|并)|(?:必须|需要|要求)提交/i.test(clause)
     && !/不(?:要|用|需|必)?提交|无需提交|无须提交|禁止提交|不.*commit/i.test(clause));
 }
 
 function reportedBlocked(report) {
-  const findings = report.replace(/^## 规则回执[^\n]*\n[\s\S]*?(?=^## |$(?![\s\S]))/m, '');
+  const findings = report.replace(/^## 规则回执[^\n]*\n[\s\S]*?(?=^## |$(?![\s\S]))/m, '')
+    .replace(/(?:不缺|不欠缺|无需|不需要|不存在缺少|没有缺少)[^。；，\n]{0,24}(?:授权|权限|入口|必需输入|外部输入|复现信息)|(?:无|没有)[^。；，\n]{0,24}(?:授权|权限|入口|必需输入|外部输入|复现信息)(?:问题|缺口|障碍)/g, '');
   return /(?:缺少?|欠缺|没有|未获|无)[^。；\n]{0,24}(?:授权|权限|入口|必需输入|外部输入|复现信息)|(?:需要|等待|需由)(?:用户|主线程|主会话|外部)[^。；\n]{0,24}(?:提供|授权|输入)/.test(findings);
 }
 
