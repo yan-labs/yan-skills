@@ -197,6 +197,39 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
     assert(Object.hasOwn(payload.questions.deliverable.criteria, 'commit'));
     assert.equal(decision.decision, 'continue');
   }
+  const generatedPatrolBrief = execFileSync('python3', [new URL('../src/fleet-go.py', import.meta.url).pathname,
+    'new', 'continue-local-patrol-test', '--to', 'gpt', '--on', 'local', '--auth', 'local',
+    '--goal', '本地巡检并记录报告', '--body', '-', '--pitfalls', '', '--dry-run', '--no-lint'], { encoding: 'utf8', input: '' });
+  assert.match(generatedPatrolBrief, /本单不做 git 提交，报告不需要提交哈希/);
+  // 同一张表核对规则层与 JEV；包含实际生成模板和原 local 巡检授权形态。
+  const commitCases = [
+    ...['禁止提交代码', '不得提交代码', '不允许提交代码', '本单不做任何 git 提交', '本单不做代码提交']
+      .flatMap(ban => [
+        [ban + '（正文）', `${authorizedCommit}\n${ban}。`, false],
+        [ban + '（授权块）', `## 授权覆盖\n允许在本地分支提交，${ban}。\n## 验收\n报告列出本地提交哈希。`, false],
+      ]),
+    ['条件说明', `${authorizedCommit}\n授权含提交才写哈希，否则本单不提交。`, true],
+    ['条件说明变体', `${authorizedCommit}\n如果授权允许提交，则给出哈希，否则本单不做任何 git 提交。`, true],
+    ['模板引用', `${authorizedCommit}\n模板引用：本单不做任何 git 提交。`, true],
+    ['报告模板引用', `${authorizedCommit}\n报告模板：本单不做任何 git 提交。`, true],
+    ['报告模板', `${authorizedCommit}\n## 改动与产物 ← 未授权时写本单不做任何 git 提交`, true],
+    ['条件后实际禁令', `${authorizedCommit}\n授权含提交才写哈希，否则本单不提交。禁止提交代码。`, false],
+    ['分支限制', `${authorizedCommit}\n禁止向 main 分支提交代码。不得提交到 master。`, true],
+    ['推送限制', `${authorizedCommit}\n禁止推送代码。不得推送本地提交。`, true],
+    ['生成 local-commit', generatedCommitBrief, true],
+    ['生成 local 巡检', generatedPatrolBrief, false],
+    ['local 巡检', `## 授权覆盖\n${localAuth}\n## 目标\n巡检并记录报告。\n## 验收\n报告列出本地提交哈希。`, false],
+  ];
+  for (const [name, brief, required] of commitCases) {
+    assert.equal(continuationRules(completeReport, brief).some(item => item.includes('提交哈希')), required, name);
+    let payload;
+    const decision = await judgeContinuation({ brief, report: completeReport.report, finalReply: '', judge: async value => {
+      payload = value;
+      return { ok: true, answers: { deliverable: { choice: 'commit', confidence: 0.9 } } };
+    } });
+    assert.equal(Object.hasOwn(payload.questions.deliverable.criteria, 'commit'), required, name);
+    assert.equal(decision.decision, required ? 'continue' : 'done', name);
+  }
   for (const auth of ['允许在本地分支提交。', '授权块：local-commit', '授权块：deploy-prod',
     readFileSync(new URL('../skill/templates/blocks/auth-local-commit.md', import.meta.url), 'utf8'),
     readFileSync(new URL('../skill/templates/blocks/auth-deploy-prod.md', import.meta.url), 'utf8')]) {
