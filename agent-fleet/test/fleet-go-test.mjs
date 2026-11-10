@@ -137,6 +137,7 @@ try {
     const readEntry = '## 入口\n仓库：/tmp\n';
     let r = strict('只读',readEntry); assert.equal(r.status,0,r.stderr); assert.match(r.stdout,/动作: 只读/);
     assert.equal(strict('改代码',entry).status,0);
+    assert.equal(strict('部署（生产数据删除） / 只读', '## 入口\n仓库：/tmp（说明）\n可写路径：/tmp/example(说明)\n', ['--auth','local-commit,deploy-prod']).status,0);
     assert.equal(strict('本地提交',entry,['--auth','local-commit']).status,0);
     assert.equal(strict('推送 / 部署',entry,['--auth','local-commit,deploy-prod']).status,0);
     assert.equal(strict('付费',entry,['--auth','paid']).status,0);
@@ -156,9 +157,9 @@ try {
     r=strict('', ''); assert.equal(r.status,0,r.stderr); assert.match(r.stderr,/缺少动作行/);
     assert.equal(strict('部署','',['--no-lint']).status,0);
     const f=join(temp,'strict.md'); writeFileSync(f,strict('只读',readEntry).stdout);
-    assert.equal(spawnSync(script,['lint',f],{encoding:'utf8',env}).status,0);
+    assert.equal(spawnSync(script,['lint',f,'--on','local'],{encoding:'utf8',env}).status,0);
     writeFileSync(f,readFileSync(f,'utf8').replace('动作: 只读','动作: 本地提交'));
-    r=spawnSync(script,['lint',f],{encoding:'utf8',env}); assert.equal(r.status,1); assert.match(r.stderr,/local-commit/);
+    r=spawnSync(script,['lint',f,'--on','local'],{encoding:'utf8',env}); assert.equal(r.status,1); assert.match(r.stderr,/local-commit/);
     assert.equal(spawnSync(script,['lint',f,'--no-lint'],{encoding:'utf8',env}).status,0);
   });
   test('密钥诊断仅给行号与规则，摘要、长文件名和路径不误报', () => {

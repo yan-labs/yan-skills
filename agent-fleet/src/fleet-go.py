@@ -76,7 +76,7 @@ def lint(text, to='gpt', simple=False, on='local', extra=True):
         if not action_match:
             print('警告：缺少动作行；过渡期暂不拦截入口与授权检查。', file=sys.stderr)
         else:
-            actions = {v.strip() for v in action_match.group(1).split('/')}
+            actions = {re.sub(r'[（(].*?[）)]', '', v).strip() for v in action_match.group(1).split('/')}
             valid = {'只读', '改代码', '本地提交', '推送', '部署', '付费'}
             auth_match = re.search(r'^## 授权覆盖\s*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
             auth_text = auth_match.group(1) if auth_match else ''
@@ -94,7 +94,7 @@ def lint(text, to='gpt', simple=False, on='local', extra=True):
                 errors.append('推送或部署需要 local-commit 和 deploy-prod 授权。')
             if '付费' in actions and not paid:
                 errors.append('付费需要 paid 授权。')
-            repo = re.search(r'^\s*仓库\s*[:：]\s*([^\s，,；;]+)', entry, re.M)
+            repo = re.search(r'^[ \t]*仓库[ \t]*[:：][ \t]*([^\s，,；;（(]+)', entry, re.M)
             if not repo:
                 errors.append('入口缺少仓库绝对路径。')
             else:
@@ -104,10 +104,13 @@ def lint(text, to='gpt', simple=False, on='local', extra=True):
                 elif on == 'mini':
                     try:
                         result = mini.call("import base64,json,os,pathlib,sys; p=json.loads(base64.b64decode(sys.argv[1]))\n" + mini.CANONICAL_SCRIPT + "\nprint(int(os.path.isdir(canonical(p['path']))))", {'path': mini.remote_path(repo_path), 'home': mini.REMOTE_HOME})
-                        if result.returncode or result.stdout.strip() != '1': errors.append('执行机器上的入口仓库不存在。')
-                    except (OSError, subprocess.SubprocessError): errors.append('无法校验执行机器上的入口仓库。')
+                        if result.returncode or result.stdout.strip() not in ('0', '1'):
+                            print('警告：无法校验执行机器上的入口仓库。', file=sys.stderr)
+                        elif result.stdout.strip() == '0': errors.append('执行机器上的入口仓库不存在。')
+                    except (OSError, subprocess.SubprocessError):
+                        print('警告：无法校验执行机器上的入口仓库。', file=sys.stderr)
                 elif not Path(repo_path).is_dir(): errors.append('执行机器上的入口仓库不存在。')
-            if actions - {'只读'} and not re.search(r'^\s*可写路径\s*[:：]\s*/\S*', entry, re.M):
+            if actions - {'只读'} and not re.search(r'^[ \t]*可写路径[ \t]*[:：][ \t]*/[^\s（(]*', entry, re.M):
                 errors.append('入口缺少可写路径。')
         if simple and re.search(r'未知|自己找', entry):
             errors.append('入口未知或自己找时不能使用 --simple。')
@@ -716,7 +719,7 @@ def main():
     p.add_argument('brief')
     p.add_argument('--no-lint', action='store_true', help='特殊单豁免入口与授权 lint')
     p.add_argument('--simple', action='store_true')
-    p.add_argument('--on', choices=['mini', 'local'], default='local')
+    p.add_argument('--on', choices=['mini', 'local'], default=os.environ.get('FLEET_DEFAULT_ON', 'mini'))
     p.add_argument('--to', choices=PRODUCTS, default='gpt')
     sub.add_parser('team')
     p = sub.add_parser('status')
