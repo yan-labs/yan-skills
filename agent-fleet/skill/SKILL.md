@@ -7,7 +7,7 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 
 | 让谁做 | 适合什么 | 命令示例 | 派用者顺位参考 |
 |---|---|---|---|
-| `gpt` | 编码和代码复核默认 Terra（`--simple`）；Sol 只在用户点名时用；部署、发布、监工、定时、巡检也用 Terra；Luna（`--luna`）最高档太慢，只在用户点名时用 | `fleet-go new fix --to gpt --simple --auth local --goal "修复问题" --body task.md` | 见[工具链](references/fallback-chains.md) |
+| `gpt` | 编码和代码复核默认 Terra（`--simple`）；Sol 只在用户点名时用；部署和改配置也用 Terra；巡检、监工、定时、核对整理这类比 Haiku 复杂又不需要编码的活用 Luna（`--luna --high`，或默认 xhigh，不开 `--max`） | `fleet-go new fix --to gpt --simple --auth local --goal "修复问题" --body task.md` | 见[工具链](references/fallback-chains.md) |
 | `openai` | 官方 GPT API / ChatGPT 关联组织额度，复用原 Agent SDK | `fleet-go new task --to openai --auth local --goal "目标" --body task.md` | 单独入口，不改 Codex 默认 |
 | `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | 按任务类型选择替代执行者 |
 | `grok` | 视频与图片（生成、搜索）、X 平台（热点与实时讨论）、X/社媒实时检索、成人题材；Codex 不可用或并发满时优先承接编码 | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | 见[工具链](references/fallback-chains.md) |
@@ -27,13 +27,13 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 ## 巡检与换班
 派出后台任务后，派单主会话必须用 CronCreate 挂会话内巡检，计划为 `7,37 * * * *`，提示词以「【半小时巡检】」开头。已有这条巡检时不重复挂；7 天到期但仍有后台任务时续挂。巡检使用会话内 Cron，不用独立定时任务。
 
-每次触发先检查是否有后台任务在跑：没有就用 CronList 找到这条巡检并 CronDelete；有则在本会话派一个 Terra 巡检子单（`--simple`），brief 放在本机文件 `~/.agent-fleet/patrol-brief.md`。巡检检查日志与产物变化，纠正卡住、空转、循环或偏题的任务；判断无望时终止。单个 run 约 2 小时没有新产物，或累计运行约 5 小时时，要求执行者写 checkpoint 并结束本轮，再用 `fleet-go relaunch` 换新 agent，要求读取 checkpoint 接着做。巡检记录追加到当天的 `fleet-patrol.md`。
+每次触发先检查是否有后台任务在跑：没有就用 CronList 找到这条巡检并 CronDelete；有则在本会话派一个 Luna 巡检子单（`--luna --high`），brief 放在本机文件 `~/.agent-fleet/patrol-brief.md`。巡检检查日志与产物变化，纠正卡住、空转、循环或偏题的任务；判断无望时终止。单个 run 约 2 小时没有新产物，或累计运行约 5 小时时，要求执行者写 checkpoint 并结束本轮，再用 `fleet-go relaunch` 换新 agent，要求读取 checkpoint 接着做。巡检记录追加到当天的 `fleet-patrol.md`。
 
 **巡检结论交回主会话裁定。** 巡检单用 `run_in_background` 派出，完成通知回到派单主会话。巡检只自行处理上面的纠偏、终止和换班。它最终回复的第一段写「需要主会话处理」，列出自己用 fleet 命令解决不了的事，例如缺授权、需要改派执行者或档位、多单争用同一资源、需要用户配合、已终止的单是否重派；每条写明任务名、现象和建议，没有就写「无」。主会话收到通知后必须读取这一段并逐条处理，包括补授权、改派、调整顺序、找用户或重派，不能只看巡检记录。巡检提示里写明本会话负责的任务名，巡检只看这些任务。
 
 CronCreate 示例（可直接复制并按本会话支持的字段调用）：
 ```text
-CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有后台任务在跑；没有则用 CronList 找到这条巡检并 CronDelete；有则在本会话按本机 ~/.agent-fleet/patrol-brief.md 派 Terra 巡检子单（run_in_background），只看本会话负责的任务：<任务名列表>；完成通知回来后，读它的「需要主会话处理」并逐条处理。")
+CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有后台任务在跑；没有则用 CronList 找到这条巡检并 CronDelete；有则在本会话按本机 ~/.agent-fleet/patrol-brief.md 派 Luna 巡检子单（--luna --high --on local，run_in_background），只看本会话负责的任务：<任务名列表>；完成通知回来后，读它的「需要主会话处理」并逐条处理。")
 ```
 全局规则见 `~/.claude/CLAUDE.md` §3.2。
 
@@ -157,7 +157,8 @@ Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定�
 |---|---|
 | 正常开发与编程（逻辑、后端、数据、脚本、修 bug、补测试、小修） | Codex Terra，`--to gpt --simple`，medium，不开 fast |
 | 严谨开发（跨模块重构、数据迁移、权限、计费、删除、外部写入、架构级改动） | 仍用 Terra，brief 写明严谨要求；Sol 额度消耗快，只在用户点名时用（用户 11-10） |
-| 部署、发布、监工、定时任务、巡检 | Codex Terra，`--to gpt --simple`，medium；Luna xhigh 太慢，只在用户点名时用（用户 2026-11-11） |
+| 部署、发布、改配置（要写脚本） | Codex Terra，`--to gpt --simple`，medium |
+| 巡检、监工、定时、核对整理（比 Haiku 复杂、不需要编码） | Luna，`--to gpt --luna --high`（或默认 xhigh），不开 `--max`（用户 2026-11-11） |
 | 调研、搜索、技术文档、报告、数据整理、一般任务 | Codex Terra，`--to gpt --simple` |
 | 文案、翻译、多语言、校对 | Gemini，`fleet copy`（批量用 `fleet bulk`） |
 | UI、样式、视觉交互、建站设计、3D、游戏内容 | `fleet sonnet`；要 Browser pane 用 `executor-sonnet` |
@@ -183,7 +184,7 @@ Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定�
 下面的顺位表只供派用者自行判断，代码不消费：
 - Claude 额度档：按任务类型与工具链换手。
 - **工具不可用或并发满**：按[工具链](references/fallback-chains.md)换手；编码由 Grok 或 Claude 承接，不派 Gemini。
-- GPT 档：编码及复核用 Terra；Sol 只在用户点名时用；部署、监工、定时、巡检也用 Terra；Luna 只在用户点名时用。
+- GPT 档：编码及复核用 Terra；Sol 只在用户点名时用；部署和改配置用 Terra；巡检、监工、定时、核对整理用 Luna high/xhigh，不开 max。
 
 派用者决定后，用 `fleet-go relaunch <name> --to <产品> [--tier haiku|sonnet|opus] [--simple|--luna] [--low|--high|--xhigh|--max] [--fast]` 沿用 brief、name 与 report 重派。成功任务不产生失败上报。
 
