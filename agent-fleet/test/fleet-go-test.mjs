@@ -253,7 +253,6 @@ try {
     for (const option of ['--simple','--review']) {
       const r = run(['new','bad-luna','--to','gpt','--luna',option,'--goal','x','--dry-run']);
       assert.equal(r.status,1); assert.match(r.stderr,/--luna/);
-      if (option === '--simple') assert.equal(run(['relaunch','luna-mode',option]).status,1);
     }
     assert.equal(run(['new','luna-relaunch','--to','gpt','--goal','x','--no-launch']).status,0);
     reset(); assert.equal(run(['relaunch','luna-relaunch','--luna']).status,7); assert(history().at(-1).args.includes('--luna'));
@@ -276,6 +275,29 @@ try {
     assert.equal(run(['amend','luna-max','冲突','--low','--max','--say']).status,1);
     for (const opts of [['--max'], ['--luna','--low','--max'], ['--luna','--high','--max'], ['--luna','--xhigh','--max']]) assert.equal(run(['new','bad-max','--to','gpt',...opts,'--goal','x','--dry-run']).status,1);
     assert.equal(run(['new','luna-fast','--to','gpt','--luna','--fast','--goal','x','--dry-run']).status,0);
+  });
+  test('显式模型和推理档位覆盖并保存旧值', () => {
+    for (const action of ['relaunch', 'amend']) {
+      const name = 'switch-' + action;
+      const metaPath = join(home,'.agent-reports', report.split('/').at(-2), name + '.brief.json');
+      const invoke = (...flags) => action === 'relaunch' ? run([action,name,...flags]) : run([action,name,'切换档位',...flags,'--say']);
+      assert.equal(run(['new',name,'--to','gpt','--simple','--low','--goal','x','--no-launch']).status,0);
+      reset(); let r = invoke('--luna','--high'); assert.equal(r.status,7,r.stderr);
+      let meta = JSON.parse(readFileSync(metaPath,'utf8'));
+      assert.equal(meta.luna,true); assert.equal(meta.simple,false); assert.equal(meta.high,true); assert.equal(meta.low,false);
+      assert(history().at(-1).args.includes('--luna')); assert(!history().at(-1).args.includes('--simple'));
+      reset(); r = invoke('--simple','--low'); assert.equal(r.status,7,r.stderr);
+      meta = JSON.parse(readFileSync(metaPath,'utf8'));
+      assert.equal(meta.simple,true); assert.equal(meta.luna,false); assert.equal(meta.low,true); assert.equal(meta.high,false);
+      assert(history().at(-1).args.includes('--simple')); assert(!history().at(-1).args.includes('--luna'));
+      reset(); r = invoke('--luna','--max'); assert.equal(r.status,7,r.stderr);
+      reset(); r = invoke('--simple'); assert.equal(r.status,7,r.stderr);
+      meta = JSON.parse(readFileSync(metaPath,'utf8'));
+      assert.equal(meta.max,false); assert(!history().at(-1).args.includes('--max'));
+      reset(); assert.equal(run(['relaunch',name]).status,7); assert(history().at(-1).args.includes('--simple'));
+      assert.equal(invoke('--simple','--luna').status,1);
+      assert.equal(invoke('--low','--high').status,1);
+    }
   });
   test('relaunch --to/--tier 改执行者、保留 brief/name/report，拒绝运行中的重复派发', () => {
     writeFileSync(states,'[]'); reset();

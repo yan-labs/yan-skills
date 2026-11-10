@@ -186,8 +186,8 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         raise ValueError('--tier 仅用于 --to claude。')
     if simple and (target != 'gpt' or meta.get('review')):
         raise ValueError('--simple 仅用于非 review 的 --to gpt（Sol 容量故障时改派 Terra）。')
-    selected_luna = luna or (target == 'gpt' and meta.get('luna'))
-    selected_simple = simple or (target == 'gpt' and meta.get('simple'))
+    selected_luna = luna or (not simple and target == 'gpt' and meta.get('luna'))
+    selected_simple = simple or (not luna and target == 'gpt' and meta.get('simple'))
     if selected_luna and target != 'gpt':
         raise ValueError('--luna 仅用于 --to gpt。')
     if selected_luna and meta.get('review'):
@@ -227,9 +227,11 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     if tier:
         meta['tier'] = tier
     if simple:
-        meta['simple'] = True
+        meta['simple'], meta['luna'] = True, False
+        if not (low or high or xhigh or max):
+            meta['xhigh'] = meta['max'] = False
     if luna:
-        meta['luna'] = True
+        meta['luna'], meta['simple'] = True, False
     if low:
         meta['low'] = True
         meta['high'] = meta['xhigh'] = meta['max'] = False
@@ -323,19 +325,23 @@ def restart(run, path, name):
 def amend(args):
     """保留修订正文，按需插话或停止本次 run 后通过 relaunch 重启。"""
     path, meta = locate(args.name)
-    if args.luna or args.low or args.high or args.xhigh or args.max:
-        if (args.luna or args.max) and meta['to'] != 'gpt':
-            raise ValueError('--luna 和 --max 仅用于 --to gpt。')
+    if args.simple or args.luna or args.low or args.high or args.xhigh or args.max:
+        if (args.simple or args.luna or args.max) and meta['to'] != 'gpt':
+            raise ValueError('--simple、--luna 和 --max 仅用于 --to gpt。')
         if (args.low or args.high or args.xhigh) and meta['to'] not in ('gpt', 'gemini'):
             raise ValueError('--low、--high 和 --xhigh 仅用于 --to gpt|gemini。')
-        if args.luna and (meta.get('review') or meta.get('simple')):
-            raise ValueError('--luna 不能与 --review 或 --simple 同用。')
+        if ((args.luna or args.simple) and meta.get('review')) or (args.luna and args.simple):
+            raise ValueError('--luna 和 --simple 不能同用，也不能与 --review 同用。')
         if sum([args.low, args.high, args.xhigh, args.max]) > 1:
             raise ValueError('--low、--high、--xhigh 和 --max 不能同用。')
-        if meta['to'] == 'gpt' and (args.xhigh or args.max) and not (args.luna or meta.get('luna')):
+        if meta['to'] == 'gpt' and (args.xhigh or args.max) and not (args.luna or (not args.simple and meta.get('luna'))):
             raise ValueError('--xhigh 和 --max 仅用于 --luna。')
+        if args.simple:
+            meta['simple'], meta['luna'] = True, False
+            if not (args.low or args.high or args.xhigh or args.max):
+                meta['xhigh'] = meta['max'] = False
         if args.luna:
-            meta['luna'] = True
+            meta['luna'], meta['simple'] = True, False
         if args.low:
             meta['low'] = True
             meta['high'] = meta['xhigh'] = meta['max'] = False
@@ -628,6 +634,7 @@ def main():
     p.add_argument('name')
     p.add_argument('message')
     p.add_argument('--on', choices=['mini', 'local'])
+    p.add_argument('--simple', action='store_true', help='后续重派使用 Terra')
     p.add_argument('--luna', action='store_true', help='后续重派使用 Luna')
     p.add_argument('--low', action='store_true', help='后续重派使用 low 推理')
     p.add_argument('--high', action='store_true', help='后续重派使用 high 推理')
