@@ -131,30 +131,34 @@ try {
     assert.equal(local.status,0,local.stderr);
     assert.match(local.stdout,/部署、git 写操作、线上写入由主线程另行授权/); assert.match(local.stdout,/本单不做 git 提交，报告不需要提交哈希/);
   });
-  test('入口与授权 lint 及豁免', () => {
-    const strict = (goal, body, opts=[]) => spawnSync(script,['new','strict','--to','gpt','--on','local','--goal',goal,'--dry-run',...opts],{encoding:'utf8',env,input:body});
+  test('动作、入口与授权 lint 及豁免', () => {
+    const strict = (action, body, opts=[]) => spawnSync(script,['new','strict','--to','gpt','--on','local','--goal','正文提到提交哈希、部署与凭据，但不推断动作','--dry-run',...(action ? ['--action',action] : []),...opts],{encoding:'utf8',env,input:body});
     const entry = '## 入口\n仓库：/tmp\n可写路径：/tmp/example\n';
-    let r = strict('修复代码',entry); assert.equal(r.status,0,r.stderr);
-    for (const [goal, body, opts, expected] of [
-      ['修复代码','',[],/缺少入口/],
-      ['修复代码','## 入口\n仓库：relative\n可写路径：\/tmp/x',[],/绝对路径/],
-      ['修复代码','## 入口\n仓库：/no-such-fake-repository\n可写路径：/tmp/x',[],/仓库不存在/],
-      ['修复代码','## 入口\n仓库：/tmp',[],/可写路径/],
-      ['远程检查','## 入口\n仓库：/tmp',[],/远程访问方式/],
-      ['检查凭据','## 入口\n仓库：/tmp',[],/凭据所在文件/],
-      ['检查','## 入口\n仓库：/tmp\n未知', ['--simple'],/不能使用 --simple/],
-      ['本地提交',entry,[],/没有 local-commit/],
-      ['报告提交哈希',entry,[],/没有 local-commit/],
-      ['部署到生产',entry,[],/没有 deploy-prod/],
-      ['报告提交哈希',entry,['--auth','review'],/只读单/],
-    ]) { r=strict(goal,body,opts); assert.equal(r.status,1,goal); assert.match(r.stderr,expected); }
+    const readEntry = '## 入口\n仓库：/tmp\n';
+    let r = strict('只读',readEntry); assert.equal(r.status,0,r.stderr); assert.match(r.stdout,/动作: 只读/);
+    assert.equal(strict('改代码',entry).status,0);
     assert.equal(strict('本地提交',entry,['--auth','local-commit']).status,0);
-    assert.equal(strict('部署到生产',entry,['--auth','deploy-prod']).status,0);
-    assert.equal(strict('本地提交','',['--no-lint']).status,0);
-    const f=join(temp,'strict.md'); writeFileSync(f,strict('修复代码',entry).stdout);
+    assert.equal(strict('推送 / 部署',entry,['--auth','local-commit,deploy-prod']).status,0);
+    assert.equal(strict('付费',entry,['--auth','paid']).status,0);
+    for (const [action, body, opts, expected] of [
+      ['只读','',[],/仓库/],
+      ['只读','## 入口\n仓库：relative',[],/绝对路径/],
+      ['只读','## 入口\n仓库：/no-such-fake-repository',[],/仓库不存在/],
+      ['改代码',readEntry,[],/可写路径/],
+      ['只读','## 入口\n仓库：/tmp\n未知', ['--simple'],/不能使用 --simple/],
+      ['改代码',entry,['--auth','review'],/local 或 local-commit/],
+      ['本地提交',entry,[],/local-commit/],
+      ['推送',entry,['--auth','deploy-prod'],/local-commit 和 deploy-prod/],
+      ['部署',entry,['--auth','local-commit'],/local-commit 和 deploy-prod/],
+      ['付费',entry,[],/paid/],
+      ['未知动作',entry,[],/未知或空动作/],
+    ]) { r=strict(action,body,opts); assert.equal(r.status,1,action); assert.match(r.stderr,expected); assert.match(r.stderr,/示例（按实际任务和授权修改）/); }
+    r=strict('', ''); assert.equal(r.status,0,r.stderr); assert.match(r.stderr,/缺少动作行/);
+    assert.equal(strict('部署','',['--no-lint']).status,0);
+    const f=join(temp,'strict.md'); writeFileSync(f,strict('只读',readEntry).stdout);
     assert.equal(spawnSync(script,['lint',f],{encoding:'utf8',env}).status,0);
-    writeFileSync(f,readFileSync(f,'utf8')+'\n提交哈希\n');
-    r=spawnSync(script,['lint',f],{encoding:'utf8',env}); assert.equal(r.status,1); assert.match(r.stderr,/没有 local-commit/);
+    writeFileSync(f,readFileSync(f,'utf8').replace('动作: 只读','动作: 本地提交'));
+    r=spawnSync(script,['lint',f],{encoding:'utf8',env}); assert.equal(r.status,1); assert.match(r.stderr,/local-commit/);
     assert.equal(spawnSync(script,['lint',f,'--no-lint'],{encoding:'utf8',env}).status,0);
   });
   test('密钥诊断仅给行号与规则，摘要、长文件名和路径不误报', () => {

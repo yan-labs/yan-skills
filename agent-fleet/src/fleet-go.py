@@ -70,34 +70,34 @@ def lint(text, to='gpt', simple=False, on='local', extra=True):
     if to in ('gpt', 'grok') and not all(word in text for word in ['授权覆盖', '允许范围']):
         print('警告：GPT/Grok brief 请补齐授权覆盖与允许范围小节。', file=sys.stderr)
     if extra:
-        # 授权块取实际授权，不把块内的否定或条件文字当作任务要求。
-        auth_match = re.search(r'^## 授权覆盖\s*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
-        auth_text = auth_match.group(1) if auth_match else ''
-        commit = bool(re.search(r'允许在本地分支提交|允许本地提交|^授权块：.*\blocal-commit\b', auth_text))
-        deploy = '发布全流程' in auth_text or bool(re.search(r'^授权块：.*\bdeploy-prod\b', auth_text, re.M))
-        review = '只读复核' in auth_text or '只读复核' in first
-        demands = text.replace('本单不做 git 提交，报告不需要提交哈希', '')
-        if '提交哈希' in demands and review:
-            errors.append('只读单不能要求提交哈希。')
-        demand_text = demands.replace(auth_text, '')
-        task_match = re.search(r'^## 授权覆盖.*?(?=^## (?:目标|入口))(.+?)(?=^## 允许范围|\Z)', text, re.M | re.S)
-        task = task_match.group(1) if task_match else ''
-        positive_task = '\n'.join(line for line in task.splitlines() if not re.search(r'不提交|无需提交|禁止提交|不得提交|不做.*提交', line))
-        if ('提交哈希' in demands or re.search(r'(?:要求|需要|完成|并|后|进行|本地|git )提交(?!记录|哈希|才|与|时)', demand_text, re.I) or re.search(r'提交代码|提交改动|提交变更|git commit|提交并|提交后|(?:提供|列出|报告|给出|记录|要求|需要).{0,8}(?:哈希|hash|commit id)' , positive_task, re.I)) and not (commit or deploy):
-            errors.append('要求提交或哈希，但没有 local-commit/deploy-prod 授权。')
-        if re.search(r'(?:部署|上线|发布)(?:到|至|生产|test|测试|环境|并|后|，|。|$)', task, re.I) and not deploy:
-            errors.append('要求部署，但没有 deploy-prod 授权。')
+        action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*?)[ \t]*$', text, re.M)
         entry_match = re.search(r'^##?\s*入口\s*[:：]?\s*\n(.*?)(?=^##?\s|\Z)', text, re.M | re.S)
         entry = entry_match.group(1) if entry_match else ''
-        if not entry.strip():
-            errors.append('缺少入口：请按任务写明仓库、可写路径、远程访问方式及凭据文件。')
+        if not action_match:
+            print('警告：缺少动作行；过渡期暂不拦截入口与授权检查。', file=sys.stderr)
         else:
-            if simple and re.search(r'未知|自己找', entry):
-                errors.append('入口未知或自己找时不能使用 --simple。')
-            repo = re.search(r'(?:仓库|仓库路径)\s*[:：]\s*([^\s，,；;]+)', entry)
-            if re.search(r'仓库|代码仓|代码库|修复代码|修改代码', task + entry) and not repo:
-                errors.append('入口仓库需要绝对路径。')
-            if repo:
+            actions = {v.strip() for v in action_match.group(1).split('/')}
+            valid = {'只读', '改代码', '本地提交', '推送', '部署', '付费'}
+            auth_match = re.search(r'^## 授权覆盖\s*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
+            auth_text = auth_match.group(1) if auth_match else ''
+            local = '本地文件修改、构建与预览' in auth_text or bool(re.search(r'^授权块：.*(?<![\w-])local(?![\w-])', auth_text, re.M))
+            commit = '允许在本地分支提交' in auth_text or '允许本地提交' in auth_text or bool(re.search(r'^授权块：.*\blocal-commit\b', auth_text, re.M))
+            deploy = '发布全流程' in auth_text or bool(re.search(r'^授权块：.*\bdeploy-prod\b', auth_text, re.M))
+            paid = '当前目标必要的付费验证' in auth_text or bool(re.search(r'^授权块：.*\bpaid\b', auth_text, re.M))
+            if not actions <= valid:
+                errors.append('动作行含未知或空动作。')
+            if '改代码' in actions and not (local or commit):
+                errors.append('改代码需要 local 或 local-commit 授权。')
+            if '本地提交' in actions and not commit:
+                errors.append('本地提交需要 local-commit 授权。')
+            if actions & {'推送', '部署'} and not (commit and deploy):
+                errors.append('推送或部署需要 local-commit 和 deploy-prod 授权。')
+            if '付费' in actions and not paid:
+                errors.append('付费需要 paid 授权。')
+            repo = re.search(r'^\s*仓库\s*[:：]\s*([^\s，,；;]+)', entry, re.M)
+            if not repo:
+                errors.append('入口缺少仓库绝对路径。')
+            else:
                 repo_path = repo.group(1).strip('`')
                 if not repo_path.startswith('/'):
                     errors.append('入口仓库需要绝对路径。')
@@ -107,11 +107,12 @@ def lint(text, to='gpt', simple=False, on='local', extra=True):
                         if result.returncode or result.stdout.strip() != '1': errors.append('执行机器上的入口仓库不存在。')
                     except (OSError, subprocess.SubprocessError): errors.append('无法校验执行机器上的入口仓库。')
                 elif not Path(repo_path).is_dir(): errors.append('执行机器上的入口仓库不存在。')
-            for trigger, label, pattern in [
-                (r'修改|编辑|写入|编码|修复', '可写路径', r'(?:可写路径|允许写)\s*[:：]\s*/'),
-                (r'远程|SSH|ssh', '远程访问方式', r'(?:远程访问|访问方式|访问命令)\s*[:：]\s*\S+'),
-                (r'凭据|认证|密钥', '凭据所在文件', r'(?:凭据文件|凭据所在文件)\s*[:：]\s*/')]:
-                if re.search(trigger, task + entry) and not re.search(pattern, entry): errors.append('入口缺少' + label + '。')
+            if actions - {'只读'} and not re.search(r'^\s*可写路径\s*[:：]\s*/\S*', entry, re.M):
+                errors.append('入口缺少可写路径。')
+        if simple and re.search(r'未知|自己找', entry):
+            errors.append('入口未知或自己找时不能使用 --simple。')
+        if errors:
+            errors.append('示例（按实际任务和授权修改）：\n动作: 改代码 / 本地提交\n## 入口\n仓库: /tmp\n可写路径: /tmp/example\n## 授权覆盖\n授权块：local-commit')
     return errors
 
 
@@ -597,6 +598,8 @@ def new(args):
     is_review = bool(args.review or args.for_name or (args.type or '').lower() == 'review')
     parts = [f'归类：{classification}；理由：{args.why or classification + "任务，按既有路由执行"}\nREPORT: {report}', block('style-sol', values), block('time-box', values),
              '## 授权覆盖\n' + '\n\n'.join(block('auth-' + a, values) for a in dict.fromkeys(auth))]
+    if args.task_action:
+        parts.append('动作: ' + args.task_action)
     if args.budget:
         parts.append('## 预算与重试限制\n' + args.budget)
     if args.goal:
@@ -664,6 +667,7 @@ def main():
     p.add_argument('--type', type=str.lower, help='任务类型，记入账本：work|review|research|copy|media|orchestrate|judge|ops 等')
     p.add_argument('--for', dest='for_name', help='本单复核的任务名，记入账本做 maker/checker 配对')
     p.add_argument('--deliverables', action='append', help='交付物及篇幅上限，可多次指定')
+    p.add_argument('--action', dest='task_action', help='动作，多项用 / 分隔：只读、改代码、本地提交、推送、部署、付费')
     p.add_argument('--auth', default='local')
     p.add_argument('--no-lint', action='store_true', help='特殊单豁免入口与授权 lint')
     for option in ['write', 'read']:

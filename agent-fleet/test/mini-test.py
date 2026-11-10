@@ -112,7 +112,7 @@ echo '[{"runId":"old-run","status":"done"}]'
     (project / 'writable').mkdir()
     spec = importlib.util.spec_from_file_location('fleet_go', root / 'src/fleet-go.py')
     fleet_go = importlib.util.module_from_spec(spec); spec.loader.exec_module(fleet_go)
-    entry = '归类：编码；理由：测试\nREPORT: /tmp/r\n' + fleet_go.EARLY_RULE + '\n## 授权覆盖\n允许范围\n## 目标\n修复代码\n## 入口\n仓库：/home/a/Project/repo\n可写路径：/home/a/Project/writable\n'
+    entry = '归类：编码；理由：测试\nREPORT: /tmp/r\n' + fleet_go.EARLY_RULE + '\n动作: 只读\n## 授权覆盖\n允许范围\n## 目标\n修复代码\n## 入口\n仓库：/home/a/Project/repo\n可写路径：/home/a/Project/writable\n'
     with patch.object(mini, 'REMOTE_HOME', str(tmp)), patch.object(mini, 'call', local_call):
         assert not fleet_go.lint(entry, on='mini')
         assert any('仓库不存在' in e for e in fleet_go.lint(entry.replace('/repo', '/missing'), on='mini'))

@@ -99,6 +99,8 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 - `--make video` 仅 Grok，用内置 `image_to_video` / `reference_to_video`，这些工具没有 model 参数，仅传工具支持的输入，沿用工具自身模型；ZDR/privacy 错误如实报告原因、处理方法与产物缺口。
 - `--body body.md` 只接受现存文件路径；`--body -` 显式读取 stdin，也可以省略 `--body` 使用 heredoc。不存在的路径会明确报错。
 - 重新拉起已有任务：`fleet-go relaunch <name> [--to <产品>] [--tier <档位>]`，沿用唯一同名 brief、`--name` 和 `--report`，由派用者显式决定执行者；仍有未结束同名任务时拒绝重复派发。
+- 派单正文写固定字段 `动作: 只读 / 改代码 / 本地提交 / 推送 / 部署 / 付费`（仅列实际动作，可多选）；`fleet-go new --action '改代码 / 本地提交'` 可自动写入。缺动作行过渡期仅警告。动作决定授权：改代码需 local 或 local-commit；本地提交需 local-commit；推送、部署需 local-commit 和 deploy-prod；付费需 paid。
+- 正文另写 `## 入口`，下一行 `仓库: /绝对路径`；只读只需仓库，其他动作还需 `可写路径: /绝对路径`。远程访问方式和凭据文件按任务需要自行写明。入口含“未知/自己找”不能用 `--simple`；特殊单可用 `--no-lint` 豁免入口与授权检查。
 - **先预览再派**：`fleet-go new ... --dry-run`（只打印 brief，命令写 stderr）；`--no-launch` 只写 brief 不派发；`fleet-go lint brief.md` 检查样板（归类行、REPORT 行、逐字规则句、允许范围小节、密钥字面量）。
 - Codex app-server 两层续做闸门只针对缺失的硬性产物（文件、报告必需节、要求的提交哈希或读回结果）；覆盖未穷尽、补证和低置信度本身不触发续做。JEV 也只判断这些缺项。review 和文档类任务默认不续做；`--no-continue` 或 `FLEET_NO_CONTINUE=1` 可关闭，exec 路径同样适用，其他产品不适用。有进展就继续续做，不设次数上限；连续两次无进展停止；amend/steer/relaunch 行为不变。
 
