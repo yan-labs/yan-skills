@@ -98,6 +98,12 @@ echo '[{"runId":"old-run","status":"done"}]'
         with patch.object(mini, 'REMOTE_BIN', str(configured)), patch.object(mini, 'call', local_call), patch.object(mini, 'wait', return_value=0), patch.object(mini.os, 'getcwd', return_value=str(tmp)):
             assert mini.launch({**meta, 'report': str(tmp/'report.md')}, ['fleet', 'code', str(brief), '--report', str(tmp/'report.md')]) == 0
             assert mini.forward(['status']) == 0
+    # Remote case-preserving filesystem spelling applies to the whole brief and cwd.
+    project = tmp / 'PROJECT'; project.mkdir()
+    case_brief = tmp / 'case.md'; case_brief.write_text(f'文件 {tmp}/Project/demo 和 `{tmp}/Project`')
+    with patch.object(mini, 'REMOTE_HOME', str(tmp)), patch.object(mini, 'REMOTE_BIN', str(launch_fleet)), patch.object(mini, 'call', local_call), patch.object(mini, 'wait', return_value=0), patch.object(mini.os, 'getcwd', return_value=str(tmp)):
+        assert mini.launch({'brief':str(case_brief),'report':str(tmp/'report.md'),'name':'case'}, ['fleet','code',str(case_brief),'--report',str(tmp/'report.md')]) == 0
+    assert case_brief.read_text() == f'文件 {tmp}/PROJECT/demo 和 `{tmp}/PROJECT`'
     for configured in (status_bin, status_fleet):
         with patch.object(mini, 'REMOTE_BIN', str(configured)), patch.object(mini, 'call', local_call):
             assert mini.query({'id':'old-run'})['status'] == 'done'

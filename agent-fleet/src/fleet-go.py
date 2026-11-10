@@ -101,7 +101,7 @@ def launch(meta):
         os.execvp('fleet', command(meta))
     brief = Path(meta['brief'])
     previous = brief.read_text()
-    cleaned = re.sub(r'^Mini .+，已在 MacBook 执行\n', '', previous, flags=re.M)
+    cleaned = re.sub(r'^(?:警告：)?Mini .+，已在 MacBook 执行\n', '', previous, flags=re.M)
     if cleaned != previous: brief.write_text(cleaned)
     if location not in ('mini', 'local'):
         raise ValueError('FLEET_DEFAULT_ON 只能是 mini 或 local。')
@@ -112,7 +112,7 @@ def launch(meta):
         else:
             reason = mini.preflight(meta, meta.get('paths', []))
     reachable = location == 'mini' and not reason
-    meta['execution'] = 'mini' if reachable else 'local'
+    meta['execution'] = 'mini' if reachable else ('failed' if meta.get('on') == 'mini' else 'local')
     Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     if reachable:
         sys.exit(mini.launch(meta, command(meta)))

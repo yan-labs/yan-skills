@@ -144,7 +144,7 @@ p=json.loads(base64.b64decode(sys.argv[1]));
 home=pathlib.Path(p['home']); names=[x.name for x in home.iterdir() if x.name.lower()=='project'] if home.is_dir() else []
 if len(names)==1:
  import re
- pattern=re.compile(re.escape(str(home)) + r'/project(?=/|$)',re.I)
+ pattern=re.compile(re.escape(str(home)) + r'/project(?![\\w-])',re.I)
  def canonical(value): return pattern.sub(lambda _: str(home / names[0]),value)
  p['args']=[canonical(x) for x in p['args']]; p['cwd']=canonical(p['cwd']); p['report']=canonical(p['report'])
  p['files']={canonical(k):canonical(v) for k,v in p['files'].items()}
