@@ -171,6 +171,11 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   const localAuth = readFileSync(new URL('../skill/templates/blocks/auth-local.md', import.meta.url), 'utf8');
   for (const brief of [
     `## 授权覆盖\n${localAuth}\n## 验收\n报告列出本地提交哈希。`,
+    '## 授权覆盖\n不允许在本地分支提交。\n## 验收\n报告列出本地提交哈希。',
+    '## 授权覆盖\n授权块：不含 local-commit\n## 验收\n报告列出本地提交哈希。',
+    '## 授权覆盖\n授权块：不含 deploy-prod\n## 验收\n报告列出本地提交哈希。',
+    `${authorizedCommit}\n本单不做任何 git 提交。`,
+    `${authorizedCommit}\n本单不做任何提交。`,
     `${authorizedCommit}\n本单不提交、不需要提交哈希。`,
   ]) {
     assert.deepEqual(continuationRules(completeReport, brief), []);
@@ -178,6 +183,16 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
     const decision = await judgeContinuation({ brief, report: completeReport.report, finalReply: '', judge: async value => { payload = value; return { ok: true, answers: { deliverable: { choice: 'commit', confidence: 0.9 } } }; } });
     assert(!Object.hasOwn(payload.questions.deliverable.criteria, 'commit'));
     assert.equal(decision.decision, 'done');
+  }
+  for (const auth of ['允许在本地分支提交。', '授权块：local-commit', '授权块：deploy-prod',
+    readFileSync(new URL('../skill/templates/blocks/auth-local-commit.md', import.meta.url), 'utf8'),
+    readFileSync(new URL('../skill/templates/blocks/auth-deploy-prod.md', import.meta.url), 'utf8')]) {
+    const brief = `## 授权覆盖\n${auth}\n## 验收\n报告列出本地提交哈希。`;
+    assert(continuationRules(completeReport, brief).some(item => item.includes('提交哈希')), auth);
+    let payload;
+    const decision = await judgeContinuation({ brief, report: completeReport.report, finalReply: '', judge: async value => { payload = value; return { ok: true, answers: { deliverable: { choice: 'commit', confidence: 0.9 } } }; } });
+    assert(Object.hasOwn(payload.questions.deliverable.criteria, 'commit'), auth);
+    assert.equal(decision.decision, 'continue', auth);
   }
   const reportBefore = { head: 'same', files: 'same', report: 'old' };
   assert.equal(continuationProgress(reportBefore, { ...reportBefore, report: 'new' }).progress, false);
