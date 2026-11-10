@@ -63,6 +63,16 @@ try {
     assert.equal(history().at(-1).pid,r.pid);
     assert.deepEqual(history().at(-1).args,['code',path,'--name','one','--report',report]);
     assert.ok(existsSync(path));
+    const metadata=JSON.parse(readFileSync(path.replace(/\.md$/,'.json'),'utf8'));
+    assert.deepEqual(metadata.auth,['local']);
+    assert.deepEqual(metadata.actions,[]);
+  });
+  test('只读授权和动作身份写入元信息，重派可沿用', () => {
+    const r=run(['new','prodwatch-read','--to','gpt','--auth','review','--action','只读','--goal','readonly','--no-launch']);
+    assert.equal(r.status,0,r.stderr);
+    const dir=path.slice(0,path.lastIndexOf('/'));
+    const meta=JSON.parse(readFileSync(join(dir,'prodwatch-read.brief.json'),'utf8'));
+    assert.deepEqual(meta.auth,['review']);assert.deepEqual(meta.actions,['只读']);
   });
   const original=readFileSync(path,'utf8');
   test('同名拒绝覆盖', () => {

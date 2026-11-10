@@ -6,7 +6,7 @@ import { runsDir } from './progress.mjs';
 import { assertSafeToSignal, isPidAlive, isRecordedProcessAlive, sameCwd, signalProcessTree, processCommand, collectDescendantPids, readPidPpidTable, readPidRecord, writePidRecord } from './pid.mjs';
 import { buildBrief, formatBriefHuman, redactEvidence, snapshotGit, inspectGit } from './brief.mjs';
 import { recordRun } from './ledger.mjs';
-import { registerQueue, acquireSlot, queueRecord, setSlotState, queueEvent } from './queue.mjs';
+import { registerQueue, acquireSlot, queueRecord, setSlotState, queueEvent, taskIdentity, releaseParentSlot } from './queue.mjs';
 
 export const statePath = (id) => join(runsDir(), `${id}.json`);
 export function writeState(rec) {
@@ -63,7 +63,7 @@ export function resolveDetached(spec, cwd = process.cwd()) {
     const matches = records.filter(r => r.name === spec || r.runId.startsWith(spec) || (spec.startsWith('detach-') && r.runId.endsWith(spec)));
     if (matches.length === 1) return matches[0].runId;
     if (matches.length > 1 && matches.every(r => r.name === spec && (r.model?.startsWith('grok-cli:') || ['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'].includes(r.model)))) {
-      const active = matches.filter(r => detachedState(r) === 'running');
+      const active = matches.filter(r => ['running', 'queued', 'parked', 'waiting'].includes(detachedState(r)));
       if (active.length === 1) return active[0].runId;
       if (!active.length) return matches.sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0].runId;
     }
@@ -76,13 +76,14 @@ export function resolveDetached(spec, cwd = process.cwd()) {
   return rec.runId;
 }
 
-export async function launchDetached(cli, args, { cwd, model, briefPath, name, reportPath, effort, noWait = false }) {
+export async function launchDetached(cli, args, { cwd, model, briefPath, name, reportPath, effort, review = false, auth, actions, noWait = false }) {
   const launcherParent = process.ppid;
   const claudeTool = Boolean(process.env.CLAUDECODE || process.env.CLAUDE_CODE_ENTRYPOINT);
   mkdirSync(runsDir(), { recursive: true });
   const runId = `${new Date().toISOString().replace(/[:.]/g, '-')}-detach-${randomUUID().slice(0, 8)}`;
   const base = join(runsDir(), runId);
-  const rec = { detach: true, runId, status: 'running', pid: null, childPid: null,
+  const identity = taskIdentity({ briefPath, review, auth, actions });
+  const rec = { ...identity, detach: true, runId, status: 'running', pid: null, childPid: null,
     startedAt: new Date().toISOString(), heartbeatAt: new Date().toISOString(), finishedAt: null,
     exitCode: null, verdict: null, briefPath: briefPath ?? null, cwd, model, name: name ?? null, reportPath: reportPath ?? null, fallbackWarning: process.env.FLEET_FALLBACK_WARNING || null,
     ...(effort ? { tier: effort, [effort]: true } : {}),
@@ -175,6 +176,7 @@ export async function supervise(cli) {
   process.on('SIGINT', stop);
   const payload = await new Promise(resolve => process.once('message', resolve));
   rec = { ...payload.rec, pid: process.pid, command: processCommand(process.pid) };
+  process.env.FLEET_SLOT_RUN_ID = rec.runId;
   const beat = () => { rec.heartbeatAt = new Date().toISOString(); writeState(rec); };
   beat();
   process.on('message', msg => {
@@ -204,7 +206,7 @@ export async function supervise(cli) {
     if (!admitted) appendFileSync(rec.logPath, queueEvent('wake'));
     child = spawn(process.execPath, [cli, ...payload.args], {
       detached: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-      env: { ...process.env, FLEET_DETACHED_RUN_ID: rec.runId, FLEET_DETACHED_BATCH: payload.args[0] === 'run-many' ? '1' : '' },
+      env: { ...process.env, FLEET_DETACHED_RUN_ID: rec.runId, FLEET_SLOT_RUN_ID: rec.runId, FLEET_DETACHED_BATCH: payload.args[0] === 'run-many' ? '1' : '' },
     });
     child.stdout.on('data', chunk => appendFileSync(rec.logPath, chunk));
     rec.stderr = '';
@@ -273,13 +275,15 @@ function failureFacts(rec) {
 }
 
 export async function waitDetached(spec, { cwd, timeout, originalOutput = false } = {}) {
+  const resume = await releaseParentSlot();
+  try {
   const id = resolveDetached(spec, cwd);
   const started = Date.now();
   for (;;) {
     const rec = reconcileDetached(readState(id));
     if (!rec) throw new Error(`找不到 detach 任务 ${id}`);
     const state = detachedState(rec);
-    if (!['running', 'queued', 'parked'].includes(state)) {
+    if (!['running', 'queued', 'parked', 'waiting'].includes(state)) {
       const brief = state === 'abnormal' ? buildBrief({ ...failureFacts(rec), ok: false,
         error: `异常终止；最后心跳 ${rec.heartbeatAt}`, resultPath: rec.resultPath, logPath: rec.logPath })
         : rec.brief ?? buildBrief({ ...failureFacts(rec), ok: false, stopped: state === 'stopped', error: rec.error,
@@ -295,6 +299,7 @@ export async function waitDetached(spec, { cwd, timeout, originalOutput = false 
     if (timeout !== undefined && Date.now() - started >= Number(timeout) * 1000) throw new Error(`等待 ${id} 超时；任务继续运行。`);
     await new Promise(resolve => setTimeout(resolve, 2000));
   }
+  } finally { await resume(); }
 }
 
 export async function stopDetached(rec) {

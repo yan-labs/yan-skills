@@ -1,4 +1,5 @@
 """Mac Mini transport for detached fleet runs."""
+from contextlib import contextmanager
 import base64
 import json
 import os
@@ -215,11 +216,32 @@ print(json.dumps(base64.b64encode(data).decode() if data is not None else None))
         print(''.join(content.splitlines(keepends=True)[:head]) if head is not None else content, end='')
     return 0
 
+@contextmanager
+def parent_slot_released():
+    parent = os.environ.get('FLEET_SLOT_RUN_ID') or os.environ.get('FLEET_DETACHED_RUN_ID')
+    if not parent:
+        yield
+        return
+    lease = subprocess.Popen(['node', str(Path(__file__).with_name('queue.mjs')), '--wait-parent'],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        if lease.stdout.readline().strip() != 'ready': raise ValueError('父单让槽失败')
+        yield
+    finally:
+        lease.communicate()
+        if lease.returncode: raise ValueError('父单恢复槽位失败')
+
+
 def wait(rec, pull=False):
+    with parent_slot_released():
+        return _wait(rec, pull)
+
+
+def _wait(rec, pull=False):
     while True:
         try:
             row = query(rec)
-            if row.get('status') not in ('running', 'queued', 'parked', 'abnormal'): break
+            if row.get('status') not in ('running', 'queued', 'parked', 'waiting', 'abnormal'): break
         except (ConnectionError, OSError, subprocess.TimeoutExpired, ValueError):
             print('Mini 连接中断，等待重连…', file=sys.stderr, flush=True)
         time.sleep(5)

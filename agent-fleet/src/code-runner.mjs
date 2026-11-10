@@ -1,4 +1,4 @@
-import { saveCodexQuota } from './queue.mjs';
+import { saveCodexQuota, taskIdentity, queueRecord } from './queue.mjs';
 // Codex 执行层：管理 app-server 回合、插话、自动续做与 exec 降级。
 import { readContinuationState, continuationProgress, continuationRules, judgeContinuation } from './code-continue.mjs';
 import { judgeTask } from './judge-task.mjs';
@@ -74,7 +74,7 @@ async function threadLifecycle(codexBin, method, threadId) {
 }
 
 /** 执行 Codex 任务；自动续做保留 thread，用户插话仍走现有 steer/resume 链路。 */
-export async function runCode({ prompt, cwd = process.cwd(), low = false, high = false, xhigh = false, max = false, simple = false, sol = false, luna = false, fast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
+export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = false, high = false, xhigh = false, max = false, simple = false, sol = false, luna = false, fast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
   codexBin = process.env.FLEET_CODEX_BIN || 'codex' }) {
   if ([low, high, xhigh, max].filter(Boolean).length > 1) throw new Error('--low、--high、--xhigh 和 --max 不能同用。');
   if ((xhigh || max) && !luna) throw new Error('--xhigh 和 --max 仅用于 --luna。');
@@ -103,7 +103,10 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
   if (!process.env.FLEET_DETACHED_RUN_ID) writeFileSync(logPath, '');
   let stderr = '', activeChild, closed, rpc, turnId, completed, turnFinished, stopping = false;
   let offsetQueue = [], drain = Promise.resolve(), activeDescendants = [];
-  const metadata = { backend: 'codex-exec', threadId: resume || null, sessionId: resume || null,
+  const slot = process.env.FLEET_SLOT_RUN_ID ? queueRecord(process.env.FLEET_SLOT_RUN_ID) : null;
+  briefPath ??= slot?.briefPath;
+  const identity = taskIdentity({ ...slot, briefPath, review });
+  const metadata = { ...identity, briefPath, backend: 'codex-exec', threadId: resume || null, sessionId: resume || null,
     steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, high, xhigh, max, simple, sol, luna, model, tier: effort, serviceTier, review, resumedFrom };
   const record = (patch = {}) => {
     process.send?.({ codexMetadata: metadata });

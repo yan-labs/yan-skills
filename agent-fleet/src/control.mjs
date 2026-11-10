@@ -32,7 +32,7 @@ export function collectStatus({ cwd } = {}) {
     if (cwd && !sameCwd(listed.cwd, cwd)) continue;
     const rec = reconcileDetached(listed);
     const state = detachedState(rec);
-    if (!['running', 'queued', 'parked', 'abnormal'].includes(state) && Date.now() - Date.parse(rec.finishedAt) > 86_400_000) continue;
+    if (!['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(state) && Date.now() - Date.parse(rec.finishedAt) > 86_400_000) continue;
     rows.push({ ...rec, status: state, state, duration: formatDuration(rec.startedAt, rec.finishedAt) });
   }
   for (const listed of listAllPidRecords()) {
@@ -86,7 +86,7 @@ export function deliverSay(spec, text, { cwd } = {}) {
   let rec = readPidRecord(runId);
   const detached = readState(runId);
   if (detached?.status === 'running') {
-    if (detachedState(detached) !== 'running') throw new Error(`任务 ${runId} 的监督器已退出或心跳超时，无法确认插话通道可用。`);
+    if (!['running', 'waiting'].includes(detachedState(detached))) throw new Error(`任务 ${runId} 的监督器已退出或心跳超时，无法确认插话通道可用。`);
     if (!isRecordedProcessAlive(detached.childPid, detached.childCommand)) throw new Error(`任务 ${runId} 的监督器仍在运行，但执行器尚未就绪或已退出，无法投递插话。`);
     // 嵌套 fleet 的历史记录可能覆盖 finished/pid；真正监听此收件箱的是监督器的执行子进程。
     rec = { ...rec, ...detached, pid: detached.childPid, command: detached.childCommand, finished: false };
