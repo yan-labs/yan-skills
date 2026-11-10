@@ -35,18 +35,20 @@ exit "$FLEET_TEST_EXIT"
 `, { mode: 0o755 });
 const mock = join(scratch, 'sdk.mjs');
 writeFileSync(mock, `import {spawn} from 'node:child_process';
+import {randomUUID} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 export function query({prompt, options}) {
   let child;
+  const resultPath=process.env.FLEET_TEST_RESULT+'-'+randomUUID();
   return {
     interrupt: async () => child?.kill('SIGTERM'),
     async *[Symbol.asyncIterator]() {
       yield {type:'system', session_id:'stub-session'};
       // 使用真正的子进程桩，避免任何模型/网关访问。
-      child = spawn(process.env.FLEET_CODEX_BIN, [], {stdio:['ignore','inherit','inherit']});
+      child = spawn(process.env.FLEET_CODEX_BIN, [], {stdio:['ignore','inherit','inherit'],env:{...process.env,FLEET_TEST_RESULT:resultPath}});
       const code = await new Promise(r => child.once('close', r));
       yield {type:'result', subtype:'success', session_id:'stub-session', is_error:code !== 0,
-        result: readFileSync(process.env.FLEET_TEST_RESULT,'utf8'), num_turns:1, total_cost_usd:0};
+        result: readFileSync(resultPath,'utf8'), num_turns:1, total_cost_usd:0};
     }
   };
 }`);
@@ -352,3 +354,86 @@ instant=Date.now();assert.equal((await newShell('"$FLEET_NODE" "$FLEET_CLI" wait
 console.log(`DEMO default launcher group ${dispatcher.pid} SIGKILL; supervisor ${state(demoId).pid} survived; new shell status name=${discovered.name} report=${discovered.reportPath}; wait exit=${demo.code}\n${pgids}${demo.stdout}`);
 writeFileSync(join(scratch,'demo-evidence.json'),JSON.stringify({demoCommand,dispatcherPid:dispatcher.pid,runId:demoId,pgids,discovered,state:state(demoId),wait:demo},null,2));
 console.log(`PASS detach integration; artifacts: ${scratch}`);
+
+// Step 3: real supervisors and isolated state, but no model/backend process.
+{
+  const queueRuns = join(scratch, 'queue-runs');
+  mkdirSync(queueRuns);
+  const oldRuns = process.env.AGENT_FLEET_RUNS_DIR;
+  process.env.AGENT_FLEET_RUNS_DIR = queueRuns;
+  const { launchDetached, waitDetached } = await import('../src/detach.mjs');
+  const { queueRecord, setSlotState, saveCodexQuota, pathsOverlap, canonicalPath } = await import('../src/queue.mjs');
+  const { collectStatus } = await import('../src/control.mjs');
+  const fake = join(scratch, 'fake-supervisor.mjs');
+  writeFileSync(fake, `import {supervise} from ${JSON.stringify(pathToFileURL(resolve('src/detach.mjs')).href)};
+import {writeFileSync,existsSync} from 'node:fs';
+if(process.argv[2]==='__supervise') await supervise(import.meta.filename);
+else {
+ const id=process.env.FLEET_DETACHED_RUN_ID;
+ writeFileSync(process.env.AGENT_FLEET_RUNS_DIR+'/'+id+'.started','yes');
+ while(!existsSync(process.env.AGENT_FLEET_RUNS_DIR+'/'+id+'.release')) await new Promise(r=>setTimeout(r,30));
+ process.send?.({brief:{ok:true,verdict:'ok'},resultText:'fake completed'});
+ process.disconnect();
+}
+`);
+  const launched = [];
+  const until = async (fn, label) => { for(let i=0;i<160;i++) { if(fn()) return; await sleep(50); } throw Error(label); };
+  async function start(name, writes=[], after=null, machine='mini', model='mock', question=name) {
+    const briefPath=join(queueRuns,name+'.brief.md');
+    writeFileSync(briefPath,'fake brief');
+    writeFileSync(briefPath.replace(/\.md$/,'.json'), JSON.stringify({object:{repo:scratch,writes,environment:'test',question},after}));
+    const oldMachine=process.env.FLEET_MACHINE;
+    process.env.FLEET_MACHINE=machine;
+    try {
+      const id=await launchDetached(fake,['execute'],{cwd:scratch,model,briefPath,name,noWait:true});
+      launched.push(id);return id;
+    } finally { if(oldMachine===undefined) delete process.env.FLEET_MACHINE; else process.env.FLEET_MACHINE=oldMachine; }
+  }
+  const release = id => writeFileSync(join(queueRuns,id+'.release'),'yes');
+  const began = id => existsSync(join(queueRuns,id+'.started'));
+  try {
+    const five=[];
+    for(let i=0;i<5;i++) five.push(await start('slot-'+i));
+    for(const id of five) await until(()=>began(id),'first five start');
+    const sixth=await start('slot-6');
+    assert.equal(queueRecord(sixth).state,'queued');assert(!began(sixth));
+    assert.equal(collectStatus().find(r=>r.runId===sixth).state,'queued');
+    release(five[0]);
+    await until(()=>began(sixth),'completion releases slot');
+    const seventh=await start('slot-7');assert.equal(queueRecord(seventh).state,'queued');
+    await setSlotState(five[1],'parked');
+    await until(()=>began(seventh),'park releases slot');
+    for(const id of launched) release(id);
+    for(const id of launched) await waitDetached(id);
+    assert.match(readFileSync(join(queueRuns,sixth+'.log'),'utf8'),/fleet\/queued/);
+    assert.match(readFileSync(join(queueRuns,sixth+'.log'),'utf8'),/fleet\/wake/);
+
+    const writer=await start('writer',[join(scratch,'repo')]);
+    await until(()=>began(writer),'writer starts');
+    await assert.rejects(start('collision',[join(scratch,'repo','src')]),/可写路径重叠/);
+    const after=await start('after',[join(scratch,'repo','src')],'writer');
+    assert.equal(queueRecord(after).state,'queued');assert(!began(after));
+    await setSlotState(writer,'parked');await sleep(350);assert(!began(after),'park retains dependency/path ownership');
+    release(writer);await until(()=>began(after),'after waits for terminal state');release(after);await waitDetached(after);
+    const original=await start('same-question');release(original);await waitDetached(original);
+    await assert.rejects(start('same-question-copy',[],null,'mini','mock','same-question'),/重复问题/);
+    const local=[];
+    for(let i=0;i<3;i++) local.push(await start('local-'+i,[],null,'local'));
+    for(const id of local) await until(()=>began(id),'local three start');
+    const fourth=await start('local-4',[],null,'local');assert(!began(fourth));
+    release(local[0]);await until(()=>began(fourth),'local limit three');
+    for(const id of [...local,fourth]) release(id);
+    for(const id of [...local,fourth]) await waitDetached(id);
+    saveCodexQuota({primary:{usedPercent:81,resetsAt:Math.floor(Date.now()/1000)+3600}});
+    const quota=await start('quota',[],null,'mini','gpt-6.1-sol');assert(!began(quota));
+    saveCodexQuota({primary:{usedPercent:80}});
+    await until(()=>began(quota),'quota clears at 80 percent');release(quota);await waitDetached(quota);
+    assert(pathsOverlap(['/'],[canonicalPath(scratch)]));
+    assert(!pathsOverlap(['/tmp/a'],['/tmp/ab']));
+  } finally {
+    for(const id of launched) release(id);
+    for(const id of launched) await waitDetached(id);
+    if(oldRuns===undefined) delete process.env.AGENT_FLEET_RUNS_DIR; else process.env.AGENT_FLEET_RUNS_DIR=oldRuns;
+  }
+  console.log('queue: fifth/sixth, automatic completion/park admission, overlap, --after and duplicate question passed');
+}

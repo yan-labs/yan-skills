@@ -32,7 +32,7 @@ export function collectStatus({ cwd } = {}) {
     if (cwd && !sameCwd(listed.cwd, cwd)) continue;
     const rec = reconcileDetached(listed);
     const state = detachedState(rec);
-    if (!['running', 'abnormal'].includes(state) && Date.now() - Date.parse(rec.finishedAt) > 86_400_000) continue;
+    if (!['running', 'queued', 'parked', 'abnormal'].includes(state) && Date.now() - Date.parse(rec.finishedAt) > 86_400_000) continue;
     rows.push({ ...rec, status: state, state, duration: formatDuration(rec.startedAt, rec.finishedAt) });
   }
   for (const listed of listAllPidRecords()) {

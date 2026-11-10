@@ -387,6 +387,45 @@ try {
     reset(); writeFileSync(states,'[]'); assert.equal(run(['relaunch','decision']).status,7);
     assert.deepEqual(history().at(-1).args,['judge',jp,meta.questions,'--name','decision','--report',meta.report]);
   });
+  test('simple 跨仓库及跨服务路由，清楚的单仓任务不误拦', () => {
+    const repos=[join(temp,'repo-a'),join(temp,'repo-b')];
+    for(const repo of repos) mkdirSync(join(repo,'.git'),{recursive:true});
+    const invoke=(goal,entry,writes=[],simple=true)=>spawnSync(script,['new','route','--to','gpt','--on','local','--goal',goal,'--action','改代码','--dry-run',...(simple?['--simple']:[]),...(writes.length?['--write',...writes]:[])],{encoding:'utf8',env,input:entry});
+    const entry=`## 入口\n仓库: ${repos[0]}\n可写路径: ${repos[0]}/src\n`;
+    for(const [goal,body,writes,blocked] of [
+      ['修复按钮',entry,[repos[0]+'/src',repos[1]+'/src'],true],
+      ['修复按钮',entry,[repos[0]+'/src',repos[0]+'/test'],false],
+      ['打通登录',entry,[],true],
+      ['接入存储',entry,[],true],
+      ['跨服务同步',entry,[],true],
+      ['接入存储',entry+'具体文件: src/store.ts、src/index.ts\n',[],false],
+      ['打通入口',entry+`可写路径: ${repos[0]}/other\n具体文件: src/index.ts\n`,[],true],
+      ['修复按钮',entry,[],false],
+    ]) {
+      const r=invoke(goal,body,writes); assert.equal(r.status,blocked?1:0,r.stderr);
+      if(blocked) assert.match(r.stderr,/改用 Sol/);
+    }
+    assert.equal(invoke('跨服务同步',entry,[repos[0],repos[1]],false).status,0);
+  });
+  test('batch 先打印重叠矩阵，拒绝无 after 冲突、循环；允许串行及无重叠批次', () => {
+    const body=join(temp,'batch-body.md');
+    writeFileSync(body,`## 入口\n仓库: ${temp}\n`);
+    const manifest=join(temp,'batch.json');
+    const job=(name,path,after)=>[name,'--to','gpt','--on','local','--goal',name,'--body',body,'--write',path,'--no-lint',...(after?['--after',after]:[])];
+    writeFileSync(manifest,JSON.stringify([job('batch-a',temp+'/a'),job('batch-b',temp+'/a/src')]));
+    reset(); let r=run(['batch',manifest,'--dry-run']);
+    assert.equal(r.status,1,r.stderr);assert.match(r.stdout,/重叠矩阵/);assert.match(r.stdout,/batch-a - X/);assert.equal(history().length,0);
+    writeFileSync(manifest,JSON.stringify([job('batch-a',temp+'/a'),job('batch-b',temp+'/a/src','batch-a')]));
+    r=run(['batch',manifest,'--dry-run']);assert.equal(r.status,0,r.stderr);assert.match(r.stdout,/X/);assert.equal(history().length,0);
+    r=run(['batch',manifest]);assert.equal(r.status,1,r.stderr); // fake fleet deliberately exits 7
+    assert.deepEqual(history().filter(c=>c.args[0]==='code').map(c=>c.args[c.args.indexOf('--name')+1]),['batch-a','batch-b']);
+    const aMeta=JSON.parse(readFileSync(join(home,'.agent-reports',report.split('/').at(-2),'batch-b.brief.json'),'utf8'));
+    assert.equal(aMeta.after,'batch-a');assert.deepEqual(aMeta.object.writes,[temp+'/a/src']);
+    writeFileSync(manifest,JSON.stringify([job('cycle-a',temp+'/a','cycle-b'),job('cycle-b',temp+'/a','cycle-a')]));
+    assert.match(run(['batch',manifest,'--dry-run']).stderr,/循环依赖/);
+    writeFileSync(manifest,JSON.stringify([job('disjoint-a',temp+'/a'),job('disjoint-b',temp+'/ab')]));
+    assert.equal(run(['batch',manifest,'--dry-run']).status,0);
+  });
   test('team 转发底层入口', () => { reset(); assert.equal(run(['team']).status,0); assert.deepEqual(history().at(-1).args,['team']); });
   test('status 提醒 launchDetached 与 wait',()=> {
     state(); const r=run(['status']); assert.equal(r.status,0); assert.match(r.stdout,/⚠/); assert.match(r.stdout,/fleet wait fake-run/);

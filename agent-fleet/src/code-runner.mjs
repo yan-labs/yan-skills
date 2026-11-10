@@ -1,3 +1,4 @@
+import { saveCodexQuota } from './queue.mjs';
 // Codex 执行层：管理 app-server 回合、插话、自动续做与 exec 降级。
 import { readContinuationState, continuationProgress, continuationRules, judgeContinuation } from './code-continue.mjs';
 import { judgeTask } from './judge-task.mjs';
@@ -245,6 +246,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
           return;
         }
         const params = event.params || {};
+        if (event.method === 'account/rateLimits/updated') saveCodexQuota(params.rateLimits);
         if (event.method === 'turn/started') { turnId = params.turn.id; metadata.numTurns++; record({ activeTurnId: turnId }); }
         if (event.method === 'item/completed' && params.item?.type === 'agentMessage' && params.item.phase !== 'commentary')
           writeFileSync(resultPath, params.item.text || '');

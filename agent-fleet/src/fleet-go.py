@@ -40,6 +40,31 @@ def rule():
     return stored
 
 
+def repository_roots(paths, on):
+    paths = list(dict.fromkeys(paths))
+    if len(paths) < 2: return set()
+    script = """import base64,json,pathlib,sys
+p=json.loads(base64.b64decode(sys.argv[1])); roots=[]
+for value in p['paths']:
+ path=pathlib.Path(value).resolve()
+ for parent in (path,*path.parents):
+  if (parent/'.git').exists(): roots.append(str(parent)); break
+print(json.dumps(sorted(set(roots))))
+"""
+    if on == 'mini':
+        result = mini.call(script, {'paths': [mini.remote_path(p) for p in paths]})
+        if result.returncode: raise ValueError('无法核验跨仓库路径，请改用 Sol。')
+        return set(json.loads(result.stdout))
+    roots = set()
+    for value in paths:
+        path = Path(value).resolve()
+        for parent in (path, *path.parents):
+            if (parent / '.git').exists():
+                roots.add(str(parent))
+                break
+    return roots
+
+
 def lint(text, to='gpt', simple=False, on='local', extra=True):
     errors = []
     first = text.splitlines()[0] if text else ''
@@ -114,6 +139,22 @@ def lint(text, to='gpt', simple=False, on='local', extra=True):
                 errors.append('入口缺少可写路径。')
         if simple and re.search(r'未知|自己找', entry):
             errors.append('入口未知或自己找时不能使用 --simple。')
+        if simple:
+            writes = re.findall(r'^[ \t]*可写路径[ \t]*[:：][ \t]*(/[^\s，,；;（(]+)', entry, re.M)
+            allowed = re.search(r'^## 允许范围\s*\n允许写：\n(.*?)(?=^只读：|^## |\Z)', text, re.M | re.S)
+            if allowed:
+                writes.extend(re.findall(r'^- (/[^\n]+)$', allowed.group(1), re.M))
+            if len(repository_roots(writes, on)) >= 2:
+                errors.append('--simple 可写路径跨两个或以上仓库，请改用 Sol（移除 --simple）。')
+            goal = re.search(r'^## 目标\s*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
+            if goal and re.search(r'打通|接入|跨服务', goal.group(1)):
+                files = re.findall(r'(?:^|[\s:：、,，`])((?:/|\.?\.?/)?[\w@./-]+\.[A-Za-z][A-Za-z0-9]*)(?=$|[\s、,，`）)])', entry, re.M)
+                repo_match = re.search(r'仓库[ \t]*[:：][ \t]*(/[^\s，,；;（(]+)', entry)
+                repo_path = repo_match.group(1) if repo_match else '/'
+                concrete = [os.path.normpath(f if f.startswith('/') else os.path.join(repo_path, f)) for f in files]
+                scoped = re.findall(r'^[ \t]*可写路径[ \t]*[:：][ \t]*(/[^\s，,；;（(]+)', entry, re.M)
+                if not concrete or any(not any(f == w.rstrip('/') or f.startswith(w.rstrip('/') + '/') for f in concrete) for w in scoped):
+                    errors.append('--simple 的跨服务目标入口未列全具体文件，请改用 Sol（移除 --simple）或补齐入口文件。')
         if errors:
             errors.append('示例（按实际任务和授权修改）：\n动作: 改代码 / 本地提交\n## 入口\n仓库: /tmp\n可写路径: /tmp/example\n## 授权覆盖\n授权块：local-commit')
     return errors
@@ -196,7 +237,7 @@ def running(active_only=True):
             row['name'] = rec['name']
             row['state'] = row.get('status')
             row['location'] = 'mini'
-            if not active_only or row.get('status') in ('running', 'abnormal'): rows.append(row)
+            if not active_only or row.get('status') in ('running', 'queued', 'parked', 'abnormal'): rows.append(row)
         except (OSError, subprocess.SubprocessError, ValueError, ConnectionError):
             rows.append({'runId': rec['id'], 'name': rec['name'], 'briefPath': rec['brief'], 'status': 'unreachable', 'state': 'running', 'location': 'mini'})
     return rows
@@ -544,7 +585,7 @@ def score(args):
         print(f'\n复核单 {len(checkers)} 条，已关联被复核任务 {paired} 条（--for 显式 {sum(1 for r in checkers if r.get("pairSource") == "explicit")}，同名前缀推测 {sum(1 for r in checkers if r.get("pairSource") == "inferred")}）。')
 
 
-def new(args):
+def new(args, prepare=False):
     """组装标准 brief；预览不写盘，正文文件与 stdin 使用明确输入规则。"""
     if args.to == 'claude' and args.tier == 'fable':
         raise ValueError('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）')
@@ -620,6 +661,12 @@ def new(args):
     parts.append('## 已知坑\n' + '\n\n'.join(block('pitfall-' + p, values) for p in dict.fromkeys(pitfalls) if p))
     parts.extend(['## 验收\n' + (('产物清单：\n' + '\n'.join('- ' + item for item in args.deliverables) + '\n\n') if args.deliverables else '') + block('accept-boilerplate', values) + '\n\n' + block('report-template', values)
                   + ('\n\n' + block('review-ledger', values) if is_review else ''), rule()])
+    repo_match = re.search(r'^仓库[ \t]*[:：][ \t]*([^\s，,；;（(]+)', body, re.M)
+    entry_writes = re.findall(r'^可写路径[ \t]*[:：][ \t]*(/[^\s，,；;（(]+)', body, re.M)
+    object_ = {'repo': repo_match.group(1).strip('`') if repo_match else '',
+               'writes': list(dict.fromkeys([*(args.write or []), *entry_writes])),
+               'environment': args.environment or '', 'question': args.question or args.goal or ''}
+    parts.insert(2, '对象: ' + json.dumps(object_, ensure_ascii=False))
     text = '\n\n'.join(parts) + '\n'
     location = args.on or os.environ.get('FLEET_DEFAULT_ON', 'mini')
     if location == 'mini' and not mini.available() and args.on != 'mini': location = 'local'
@@ -631,9 +678,11 @@ def new(args):
             'subagents': args.subagents, 'bulk': args.bulk, 'expect-changes': args.expect_changes,
             # 账本用：难度档、任务类型、被复核任务名；relaunch/amend 沿用 meta，不另存。
             'paths': list(dict.fromkeys([*(mini.expand_path(p) for p in (args.read or [])), *(mini.expand_path(p) for p in (args.write or [])), *mini.referenced_paths((args.goal or '') + '\n' + body)])),
-            'on': args.on, 'pull': args.pull, 'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
+            'on': args.on, 'pull': args.pull, 'object': object_ if object_['repo'] else None, 'after': args.after, 'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
     if args.to == 'jev':
         meta['questions'] = str(path.with_suffix('.questions.json'))
+    if prepare:
+        return text, meta
     if args.dry_run:
         print(text, end='')
         print('\n将执行：' + shlex.join(command(meta)), file=sys.stderr)
@@ -650,7 +699,71 @@ def new(args):
         launch(meta)
 
 
-def main():
+def batch(args, parser):
+    entries = json.loads(Path(args.manifest).read_text())
+    if not isinstance(entries, list) or not entries:
+        raise ValueError('batch 清单需要非空 JSON 数组，每项是 new 的参数数组。')
+    jobs = []
+    for argv in entries:
+        if not isinstance(argv, list) or not all(isinstance(v, str) for v in argv):
+            raise ValueError('batch 每项必须是参数字符串数组。')
+        item = parser.parse_args(['new', *argv])
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', item.name):
+            raise ValueError('batch 任务名无效。')
+        if item.dry_run or item.no_launch or not item.body or item.body == '-':
+            raise ValueError('batch 每项须提供 --body 文件，不使用 stdin、--dry-run 或 --no-launch。')
+        text, meta = new(item, prepare=True)
+        jobs.append((item, text, meta))
+    names = [item.name for item, _, _ in jobs]
+    if len(set(names)) != len(names):
+        raise ValueError('batch 任务名重复。')
+    by_name = {meta['name']: meta for _, _, meta in jobs}
+    def follows(meta, name, seen=None):
+        seen = set() if seen is None else seen
+        after = meta.get('after')
+        if not after or after in seen: return False
+        return after == name or (after in by_name and follows(by_name[after], name, seen | {after}))
+    for name, meta in by_name.items():
+        if follows(meta, name): raise ValueError('batch --after 存在循环依赖。')
+    overlaps = {}
+    for i, (_, _, left) in enumerate(jobs):
+        a = [os.path.realpath(p) for p in (left.get('object') or {}).get('writes', [])]
+        for j, (_, _, right) in enumerate(jobs):
+            b = [os.path.realpath(p) for p in (right.get('object') or {}).get('writes', [])]
+            overlaps[i, j] = any(x == y or x.startswith(y.rstrip('/') + '/') or y.startswith(x.rstrip('/') + '/') for x in a for y in b)
+    print('重叠矩阵（X=可写路径重叠，.=无重叠）', flush=True)
+    print('任务 ' + ' '.join(names), flush=True)
+    for i, name in enumerate(names):
+        print(name + ' ' + ' '.join('-' if i == j else 'X' if overlaps[i, j] else '.' for j in range(len(jobs))), flush=True)
+    for i, (_, _, left) in enumerate(jobs):
+        for j in range(i):
+            right = jobs[j][2]
+            if overlaps[i, j] and not (follows(left, right['name']) or follows(right, left['name'])):
+                raise ValueError('batch 可写路径重叠；请用 --after 明确串行。')
+    if args.dry_run: return
+    for item, _, _ in jobs:
+        item.no_launch = True
+        new(item)
+    pending = list(jobs)
+    active = {}
+    failures = []
+    while pending or active:
+        for job in pending[:]:
+            meta = job[2]
+            after = meta.get('after')
+            if after in active or any(j[2]['name'] == after for j in pending): continue
+            active[meta['name']] = subprocess.Popen([sys.executable, __file__, 'relaunch', meta['name']])
+            pending.remove(job)
+        for name, proc in list(active.items()):
+            code = proc.poll()
+            if code is not None:
+                if code: failures.append(name)
+                del active[name]
+        if pending or active: time.sleep(0.1)
+    if failures: raise ValueError('batch 任务失败：' + ', '.join(failures))
+
+
+def build_parser():
     """解析公开命令入口；状态默认仅保留非终态及最近一小时。"""
     parser = argparse.ArgumentParser(description='fleet-go：短参数组装标准 brief；前台执行 fleet。')
     sub = parser.add_subparsers(dest='action', required=True)
@@ -664,7 +777,7 @@ def main():
     p.add_argument('--make', choices=['image', 'video'])
     for option in ['review', 'low', 'high', 'xhigh', 'max', 'simple', 'sol', 'luna', 'fast', 'no-fast', 'subagents', 'bulk', 'expect-changes']:
         p.add_argument('--' + option, action='store_true')
-    for option in ['why', 'goal', 'body', 'budget', 'forbid', 'pitfalls', 'report']:
+    for option in ['why', 'goal', 'body', 'budget', 'forbid', 'pitfalls', 'report', 'after', 'environment', 'question']:
         p.add_argument('--' + option)
     p.add_argument('--level', type=level_arg, help='难度档 L1–L4，记入账本')
     p.add_argument('--type', type=str.lower, help='任务类型，记入账本：work|review|research|copy|media|orchestrate|judge|ops 等')
@@ -678,6 +791,9 @@ def main():
     group = p.add_mutually_exclusive_group()
     group.add_argument('--dry-run', action='store_true')
     group.add_argument('--no-launch', action='store_true')
+    p = sub.add_parser('batch', help='JSON 数组，每项为 new 的参数数组；先打印重叠矩阵')
+    p.add_argument('manifest')
+    p.add_argument('--dry-run', action='store_true')
     p = sub.add_parser('amend')
     p.add_argument('name')
     p.add_argument('message')
@@ -726,6 +842,11 @@ def main():
     p.add_argument('--all', action='store_true')
     p = sub.add_parser('score')
     p.add_argument('--since', help='只统计该日期（YYYY-MM-DD）及以后的账本行')
+    return parser
+
+
+def main():
+    parser = build_parser()
     if any(a == '--kind' or a.startswith('--kind=') for a in sys.argv[1:]):
         raise ValueError('请使用 --to gpt|openai|claude|grok|gemini|jev。')
     args = parser.parse_args()
@@ -733,6 +854,8 @@ def main():
         raise ValueError('名称只能包含字母、数字、下划线与连字符。')
     if args.action == 'new':
         new(args)
+    elif args.action == 'batch':
+        batch(args, parser)
     elif args.action == 'amend':
         amend(args)
     elif args.action == 'relaunch':

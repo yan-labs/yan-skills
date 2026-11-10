@@ -61,7 +61,7 @@ def find(spec):
     local = []
     if local_dir.exists():
         for path in local_dir.glob('*.json'):
-            if path.name.endswith('.pid.json'): continue
+            if path.name.endswith(('.pid.json', '.queue.json')): continue
             try:
                 row = json.loads(path.read_text())
                 if row.get('runId'):
@@ -149,6 +149,9 @@ def launch(meta, argv):
     files = {remote_path(meta['brief']): rewrite_brief(Path(meta['brief']).read_text())}
     if meta.get('questions'):
         files[remote_path(meta['questions'])] = Path(meta['questions']).read_text()
+    metadata = Path(meta['brief']).with_suffix('.json')
+    if metadata.exists():
+        files[remote_path(str(metadata))] = rewrite_brief(metadata.read_text())
     args = list(argv)
     for i, value in enumerate(args):
         if i == 2 or (i and args[i-1] in ('--report', '--read', '--write', '--cwd')):
@@ -165,7 +168,7 @@ binary=pathlib.Path(p['args'][0]); p['args'][0]=str(binary/'fleet' if binary.is_
 for name,text in p['files'].items():
  f=pathlib.Path(name); f.parent.mkdir(parents=True,exist_ok=True); f.write_text(text)
 pathlib.Path(p['report']).parent.mkdir(parents=True,exist_ok=True)
-r=subprocess.run(p['args'],cwd=p['cwd'],capture_output=True,text=True); print(r.stdout,end=''); print(r.stderr,end='',file=sys.stderr); sys.exit(r.returncode)
+r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini'},capture_output=True,text=True); print(r.stdout,end=''); print(r.stderr,end='',file=sys.stderr); sys.exit(r.returncode)
 '''
     p = call(script, payload)
     if p.returncode: raise ValueError('Mini 启动失败；请检查 Mini 端任务状态，避免重复启动。\n' + ((p.stderr or '') + (p.stdout or ''))[-600:])
@@ -216,7 +219,7 @@ def wait(rec, pull=False):
     while True:
         try:
             row = query(rec)
-            if row.get('status') not in ('running', 'abnormal'): break
+            if row.get('status') not in ('running', 'queued', 'parked', 'abnormal'): break
         except (ConnectionError, OSError, subprocess.TimeoutExpired, ValueError):
             print('Mini 连接中断，等待重连…', file=sys.stderr, flush=True)
         time.sleep(5)

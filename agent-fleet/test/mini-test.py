@@ -65,6 +65,7 @@ with tempfile.TemporaryDirectory() as d:
     (local / 'local.json').write_text(json.dumps({'runId':'local-id','name':'unit','status':'done','startedAt':'2026-11-10T12:00:00.000Z'}))
     (mini.STORE / 'run-123.json').write_text(json.dumps({'id':'run-123','name':'unit','startedAt':'2026-11-10T11:00:00.000Z'}))
     with patch.dict(os.environ, {'AGENT_FLEET_RUNS_DIR':str(local)}):
+        (local / 'local-id.queue.json').write_text(json.dumps({'runId':'local-id','name':'unit','state':'running','startedAt':12345}))
         assert mini.find('unit')['id'] == 'local-id'
         (local / 'local.json').write_text(json.dumps({'runId':'local-id','name':'unit','status':'running','startedAt':'2026-11-10T10:00:00.000Z'}))
         assert mini.find('unit')['id'] == 'run-123'

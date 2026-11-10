@@ -6,6 +6,7 @@ import { runsDir } from './progress.mjs';
 import { assertSafeToSignal, isPidAlive, isRecordedProcessAlive, sameCwd, signalProcessTree, processCommand, collectDescendantPids, readPidPpidTable, readPidRecord, writePidRecord } from './pid.mjs';
 import { buildBrief, formatBriefHuman, redactEvidence, snapshotGit, inspectGit } from './brief.mjs';
 import { recordRun } from './ledger.mjs';
+import { registerQueue, acquireSlot, queueRecord, setSlotState, queueEvent } from './queue.mjs';
 
 export const statePath = (id) => join(runsDir(), `${id}.json`);
 export function writeState(rec) {
@@ -23,7 +24,7 @@ export function readState(id) {
 }
 export function detachedState(rec) {
   if (rec.status !== 'running') return rec.status;
-  return isRecordedProcessAlive(rec.pid, rec.command) && Date.now() - Date.parse(rec.heartbeatAt) < 90_000 ? 'running' : 'abnormal';
+  return isRecordedProcessAlive(rec.pid, rec.command) && Date.now() - Date.parse(rec.heartbeatAt) < 90_000 ? queueRecord(rec.runId)?.state ?? 'running' : 'abnormal';
 }
 /**
  * 状态还写着 running,但监督进程和执行进程都已不在(含 pid 被别的进程复用):没人会再写终态了,
@@ -98,7 +99,7 @@ export async function launchDetached(cli, args, { cwd, model, briefPath, name, r
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
       reject(new Error('detach 监督进程启动超时，未退回前台。'));
-    }, 1500);
+    }, 15000);
     child.once('error', err => { clearTimeout(timer); reject(err); });
     child.once('exit', code => { clearTimeout(timer); reject(new Error(`detach 监督进程启动失败 (${code})，见 ${rec.logPath}`)); });
     child.once('message', msg => {
@@ -192,6 +193,15 @@ export async function supervise(cli) {
   try {
     writePidRecord(rec.runId, { pid: rec.pid, command: rec.command, model: rec.model, cwd: rec.cwd,
       startedAt: rec.startedAt, logPath: rec.logPath, finished: false });
+    await registerQueue(rec);
+    const admitted = await acquireSlot(rec.runId);
+    if (!admitted) {
+      appendFileSync(rec.logPath, queueEvent('queued'));
+      process.send?.({ ready: true });
+    }
+    while (!stopping && !(await acquireSlot(rec.runId))) await new Promise(r => setTimeout(r, 250));
+    if (stopping) throw new Error('排队任务已停止。');
+    if (!admitted) appendFileSync(rec.logPath, queueEvent('wake'));
     child = spawn(process.execPath, [cli, ...payload.args], {
       detached: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       env: { ...process.env, FLEET_DETACHED_RUN_ID: rec.runId, FLEET_DETACHED_BATCH: payload.args[0] === 'run-many' ? '1' : '' },
@@ -221,7 +231,7 @@ export async function supervise(cli) {
     rec.childPid = child.pid;
     rec.childCommand = processCommand(child.pid);
     beat();
-    process.send?.({ ready: true });
+    if (admitted) process.send?.({ ready: true });
     if (stopping) stop();
     const { code, signal } = await outcome;
     // 执行器退出也清掉它留下的进程组/子孙，终态不留下后台子任务。
@@ -239,6 +249,7 @@ export async function supervise(cli) {
     rec.verdict = stopping ? 'stopped' : 'fail';
     rec.exitCode = 1;
     rec.error = redactEvidence(err.message);
+    if (process.connected) process.send({ ready: false, error: rec.error });
     rec.brief = buildBrief({ ...failureFacts(rec), ok: false, error: rec.error, progress: { phase: '监督进程' }, resultPath: rec.resultPath, logPath: rec.logPath });
     console.error(rec.error);
   } finally {
@@ -249,6 +260,7 @@ export async function supervise(cli) {
     if (!summary && rec.brief?.failureReport) writeFileSync(rec.resultPath, `${redactEvidence(readFileSync(rec.resultPath, 'utf8'))}\n\n## 失败事实\n${JSON.stringify(rec.brief.failureReport, null, 2)}\n`);
     if (rec.fallbackWarning) appendFileSync(rec.resultPath, `\n${rec.fallbackWarning}\n`);
     beat();
+    await setSlotState(rec.runId, rec.status);
     appendFileSync(rec.logPath, `[agent-fleet] done ${rec.status === 'done' ? 'ok' : 'error'}\n`);
     if (process.connected) process.disconnect();
   }
@@ -267,7 +279,7 @@ export async function waitDetached(spec, { cwd, timeout, originalOutput = false 
     const rec = reconcileDetached(readState(id));
     if (!rec) throw new Error(`找不到 detach 任务 ${id}`);
     const state = detachedState(rec);
-    if (state !== 'running') {
+    if (!['running', 'queued', 'parked'].includes(state)) {
       const brief = state === 'abnormal' ? buildBrief({ ...failureFacts(rec), ok: false,
         error: `异常终止；最后心跳 ${rec.heartbeatAt}`, resultPath: rec.resultPath, logPath: rec.logPath })
         : rec.brief ?? buildBrief({ ...failureFacts(rec), ok: false, stopped: state === 'stopped', error: rec.error,

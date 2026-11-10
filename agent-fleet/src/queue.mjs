@@ -1,0 +1,153 @@
+// Machine-local admission state. Supervisors wait here without starting a model.
+import { existsSync, statSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { runsDir } from './progress.mjs';
+import { isRecordedProcessAlive, processCommand } from './pid.mjs';
+import { fleetEvent } from './timeline.mjs';
+
+const live = new Set(['queued', 'running', 'parked']);
+const pathFor = id => join(runsDir(), `${id}.queue.json`);
+function read(path) {
+  try { return JSON.parse(readFileSync(path, 'utf8')); }
+  catch (err) { if (err.code === 'ENOENT') return null; throw err; }
+}
+function write(row) {
+  const path = pathFor(row.runId), tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(row) + '\n'); renameSync(tmp, path);
+}
+export function queueRecord(id) { return read(pathFor(id)); }
+export function canonicalPath(value) {
+  let path = resolve(value), tail = [];
+  while (!existsSync(path) && dirname(path) !== path) { tail.unshift(path.split('/').at(-1)); path = dirname(path); }
+  return join(realpathSync(path), ...tail);
+}
+export function pathsOverlap(a, b) {
+  return a.some(x => b.some(y => x === y || x.startsWith(y.replace(/\/$/, '') + '/') || y.startsWith(x.replace(/\/$/, '') + '/')));
+}
+export function taskObject(briefPath) {
+  if (!briefPath) return null;
+  const metaPath = briefPath.replace(/\.md$/, '.json');
+  const meta = read(metaPath);
+  const object = meta?.object;
+  if (!object) return null; // Legacy/direct fleet briefs still share the machine slot limit.
+  return { ...object, repo: canonicalPath(object.repo), writes: object.writes.map(canonicalPath), after: meta.after || null };
+}
+async function locked(fn) {
+  mkdirSync(runsDir(), { recursive: true });
+  const lock = join(runsDir(), '.queue-lock');
+  for (;;) {
+    try { mkdirSync(lock); break; }
+    catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      const owner = read(join(lock, 'owner.json'));
+      if (!owner) {
+        let age;
+        try { age = Date.now() - statSync(lock).mtimeMs; } catch (err) { if (err.code === 'ENOENT') continue; throw err; }
+        if (age > 15000) throw new Error('槽位锁缺少持有者记录；请由协调者清理 .queue-lock 后重试。');
+      }
+      if (owner && !isRecordedProcessAlive(owner.pid, owner.command)) { rmSync(lock, { recursive: true, force: true }); continue; }
+      await new Promise(r => setTimeout(r, 20));
+    }
+  }
+  const ownerPath = join(lock, 'owner.json');
+  writeFileSync(ownerPath + '.tmp', JSON.stringify({ pid: process.pid, command: processCommand(process.pid) }));
+  renameSync(ownerPath + '.tmp', ownerPath);
+  try { return await fn(); } finally { rmSync(lock, { recursive: true, force: true }); }
+}
+export function queueRows() {
+  if (!existsSync(runsDir())) return [];
+  return readdirSync(runsDir()).filter(n => n.endsWith('.queue.json')).map(n => read(join(runsDir(), n)));
+}
+function refreshedRows() {
+  return queueRows().map(row => {
+    if (!live.has(row.state)) return row;
+    const rec = read(join(runsDir(), `${row.runId}.json`));
+    if ((rec && ['done', 'failed', 'stopped'].includes(rec.status)) ||
+        (!isRecordedProcessAlive(row.pid, row.command) && !isRecordedProcessAlive(rec?.childPid, rec?.childCommand))) {
+      row.state = rec?.status && rec.status !== 'running' ? rec.status : 'failed';
+      row.finishedAt = Date.now(); write(row);
+    }
+    return row;
+  });
+}
+function dependency(rows, spec) {
+  const matches = rows.filter(r => r.runId === spec || r.name === spec);
+  const active = matches.filter(r => live.has(r.state));
+  if (active.length > 1) throw new Error('--after 匹配多个未结束任务，请使用 runId。');
+  return active[0] ?? matches.sort((a, b) => b.createdAt - a.createdAt)[0];
+}
+function follows(rows, row, predecessor, seen = new Set()) {
+  if (!row.after || seen.has(row.runId)) return false;
+  seen.add(row.runId);
+  const dep = dependency(rows, row.after);
+  return dep?.runId === predecessor.runId || (dep && follows(rows, dep, predecessor, seen));
+}
+export async function registerQueue(rec) {
+  return locked(() => {
+    const rows = refreshedRows();
+    const object = taskObject(rec.briefPath);
+    const row = { runId: rec.runId, name: rec.name, pid: process.pid, command: processCommand(process.pid),
+      machine: process.env.FLEET_MACHINE || 'local', model: rec.model, object, after: object?.after,
+      createdAt: Date.now(), state: 'queued' };
+    if (row.after && !dependency(rows, row.after)) throw new Error('--after 找不到任务；请先派发前置单。');
+    for (const other of rows) {
+      if (!object || !other.object || other.runId === row.runId) continue;
+      if (live.has(other.state) && pathsOverlap(object.writes, other.object.writes) && !follows(rows, row, other))
+        throw new Error(`可写路径重叠：${other.name || other.runId}；请用 --after 串行，或对已有单 say。`);
+      if ((live.has(other.state) || Date.now() - (other.finishedAt || other.createdAt) < 86_400_000) &&
+          object.question && object.repo === other.object.repo && object.environment === other.object.environment &&
+          object.question.trim() === other.object.question?.trim() && other.name !== row.name && !follows(rows, row, other))
+        throw new Error(`重复问题：${other.name || other.runId}；请对已有单 say。`);
+    }
+    write(row);
+    return row;
+  });
+}
+export function saveCodexQuota(rateLimits) {
+  mkdirSync(runsDir(), { recursive: true });
+  const windows = [rateLimits?.primary, rateLimits?.secondary].filter(Boolean);
+  const usedPercent = Math.max(0, ...windows.map(w => Number(w.usedPercent) || 0));
+  const resetsAt = Math.max(0, ...windows.filter(w => Number(w.usedPercent) > 80).map(w => Number(w.resetsAt) || 0));
+  const path = join(runsDir(), 'codex-quota.json'), tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify({ usedPercent, resetsAt, updatedAt: Date.now() })); renameSync(tmp, path);
+}
+export async function acquireSlot(id) {
+  return locked(() => {
+    const rows = refreshedRows(), row = rows.find(r => r.runId === id);
+    if (!row || row.state !== 'queued') return row?.state === 'running';
+    const dep = row.after && dependency(rows, row.after);
+    if (dep && live.has(dep.state)) return false;
+    const quota = read(join(runsDir(), 'codex-quota.json'));
+    if (/^gpt-/.test(row.model) && quota?.usedPercent > 80 && (!quota.resetsAt || quota.resetsAt * 1000 > Date.now())) return false;
+    const capacity = row.machine === 'mini' ? 5 : 3;
+    const active = rows.filter(r => r.machine === row.machine && r.state === 'running').length;
+    // Older detached/foreground runs also occupy slots, without double-counting supervised children.
+    const known = new Set(rows.map(r => r.runId));
+    const legacy = new Set();
+    for (const name of readdirSync(runsDir()).filter(n => n.endsWith('.json') && !n.endsWith('.queue.json'))) {
+      const rec = read(join(runsDir(), name));
+      const runId = rec?.runId || name.replace(/\.pid\.json$/, '');
+      if (!rec || known.has(runId) || (rec.detach ? rec.status !== 'running' : !name.endsWith('.pid.json') || rec.finished)) continue;
+      if (isRecordedProcessAlive(rec.pid, rec.command)) legacy.add(runId);
+    }
+    if (active + legacy.size >= capacity) return false;
+    const earlier = rows.some(r => r.machine === row.machine && r.state === 'queued' &&
+      (r.createdAt < row.createdAt || (r.createdAt === row.createdAt && r.runId < row.runId)) &&
+      (!r.after || !live.has(dependency(rows, r.after)?.state)) &&
+      !(/^gpt-/.test(r.model) && quota?.usedPercent > 80 && (!quota.resetsAt || quota.resetsAt * 1000 > Date.now())));
+    if (earlier) return false;
+    row.state = 'running'; row.startedAt = Date.now(); write(row); return true;
+  });
+}
+// Step 4 calls this only after parking the executor, and reacquires before waking it.
+export async function setSlotState(id, state) {
+  if (!['parked', 'queued', 'done', 'failed', 'stopped'].includes(state)) throw new Error('无效槽位状态。');
+  return locked(() => {
+    const row = queueRecord(id);
+    if (!row) return;
+    row.state = state;
+    if (!live.has(state)) row.finishedAt = Date.now();
+    write(row);
+  });
+}
+export function queueEvent(event) { return fleetEvent(event) + '\n'; }
