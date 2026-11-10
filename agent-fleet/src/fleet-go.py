@@ -465,6 +465,10 @@ def amend(args):
         checked(revised, meta['to'])
         path.write_text(revised)
         print(f'已修订：{path}', flush=True)
+    action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', path.read_text(), re.M)
+    if action_match:
+        meta['actions'] = [a.strip() for a in action_match.group(1).split('/') if a.strip()]
+        path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     remote = mini.find(args.name) if meta.get('execution') == 'mini' else None
     if remote and not remote.get('local'):
         remote_brief = mini.remote_path(str(path))

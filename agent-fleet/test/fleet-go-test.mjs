@@ -22,7 +22,17 @@ fs.appendFileSync(process.env.CALLS, JSON.stringify({args, pid:process.pid})+'\\
 if(args[0]==='status') { const rows=JSON.parse(fs.readFileSync(process.env.STATES,'utf8')); console.log(JSON.stringify(args.includes('--running')?rows.filter(r=>r.status==='running'):rows)); }
 if(args[0]==='stop') fs.writeFileSync(process.env.STATES,JSON.stringify(JSON.parse(fs.readFileSync(process.env.STATES,'utf8')).map(r=>r.runId===args[1]?{...r,status:'stopped'}:r)));
 if(args[0]==='say' && process.env.SAY_FAIL) process.exit(1);
-if(['code','openai','copy','bulk','grok-cli','haiku','sonnet','opus','fable','judge'].includes(args[0])) process.exit(7);
+if(args[0]==='code' && process.env.QUEUE_RESULT) {
+  (async()=>{
+    const {registerQueue,acquireSlot,queueRecord}=await import(${JSON.stringify(new URL('../src/queue.mjs',import.meta.url).href)});
+    await registerQueue({runId:'blocker',model:'test-runner'});
+    if(!await acquireSlot('blocker')) throw Error('blocker must occupy the only slot');
+    await registerQueue({runId:'restarted',name:args[args.indexOf('--name')+1],briefPath:args[1],model:'test-runner'});
+    const admitted=await acquireSlot('restarted');
+    fs.writeFileSync(process.env.QUEUE_RESULT,JSON.stringify({admitted,row:queueRecord('restarted')}));
+    process.exit(7);
+  })().catch(e=>{console.error(e);process.exit(1)});
+} else if(['code','openai','copy','bulk','grok-cli','haiku','sonnet','opus','fable','judge'].includes(args[0])) process.exit(7);
 `, { mode: 0o755 });
 writeFileSync(join(bin, 'pgrep'), '#!/bin/sh\nif [ -n "${RESIDUAL:-}" ]; then\n printf "%s\\n" "$RESIDUAL"\n exit 0\nfi\nexit 1\n', { mode: 0o755 });
 const env = { ...process.env, FLEET_DEFAULT_ON: 'local', HOME: home, PATH: bin + ':' + process.env.PATH, CALLS: calls, STATES: states };
@@ -73,6 +83,31 @@ try {
     const dir=path.slice(0,path.lastIndexOf('/'));
     const meta=JSON.parse(readFileSync(join(dir,'prodwatch-read.brief.json'),'utf8'));
     assert.deepEqual(meta.auth,['review']);assert.deepEqual(meta.actions,['只读']);
+  });
+  test('只读任务 amend --restart 改写后同步最新动作，满槽不再免槽', () => {
+    const body=join(temp,'amend-entry.md');
+    writeFileSync(body,`## 入口\n仓库: ${temp}\n可写路径: ${temp}/project`);
+    const created=run(['new','prodwatch-amend','--to','gpt','--auth','local,review','--action','只读','--goal','amend queue regression','--body',body,'--no-launch']);
+    assert.equal(created.status,0,created.stderr);
+    const briefPath=join(path.slice(0,path.lastIndexOf('/')),'prodwatch-amend.brief.md');
+    const queueEnv={AGENT_FLEET_RUNS_DIR:join(temp,'amend-runs'),FLEET_SLOT_CAPACITY:'1',QUEUE_RESULT:join(temp,'admission.json')};
+    let result=run(['relaunch','prodwatch-amend'],queueEnv);
+    assert.equal(result.status,7,result.stderr);
+    assert.equal(JSON.parse(readFileSync(queueEnv.QUEUE_RESULT,'utf8')).admitted,true,'original readonly bypasses full slot');
+    writeFileSync(states,JSON.stringify([{runId:'fake-reader',name:'prodwatch-amend',briefPath,status:'running'}]));
+    reset();
+    result=run(['amend','prodwatch-amend','动作: 改代码\n现在执行写代码任务','--restart'],queueEnv);
+    assert.equal(result.status,7,result.stderr);
+    assert.deepEqual(history().map(c=>c.args[0]),['status','stop','status','status','code']);
+    assert.deepEqual(JSON.parse(readFileSync(briefPath.replace(/\.md$/,'.json'),'utf8')).actions,['改代码']);
+    const admission=JSON.parse(readFileSync(queueEnv.QUEUE_RESULT,'utf8'));
+    assert.equal(admission.admitted,false,'writing restart must wait for coding slot');
+    assert.equal(admission.row.readonly,false);assert.equal(admission.row.state,'queued');
+    writeFileSync(states,'[]');
+    const metadata=JSON.parse(readFileSync(briefPath.replace(/\.md$/,'.json'),'utf8'));
+    metadata.actions=['只读'];writeFileSync(briefPath.replace(/\.md$/,'.json'),JSON.stringify(metadata));
+    assert.equal(run(['amend','prodwatch-amend','动作: 改代码\n现在执行写代码任务']).status,0);
+    assert.deepEqual(JSON.parse(readFileSync(briefPath.replace(/\.md$/,'.json'),'utf8')).actions,['改代码']);
   });
   const original=readFileSync(path,'utf8');
   test('同名拒绝覆盖', () => {
