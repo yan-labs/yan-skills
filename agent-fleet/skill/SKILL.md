@@ -24,8 +24,8 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 
 轻量适配的实现范围与开源参考见 [OpenAI桥接说明](references/openai-bridge.md)。
 
-## 时间盒（单任务连续运行 ≤ 6 小时）
-`fleet-go new` 自动带 `time-box` 块：执行者约 5 小时写 `~/.agent-reports/<日期>/<名字>.checkpoint.md` 快照并结束回合。派总管/长任务时主线程同时登记 +6h 的一次性定时检查（CronCreate），到点仍在跑就 `fleet stop <run>` → 读快照 → `fleet-go amend <名字> --say "你是接力的新总管，先重建快照……"` 起新 run；不靠执行者自觉，也不轮询。全局规则见 `~/.claude/CLAUDE.md` §3.2。
+## 巡检与换班
+有任务在跑时，主线程用每 30 分钟的定时任务拉起 Luna 巡检单。卡住、空转、循环或偏题的任务用 `fleet-go amend --say` 纠正；判断无望时用 `fleet stop` 终止。单个 run 约 2 小时没有新产物，或累计运行约 5 小时时，先让执行者写 checkpoint 并结束本轮，再用 `fleet-go relaunch` 换新 agent，并用 `amend --say` 要求它读取 checkpoint 接着做。全局规则见 `~/.claude/CLAUDE.md` §3.2。
 
 ## 中途插话（沿用现有任务调整方向）
 统一入口：`fleet say <任务> "新指令"` 或 `fleet-go amend <名字> --say "补充要求"`（`--restart` 只作最后兜底）。
