@@ -110,6 +110,11 @@ try {
     const r=run(['new','commit-deploy','--to','gpt','--auth','local-commit,deploy-prod','--goal','修复并上线','--dry-run']);
     assert.equal(r.status,0,r.stderr); assert.match(r.stdout,/推送功能分支\/开 PR/); assert.match(r.stdout,/不因本块停下/);
   });
+  test('deliverables 可重复并写入验收段', () => {
+    const r = run(['new', 'deliverables', '--to', 'gpt', '--goal', '测试', '--deliverables', '报告：report.md（上限 4 KB）', '--deliverables', '代码：src/a.mjs（上限 100 行）', '--dry-run']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /## 验收\n产物清单：\n- 报告：report.md（上限 4 KB）\n- 代码：src\/a.mjs（上限 100 行）/);
+  });
   test('local-commit 授权与禁止、验收一致，可叠加且不改变 local 默认行为', () => {
     for (const auth of ['local-commit','local-commit,readonly-web','local,local-commit','local-commit,paid']) {
       const r=run(['new','commit-check','--to','gpt','--auth',auth,'--budget','$1，失败不重试','--goal','修复卡片并本地提交','--dry-run']);

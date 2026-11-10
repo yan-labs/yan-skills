@@ -1,5 +1,5 @@
 // Codex 执行层：管理 app-server 回合、插话、自动续做与 exec 降级。
-import { readContinuationState, continuationProgress, continuationRules, judgeContinuation, CONTINUE_PROMPT } from './code-continue.mjs';
+import { readContinuationState, continuationProgress, continuationRules, judgeContinuation } from './code-continue.mjs';
 import { judgeTask } from './judge-task.mjs';
 import { loadModelsConfig } from './config.mjs';
 import { spawn } from 'node:child_process';
@@ -83,7 +83,10 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
   const serviceTier = fast ? 'priority' : null;
   const workdir = resolve(cwd);
   reportPath ||= prompt.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim();
-  const continueEnabled = !review && !noContinue && process.env.FLEET_NO_CONTINUE !== '1';
+  const taskHeader = prompt.match(/^归类：[^\n]*/m)?.[0] || '';
+  const taskGoal = prompt.match(/^## 目标\s*\n([^\n]+)/m)?.[1] || '';
+  const documentTask = /文档|文案|写作|翻译|校对|review|复核|审查/i.test(taskHeader) || /^(?:写|撰写|编写|更新|修改|整理|翻译|校对|复核|审查)(?:文档|报告|文章|文案|资料|说明|代码)/.test(taskGoal);
+  const continueEnabled = !review && !documentTask && !noContinue && process.env.FLEET_NO_CONTINUE !== '1';
   const fullPrompt = review ? `${reviewPrompt()}\n\n${prompt}` : `${SCOPE_LOCK}\n\n${prompt}`;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   mkdirSync(runsDir(), { recursive: true });
@@ -261,7 +264,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
         child.stdin.write('{"method":"initialized"}\n');
         const response = await rpc('thread/start', { cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
         metadata.threadId = metadata.sessionId = response.thread.id; ownsAppThread = true; record();
-        let nextPrompt = fullPrompt, previous, stagnant = 0, lowConfidenceUsed = false;
+        let nextPrompt = fullPrompt, previous, stagnant = 0;
         while (true) {
           // 每轮都先安装完成监听，避免很快结束的回合漏掉通知。
           completed = null;
@@ -281,11 +284,10 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
           }
           let missing = [], judgment;
           if (continueEnabled && reportPath && !state.conclusion.startsWith('失败')) {
-            missing = continuationRules(state, prompt);
+            missing = continuationRules(state, prompt, workdir);
             if (!missing.length && state.conclusion.startsWith('完成')) {
               judgment = await judgeContinuation({ brief: prompt, report: state.report,
-                finalReply: readFileSync(resultPath, 'utf8'), judge: continuationJudge, lowConfidenceUsed });
-              if (judgment.uncertain) lowConfidenceUsed = true;
+                finalReply: readFileSync(resultPath, 'utf8'), judge: continuationJudge });
               if (judgment.decision === 'continue') missing = judgment.missing;
             }
             metadata.continuationChecks.push({ turn: metadata.numTurns, rules: missing, judge: judgment ?? null });
@@ -297,8 +299,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
           if (!metadata.continueRequired || metadata.continueStop) break;
           previous = state;
           metadata.continueCount++;
-          nextPrompt = state.conclusion.startsWith('部分完成') && !judgment ? CONTINUE_PROMPT
-            : `继续完成本任务，具体缺项：\n${missing.map(item => `- ${item}`).join('\n')}\n只做 brief 已授权范围；做完更新报告七节及要求的交付凭据，中途自查不是最终交付。`;
+          nextPrompt = `继续完成本任务，具体缺项：\n${missing.map(item => `- ${item}`).join('\n')}\n只做 brief 已授权范围；做完更新报告七节及要求的交付凭据，中途自查不是最终交付。`;
           log(`[codex] 续做 ${metadata.continueCount} 次`);
         }
         if (completed?.status === 'completed') outcome = { code: 0 };

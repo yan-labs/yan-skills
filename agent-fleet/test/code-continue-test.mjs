@@ -29,7 +29,7 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
    const mode = process.env.MODE;
    const conclusion = mode === 'finish' && count > 1 || mode.startsWith('judge-') || mode === 'complete' || mode === 'missing-sections' ? '完成' : mode === 'fail' ? '失败' : '部分完成';
    let report = '# 测试\\n## 规则回执\\n测试\\n## 实际执行\\n测试\\n## 改动与产物\\n测试\\n## 验证证据\\n测试\\n## 偏差\\n无\\n## 结论\\n' + conclusion + '。\\n## 未完成/风险/需要用户决定的事\\n' + (mode === 'progress' ? count : '待办');
-   if (mode === 'missing-sections') report = '## 结论\\n完成。';
+   if (mode === 'missing-sections' || (['finish', 'stuck', 'progress', 'env-off'].includes(mode) && !(mode === 'finish' && count > 1))) report = '## 结论\\n' + conclusion + (mode === 'progress' ? count : '');
    fs.writeFileSync(process.env.REPORT_FILE, report);
    send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:conclusion}}});
    send({method:'turn/completed',params:{turn:{id,status:'completed'}}});
@@ -45,7 +45,7 @@ try {
   assert.equal(splitShortArgs(['--no-continue', 'brief.md']).flags['no-continue'], true);
   for (const [mode, options, expected] of [
     ['finish', {}, 1], ['complete', {}, 0], ['fail', {}, 0],
-    ['missing-sections', {}, 2], ['judge-done', {}, 0], ['judge-missing', {}, 2], ['judge-low', {}, 1], ['judge-fail', {}, 0], ['judge-throw', {}, 0],
+    ['missing-sections', {}, 2], ['judge-done', {}, 0], ['judge-missing', {}, 2], ['judge-low', {}, 0], ['judge-fail', {}, 0], ['judge-throw', {}, 0],
     ['stuck', {}, 2], ['progress', {}, 3], ['stuck', { review: true }, 0],
     ['stuck', { noContinue: true }, 0], ['env-off', {}, 0],
   ]) {
@@ -57,10 +57,7 @@ try {
     const continuationJudge = async () => {
       if (mode === 'judge-throw') throw new Error('mock unavailable');
       if (mode === 'judge-fail') return { ok: false };
-      return { ok: true, answers: Object.fromEntries(['evidence', 'unfinished', 'final'].map(key => [key, {
-        choice: mode === 'judge-missing' && key === 'unfinished' ? 'item_0' : 'done',
-        confidence: mode === 'judge-low' ? 0.4 : 0.9,
-      }])) };
+      return { ok: true, answers: { deliverable: { choice: mode === 'judge-missing' ? 'file' : 'done', confidence: mode === 'judge-low' ? 0.4 : 0.9 } } };
     };
     const result = await runCode({ continuationJudge, prompt: `REPORT: ${process.env.REPORT_FILE}\n测试`, cwd: scratch, codexBin: mock, ...options });
     assert.equal(result.continueCount, expected, mode);
@@ -69,8 +66,8 @@ try {
     const starts = trace.filter(event => event.method === 'turn/start');
     assert.equal(starts.length, expected + 1);
     assert(starts.every(event => event.params.threadId === 'same-thread'));
-    assert(starts.slice(1).every(event => mode.startsWith('judge-') || mode === 'missing-sections' ? /具体缺项/.test(event.params.input[0].text) : event.params.input[0].text === CONTINUE_PROMPT));
-    if (mode === 'judge-missing') assert.match(starts[1].params.input[0].text, /待办/);
+    assert(starts.slice(1).every(event => /具体缺项/.test(event.params.input[0].text) || event.params.input[0].text === CONTINUE_PROMPT));
+    if (mode === 'judge-missing') assert.match(starts[1].params.input[0].text, /缺少 brief 要求的文件/);
     if (mode.startsWith('judge-')) assert(result.continuationChecks.every(check => check.judge));
     const brief = buildBrief(result);
     assert.equal(brief.verdict, mode === 'fail' ? 'fail' : ['finish', 'complete', 'judge-done', 'judge-low', 'judge-fail', 'judge-throw'].includes(mode) || options.review ? 'ok' : 'partial');
@@ -85,6 +82,10 @@ try {
       assert.match(result.continueStop, /最多 3 次/);
     }
   }
+  process.env.MODE = 'missing-sections';
+  process.env.TRACE = join(scratch, 'document.trace');
+  const documentRun = await runCode({ prompt: `归类：Codex 文档任务\nREPORT: ${process.env.REPORT_FILE}\n## 目标\n更新文档`, cwd: scratch, codexBin: mock });
+  assert.equal(documentRun.continueCount, 0);
   delete process.env.FLEET_DETACHED_RUN_ID;
   delete process.env.FLEET_NO_CONTINUE;
   process.env.MODE = 'stuck';
@@ -123,8 +124,7 @@ try {
     judge: async payload => { sanitizedPayload = payload; return { ok: false }; } });
   assert(!JSON.stringify(sanitizedPayload).includes(fake));
   for (const value of Object.values(sanitizedPayload.state)) assert.match(value, /REDACTED/);
-  assert.match(sanitizedPayload.questions.evidence.criteria.item_0, /REDACTED/);
-  assert.match(sanitizedPayload.questions.unfinished.criteria.item_0, /REDACTED/);
+  assert.match(sanitizedPayload.state.brief, /REDACTED/);
   // 密码刻意很短且不含 token 前缀，确保确实由连接串规则遮挡，而非令牌规则误打误撞。
   const password = ['db', 'pass', '42'].join('');
   for (const scheme of ['postgres', 'postgresql', 'mysql', 'redis', 'rediss', 'mongodb', 'mongodb+srv']) {
@@ -137,15 +137,14 @@ try {
       finalReply: `读回结果：${connection}`,
       judge: async payload => {
         request = payload;
-        return { ok: true, answers: { evidence: { choice: 'item_0', confidence: 0.9 }, unfinished: { choice: 'item_0', confidence: 0.9 }, final: { choice: 'done', confidence: 0.9 } } };
+        return { ok: true, answers: { deliverable: { choice: 'done', confidence: 0.9 } } };
       },
     });
     // 在裁判调用外断言，避免异常被不可用回退吞掉；返回的续做缺项也必须保持脱敏。
     assert(!JSON.stringify(request).includes(password), scheme);
     assert(!JSON.stringify(decision).includes(password), scheme);
     for (const field of Object.values(request.state)) assert.match(field, /REDACTED/);
-    assert.match(request.questions.evidence.criteria.item_0, /REDACTED/);
-    assert.match(request.questions.unfinished.criteria.item_0, /REDACTED/);
+    assert.match(request.state.brief, /REDACTED/);
   }
   for (const name of ['DATABASE_URL', 'MYSQL_URL', 'REDIS_URL', 'MONGODB_URL', 'DATABASE_DSN']) {
     for (const value of [password, `"host=db.example.invalid password=${password}"`, `'host=db.example.invalid pwd=${password}'`]) {
@@ -156,16 +155,14 @@ try {
   assert.equal(redactEvidence('https://example.invalid/path'), 'https://example.invalid/path');
   const invalidJudge = await judgeContinuation({ brief: '测试', report: '', finalReply: '', judge: async () => ({ ok: true, answers: {} }) });
   assert.equal(invalidJudge.decision, 'skip');
-  for (const key of ['evidence', 'unfinished', 'final']) {
-    const decision = await judgeContinuation({ brief: '验收：测试通过', report: '## 未完成/风险/需要用户决定的事\n等待 runner 后读回', finalReply: '自查通过',
-      judge: async ({ questions }) => {
-        assert.equal(Object.keys(questions).length, 3);
-        return { ok: true, answers: Object.fromEntries(Object.keys(questions).map(name => [name, { choice: name === key ? key === 'final' ? 'interim' : 'item_0' : 'done', confidence: 0.9 }])) };
-      } });
+  for (const choice of ['file', 'section', 'commit', 'readback']) {
+    const decision = await judgeContinuation({ brief: '验收：交付文件', report: '', finalReply: '', judge: async () => ({ ok: true, answers: { deliverable: { choice, confidence: 0.9 } } }) });
     assert.equal(decision.decision, 'continue');
-    assert.equal(decision.confidence, 0.9);
-    assert.match(decision.missing.join(''), key === 'evidence' ? /测试通过/ : key === 'unfinished' ? /等待 runner 后读回/ : /中途自查/);
   }
+  assert.deepEqual(continuationRules({ ...completeReport, conclusion: '部分完成' }, '覆盖未穷尽，还可补证'), []);
+  assert(continuationRules(completeReport, '产物清单：\n- 报告：missing.md（上限 2 KB）\n', scratch).some(item => item.includes('missing.md')));
+  const low = await judgeContinuation({ brief: '覆盖未穷尽', report: '', finalReply: '', judge: async () => ({ ok: true, answers: { deliverable: { choice: 'file', confidence: 0.4 } } }) });
+  assert.equal(low.decision, 'done');
   // 同一路径内容变化、提交、报告分别都能打破无进展计数。
   const repo = join(scratch, 'repo'); mkdirSync(repo);
   const git = args => execFileSync('git', args, { cwd: repo, stdio: 'pipe' });

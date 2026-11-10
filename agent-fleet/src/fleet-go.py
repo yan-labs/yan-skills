@@ -568,7 +568,7 @@ def new(args):
     if args.forbid:
         parts.append('另行授权事项：' + args.forbid)
     parts.append('## 已知坑\n' + '\n\n'.join(block('pitfall-' + p, values) for p in dict.fromkeys(pitfalls) if p))
-    parts.extend(['## 验收\n' + block('accept-boilerplate', values) + '\n\n' + block('report-template', values)
+    parts.extend(['## 验收\n' + (('产物清单：\n' + '\n'.join('- ' + item for item in args.deliverables) + '\n\n') if args.deliverables else '') + block('accept-boilerplate', values) + '\n\n' + block('report-template', values)
                   + ('\n\n' + block('review-ledger', values) if is_review else ''), rule()])
     text = '\n\n'.join(parts) + '\n'
     checked(text, args.to)
@@ -617,6 +617,7 @@ def main():
     p.add_argument('--level', type=level_arg, help='难度档 L1–L4，记入账本')
     p.add_argument('--type', type=str.lower, help='任务类型，记入账本：work|review|research|copy|media|orchestrate|judge|ops 等')
     p.add_argument('--for', dest='for_name', help='本单复核的任务名，记入账本做 maker/checker 配对')
+    p.add_argument('--deliverables', action='append', help='交付物及篇幅上限，可多次指定')
     p.add_argument('--auth', default='local')
     for option in ['write', 'read']:
         p.add_argument('--' + option, nargs='+', action='extend')
