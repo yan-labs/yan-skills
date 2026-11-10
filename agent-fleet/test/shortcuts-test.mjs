@@ -58,7 +58,7 @@ printf 'mock codex log\n'
   process.env.FLEET_TEST_ARGS = capturedArgs;
   process.env.FLEET_CODEX_BACKEND = 'exec';
   const code = await runCode({ prompt: '检查文件', cwd: scratch, codexBin: mockCodex, review: true });
-  assert(code.ok && code.model === 'gpt-6.1-sol' && code.result.trim() === '审查完成', '模拟 Codex 正常结束并读取 result');
+  assert(code.ok && code.model === 'gpt-6.1-terra' && code.result.trim() === '审查完成', '模拟 Codex 正常结束并读取 result');
   assert(readFileSync(captured, 'utf8').startsWith(reviewPrompt()) && readFileSync(captured, 'utf8').endsWith('检查文件'), 'review 模板拼在 brief 前');
   assert(readFileSync(code.logPath, 'utf8').includes('mock codex log'), 'Codex stdout 写入同名 log');
   const args = readFileSync(capturedArgs, 'utf8');

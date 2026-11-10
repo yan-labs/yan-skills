@@ -57,6 +57,26 @@ function hasCarriedCommit(brief, report, cwd) {
   return false;
 }
 
+function hasReportedRemoteCommit(brief, report) {
+  const hashes = [...new Set(report.match(/\b[0-9a-f]{40}\b/gi) || [])];
+  if (!hashes.length) return false;
+  const writes = brief.match(/## 允许范围\n允许写：\n([\s\S]*?)(?=\n只读：|\n## |$)/)?.[1] || '';
+  for (const line of writes.split('\n')) {
+    const path = line.match(/^- (\/[^\n]+)$/)?.[1];
+    if (!path) continue;
+    try {
+      execFileSync('git', ['fetch', '--all', '--quiet'], { cwd: path, stdio: 'ignore' });
+      for (const hash of hashes) {
+        try {
+          execFileSync('git', ['cat-file', '-e', `${hash}^{commit}`], { cwd: path, stdio: 'ignore' });
+          if (execFileSync('git', ['branch', '-r', '--contains', hash], { cwd: path, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()) return true;
+        } catch { /* 报告中的哈希不是可用的远端提交 */ }
+      }
+    } catch { /* 非仓库或 fetch 失败不能证明远端提交 */ }
+  }
+  return false;
+}
+
 /** 第一层只检查报告结构及 brief 明确要求的交付凭据，不以“完成”二字代替证据。 */
 export function continuationRules(state, brief, cwd = process.cwd(), initial = null) {
   if (state.conclusion.startsWith('失败')) return [];
@@ -79,7 +99,7 @@ export function continuationRules(state, brief, cwd = process.cwd(), initial = n
   const needsCommit = (deliverables ? /提交|commit/i.test(deliverables) : commitAuth || requirements.some(clause => /提交哈希|commit hash|(?:本地)?提交(?:一次|代码|改动|并)/i.test(clause) && !/不(?:要|用|需|必)?提交|无需提交|无须提交|禁止提交|不.*commit/i.test(clause))
     && !/不(?:要|用|需|必)?提交|无需提交|无须提交|禁止提交/.test(brief));
   const needsReadback = requirements.some(clause => /读回结果|回读结果/.test(clause) && !/不(?:要|用|需|必)?(?:读回|回读)|无需(?:读回|回读)|无须(?:读回|回读)|禁止(?:读回|回读)/.test(clause));
-  if (commitAuth && initial && /^(?:部分完成|未完成)/.test(state.conclusion) && state.head === initial.head && !hasCarriedCommit(brief, state.report, cwd)) missing.push('缺少实现改动和提交');
+  if (commitAuth && initial && /^(?:部分完成|未完成)/.test(state.conclusion) && state.head === initial.head && !hasCarriedCommit(brief, state.report, cwd) && !hasReportedRemoteCommit(brief, state.report)) missing.push('缺少实现改动和提交');
   if (needsCommit && !/\b[0-9a-f]{7,40}\b/i.test(state.report)) missing.push('补齐 brief 要求的提交哈希');
   if (needsReadback && !/(?:读回|回读)[^\n]*(?:通过|成功|一致|正常|published|HTTP\s*200|结果[：:]\s*\S)/i.test(state.report)) missing.push('补齐 brief 要求的实际读回结果');
   return missing;
