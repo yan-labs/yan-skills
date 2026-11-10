@@ -10,11 +10,11 @@ fleet code brief.md --low --cwd <项目目录>
 fleet code brief.md --review --cwd <项目目录>
 ```
 
-**分档（2026-11-04 用户）**：正常开发与编程用 Terra（`--simple`）；非常严谨、内容紧密的开发才用 Sol（medium、不开 fast，默认不派）；最简单、边界清楚且可机械验证的改名、小修、格式化、按清单核对和摘要用 Luna（`--luna`）；带逻辑的改动用 Terra/Sol。**精准修复**：只修复核心流程问题，不增加多余门禁、安全边界、防御校验或附加动作。
+**分档**：编码和复核默认 Terra；Sol 只在用户点名时用；部署、监工、定时用 Luna。**精准修复**：只修复核心流程问题，不增加多余门禁、安全边界、防御校验或附加动作。
 
 `--luna` 使用 Codex 原生 `gpt-6-luna`，`--simple` 使用 `gpt-6.1-terra`，都不能与 `--review` 同用或互相组合。Luna 与 Gemini 默认 xhigh（Luna 可用 `--max`，Gemini 可用 `--low`/`--high`/`--xhigh`）；Terra/Sol 默认 medium。`--low` 可显式选择 low；`--low`、`--high`、`--xhigh` 和 `--max` 互斥，GPT 下 `--xhigh` 和 `--max` 仅用于 Luna。所有 Codex 默认不开 fast，必要时显式 `--fast`。`new`、`relaunch` 和 `amend` 支持 Luna；amend 对运行中的任务须重启或下次重派才切换模型。`relaunch`、`amend` 与 `resume` 沿用已保存档位。默认底层模型为 Sol，sandbox 为 `danger-full-access`；review 使用只读提示。
 
-派单前读取最新 rollout 的 Codex 周窗口（`rate_limits.primary.window_minutes=10080`）：`used_percent` ≥ 95% 或用尽时停派 Codex，改 `fleet-go new --to gemini`（默认 Gemini 4 `gemini-4-argon`，默认 xhigh 推理档，Claude Agent SDK 通道，可编码）；非非常重要编程交 Gemini，非常重要交 Claude Sonnet，难的 Opus。Gemini 免费额度约 10 万美元、剩约 4–6 万美元且会过期，余额以实际为准。Codex 额度用尽可让 Kollab 派任务执行充值脚本，付款前先向用户确认金额。严苛架构或成本收缩、清理每秒 1000 行等硬指标多轮未达标时，派 executor-fable 子代理调研方案后再派执行者。失败如实上报执行者、档位、脱敏错误及产物。
+Codex 不可用或并发满时，编码按 [工具链](fallback-chains.md) 改派 Grok 或 Claude；Gemini 只负责文案。失败如实上报执行者、档位、脱敏错误及产物。
 
 ## 中途插话
 
@@ -36,7 +36,7 @@ steer 被接受不等于立即执行，插话无法撤销已经完成的文件�
 
 ## 哪些任务需要额外 review
 
-编码类按全局 CLAUDE.md §4.3 由另一个只读 GPT-6.1 Sol 对照最终 diff 和检查记录做 review；跨模块重构、数据迁移、权限、计费、删除、外部写入及结果不明确的任务均须执行。文案、简单配置、有明确测试的单点修复可免；用户或项目要求 review 时仍执行。审查发现实际问题后修复并重跑受影响检查。执行者运行 brief 要求的已有测试；新增测试或安全防护代码以正文授权及目标必需为准（见 SKILL.md「产品与任务边界」）。
+编码类按全局 CLAUDE.md §4.3 另起只读 Terra 单 对照最终 diff 和检查记录做 review；跨模块重构、数据迁移、权限、计费、删除、外部写入及结果不明确的任务均须执行。文案、简单配置、有明确测试的单点修复可免；用户或项目要求 review 时仍执行。审查发现实际问题后修复并重跑受影响检查。执行者运行 brief 要求的已有测试；新增测试或安全防护代码以正文授权及目标必需为准（见 SKILL.md「产品与任务边界」）。
 
 ## 可直接使用的 review 提示词
 

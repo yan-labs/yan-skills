@@ -8,7 +8,7 @@ description: >-
 
 用 Codex CLI 承接用户指定的代码分析、编辑、审查或并行代理任务。图片生成的当前流程见 [`imagegen/SKILL.md`](../imagegen/SKILL.md)；旧版操作与实验记录保存在 [`references/image-experiments.md`](references/image-experiments.md)。
 
-**路由前提**：按全局 `CLAUDE.md` §2，编码、修 bug、调研与 review 默认用 `fleet code`（`gpt-6.1-sol`，见 [`agent-fleet`](../agent-fleet/skill/SKILL.md)），不手写 `codex exec`。本 Skill 只在用户明确要求直接操作 Codex CLI（自选 sandbox、`codex review`/`apply`/`resume` 等原生子命令、并行 worker 的 worktree 布置）时使用；简单派单不要先读本文件。
+**路由前提**：按全局 `CLAUDE.md` §2，编码、修 bug、调研与 review 默认用 Terra（`fleet-go new --to gpt --simple`，见 [`agent-fleet`](../agent-fleet/skill/SKILL.md)），不手写 `codex exec`。本 Skill 只在用户明确要求直接操作 Codex CLI（自选 sandbox、`codex review`/`apply`/`resume` 等原生子命令、并行 worker 的 worktree 布置）时使用；简单派单不要先读本文件。
 
 ## Core Principle
 
@@ -51,7 +51,7 @@ Codex sub-agents compose cleanly. To run an agent team:
 ### Team composition guidance
 - **Reviewer team:** multiple `read-only` workers, each with a different lens (security, perf, API design). Cheap and fully parallel.
 - **Builder + reviewer:** one `workspace-write` worker implements, then a `read-only` worker reviews the diff. Sequential, not parallel.
-- **Independent review:** maker and checker must be different executors. Have another read-only `gpt-6.1-sol` worker (`fleet code --review`) check the diff against the brief (global §4.3). Do not pair a Codex worker with a Claude sub-agent as the reviewer.
+- **Independent review:** maker and checker must be different executors. Have another read-only Terra worker (`fleet-go new --to gpt --simple`) check the diff against the brief (global §4.3). Do not pair a Codex worker with a Claude sub-agent as the reviewer.
 
 ## Model Selection
 

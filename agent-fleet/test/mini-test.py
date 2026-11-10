@@ -42,9 +42,12 @@ with tempfile.TemporaryDirectory() as d:
     assert '/home/b/a' in got['files'][str(brief)]
     assert mini.find('run-123')['name'] == 'unit'
     local = tmp / 'local-runs'; local.mkdir()
-    (local / 'local.json').write_text(json.dumps({'runId':'local-id','name':'unit','status':'running'}))
+    (local / 'local.json').write_text(json.dumps({'runId':'local-id','name':'unit','status':'done','startedAt':'2026-11-10T12:00:00.000Z'}))
+    (mini.STORE / 'run-123.json').write_text(json.dumps({'id':'run-123','name':'unit','startedAt':'2026-11-10T11:00:00.000Z'}))
     with patch.dict(os.environ, {'AGENT_FLEET_RUNS_DIR':str(local)}):
-        assert mini.find('unit') is None
+        assert mini.find('unit')['id'] == 'local-id'
+        (local / 'local.json').write_text(json.dumps({'runId':'local-id','name':'unit','status':'running','startedAt':'2026-11-10T10:00:00.000Z'}))
+        assert mini.find('unit')['id'] == 'run-123'
         assert mini.find('run-123')['id'] == 'run-123'
     pulled = tmp/'pulled.md'
     row = {'status':'done', 'verdict':'ok', 'resultPath':'/home/b/.agent-fleet/runs/run-123.result.md'}

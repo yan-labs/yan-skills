@@ -61,10 +61,10 @@
 
 这一节管「派给哪个模型或工具」，和上一节「主 Agent 要不要拆子 Agent」是两个独立的判断轴，两个都要过。
 
-- **Haiku 档位与 `executor-haiku` 已停用（2026-09-26）**：原来派 Haiku 的机械任务（翻译、跑固定命令、调 API、格式转换、照单改文件）按全局 `CLAUDE.md` §2 与 `/agent-fleet` 的路由派给第三方模型（编码与数据整理 `fleet code`，文案与翻译 `fleet copy`），派单方自己核一眼产物，不再另派 checker。
+- 模型与执行者按 `/agent-fleet` 当前路由选择。
 - **第三方模型失败时**（402、登录失效、模型被拒，或产物为空、含裸 tool-call 控制 token、verdict 为 `suspect`/`fail`）：先诊断，**最多重试一次**；仍失败就**停下并如实告知用户**，由用户决定充值或改派。**不许静默改派 Claude subagent**；Claude subagent 也不得再派 Claude subagent；不设轮数、上下文、时长或预算上限。
 - **自动化流程里的判断节点**（分类、路由、是非判断、打分、结果成败判定、浏览器下一步点哪个）优先用 `agent-fleet judge --model jev`（Typesafe JEV，key 在环境变量 `TYPESAFE_API_KEY`）：它只吃 state 加类型化问题，不生成文本、不能写代码或做总结，按字面判断、不推断意图，置信度低时转回 Claude 或人工。
-- **编程类任务**（写脚本、加功能、修 bug、补测试）默认派 `fleet code`（本机 Codex `gpt-6-sol`），拿不准按常规开发处理；具体模型名、命令参数、回退顺序与验证方式以 `/agent-fleet` 当前文档为准，这里不重复。只有建站的设计与视觉交互、3D 与游戏、复杂脚手架或多模块架构、深度架构重构、不可逆或安全敏感的改动，才归 Claude（`executor-sonnet` 起步，风险明显更高再上 `executor-opus`/`executor-fable`），并遵守全局 §3 的执行纪律。
+- **编程类任务**默认 Codex Terra（`fleet-go new --to gpt --simple`），具体路由与回退见 `/agent-fleet`。
 
 ### 全量执行，不问不等
 

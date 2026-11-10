@@ -7,11 +7,11 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 
 | 让谁做 | 适合什么 | 命令示例 | 派用者顺位参考 |
 |---|---|---|---|
-| `gpt` | 正常开发与编程用 Terra（`--simple`）；非常严谨、内容紧密的开发才用 Sol；最简单、边界清楚且可机械验证的改名、小修、格式化、按清单核对和摘要用 Luna（`--luna`）；带逻辑的改动用 Terra/Sol | `fleet-go new fix --to gpt --simple --auth local --goal "修复问题" --body task.md` | 周用量 ≥ 95% 或并发满改 Grok Build，见[工具链](references/fallback-chains.md) |
+| `gpt` | 编码和代码复核默认 Terra（`--simple`）；Sol 只在用户点名时用；部署、发布、监工、定时用 Luna（`--luna`） | `fleet-go new fix --to gpt --simple --auth local --goal "修复问题" --body task.md` | 见[工具链](references/fallback-chains.md) |
 | `openai` | 官方 GPT API / ChatGPT 关联组织额度，复用原 Agent SDK | `fleet-go new task --to openai --auth local --goal "目标" --body task.md` | 单独入口，不改 Codex 默认 |
-| `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | 按额度规则选择 Terra 或 Gemini |
+| `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | 按任务类型选择替代执行者 |
 | `grok` | 视频与图片（生成、搜索）、X 平台（热点与实时讨论）、X/社媒实时检索、成人题材；Codex 不可用或并发满时优先承接编码 | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | 见[工具链](references/fallback-chains.md) |
-| `gemini` | 文案、翻译、摘要、批量任务与编码；默认 Gemini 4 `gemini-4-argon`（默认 xhigh，可用 `--low`/`--high`/`--xhigh`），经 Claude Agent SDK | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | Grok Build 不可用时接编码，见[工具链](references/fallback-chains.md) |
+| `gemini` | 文案、翻译、校对 | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | 见[工具链](references/fallback-chains.md) |
 | `jev` | 分类、选择、打分等结构化判断 | `fleet-go new decide --to jev --goal "按正文判据分类" --body task.md` | — |
 
 ## OpenAI 订阅 API 额度
@@ -55,6 +55,8 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 
 首次使用前，在派单机设置 `FLEET_MINI_HOME`（Mini 家目录）和 `FLEET_MINI_BIN`（Mini 上 fleet 的绝对路径）；可选 `FLEET_LOCAL_HOME` 与 `FLEET_MINI_MM`。也可在本机 `~/.agent-fleet/mini.json` 配置 `remote_home`、`bin`、`local_home`、`mm`；环境变量优先。未配置或工作目录、引用路径在 Mini 不存在时回退本机，不创建空工作目录。显式 `--on local` 或 `FLEET_DEFAULT_ON=local` 沿用本机启动行为。
 
+brief 引用的文件一律写绝对路径，否则派单前检查发现不了 Mini 缺文件。
+
 ## 快速派单（默认写法）
 一条 Bash 调用，工具参数 `run_in_background:true`，命令保持单一前台调用；`fleet-go` 自身保持前台，完成即通知。正文只写独有内容（背景、要做的事、验收），其余样板自动带上。
 ```sh
@@ -74,7 +76,7 @@ fleet-go new deploy-site --to gpt --simple --auth deploy-prod,readonly-web --goa
 # 花钱生成（预算可选）
 fleet-go new gen-test --to gpt --auth paid,local --goal "..." --body body.md
 
-# 文案 / 调研
+# 文案
 fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述" --body body.md
 ```
 - review 的只读是 brief 约定：项目文件保持原样，允许联网、运行测试和脚本，只在自己的 `mktemp -d` 临时目录建删文件；各执行路径不加只读工具名单、沙箱或文件快照失败判定。SDK 使用 `bypassPermissions`，Codex 使用 `danger-full-access`，Grok 使用 `--always-approve`。JEV 只有结构化 API，没有命令执行器。
@@ -93,7 +95,7 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 - 账本与打分：每个 run 结束自动往 `~/.agent-fleet/ledger.jsonl` 追加一行元数据；`fleet-go new` 可带 `--level L1-L4`、`--type`、`--for <被复核任务名>`，复核结论末尾写 `LEDGER: blockers=<n> verdict=<pass|fail|partial>`；`fleet-go score [--since 日期]` 按执行者输出计数。字段、配对、回填见[账本与 score](references/ledger.md)。
 - 一个任务一次 Bash 调用；多个独立任务同一条消息里并行发多条 Bash。同一份共享工作树按单写入者串行执行。
 - 已有 Claude Code 的 PreToolUse hook `~/.claude/hooks/check-fleet-launch.py`：命令里带 `fleet`/`fleet-go` 派单子命令又带 `&`、`nohup`、`setsid`、`disown` 会被直接拦下。
-- 标准块在 `skill/templates/blocks/`（规则句由 `rule-sentence.md` 生成新句，校验兼容全局完整旧句；全局 `~/.claude/CLAUDE.md` §4.1、§4.2 提供规则与报告的上下文），调整样板时在这里统一修改。
+- 标准块在 `skill/templates/blocks/`（规则句由 `rule-sentence.md` 生成新句，校验兼容全局完整旧句；全局 `~/.claude/CLAUDE.md` §4.1a、§4.2 提供规则与报告的上下文），调整样板时在这里统一修改。
 
 本机多模型任务入口：使用 `fleet` 运行 brief，结束后按实际产物验收。先核对目标模型当前配置、真实 Key 是否存在、工作目录信任边界和任务归属；配置读取用 `safe-grep` 或经 `redact`，只看名字、计数与存在状态。
 
@@ -135,14 +137,41 @@ Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定�
 
 使用 streaming-json，cost/turns 为 Grok 自报；保存 stopReason/sessionId/usage。退出码 0 仍可能 cancelled（无头工具批准被取消），非 end_turn 判 fail，无明确最终结论判 suspect。review 使用自动批准避免取消；本机沙箱不生效，只读靠 brief 约定，允许联网、临时脚本和测试，不因文件变化判 suspect。`fleet say` / `fleet-go amend --say` 停当前 Grok 进程并以 sessionId 续会话，`fleet resume` 同理，沿用 name/report。代理 HTTPS_PROXY/HTTP_PROXY/ALL_PROXY 及小写原样透传，Rust 不认 NODE_USE_ENV_PROXY；详见 [Grok CLI](references/grok-cli.md)。
 
+## 路由原则（长期）
+
+路由表定的是“默认先派谁”，不是能力上限：成本、额度、并发或用户点名时可以改派，不因“这类不归它管”停下。
+
+| 任务 | 默认执行者 |
+|---|---|
+| 正常开发与编程（逻辑、后端、数据、脚本、修 bug、补测试、小修） | Codex Terra，`--to gpt --simple`，medium，不开 fast |
+| 严谨开发（跨模块重构、数据迁移、权限、计费、删除、外部写入、架构级改动） | 仍用 Terra，brief 写明严谨要求；Sol 额度消耗快，只在用户点名时用（用户 11-10） |
+| 部署、发布、监工、定时任务 | Luna，`--to gpt --luna`，xhigh |
+| 调研、搜索、技术文档、报告、数据整理、一般任务 | Codex Terra，`--to gpt --simple` |
+| 文案、翻译、多语言、校对 | Gemini，`fleet copy`（批量用 `fleet bulk`） |
+| UI、样式、视觉交互、建站设计、3D、游戏内容 | `fleet sonnet`；要 Browser pane 用 `executor-sonnet` |
+| 方案、架构、方向未明的综合判断 | `fleet fable`（或 `executor-fable`） |
+| 较难的编程、Sonnet 反复打转 | `fleet opus` |
+| 小杂活、摘要、核实、机械替换、取证 | `fleet haiku`（要 Browser pane/MCP 用 `executor-haiku`） |
+| 视频、图片备选、X 热点与社媒实时检索、成人题材 | Grok |
+| 分类、是否、打分、成败校验 | JEV（`fleet judge`），置信度低于约 0.55 交回 |
+| 登录态浏览器采集（GSC、Semrush 等） | 现成脚本或 opencli adapter；缺脚本先让 Claude 写脚本再沉淀 |
+
+- Claude 档先走 `fleet haiku|sonnet|opus|fable`（订阅附赠的月度 API 额度），需要本应用工具、MCP、Browser pane、ccd_* 或本机登录态时才用 `executor-*`；用 Agent 工具每次显式传 `model`。
+- Codex 一律不开 fast，需要才显式 `--fast`。`--to openai`（OpenAI API 额度）不用 Sol、不开 fast，偏慢，适合不急的正经编程。
+- 设计稿由 Claude 出，按稿实施的编码可以交 Terra。
+- 严苛架构或硬性指标多轮达不到时，先派 Fable 出方案再派执行者，不让原执行者空转。
+- 执行者拒绝或不肯改时，改派下一顺位；Gemini 只承接文案、翻译和校对。
+- 工具不可用时按 [工具链](references/fallback-chains.md) 从左往右换手；用户点名优先。
+
+
 ## 失败上报与派用者顺位参考
 
 失败上报给派用者：verdict 为 `fail`，结果文件和简报只记录执行者与档位、脱敏原始错误摘要（stderr 末尾、HTTP 状态、结构化错误）、已完成步骤、产物与 dirty 状态。错误分类、后续建议与执行者选择由派用者负责。
 
 下面的顺位表只供派用者自行判断，代码不消费：
-- Claude 额度档：按任务和以下 Codex 额度规则选择 Claude、Terra 或 Gemini。
-- **工具额度用尽或并发满**：完整顺位、不可用信号和子代理用法见 [额度用尽时的工具链](references/fallback-chains.md)，派单前先对表。常规编程 Codex → Grok Build → Gemini 4 → Sonnet；写 UI 走 Sonnet；重要规划走 Fable；一般 Claude 任务走 Sonnet；个别难题走 Opus。Codex 周额度看最近修改的 rollout 里 `rate_limits.primary`（`window_minutes=10080`）的 `used_percent`，≥95% 不再派 Terra/Sol/Luna。Gemini 约 10 万美元免费额度、剩约 4–6 万美元且会过期，可放开使用，余额以实际为准。额度用尽可让 Kollab 派任务执行充值脚本，付款前须先与用户确认金额。
-- GPT 档：正常开发 Terra（`--simple`）→ 非常严谨、内容紧密的开发才用 Sol（medium、不开 fast，默认不派）→ 周用量 ≥ 95% 或并发满按[工具链](references/fallback-chains.md)换手；最简单、边界清楚且可机械验证的改名、小修、格式化、按清单核对和摘要用 Luna（`--luna`）；带逻辑的改动用 Terra/Sol。
+- Claude 额度档：按任务类型与工具链换手。
+- **工具不可用或并发满**：按[工具链](references/fallback-chains.md)换手；编码由 Grok 或 Claude 承接，不派 Gemini。
+- GPT 档：编码及复核用 Terra；Sol 只在用户点名时用；部署、监工、定时用 Luna。
 
 派用者决定后，用 `fleet-go relaunch <name> --to <产品> [--tier haiku|sonnet|opus|fable] [--simple|--luna] [--low|--high|--xhigh|--max] [--fast]` 沿用 brief、name 与 report 重派。成功任务不产生失败上报。
 
@@ -154,7 +183,7 @@ Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定�
 
 ## /design 画布：设计与上传分工
 
-画布文件（`.dc.html`、css、`canvas.json` 改动）由 `fleet sonnet`（难的 `fleet opus`）写到本地目录；fleet 通道负责本地文件产出，Artifact 上传权限由下述执行者持有。上传由内置 `executor-haiku`（Agent 工具）用 Artifact 工具按目录逐页发布，便宜且有权限。同一画布的上传一次只派一个 haiku，保证 `canvas.json` 合并不冲突。画布 brief 带上全局 CLAUDE.md §5.8 的页面组织和 Design System 规则。
+画布文件（`.dc.html`、css、`canvas.json` 改动）由 `fleet sonnet`（难的 `fleet opus`）写到本地目录；fleet 通道负责本地文件产出，Artifact 上传权限由下述执行者持有。上传由内置 `executor-haiku`（Agent 工具）用 Artifact 工具按目录逐页发布，便宜且有权限。同一画布的上传一次只派一个 haiku，保证 `canvas.json` 合并不冲突。画布 brief 带上[派单纪律](references/dispatch-discipline.md#design-画布)的页面组织和 Design System 规则。
 
 ## 行动范围
 
@@ -162,7 +191,7 @@ Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定�
 
 ## 简报与验收
 
-**简报怎么写**：像交代给刚接手的同事，用大白话讲清背景、想要的结果、允许范围、缺口处理和完成条件；按任务需要伸缩，把做法留给执行者。正文补充任务独有的上下文和已知坑，其余复用自动样板，一单只围绕一个目标。完整规则以 [~/.claude/CLAUDE.md §4.1a](~/.claude/CLAUDE.md) 为准；授权与模板保持一致，本地提交选上面的 `local-commit`。 配置与环境变量的读取动作统一遵循 [密钥输出已知坑](templates/blocks/pitfall-secrets.md)，默认使用 `safe-grep` / `redact`。
+**简报怎么写**：像交代给刚接手的同事，用大白话讲清背景、想要的结果、允许范围、缺口处理和完成条件；按任务需要伸缩，把做法留给执行者。正文补充任务独有的上下文和已知坑，其余复用自动样板，一单只围绕一个目标。完整规则见[派单纪律](references/dispatch-discipline.md#brief)；授权与模板保持一致，本地提交选上面的 `local-commit`。 配置与环境变量的读取动作统一遵循 [密钥输出已知坑](templates/blocks/pitfall-secrets.md)，默认使用 `safe-grep` / `redact`。
 
 | verdict | 含义与处理 |
 |---|---|
@@ -177,7 +206,7 @@ Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定�
 
 ## 详细派单规则
 
-启动与跨会话接续、网页 ChatGPT、brief 路径核实及安全边界见 [操作细则](references/operations.md)。
+启动与跨会话接续、网页 ChatGPT、brief 路径核实及安全边界见 [操作细则](references/operations.md)；brief、报告、复核与总管见[派单纪律](references/dispatch-discipline.md)。
 
 ## JEV judge
 

@@ -17,6 +17,11 @@ case "${1:-}" in
       else
         rc=$?
         [ "$rc" -eq 2 ] || exit "$rc"
+        local_id=$(python3 "$dir/../src/mini.py" local-id "$2") || rc=$?
+        if [ -n "$local_id" ]; then
+          command=$1; shift 2
+          exec node "$dir/agent-fleet.mjs" "$command" "$local_id" "$@"
+        fi
       fi
     fi
     ;;

@@ -17,10 +17,10 @@
 | 日期 | 上游范围 | fork 版本 | 取舍 |
 |---|---|---|---|
 | 2026-09-25 | v1.8.8 之后 50 个提交（到 `24136945`），合并提交 `931b0cb9`，已推 `fork/main` | CLI 1.11.0 / 扩展 1.3.0 | 保留专用窗口、窗口池、TTL 回收、关窗命令、`daemon logs`；随上游移除 `opencli external`（CLI hub）与站点 sitemap；新增 `OPENCLI_SITE_SESSION`、gmail/dribbble 等 adapter |
-| 2026-09-25（同日，本机部署） | 本机源码 link（`/Users/kcsx/Project/kcsx/macmini/opencli`）从 `feat/dedicated-window`（`dc992063`，工作树上有 2026-09-14 遗留的 8 个文件未提交改动）切到 `fork/main`（`931b0cb9`）并实际生效 | CLI 1.10.0 → 1.11.0 / 扩展 1.2.0 → 1.3.0，`opencli doctor` 全绿 | 2026-09-14 遗留改动无损保存到 `wip/2026-09-14-uncommitted`（`6deb94f6`，已推 `fork`），评估后**未**被这次合并覆盖，见下方小节 |
+| 2026-09-25（同日，本机部署） | 本机源码 link（`<opencli>`）从 `feat/dedicated-window`（`dc992063`，工作树上有 2026-09-14 遗留的 8 个文件未提交改动）切到 `fork/main`（`931b0cb9`）并实际生效 | CLI 1.10.0 → 1.11.0 / 扩展 1.2.0 → 1.3.0，`opencli doctor` 全绿 | 2026-09-14 遗留改动无损保存到 `wip/2026-09-14-uncommitted`（`6deb94f6`，已推 `fork`），评估后**未**被这次合并覆盖，见下方小节 |
 
 上游这批提交**没有**内置模型驱动浏览器的能力；让便宜模型替 agent 点浏览器的做法见
-[`model-driven.md`](model-driven.md)。本机装的是源码 link（`/Users/kcsx/Project/kcsx/macmini/opencli`
+[`model-driven.md`](model-driven.md)。本机装的是源码 link（`<opencli>`
 工作树），换 fork main 要在该工作树切到新 `main`、`npm run build` + 扩展 `npm run build`、
 在没有别的会话时 `opencli daemon restart`；`opencli doctor` 看到 v1.11.0 / v1.3.0 才算装上。
 

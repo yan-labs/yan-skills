@@ -38,7 +38,7 @@
 
 - rankup 23 个脚本的盘点表（第 2 节）由 agent-fleet 的 `kollab-gateway-research`（grok-4.6）批量读取产出，本人逐条核对了其中约 20 个脚本的文件头，结论一致（选择器/文案细节、双语/多语言按钮匹配、双证人化落盘等描述均与源码吻合），判为可信。
 - backlink 目录本打算同样交给 agent-fleet 批量摘要，但该次调用运行超过 15 分钟仍未产出（期间它还自主 fork 出了一个用 `kollab-gateway-code` 跑的子调用去分摊 12 个文件，这是它自己的行为，不是我指示的），判定为**耗时异常，产出可信度未知**，按"出现问题就改为自己读"处理：backlink 目录下全部 55 个文件本人逐一直接读取（文件头 + 关键逻辑段），第 2、3、4 节的 backlink 部分全部基于本人阅读结论。两个 agent-fleet backlink 调用留在后台运行，未产出前不计入本报告；如果之后产出，与本人结论冲突需要人工复核，不自动采信。
-- `opencli browser <session> auto` 的能力盘点（第 5 节）不是猜测：直接读取了 `/Users/kcsx/Project/kcsx/macmini/opencli-worktrees/jev-auto`（`feat/jev-auto` 分支的真实 worktree，`git log` 确认为该分支）下 `src/browser/auto/*.ts`（10 个文件，共 1116 行）与 `src/cli.ts` 的未提交 diff，只读，未做任何修改，符合 CONFLICT-SCOPE 约束。
+- `opencli browser <session> auto` 的能力盘点（第 5 节）不是猜测：直接读取了 `<opencli-worktrees>/jev-auto`（`feat/jev-auto` 分支的真实 worktree，`git log` 确认为该分支）下 `src/browser/auto/*.ts`（10 个文件，共 1116 行）与 `src/cli.ts` 的未提交 diff，只读，未做任何修改，符合 CONFLICT-SCOPE 约束。
 
 ---
 
@@ -161,7 +161,7 @@ ledger.mjs upsert + transition（写台账，`submitted`/`public`/`indexed`/`rel
 
 ## 5. `opencli browser <session> auto`：真实现状（非猜测）
 
-来源：`/Users/kcsx/Project/kcsx/macmini/opencli-worktrees/jev-auto`（`feat/jev-auto` 分支的 worktree，`git log` 确认 `931b0cb9 [feat/jev-auto]`），只读了 `src/browser/auto/*.ts`（10 个文件）与 `src/cli.ts` 的未提交 diff，未做任何修改。
+来源：`<opencli-worktrees>/jev-auto`（`feat/jev-auto` 分支的 worktree，`git log` 确认 `931b0cb9 [feat/jev-auto]`），只读了 `src/browser/auto/*.ts`（10 个文件）与 `src/cli.ts` 的未提交 diff，未做任何修改。
 
 ### 5.1 已经实现的（不用再要）
 

@@ -10,14 +10,14 @@
 
 ## 往哪派
 
-- 按 `agent-fleet` Skill 与全局 §2 路由：编码类默认 `fleet code`（本机 Codex `gpt-6.1-sol`），文案与翻译走 `fleet copy`（Gemini），Grok 分担其他调研与备选，判断节点（分类、路由、是非、打分、成败判定）走 `fleet judge`（JEV，置信度低时交回主线程）。
-- Claude 只做全局路由表明确归它的事：建站设计与视觉交互、3D/游戏、复杂脚手架、深度架构、不可逆或安全敏感的改动。**Haiku 档位与 `executor-haiku` 已停用**。
+- 编码和代码复核默认 Codex Terra（`fleet-go new --to gpt --simple`）；Sol 只在用户点名时用。文案、翻译和校对走 Gemini；其他路由见 agent-fleet。
+- Claude 档优先 `fleet haiku|sonnet|opus|fable`，需要本应用工具或本机登录态时用 `executor-*`。
 - 模型档位是运行时配置，不在 Skill 里断言本机当前模型或某个版本的表现；具体模型名、命令与回退顺序以 `agent-fleet` 当前文档为准。
 
 ## 第三方失败与执行纪律
 
-- 第三方模型返回 402、登录失效、模型被拒，或产物为空、含裸 tool-call 控制 token、verdict 为 `suspect`/`fail`（退出码 0 也不算成功）：先诊断，**最多重试一次**；仍失败就**停下并如实告知用户**，由用户决定充值或改派。**不许静默改派 Claude subagent。**
+- 第三方模型失败、空结果、裸 tool-call 或 verdict 为 `suspect`/`fail` 时，网络抖动同档重试一次；其余按 agent-fleet 工具链换手重派同一 brief，并记录原因。工具链全部不可用时才停下。
 - Claude subagent **不得再派 Claude subagent**；子步骤只能分发给第三方模型或脚本。
 - **不设轮数、上下文、时长或预算上限**，任务做到验收终态；用户明确设置的上限始终有效，不得自行抬高。省成本靠路由和不嵌套，不靠截断。
-- 等待不轮询：第三方任务用后台启动并等完成通知；必须等待时用带退出条件和硬超时的 Monitor。
+- 等待不轮询：第三方任务用后台启动并等完成通知。
 - 产出由派单方自己核验，不能因成本低省掉必要核验；若项目提供 `executor-*` 子代理，使用前核实其当前 frontmatter 与平台支持。

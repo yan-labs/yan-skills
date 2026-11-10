@@ -68,21 +68,30 @@ def records():
     return [json.loads(p.read_text()) for p in STORE.glob('*.json')]
 
 def find(spec):
-    rows = [r for r in records() if r['id'] == spec or r['id'].startswith(spec) or (spec.startswith('detach-') and r['id'].endswith(spec)) or r['name'] == spec]
+    remote = records()
     local_dir = Path(os.environ.get('AGENT_FLEET_RUNS_DIR', Path.home() / '.agent-fleet/runs'))
+    local = []
     if local_dir.exists():
         for path in local_dir.glob('*.json'):
             if path.name.endswith('.pid.json'): continue
             try:
                 row = json.loads(path.read_text())
-                ident = row.get('runId', '')
-                if row.get('name') == spec and row.get('status', row.get('state')) == 'running': return None
-                if ident and (ident == spec or ident.startswith(spec)): return None
+                if row.get('runId'):
+                    local.append({'id': row['runId'], 'name': row.get('name'), 'startedAt': row.get('startedAt', ''), 'local': True})
             except (OSError, ValueError): pass
+    rows = remote + local
+    exact = [r for r in rows if r['id'] == spec]
+    if exact: return exact[0]
+    names = [r for r in rows if r.get('name') == spec]
+    if names:
+        def timestamp(row):
+            if row.get('startedAt'): return row['startedAt']
+            match = re.match(r'(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3})Z', row['id'])
+            return f'{match[1]}:{match[2]}:{match[3]}.{match[4]}Z' if match else ''
+        return max(names, key=timestamp)
+    rows = [r for r in rows if r['id'].startswith(spec) or (spec.startswith('detach-') and r['id'].endswith(spec))]
     if len(rows) == 1: return rows[0]
-    if len(rows) > 1 and all(r['name'] == spec for r in rows):
-        return sorted(rows, key=lambda r: r['id'], reverse=True)[0]
-    if len(rows) > 1: raise ValueError('Mini 任务匹配不唯一，请使用完整 runId。')
+    if len(rows) > 1: raise ValueError('任务匹配不唯一，请使用完整 runId。')
     return None
 
 
@@ -217,6 +226,10 @@ p=json.loads(base64.b64decode(sys.argv[1])); r=subprocess.run(p, text=True); sys
 if __name__ == '__main__':
     rec = find(sys.argv[2]) if len(sys.argv) > 2 else None
     if not rec: sys.exit(2)
+    if sys.argv[1] == 'local-id':
+        if rec.get('local'): print(rec['id'])
+        sys.exit(0)
+    if rec.get('local'): sys.exit(2)
     if sys.argv[1] == 'has': sys.exit(0)
     if sys.argv[1] == 'wait': sys.exit(wait(rec, '--pull' in sys.argv[3:]))
     sys.exit(forward([sys.argv[1], rec['id'], *sys.argv[3:]]))
