@@ -1,5 +1,7 @@
 # agent-fleet — 通用多模型子任务执行工具
 
+Mini 同步：在本仓将目标提交用 `git archive HEAD` 解包到临时目录，再用 `rsync -a` 覆盖 Mini 的 `~/PROJECT/kcsx/macmini/yan-skills/`；保留远端未跟踪的配置和依赖。
+
 ## 快速开始
 
 ```bash
