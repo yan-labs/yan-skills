@@ -38,6 +38,10 @@ if (args[0] === 'app-server') {
       if (mode === 'archive-fail' && req.method === 'thread/archive') send({ id: req.id, error: { code: -32000, message: 'mock archive failed' } });
       else send({ id: req.id, result: {} });
     }
+    if (req.method === 'thread/resume') {
+      if (req.params.threadId === 'invalid-thread') send({id:req.id,error:{code:-32000,message:'session not found'}});
+      else send({id:req.id,result:{thread:{id:req.params.threadId}}});
+    }
     if (req.method === 'thread/start') send({ id: req.id, result: { thread: { id: 'thread-one' } } });
     if (req.method === 'turn/start') {
       send({ id: req.id, result: { turn: { id: 'turn-one' } } });
@@ -258,8 +262,8 @@ try {
 
   const continued = await scenario('normal', { resume: 'thread-one' });
   assert.equal(continued.result.ok, true);
-  assert.equal(continued.trace.find(entry => entry.method === 'thread/unarchive').params.threadId, 'thread-one');
-  assert.equal(continued.trace.at(-1).method, 'thread/archive');
+  assert.equal(continued.trace.find(entry => entry.method === 'thread/resume').params.threadId, 'thread-one');
+  assert.equal(continued.trace.filter(entry => entry.method).at(-1).method, 'thread/archive');
 
   const invalid = await scenario('normal', { resume: 'invalid-thread' });
   assert.equal(invalid.result.ok, false);

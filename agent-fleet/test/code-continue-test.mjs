@@ -1,9 +1,9 @@
 // 假 app-server 验证同线程续做，不调用真实 Codex 或付费服务。
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync, spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { writeYield, readYield, ask, takeAsk, localCondition, startBackground } from '../src/yield.mjs';
+import { writeYield, readYield, ask, takeAsk, localCondition, startBackground, alignStage } from '../src/yield.mjs';
 import { registerQueue, acquireSlot, queueRecord, setSlotState } from '../src/queue.mjs';
 import { waitDetached } from '../src/detach.mjs';
 import { appendInbox } from '../src/inbox.mjs';
@@ -19,19 +19,24 @@ const saved = { ...process.env };
 const mock = join(scratch, 'codex-mock.cjs');
 writeFileSync(mock, `#!/usr/bin/env node
 const fs = require('node:fs');
-let count = 0;
+let count = 0, threads = 0;
 const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n');
 process.on('SIGINT', () => process.exit(0));
 require('node:readline').createInterface({input: process.stdin}).on('line', line => {
  const req = JSON.parse(line);
  fs.appendFileSync(process.env.TRACE, line + '\\n');
- if (req.method === 'thread/start') send({id:req.id,result:{thread:{id:'same-thread'}}});
+ if (req.method === 'thread/resume') send({id:req.id,result:{thread:{id:req.params.threadId}}});
+ else if (req.method === 'thread/start') send({id:req.id,result:{thread:{id:++threads === 1 ? 'same-thread' : 'next-thread'}}});
  else if (req.method === 'turn/start') {
   const id = 'turn-' + ++count;
   send({id:req.id,result:{turn:{id}}});
   send({method:'turn/started',params:{turn:{id}}});
   setTimeout(() => {
    const mode = process.env.MODE;
+   if (mode === 'plan' && count === 1) fs.writeFileSync(process.env.YIELD_FILE,JSON.stringify({type:'plan',text:'实现：假测试通过\\n验收点：报告完成',at:Date.now()}));
+   if (mode === 'handoff' && count === 1)
+     fs.writeFileSync(process.env.YIELD_FILE, JSON.stringify({type:'handoff',text:'已完成及证据；决定及理由；未决外部事项；坑勿重做；下一步',next:'继续',at:Date.now()}));
+
    if (count === 1 && (mode === 'yield-park' || mode === 'yield-blocked')) {
     fs.writeFileSync(process.env.YIELD_FILE, JSON.stringify(mode === 'yield-park'
       ? {type:'park',until:'file:ready',say:'醒来执行指定动作',at:Date.now(),timeoutMs:5000,timeouts:0}
@@ -48,7 +53,7 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
    fs.writeFileSync(process.env.REPORT_FILE, report);
    send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:conclusion}}});
    send({method:'turn/completed',params:{turn:{id,status:'completed'}}});
-  }, 5);
+  }, process.env.MODE === 'threshold' ? 400 : 5);
  } else if (req.id !== undefined) send({id:req.id,result:{}});
 });
 `);
@@ -58,6 +63,102 @@ try {
   delete process.env.FLEET_CODEX_BACKEND;
   delete process.env.FLEET_NO_CONTINUE;
   assert.equal(splitShortArgs(['--no-continue', 'brief.md']).flags['no-continue'], true);
+  // Handoff uses a new thread, full anchor, latest card and a separate restatement judgment.
+  process.env.FLEET_DETACHED_RUN_ID = 'handoff-check';
+  process.env.MODE = 'handoff';
+  process.env.TRACE = join(scratch, 'handoff.trace');
+  process.env.REPORT_FILE = join(scratch, 'handoff-report.md');
+  process.env.YIELD_FILE = join(scratch, 'handoff-check.yield');
+  const anchor = '原始 brief 全文\n阶段：实现，完成条件：假测试通过\n阶段：验证，完成条件：报告\n## 【修订 1】\n按序修订全文';
+  const judgments = [];
+  await runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,
+    continuationJudge:async payload => { judgments.push(payload); return {ok:true,answers:{aligned:{choice:'pass',confidence:0.9}}}; }});
+  const trace = readFileSync(process.env.TRACE,'utf8').trim().split('\n').map(JSON.parse);
+  const turns = trace.filter(e=>e.method==='turn/start');
+  assert.equal(turns.length,3);
+  assert.equal(turns[1].params.threadId,'next-thread');
+  assert(turns[1].params.input[0].text.startsWith(anchor));
+  assert.match(turns[1].params.input[0].text,/最新交接单/);
+  assert.deepEqual(judgments.map(p=>p.state.kind),['handoff','restatement']);
+  assert.equal(await alignStage({anchor,stages:[],stage:0},'写偏','handoff',
+    async()=>({ok:true,answers:{aligned:{choice:'reject',confidence:0.99}}})),false);
+  process.env.FLEET_DETACHED_RUN_ID = 'rejected-handoff';
+  process.env.YIELD_FILE = join(scratch,'rejected-handoff.yield');
+  process.env.TRACE = join(scratch,'reject.trace');
+  let rejectOnce = true;
+  const rejecting = runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,
+    continuationJudge:async()=>({ok:true,answers:{aligned:{choice:rejectOnce ? (rejectOnce=false,'reject') : 'pass',confidence:0.9}}})});
+  for (let n=0;n<500 && !existsSync(join(scratch,'rejected-handoff.asks'));n++) await delay(10);
+  assert(existsSync(join(scratch,'rejected-handoff.asks')));
+  assert.equal(readYield('rejected-handoff').until,'reply');
+  assert.equal(readFileSync(process.env.TRACE,'utf8').split('"method":"thread/start"').length-1,1);
+  appendInbox('rejected-handoff',{type:'say',text:'放行，按原锚继续',at:new Date().toISOString()});
+  await rejecting;
+  process.env.FLEET_DETACHED_RUN_ID = 'baton-limit';
+  process.env.YIELD_FILE = join(scratch,'baton-limit.yield');
+  process.env.TRACE = join(scratch,'baton-limit.trace');
+  writeFileSync(join(scratch,'baton-limit.stages.json'),JSON.stringify({anchor,stages:['阶段：完成'],stage:0,baton:3}));
+  const limited = runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,
+    continuationJudge:async()=>({ok:true,answers:{aligned:{choice:'pass',confidence:0.9}}})});
+  for(let n=0;n<500 && !existsSync(join(scratch,'baton-limit.asks'));n++) await delay(10);
+  appendInbox('baton-limit',{type:'say',text:'放行'});
+  await limited;
+  assert.equal(readFileSync(process.env.TRACE,'utf8').split('"method":"thread/start"').length-1,1);
+  process.env.FLEET_DETACHED_RUN_ID = 'stage-plan';
+  process.env.MODE = 'plan';
+  process.env.YIELD_FILE = join(scratch,'stage-plan.yield');
+  process.env.TRACE = join(scratch,'stage-plan.trace');
+  const planning = runCode({prompt:'原始锚',cwd:scratch,codexBin:mock,noContinue:true});
+  for(let n=0;n<500 && !existsSync(join(scratch,'stage-plan.asks'));n++) await delay(10);
+  assert.equal(readYield('stage-plan').until,'reply');
+  appendInbox('stage-plan',{type:'say',text:'批准计划'});
+  await planning;
+  assert.equal(JSON.parse(readFileSync(join(scratch,'stage-plan.stages.json'),'utf8')).stages.length,2);
+  // Recreate a dead runner's durable park: resume must wait before any model turn.
+  process.env.FLEET_DETACHED_RUN_ID = 'recovered-park';
+  process.env.MODE = 'complete';
+  process.env.TRACE = join(scratch,'resume.trace');
+  await registerQueue({runId:'dead-park',model:'gpt-6.1-sol'});
+  assert(await acquireSlot('dead-park'));
+  const deadEnv = {...process.env,FLEET_DETACHED_RUN_ID:'dead-park',FLEET_SLOT_RUN_ID:'dead-park',MODE:'yield-park',
+    YIELD_FILE:join(scratch,'dead-park.yield'),TRACE:join(scratch,'dead.trace')};
+  const dead = spawn(process.execPath,['--input-type=module','-e',
+    'import {runCode} from '+JSON.stringify(new URL('../src/code-runner.mjs',import.meta.url).href)+'; await runCode('+JSON.stringify({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true})+');'],{env:deadEnv,stdio:'ignore'});
+  for(let n=0;n<500 && !existsSync(deadEnv.YIELD_FILE);n++) await delay(10);
+  assert(existsSync(deadEnv.YIELD_FILE));
+  for(let n=0;n<500 && (queueRecord('dead-park')?.state !== 'parked' || existsSync(join(scratch,'.queue-lock')));n++) await delay(10);
+  assert.equal(queueRecord('dead-park').state,'parked');
+  assert(!existsSync(join(scratch,'.queue-lock')));
+  const died = new Promise(resolve=>dead.once('close',resolve));
+  dead.kill('SIGKILL'); await died;
+  // The replacement resumes the durable condition rather than starting a model turn.
+  const recovered = runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,resume:'old-thread',resumedFrom:'dead-park'});
+  await delay(50);
+  if (existsSync(process.env.TRACE)) assert(!readFileSync(process.env.TRACE,'utf8').includes('"method":"turn/start"'));
+  writeFileSync(join(scratch,'ready'),'done');
+  const recoveredResult = await recovered;
+
+  assert(recoveredResult.ok, JSON.stringify({fallbacks:recoveredResult.fallbacks,stderr:recoveredResult.stderr,yield:recoveredResult.yield,trace:readFileSync(process.env.TRACE,'utf8')}));
+  const resumedTrace = readFileSync(process.env.TRACE,'utf8').trim().split('\n').map(JSON.parse);
+  assert(resumedTrace.some(e=>e.method==='thread/resume' && e.params.threadId==='old-thread'));
+  assert.match(resumedTrace.find(e=>e.method==='turn/start').params.input[0].text,/醒来执行指定动作/);
+  console.log('PASS - handoff full anchor/new thread/restatement and durable park resume');
+  process.env.FLEET_DETACHED_RUN_ID = 'remote-recovered';
+  process.env.TRACE = join(scratch,'remote-resume.trace');
+  const remotePark = writeYield('remote-dead',{type:'park',until:'gh-run:fixture',say:'远程状态恢复',timeout:'1s'});
+  writeFileSync(join(scratch,'remote-dead.wake.json'),JSON.stringify({condition:remotePark.until,at:Date.now(),status:'done'}));
+  const remoteRecovery = await runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,resume:'old-thread',resumedFrom:'remote-dead'});
+  assert(remoteRecovery.ok);
+  assert.match(readFileSync(process.env.TRACE,'utf8'),/远程状态恢复/);
+  process.env.FLEET_DETACHED_RUN_ID = 'threshold';
+  process.env.MODE = 'threshold';
+  process.env.TRACE = join(scratch,'threshold.trace');
+  process.env.FLEET_HANDOFF_ACTIVE_MS = '1';
+  await runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true});
+  const thresholdTrace = readFileSync(process.env.TRACE,'utf8').trim().split('\n').map(JSON.parse);
+  assert(thresholdTrace.some(e=>e.method==='turn/steer' && /不是强停/.test(e.params.input[0].text)));
+  delete process.env.FLEET_HANDOFF_ACTIVE_MS;
+  rmSync(join(scratch,'ready'));
   // A parked turn frees its slot; no RPC is sent until a local condition wakes it.
   process.env.FLEET_SLOT_CAPACITY = '1';
   for (const mode of ['yield-park', 'yield-blocked']) {

@@ -51,6 +51,10 @@ export function writeYield(id, entry) {
   if (entry.type === 'park') {
     validateCondition(entry.until);
     if (!entry.say?.trim()) throw new Error('park 需要 --say，说明醒来做什么。');
+  } else if (entry.type === 'plan') {
+    if (!entry.text?.trim()) throw new Error('plan 需要阶段范围和完成条件。');
+  } else if (entry.type === 'handoff') {
+    if (!entry.next?.trim() || !entry.text?.trim() || Buffer.byteLength(entry.text + entry.next) > 2048) throw new Error('handoff 需要 --next 和五项交接正文（≤2KB）。');
   } else if (entry.type === 'blocked') {
     if (!['auth', 'input', 'access'].includes(entry.need) || !entry.what?.trim() || !entry.tried?.trim() || !entry.who?.trim())
       throw new Error('blocked 需要 --need auth|input|access --what --tried --who。');
@@ -151,4 +155,25 @@ if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv[2] === '-
     child.once('close', (code, signal) => resolve({ code, signal }));
   });
   save(pathFor(id, 'job.json'), { ...previous, ...result, status: result.code === 0 ? 'done' : 'failed', finishedAt: Date.now() });
+}
+
+// The original brief and ordered revisions are retained verbatim, never summarized.
+export function stageState(id, anchor) {
+  const state = readJSON(pathFor(validId(id), 'stages.json')) ||
+    { anchor, stages: anchor.match(/^阶段[:：].+$/gm) || [], baton: 1, stage: 0 };
+  save(pathFor(id, 'stages.json'), state);
+  return state;
+}
+export function saveStages(id, state) { save(pathFor(validId(id), 'stages.json'), state); }
+export async function alignStage(state, text, kind, judge) {
+  try {
+    const result = await judge(JSON.parse(redactEvidence({
+      state: { anchor: state.anchor, stage: state.stages[state.stage], text, kind },
+      questions: { aligned: { type: 'choice',
+        instructions: '对照不变锚和本阶段条件。交接须含已完成及证据、决定及理由、未决与外部事项、坑与勿重做、下一步；复述须含目标、阶段边界、不做什么。偏离或缺项选 reject。',
+        criteria: { pass: '完整且对齐', reject: '偏离或缺项' } } }
+    })));
+    const answer = result.answers?.aligned;
+    return result.ok && answer?.choice === 'pass' && answer.confidence >= 0.55;
+  } catch { return false; }
 }

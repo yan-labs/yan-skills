@@ -1,4 +1,4 @@
-import { readYield, resolveYield, writeYield, localCondition } from './yield.mjs';
+import { readYield, resolveYield, writeYield, localCondition, ask, stageState, saveStages, alignStage } from './yield.mjs';
 import { saveCodexQuota, taskIdentity, queueRecord, setSlotState, acquireSlot } from './queue.mjs';
 // Codex 执行层：管理 app-server 回合、插话、自动续做与 exec 降级。
 import { readContinuationState, continuationProgress, continuationRules, judgeContinuation } from './code-continue.mjs';
@@ -90,7 +90,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const taskGoal = prompt.match(/^## 目标\s*\n([^\n]+)/m)?.[1] || '';
   const documentTask = /文档|文案|写作|翻译|校对|review|复核|审查/i.test(taskHeader) || /^(?:写|撰写|编写|更新|修改|整理|翻译|校对|复核|审查)(?:文档|报告|文章|文案|资料|说明|代码)/.test(taskGoal);
   const continueEnabled = !review && !documentTask && !noContinue && process.env.FLEET_NO_CONTINUE !== '1';
-  const fullPrompt = review ? `${reviewPrompt()}\n\n${prompt}` : `${SCOPE_LOCK}\n\n安装、构建和测试可能持续 30 分钟以上；命令仍在运行时用 write_stdin 发送空内容轮询等待，绝不发送 Ctrl-C（\\u0003）；不因耗时中断。\n\n${prompt}`;
+  const fullPrompt = review ? `${reviewPrompt()}\n\n${prompt}` : `${SCOPE_LOCK}\n\n预计超过2小时且 brief 未给阶段时，第一棒先列出各阶段范围和完成条件，用 fleet plan --file <计划文件> 等枢纽批准；阶段边界用 fleet handoff --next <第一动作> --file <五项交接单>。\n\n安装、构建和测试可能持续 30 分钟以上；命令仍在运行时用 write_stdin 发送空内容轮询等待，绝不发送 Ctrl-C（\\u0003）；不因耗时中断。\n\n${prompt}`;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   mkdirSync(runsDir(), { recursive: true });
   const runId = process.env.FLEET_DETACHED_RUN_ID || process.env.FLEET_SLOT_RUN_ID || `${stamp}-codex`;
@@ -104,6 +104,12 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   if (!process.env.FLEET_DETACHED_RUN_ID) writeFileSync(logPath, '');
   let stderr = '', activeChild, closed, rpc, turnId, completed, turnFinished, stopping = false;
   let yielding = false;
+  const sourceId = resumedFrom || runId;
+  const stages = stageState(sourceId, prompt);
+  saveStages(runId, stages);
+  const persistStages = () => { saveStages(sourceId, stages); saveStages(runId, stages); };
+  let thresholdSent = false, activeSince = Date.now(), activeElapsed = 0, needsRestatement = false;
+
   let offsetQueue = [], drain = Promise.resolve(), activeDescendants = [];
   const pendingAsks = new Set();
   const slot = process.env.FLEET_SLOT_RUN_ID ? queueRecord(process.env.FLEET_SLOT_RUN_ID) : null;
@@ -208,7 +214,12 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   record({ finished: false });
   const inbox = watchInbox(runId, entry => {
     if (entry.type === 'stop') { stopping = true; void interrupt(); }
-    else if (entry.type === 'say') { offsetQueue.push(entry.text); schedule(); }
+    else if (entry.type === 'say') {
+      stages.revisions = [...(stages.revisions || []), entry.text];
+      stages.anchor += '\n\n修订 ' + stages.revisions.length + '：\n' + entry.text;
+      persistStages();
+      offsetQueue.push(entry.text); schedule();
+    }
     else if (entry.type === 'ask') {
       const text = `子任务 ${entry.runId} 请求帮助（${entry.kind}）：\n${entry.text}\n请用 fleet say ${entry.runId} "<答复>" 回复。`;
       pendingAsks.add(text);
@@ -234,6 +245,37 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const handleYield = async () => {
     const entry = readYield(runId);
     if (!entry || entry.resolvedAt) return null;
+    if (entry.type === 'plan') {
+      resolveYield(runId, entry, { status: 'submitted' });
+      ask(runId, { kind: 'decision', text: '请批准阶段计划：' + entry.text, wait: true });
+      const approval = await handleYield();
+      if (approval?.approved) {
+        stages.stages = entry.text.split('\n').filter(Boolean);
+        persistStages();
+      }
+      return approval;
+    }
+    if (entry.type === 'handoff') {
+      resolveYield(runId, entry, { status: 'checked' });
+      entry.text += '\n下一步第一动作：' + entry.next;
+      const aligned = await alignStage(stages, entry.text, 'handoff', continuationJudge);
+      const needsPlan = !stages.stages.length || stages.baton >= stages.stages.length + 2;
+      if (!aligned || needsPlan || /验收点/.test(stages.stages[stages.stage] || '')) {
+        ask(runId, { kind: 'decision', text: '交接需要枢纽放行或重排：' + entry.text, wait: true });
+        const approval = await handleYield();
+        if (!approval?.approved) return approval;
+        if (needsPlan) return { prompt: approval.prompt + '\n尚无阶段计划或棒数已达上限；先 fleet plan 提交重排后的计划，批准前不开新 thread。' };
+        // Approval does not silently accept drift: the hub supplies the corrected handoff.
+        entry.text += '\n枢纽答复：' + approval.prompt;
+      }
+      stages.latest = entry.text;
+      stages.baton++;
+      stages.stage++;
+      persistStages();
+      needsRestatement = true;
+      log(fleetEvent('handoff'));
+      return { handoff: true, prompt: stages.anchor + '\n\n最新交接单：\n' + stages.latest + '\n先仅复述目标一句、本阶段边界、不做什么，等待对锚后再工作。' };
+    }
     yielding = true;
     metadata.yield = entry;
     metadata.continueRequired = false;
@@ -261,7 +303,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         result = { status: 'ask', text: '先处理子任务求助，再决定是否继续等待原条件。' };
         break;
       }
-      result = await localCondition(entry.until, { id: runId, entry, cwd: workdir, replies: offsetQueue });
+      result = await localCondition(entry.until, { id: entry.sourceId || runId, entry, cwd: workdir, replies: offsetQueue });
       if (result || Date.now() >= entry.at + entry.timeoutMs) break;
       await new Promise(resolve => setTimeout(resolve, 250));
     }
@@ -282,11 +324,12 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     metadata.yield = null;
     yielding = false;
     log(fleetEvent(FLEET_EVENTS.WAKE)); record();
-    return { prompt: `${entry.say}\n条件：${entry.until}\n终态：${JSON.stringify(result)}${replies.length ? '\n答复：' + replies.join('\n\n') : ''}` };
+    activeSince = Date.now();
+    return { approved: entry.until === 'reply' && result.status === 'done' && /批准|放行|同意/.test(replies.join('\n')) && !/不批准|不放行|不同意|拒绝|否决|暂缓/.test(replies.join('\n')), prompt: `${entry.say}\n条件：${entry.until}\n终态：${JSON.stringify(result)}${replies.length ? '\n答复：' + replies.join('\n\n') : ''}` };
   };
   let outcome;
   try {
-    if (!stopping && !resume && process.env.FLEET_CODEX_BACKEND !== 'exec') {
+    if (!stopping && process.env.FLEET_CODEX_BACKEND !== 'exec') {
       metadata.backend = 'codex-app-server';
       const child = start(['app-server', '--stdio']);
       const pending = new Map();
@@ -334,9 +377,30 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       try {
         await rpc('initialize', { clientInfo: { name: 'agent_fleet', version: '0.7.0' }, capabilities: { experimentalApi: true } });
         child.stdin.write('{"method":"initialized"}\n');
-        const response = await rpc('thread/start', { cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
+        const response = await rpc(resume ? 'thread/resume' : 'thread/start', { ...(resume ? { threadId: resume } : {}), cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
         metadata.threadId = metadata.sessionId = response.thread.id; ownsAppThread = true; record();
-        let nextPrompt = fullPrompt, previous, stagnant = 0;
+        let nextPrompt = resume ? stages.anchor : fullPrompt, previous, stagnant = 0;
+        if (resumedFrom) {
+          const pendingYield = readYield(resumedFrom);
+          if (pendingYield && !pendingYield.resolvedAt) {
+            writeFileSync(base + '.yield', JSON.stringify({ ...pendingYield, sourceId: pendingYield.sourceId || resumedFrom }));
+            const wake = await handleYield();
+            if (wake?.blocked) return metadata;
+            if (wake?.prompt) nextPrompt = wake.prompt;
+            resolveYield(resumedFrom, pendingYield, { status: 'resumed', runId });
+          }
+        }
+        const threshold = setInterval(() => {
+          const elapsed = Date.now() - activeSince; activeSince = Date.now();
+          if (!yielding) activeElapsed += elapsed;
+          const tokens = metadata.usage?.last?.totalTokens || metadata.usage?.total?.totalTokens || 0;
+          if (!thresholdSent && !yielding && turnId && (tokens >= Number(process.env.FLEET_HANDOFF_TOKENS || 150000) || activeElapsed >= Number(process.env.FLEET_HANDOFF_ACTIVE_MS || 7200000))) {
+            thresholdSent = true;
+            rpc('turn/steer', { threadId: metadata.threadId, expectedTurnId: turnId,
+              input: textInput('已到交接提示阈值；这不是强停。到阶段边界写五项交接单并 fleet handoff；没有阶段计划先拟阶段并 fleet ask --wait 请求批准。') }).then(() => log(fleetEvent('steer'))).catch(error => fallback(error.message));
+          }
+        }, 250);
+        child.once('close', () => clearInterval(threshold));
         while (true) {
           // 每轮都先安装完成监听，避免很快结束的回合漏掉通知。
           completed = null;
@@ -347,7 +411,26 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
           await turnDone;
           inbox.pump(); await drain;
           if (completed?.status !== 'completed' || stopping) break;
+          if (needsRestatement) {
+            const text = readFileSync(resultPath, 'utf8');
+            const aligned = await alignStage(stages, text, 'restatement', continuationJudge);
+            if (!aligned) {
+              ask(runId, { kind: 'decision', text: '接棒复述未对齐：' + text, wait: true });
+              const correction = await handleYield();
+              if (correction?.blocked) break;
+              nextPrompt = correction.prompt + '\n请重新仅复述目标、阶段边界、不做什么。';
+              continue;
+            }
+            needsRestatement = false;
+            nextPrompt = '复述已对锚，按本阶段继续。'; continue;
+          }
           const yielded = await handleYield();
+          if (yielded?.handoff) {
+            await rpc('thread/archive', { threadId: metadata.threadId });
+            const fresh = await rpc('thread/start', { cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
+            metadata.threadId = metadata.sessionId = fresh.thread.id;
+            archived = false; activeSince = Date.now(); activeElapsed = 0; thresholdSent = false; record();
+          }
           if (yielded?.blocked) break;
           if (yielded?.prompt) { nextPrompt = yielded.prompt; continue; }
           if (offsetQueue.length || review) break;

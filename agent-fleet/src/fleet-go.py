@@ -277,9 +277,18 @@ def locate(name):
 def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     path, meta = locate(name)
-    matches = [r for r in running() if r.get('briefPath') == str(path) or r.get('name') == name]
-    if matches:
+    candidates = [r for r in running(False) if r.get('briefPath') == str(path) or r.get('name') == name]
+    if any(r.get('status') in ('running', 'queued', 'parked', 'waiting', 'unreachable') for r in candidates):
         raise ValueError('同名任务仍未结束；需要重启请用 amend --restart，未重复派发。')
+    if (to or meta['to']) == 'gpt':
+        for previous in sorted(candidates, key=lambda r: r.get('startedAt') or r.get('runId') or '', reverse=True)[:1]:
+            run_id = previous.get('runId')
+            runs_root = Path(os.environ.get('AGENT_FLEET_RUNS_DIR', str(Path.home() / '.agent-fleet/runs')))
+            yielded = runs_root / (str(run_id) + '.yield')
+            if yielded.exists():
+                state = json.loads(yielded.read_text())
+                if state.get('type') == 'park' and not state.get('resolvedAt'):
+                    os.execvp('fleet', ['fleet', 'resume', run_id])
     target = to or meta['to']
     if target == 'claude' and (tier or (meta.get('tier') if meta['to'] == 'claude' else None)) == 'fable':
         raise ValueError('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）')

@@ -149,6 +149,16 @@ try {
     state(); reset(); const r=run(['amend','one','重启','--restart']); assert.equal(r.status,7,r.stderr);
     assert.deepEqual(history().map(c=>c.args[0]),['status','stop','status','status','code']);
   });
+  test('dead parked relaunch routes through resume', () => {
+    writeFileSync(states,JSON.stringify([{runId:'dead-park',name:'one',status:'abnormal'}]));
+    const isolatedRuns=join(temp,'park-runs'); mkdirSync(isolatedRuns);
+    writeFileSync(join(isolatedRuns,'dead-park.yield'),JSON.stringify({type:'park',until:'reply'}));
+    reset();
+    const result=run(['relaunch','one'],{AGENT_FLEET_RUNS_DIR:isolatedRuns});
+    assert.equal(result.status,0,result.stderr);
+    assert.deepEqual(history().at(-1).args,['resume','dead-park']);
+    writeFileSync(states,'[]');
+  });
   test('没有运行 run 时 --say 直接按修订后 brief relaunch', () => {
     writeFileSync(states,'[]'); reset(); const r=run(['amend','one','离线修订','--say']); assert.equal(r.status,7,r.stderr); assert.match(r.stdout,/直接 relaunch/);
     assert.ok(history().some(c=>c.args[0]==='code'));
