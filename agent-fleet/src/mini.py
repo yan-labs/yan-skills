@@ -15,9 +15,9 @@ except (OSError, ValueError):
     CONFIG = {}
 
 MM = os.environ.get('FLEET_MINI_MM', CONFIG.get('mm', str(Path.home() / '.claude/skills/macmini/scripts/mm')))
-REMOTE_BIN = os.environ.get('FLEET_MINI_BIN', CONFIG.get('bin', ''))
+REMOTE_BIN = (os.environ.get('FLEET_MINI_BIN') or CONFIG.get('bin', ''))
 LOCAL_HOME = os.environ.get('FLEET_LOCAL_HOME', CONFIG.get('local_home', str(Path.home()))).rstrip('/')
-REMOTE_HOME = os.environ.get('FLEET_MINI_HOME', CONFIG.get('remote_home', '')).rstrip('/')
+REMOTE_HOME = (os.environ.get('FLEET_MINI_HOME') or CONFIG.get('remote_home', '')).rstrip('/')
 STORE = Path.home() / '.agent-fleet/mini-runs'
 
 def map_path(value, source, target):

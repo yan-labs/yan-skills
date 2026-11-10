@@ -265,6 +265,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
         const response = await rpc('thread/start', { cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
         metadata.threadId = metadata.sessionId = response.thread.id; ownsAppThread = true; record();
         let nextPrompt = fullPrompt, previous, stagnant = 0;
+        const initial = readContinuationState(workdir, reportPath);
         while (true) {
           // 每轮都先安装完成监听，避免很快结束的回合漏掉通知。
           completed = null;
@@ -284,7 +285,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
           }
           let missing = [], judgment;
           if (continueEnabled && reportPath && !state.conclusion.startsWith('失败')) {
-            missing = continuationRules(state, prompt, workdir);
+            missing = continuationRules(state, prompt, workdir, initial);
             if (!missing.length && state.conclusion.startsWith('完成')) {
               judgment = await judgeContinuation({ brief: prompt, report: state.report,
                 finalReply: readFileSync(resultPath, 'utf8'), judge: continuationJudge });

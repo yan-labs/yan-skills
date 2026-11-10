@@ -11,6 +11,15 @@ root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / 'src'))
 import mini
 
+# Empty environment overrides must not mask configured Mini paths.
+with tempfile.TemporaryDirectory() as home:
+    config = Path(home) / '.agent-fleet/mini.json'
+    config.parent.mkdir()
+    config.write_text(json.dumps({'remote_home': '/remote', 'bin': '/remote/fleet'}))
+    env = dict(os.environ, HOME=home, FLEET_MINI_HOME='', FLEET_MINI_BIN='')
+    result = subprocess.run([sys.executable, '-c', 'import mini; print(bool(mini.REMOTE_HOME), bool(mini.REMOTE_BIN))'], env={**env, 'PYTHONPATH': str(root / 'src')}, capture_output=True, text=True)
+    assert result.stdout.strip() == 'True True'
+
 mini.LOCAL_HOME = '/home/a'
 mini.REMOTE_HOME = '/home/b'
 mini.REMOTE_BIN = '/home/b/fleet'

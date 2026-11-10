@@ -38,7 +38,7 @@ export function continuationProgress(before, after) {
 const REPORT_SECTIONS = ['规则回执', '结论', '实际执行', '改动与产物', '验证证据', '偏差', '未完成/风险/需要用户决定的事'];
 
 /** 第一层只检查报告结构及 brief 明确要求的交付凭据，不以“完成”二字代替证据。 */
-export function continuationRules(state, brief, cwd = process.cwd()) {
+export function continuationRules(state, brief, cwd = process.cwd(), initial = null) {
   if (state.conclusion.startsWith('失败')) return [];
   const missing = [];
   for (const line of brief.match(/^产物清单：\n(?:- .*\n)*/m)?.[0].split('\n').slice(1) ?? []) {
@@ -52,9 +52,13 @@ export function continuationRules(state, brief, cwd = process.cwd()) {
   const requirements = brief.split('\n').filter(line => !/收工前对照|完成标志|^## 改动与产物|^REPORT 按/.test(line))
     .flatMap(line => line.split(/[。；;]|[，,](?=(?:不|无需|无须|禁止))/))
     .filter(clause => /要求|必须|需要|给出|给|列出|提供|包含|附上|记录|补齐|验收[：:]/.test(clause));
-  const needsCommit = requirements.some(clause => /提交哈希|commit hash/i.test(clause) && !/不(?:要|用|需|必)?提交|无需提交|无须提交|禁止提交|不.*commit/i.test(clause))
-    && !/不(?:要|用|需|必)?提交|无需提交|无须提交|禁止提交/.test(brief);
+  const deliverables = brief.match(/^产物清单：\n(?:- .*\n)*/m)?.[0];
+  const auth = brief.match(/## 授权覆盖\n([\s\S]*?)(?=\n## |$)/)?.[1] || '';
+  const commitAuth = /允许在本地分支提交|发布全流程/.test(auth);
+  const needsCommit = (deliverables ? /提交|commit/i.test(deliverables) : commitAuth || requirements.some(clause => /提交哈希|commit hash|(?:本地)?提交(?:一次|代码|改动|并)/i.test(clause) && !/不(?:要|用|需|必)?提交|无需提交|无须提交|禁止提交|不.*commit/i.test(clause))
+    && !/不(?:要|用|需|必)?提交|无需提交|无须提交|禁止提交/.test(brief));
   const needsReadback = requirements.some(clause => /读回结果|回读结果/.test(clause) && !/不(?:要|用|需|必)?(?:读回|回读)|无需(?:读回|回读)|无须(?:读回|回读)|禁止(?:读回|回读)/.test(clause));
+  if (commitAuth && initial && /^(?:部分完成|未完成)/.test(state.conclusion) && state.head === initial.head && state.files === initial.files) missing.push('缺少实现改动和提交');
   if (needsCommit && !/\b[0-9a-f]{7,40}\b/i.test(state.report)) missing.push('补齐 brief 要求的提交哈希');
   if (needsReadback && !/(?:读回|回读)[^\n]*(?:通过|成功|一致|正常|published|HTTP\s*200|结果[：:]\s*\S)/i.test(state.report)) missing.push('补齐 brief 要求的实际读回结果');
   return missing;
