@@ -26,7 +26,7 @@ if(['code','openai','copy','bulk','grok-cli','haiku','sonnet','opus','fable','ju
 `, { mode: 0o755 });
 writeFileSync(join(bin, 'pgrep'), '#!/bin/sh\nif [ -n "${RESIDUAL:-}" ]; then\n printf "%s\\n" "$RESIDUAL"\n exit 0\nfi\nexit 1\n', { mode: 0o755 });
 const env = { ...process.env, FLEET_DEFAULT_ON: 'local', HOME: home, PATH: bin + ':' + process.env.PATH, CALLS: calls, STATES: states };
-const run = (args, extra={}) => spawnSync(script, args, { encoding:'utf8', env:{...env,...extra}, input:'' });
+const run = (args, extra={}) => spawnSync(script, ['new','lint'].includes(args[0]) ? [...args, '--no-lint'] : args, { encoding:'utf8', env:{...env,...extra}, input:'' });
 const history = () => existsSync(calls) ? readFileSync(calls,'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [];
 const reset = () => writeFileSync(calls, '');
 let checks = 0;
@@ -129,7 +129,33 @@ try {
     }
     const local=run(['new','local-check','--to','gpt','--goal','修复卡片','--dry-run']);
     assert.equal(local.status,0,local.stderr);
-    assert.match(local.stdout,/部署、git 写操作、线上写入由主线程另行授权/); assert.match(local.stdout,/提交按授权覆盖执行/);
+    assert.match(local.stdout,/部署、git 写操作、线上写入由主线程另行授权/); assert.match(local.stdout,/本单不做 git 提交，报告不需要提交哈希/);
+  });
+  test('入口与授权 lint 及豁免', () => {
+    const strict = (goal, body, opts=[]) => spawnSync(script,['new','strict','--to','gpt','--on','local','--goal',goal,'--dry-run',...opts],{encoding:'utf8',env,input:body});
+    const entry = '## 入口\n仓库：/tmp\n可写路径：/tmp/example\n';
+    let r = strict('修复代码',entry); assert.equal(r.status,0,r.stderr);
+    for (const [goal, body, opts, expected] of [
+      ['修复代码','',[],/缺少入口/],
+      ['修复代码','## 入口\n仓库：relative\n可写路径：\/tmp/x',[],/绝对路径/],
+      ['修复代码','## 入口\n仓库：/no-such-fake-repository\n可写路径：/tmp/x',[],/仓库不存在/],
+      ['修复代码','## 入口\n仓库：/tmp',[],/可写路径/],
+      ['远程检查','## 入口\n仓库：/tmp',[],/远程访问方式/],
+      ['检查凭据','## 入口\n仓库：/tmp',[],/凭据所在文件/],
+      ['检查','## 入口\n仓库：/tmp\n未知', ['--simple'],/不能使用 --simple/],
+      ['本地提交',entry,[],/没有 local-commit/],
+      ['报告提交哈希',entry,[],/没有 local-commit/],
+      ['部署到生产',entry,[],/没有 deploy-prod/],
+      ['报告提交哈希',entry,['--auth','review'],/只读单/],
+    ]) { r=strict(goal,body,opts); assert.equal(r.status,1,goal); assert.match(r.stderr,expected); }
+    assert.equal(strict('本地提交',entry,['--auth','local-commit']).status,0);
+    assert.equal(strict('部署到生产',entry,['--auth','deploy-prod']).status,0);
+    assert.equal(strict('本地提交','',['--no-lint']).status,0);
+    const f=join(temp,'strict.md'); writeFileSync(f,strict('修复代码',entry).stdout);
+    assert.equal(spawnSync(script,['lint',f],{encoding:'utf8',env}).status,0);
+    writeFileSync(f,readFileSync(f,'utf8')+'\n提交哈希\n');
+    r=spawnSync(script,['lint',f],{encoding:'utf8',env}); assert.equal(r.status,1); assert.match(r.stderr,/没有 local-commit/);
+    assert.equal(spawnSync(script,['lint',f,'--no-lint'],{encoding:'utf8',env}).status,0);
   });
   test('密钥诊断仅给行号与规则，摘要、长文件名和路径不误报', () => {
     const normal=[
@@ -139,7 +165,7 @@ try {
       '路径：/tmp/sk-'+'x'.repeat(40)+'/report.md',
       '路径：/tmp/exports/'+'a'.repeat(64)+'/fleet-task-report.md',
     ].join('\n');
-    const preview=spawnSync(script,['new','normal-check','--to','gpt','--dry-run'],{encoding:'utf8',env,input:normal});
+    const preview=spawnSync(script,['new','normal-check','--to','gpt','--dry-run','--no-lint'],{encoding:'utf8',env,input:normal});
     assert.equal(preview.status,0,preview.stderr);
     const bad=join(temp,'secret-check.md');
     const cases=[
@@ -175,7 +201,7 @@ try {
     }
     r=run(['new','--to','gpt','paid','--goal','付费','--auth','paid','--budget','$2，重试 1 次','--dry-run']); assert.equal(r.status,0); assert.match(r.stdout,/## 预算与重试限制\n\$2，重试 1 次/);
     assert.equal(r.stdout.split('$2，重试 1 次').length-1,1);
-    r=spawnSync(script,['new','--to','gpt','stdin','--dry-run'],{encoding:'utf8',env,input:'## stdin 独有正文'}); assert.equal(r.status,0); assert.match(r.stdout,/stdin 独有正文/);
+    r=spawnSync(script,['new','--to','gpt','stdin','--dry-run','--no-lint'],{encoding:'utf8',env,input:'## stdin 独有正文'}); assert.equal(r.status,0); assert.match(r.stdout,/stdin 独有正文/);
   });
   test('五产品、各档及选项映射，必填产品与旧参数拒绝', () => {
     for(const [to,cmd] of Object.entries({gpt:'code',openai:'openai',claude:'sonnet',grok:'grok-cli',gemini:'copy',jev:'judge'})) {

@@ -128,13 +128,13 @@ pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
     fleet.write_text('#!/bin/sh\nif [ "$1" = status ]; then echo "[]"; exit 0; fi\nwhile [ "$#" -gt 0 ]; do if [ "$1" = --report ]; then shift; mkdir -p "$(dirname "$1")"; echo result > "$1"; break; fi; shift; done\n')
     fleet.chmod(0o755)
     env = dict(os.environ, HOME=str(tmp), PATH=str(bin)+':'+os.environ['PATH'], FLEET_DEFAULT_ON='mini', FLEET_LOCAL_HOME='/home/a', FLEET_MINI_HOME='/home/b', FLEET_MINI_BIN='/home/b/fleet')
-    proc = subprocess.run([str(root/'bin/fleet-go'),'new','fallback','--to','gpt','--goal','x'], env=env, text=True, capture_output=True)
+    proc = subprocess.run([str(root/'bin/fleet-go'),'new','fallback','--to','gpt','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
     assert proc.returncode == 0, proc.stderr
     report = next((tmp/'.agent-reports').glob('*/fallback.md'))
     brief = next((tmp/'.agent-reports').glob('*/fallback.brief.md'))
     assert 'Mini 不可达，已在 MacBook 执行' in report.read_text()
     assert 'Mini 不可达，已在 MacBook 执行' in brief.read_text()
-    proc = subprocess.run([str(root/'bin/fleet-go'),'new','local-only','--to','gpt','--on','local','--goal','x'], env=env, text=True, capture_output=True)
+    proc = subprocess.run([str(root/'bin/fleet-go'),'new','local-only','--to','gpt','--on','local','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
     assert proc.returncode == 0 and 'Mini 不可达' not in proc.stdout
     mm = tmp/'.claude/skills/macmini/scripts/mm'; mm.parent.mkdir(parents=True)
     mm.write_text('''#!/bin/sh
@@ -142,12 +142,12 @@ if [ "$1" = --method ]; then echo direct; else echo '{"missing":["/home/b/missin
 ''')
     mm.chmod(0o755)
     default_env = dict(env); default_env.pop('FLEET_DEFAULT_ON')
-    proc = subprocess.run([str(root/'bin/fleet-go'),'new','dev-default','--to','gpt','--goal','x'], env=default_env, text=True, capture_output=True)
+    proc = subprocess.run([str(root/'bin/fleet-go'),'new','dev-default','--to','gpt','--goal','x','--no-lint'], env=default_env, text=True, capture_output=True)
     assert proc.returncode == 0 and 'Mini 缺少路径' in proc.stdout
-    proc = subprocess.run([str(root/'bin/fleet-go'),'new','unready','--to','claude','--on','mini','--read','/home/a/missing','--goal','x'], env=env, text=True, capture_output=True)
+    proc = subprocess.run([str(root/'bin/fleet-go'),'new','unready','--to','claude','--on','mini','--read','/home/a/missing','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
     assert proc.returncode != 0
     assert 'Mini 缺少路径：/home/a/missing' in proc.stderr and 'claude 通道不可用' in proc.stderr and '未回退' in proc.stderr
-    proc = subprocess.run([str(root/'bin/fleet-go'),'new','recheck','--to','gpt','--read','/home/a/original','--goal','x','--no-launch'], env=env, text=True, capture_output=True)
+    proc = subprocess.run([str(root/'bin/fleet-go'),'new','recheck','--to','gpt','--read','/home/a/original','--goal','x','--no-lint','--no-launch'], env=env, text=True, capture_output=True)
     assert proc.returncode == 0, proc.stderr
     # 原 brief 标记 Mini，但最新同名 run 在本机时 amend 不应同步到 Mini。
     metadata_path = next((tmp/'.agent-reports').glob('*/recheck.brief.json'))

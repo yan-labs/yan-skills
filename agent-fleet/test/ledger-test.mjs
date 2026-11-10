@@ -167,11 +167,11 @@ try {
   assert(badSince.status === 1 && /YYYY-MM-DD/.test(badSince.stderr), 'score --since 格式错误给出提示');
   const missing = spawnSync(join(root, 'bin/fleet-go'), ['score'], { encoding: 'utf8', env: { ...process.env, AGENT_FLEET_LEDGER: join(scratch, 'none.jsonl') } });
   assert(missing.status === 1 && /账本不存在/.test(missing.stderr), '账本缺失给出提示');
-  const plain = spawnSync(join(root, 'bin/fleet-go'), ['new', 'ledger-plain', '--to', 'gpt', '--simple', '--goal', '目标', '--dry-run'], { encoding: 'utf8', env: process.env, input: '' });
+  const plain = spawnSync(join(root, 'bin/fleet-go'), ['new', 'ledger-plain', '--to', 'gpt', '--simple', '--goal', '目标', '--dry-run', '--no-lint'], { encoding: 'utf8', env: process.env, input: '' });
   assert(plain.status === 0 && !plain.stdout.includes('LEDGER:'), '普通 new --dry-run 不受影响、不带尾注说明');
-  const review = spawnSync(join(root, 'bin/fleet-go'), ['new', 'ledger-chk', '--to', 'gemini', '--for', 'alpha', '--level', '3', '--goal', '目标', '--dry-run'], { encoding: 'utf8', env: process.env, input: '' });
+  const review = spawnSync(join(root, 'bin/fleet-go'), ['new', 'ledger-chk', '--to', 'gemini', '--for', 'alpha', '--level', '3', '--goal', '目标', '--dry-run', '--no-lint'], { encoding: 'utf8', env: process.env, input: '' });
   assert(review.status === 0 && review.stdout.includes('LEDGER: blockers=<n>'), '--for 的 brief 带复核尾注说明');
-  const badLevel = spawnSync(join(root, 'bin/fleet-go'), ['new', 'x', '--to', 'gpt', '--level', '7', '--goal', '目标', '--dry-run'], { encoding: 'utf8', env: process.env, input: '' });
+  const badLevel = spawnSync(join(root, 'bin/fleet-go'), ['new', 'x', '--to', 'gpt', '--level', '7', '--goal', '目标', '--dry-run', '--no-lint'], { encoding: 'utf8', env: process.env, input: '' });
   assert(badLevel.status !== 0 && /L1.L4/.test(badLevel.stderr), '难度档非法时报错');
 } finally {
   rmSync(scratch, { recursive: true, force: true });

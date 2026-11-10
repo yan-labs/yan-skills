@@ -40,7 +40,7 @@ def rule():
     return stored
 
 
-def lint(text, to='gpt'):
+def lint(text, to='gpt', simple=False, on='local', extra=True):
     errors = []
     first = text.splitlines()[0] if text else ''
     if not first.startswith('归类：') or '理由：' not in first:
@@ -69,11 +69,54 @@ def lint(text, to='gpt'):
                 errors.append('发现脱离启动命令；请使用工具 run_in_background。')
     if to in ('gpt', 'grok') and not all(word in text for word in ['授权覆盖', '允许范围']):
         print('警告：GPT/Grok brief 请补齐授权覆盖与允许范围小节。', file=sys.stderr)
+    if extra:
+        # 授权块取实际授权，不把块内的否定或条件文字当作任务要求。
+        auth_match = re.search(r'^## 授权覆盖\s*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
+        auth_text = auth_match.group(1) if auth_match else ''
+        commit = bool(re.search(r'允许在本地分支提交|允许本地提交|^授权块：.*\blocal-commit\b', auth_text))
+        deploy = '发布全流程' in auth_text or bool(re.search(r'^授权块：.*\bdeploy-prod\b', auth_text, re.M))
+        review = '只读复核' in auth_text or '只读复核' in first
+        demands = text.replace('本单不做 git 提交，报告不需要提交哈希', '')
+        if '提交哈希' in demands and review:
+            errors.append('只读单不能要求提交哈希。')
+        demand_text = demands.replace(auth_text, '')
+        task_match = re.search(r'^## 授权覆盖.*?(?=^## (?:目标|入口))(.+?)(?=^## 允许范围|\Z)', text, re.M | re.S)
+        task = task_match.group(1) if task_match else ''
+        positive_task = '\n'.join(line for line in task.splitlines() if not re.search(r'不提交|无需提交|禁止提交|不得提交|不做.*提交', line))
+        if ('提交哈希' in demands or re.search(r'(?:要求|需要|完成|并|后|进行|本地|git )提交(?!记录|哈希|才|与|时)', demand_text, re.I) or re.search(r'提交代码|提交改动|提交变更|git commit|提交并|提交后|(?:提供|列出|报告|给出|记录|要求|需要).{0,8}(?:哈希|hash|commit id)' , positive_task, re.I)) and not (commit or deploy):
+            errors.append('要求提交或哈希，但没有 local-commit/deploy-prod 授权。')
+        if re.search(r'(?:部署|上线|发布)(?:到|至|生产|test|测试|环境|并|后|，|。|$)', task, re.I) and not deploy:
+            errors.append('要求部署，但没有 deploy-prod 授权。')
+        entry_match = re.search(r'^##?\s*入口\s*[:：]?\s*\n(.*?)(?=^##?\s|\Z)', text, re.M | re.S)
+        entry = entry_match.group(1) if entry_match else ''
+        if not entry.strip():
+            errors.append('缺少入口：请按任务写明仓库、可写路径、远程访问方式及凭据文件。')
+        else:
+            if simple and re.search(r'未知|自己找', entry):
+                errors.append('入口未知或自己找时不能使用 --simple。')
+            repo = re.search(r'(?:仓库|仓库路径)\s*[:：]\s*([^\s，,；;]+)', entry)
+            if re.search(r'仓库|代码仓|代码库|修复代码|修改代码', task + entry) and not repo:
+                errors.append('入口仓库需要绝对路径。')
+            if repo:
+                repo_path = repo.group(1).strip('`')
+                if not repo_path.startswith('/'):
+                    errors.append('入口仓库需要绝对路径。')
+                elif on == 'mini':
+                    try:
+                        result = mini.call("import base64,json,os,sys; p=json.loads(base64.b64decode(sys.argv[1])); print(int(os.path.isdir(p['path'])))", {'path': repo_path})
+                        if result.returncode or result.stdout.strip() != '1': errors.append('执行机器上的入口仓库不存在。')
+                    except (OSError, subprocess.SubprocessError): errors.append('无法校验执行机器上的入口仓库。')
+                elif not Path(repo_path).is_dir(): errors.append('执行机器上的入口仓库不存在。')
+            for trigger, label, pattern in [
+                (r'修改|编辑|写入|编码|修复', '可写路径', r'(?:可写路径|允许写)\s*[:：]\s*/'),
+                (r'远程|SSH|ssh', '远程访问方式', r'(?:远程访问|访问方式|访问命令)\s*[:：]\s*\S+'),
+                (r'凭据|认证|密钥', '凭据所在文件', r'(?:凭据文件|凭据所在文件)\s*[:：]\s*/')]:
+                if re.search(trigger, task + entry) and not re.search(pattern, entry): errors.append('入口缺少' + label + '。')
     return errors
 
 
-def checked(text, to):
-    errors = lint(text, to)
+def checked(text, to, simple=False, on='local', extra=False):
+    errors = lint(text, to, simple, on, extra)
     if errors:
         raise ValueError('\n'.join(errors))
 
@@ -538,7 +581,7 @@ def new(args):
     if any(p not in PITFALLS and not (BLOCKS / ('pitfall-' + p + '.md')).exists() for p in pitfalls if p):
         raise ValueError('未知已知坑块。')
     values = {'NAME': args.name, 'REPORT': report, 'DATE': day,
-              'COMMITS': '本地提交仅限授权分支，报告列出本地提交哈希' if 'local-commit' in auth else '提交按授权覆盖执行'}
+              'COMMITS': '本地提交仅限授权分支，报告列出本地提交哈希' if 'local-commit' in auth or 'deploy-prod' in auth else '本单不做 git 提交，报告不需要提交哈希'}
     if args.body and args.body != '-':
         body_path = Path(args.body).expanduser()
         if not body_path.is_file():
@@ -572,7 +615,9 @@ def new(args):
     parts.extend(['## 验收\n' + (('产物清单：\n' + '\n'.join('- ' + item for item in args.deliverables) + '\n\n') if args.deliverables else '') + block('accept-boilerplate', values) + '\n\n' + block('report-template', values)
                   + ('\n\n' + block('review-ledger', values) if is_review else ''), rule()])
     text = '\n\n'.join(parts) + '\n'
-    checked(text, args.to)
+    location = args.on or os.environ.get('FLEET_DEFAULT_ON', 'mini')
+    if location == 'mini' and not mini.available() and args.on != 'mini': location = 'local'
+    checked(text, args.to, args.simple, location, not args.no_lint)
     meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
             'tier': args.tier, 'review': args.review, 'sol': args.sol, 'low': args.low, 'high': args.high,
             'xhigh': True if (args.to == 'gemini' and not (args.low or args.high)) else args.xhigh,
@@ -620,6 +665,7 @@ def main():
     p.add_argument('--for', dest='for_name', help='本单复核的任务名，记入账本做 maker/checker 配对')
     p.add_argument('--deliverables', action='append', help='交付物及篇幅上限，可多次指定')
     p.add_argument('--auth', default='local')
+    p.add_argument('--no-lint', action='store_true', help='特殊单豁免入口与授权 lint')
     for option in ['write', 'read']:
         p.add_argument('--' + option, nargs='+', action='extend')
     group = p.add_mutually_exclusive_group()
@@ -664,6 +710,9 @@ def main():
         if action == 'say': p.add_argument('message')
     p = sub.add_parser('lint')
     p.add_argument('brief')
+    p.add_argument('--no-lint', action='store_true', help='特殊单豁免入口与授权 lint')
+    p.add_argument('--simple', action='store_true')
+    p.add_argument('--on', choices=['mini', 'local'], default='local')
     p.add_argument('--to', choices=PRODUCTS, default='gpt')
     sub.add_parser('team')
     p = sub.add_parser('status')
@@ -690,7 +739,7 @@ def main():
     elif args.action == 'team':
         os.execvp('fleet', ['fleet', 'team'])
     elif args.action == 'lint':
-        checked(Path(args.brief).read_text(), args.to)
+        checked(Path(args.brief).read_text(), args.to, args.simple, args.on, not args.no_lint)
         print('lint 通过。')
     elif args.action == 'score':
         score(args)
