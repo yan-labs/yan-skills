@@ -14,7 +14,7 @@
 | 写 UI、样式、视觉交互、3D、游戏内容 | Sonnet | Terra | Grok Build | Claude |
 | 特别重要的规划：方案、技术方案、架构 | Fable | Opus | Terra | Grok |
 | Claude 侧一般任务 | Sonnet | Terra | Grok Build | — |
-| 较难编程、个别难题、Sonnet 反复打转 | `fleet opus` | `executor-opus` | `executor-fable` 给方案后交执行者 | Sol |
+| 较难编程、个别难题、Sonnet 反复打转 | `fleet opus` | `executor-opus` | `executor-fable` 给方案后交执行者 | Grok Build |
 | 小杂活、摘要、核实、机械替换 | Haiku | Terra | Grok | — |
 | 代码只读复核 | 只读 Terra | Claude | Grok | — |
 | 需要本应用工具、MCP、本机登录态 | `executor-*`，按上面任务类型选档 | 无替代时写明缺什么交回主线程 | | |

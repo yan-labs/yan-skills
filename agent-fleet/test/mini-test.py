@@ -49,6 +49,14 @@ with tempfile.TemporaryDirectory() as d:
         (local / 'local.json').write_text(json.dumps({'runId':'local-id','name':'unit','status':'running','startedAt':'2026-11-10T10:00:00.000Z'}))
         assert mini.find('unit')['id'] == 'run-123'
         assert mini.find('run-123')['id'] == 'run-123'
+    # fleet-go read 只读取 Mini；最新同名记录在本机时不向 Mini 查询它。
+    local_home = tmp / 'cli-home'
+    mini_records = local_home / '.agent-fleet/mini-runs'; mini_records.mkdir(parents=True)
+    (mini_records / 'old.json').write_text(json.dumps({'id':'2026-11-10T10-00-00-000Z-detach-old','name':'same','report':'/home/a/r'}))
+    (local / 'same.json').write_text(json.dumps({'runId':'2026-11-10T12-00-00-000Z-detach-new','name':'same','startedAt':'2026-11-10T12:00:00.000Z'}))
+    env = dict(os.environ, HOME=str(local_home), AGENT_FLEET_RUNS_DIR=str(local))
+    result = subprocess.run([str(root/'bin/fleet-go'), 'read', 'same'], env=env, text=True, capture_output=True)
+    assert result.returncode == 1 and '最新同名任务可能在本机' in result.stderr
     pulled = tmp/'pulled.md'
     row = {'status':'done', 'verdict':'ok', 'resultPath':'/home/b/.agent-fleet/runs/run-123.result.md'}
     data = base64.b64encode('/home/b/result\nsecond\nthird\n'.encode()).decode()
@@ -89,6 +97,14 @@ if [ "$1" = --method ]; then echo direct; else echo '{"missing":["/home/b/missin
     assert 'claude 通道不可用' in report.read_text()
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','recheck','--to','gpt','--read','/home/a/original','--goal','x','--no-launch'], env=env, text=True, capture_output=True)
     assert proc.returncode == 0, proc.stderr
+    # 原 brief 标记 Mini，但最新同名 run 在本机时 amend 不应同步到 Mini。
+    metadata_path = next((tmp/'.agent-reports').glob('*/recheck.brief.json'))
+    metadata = json.loads(metadata_path.read_text()); metadata['execution'] = 'mini'
+    metadata_path.write_text(json.dumps(metadata))
+    local_state = tmp / '.agent-fleet/runs'; local_state.mkdir(parents=True, exist_ok=True)
+    (local_state / 'recheck.json').write_text(json.dumps({'runId':'2026-11-10T12-00-00-000Z-detach-local','name':'recheck','startedAt':'2026-11-10T12:00:00.000Z'}))
+    remote_state = tmp / '.agent-fleet/mini-runs'; remote_state.mkdir(parents=True, exist_ok=True)
+    (remote_state / 'recheck.json').write_text(json.dumps({'id':'2026-11-10T10-00-00-000Z-detach-mini','name':'recheck','report':'/home/a/r','brief':'/home/a/b'}))
     proc = subprocess.run([str(root/'bin/fleet-go'),'amend','recheck','读取 /home/a/revised','--on','local'], env=env, text=True, capture_output=True)
     assert proc.returncode == 0, proc.stderr
     assert json.loads(next((tmp/'.agent-reports').glob('*/recheck.brief.json')).read_text())['on'] == 'local'

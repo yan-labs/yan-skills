@@ -368,7 +368,7 @@ def amend(args):
         path.write_text(revised)
         print(f'已修订：{path}', flush=True)
     remote = mini.find(args.name) if meta.get('execution') == 'mini' else None
-    if remote:
+    if remote and not remote.get('local'):
         remote_brief = mini.remote_path(str(path))
         script = '''import base64,json,pathlib,sys
 p=json.loads(base64.b64decode(sys.argv[1])); pathlib.Path(p['path']).write_text(p['text'])
@@ -676,7 +676,7 @@ def main():
         relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull)
     elif args.action == 'read':
         rec = mini.find(args.name)
-        if not rec: raise ValueError('找不到 Mini 任务。')
+        if not rec or rec.get('local'): raise ValueError('找不到 Mini 任务；最新同名任务可能在本机。')
         sys.exit(mini.read(rec, 'log' if args.log else 'result' if args.result else 'report', args.head, args.pull))
     elif args.action in ('say', 'stop'):
         os.execvp('fleet', ['fleet', args.action, args.name] + ([args.message] if args.action == 'say' else []))

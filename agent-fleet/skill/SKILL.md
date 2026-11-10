@@ -109,7 +109,7 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 | `fleet grok brief.md` | Grok 调研 |
 | `fleet grok-cli brief.md [--review] [--model id]` | 本机 xAI 完整编码 Agent，默认由当前执行者完成；详见 [Grok CLI](references/grok-cli.md) |
 | `fleet web start/say/close/list`；兼容 `fleet web "问题" [--followup "追问" ...] [--close]` | 网页版 ChatGPT，少量串行问答 |
-| `fleet bulk brief.md [--low\|--high]` | Gemini 批量处理（默认 xhigh） |
+| `fleet bulk brief.md [--low\|--high]` | Gemini 批量文案处理（默认 xhigh） |
 | `fleet gpt brief.md` | 托管 GPT 任务 |
 | `node ~/Project/kcsx/macmini/yan-skills/agent-fleet/bin/fleet-archive-sweep.mjs [--dry-run]` | 派单前及 Codex 完成后补扫归档 |
 | `fleet code brief.md [--simple|--luna] [--fast] [--low|--high|--xhigh|--max] [--cwd dir]` | 默认 Sol；`--simple` Terra、`--luna` Luna；Luna 默认 xhigh、可用 --max；Terra/Sol 默认 medium；不设 fast |
