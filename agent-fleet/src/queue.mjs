@@ -2,12 +2,14 @@
 import { existsSync, statSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { hostname } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { runsDir } from './progress.mjs';
 import { isRecordedProcessAlive, processCommand } from './pid.mjs';
 import { fleetEvent } from './timeline.mjs';
 
-const live = new Set(['queued', 'running', 'parked']);
+const live = new Set(['queued', 'running', 'parked', 'waiting']);
 const pathFor = id => join(runsDir(), `${id}.queue.json`);
 function read(path) {
   try { return JSON.parse(readFileSync(path, 'utf8')); }
@@ -33,6 +35,18 @@ export function taskObject(briefPath) {
   const object = meta?.object;
   if (!object) return null; // Legacy/direct fleet briefs still share the machine slot limit.
   return { ...object, repo: canonicalPath(object.repo), writes: object.writes.map(canonicalPath), after: meta.after || null };
+}
+export function taskIdentity(rec) {
+  const meta = rec.briefPath ? read(rec.briefPath.replace(/\.md$/, '.json')) : null;
+  const brief = rec.briefPath && existsSync(rec.briefPath) ? readFileSync(rec.briefPath, 'utf8') : '';
+  const actions = meta?.actions || rec.actions || brief.match(/^动作[ \t]*[:：][ \t]*(.*)$/m)?.[1];
+  const list = Array.isArray(actions) ? actions : String(actions || '').split('/').map(s => s.trim()).filter(Boolean);
+  const writing = list.some(a => a !== '只读' && a !== 'read' && a !== 'readonly');
+  const auth = meta?.auth ?? rec.auth ?? [];
+  const grants = Array.isArray(auth) ? auth : String(auth).split(',');
+  const readonly = !writing && (list.length > 0 || rec.review || meta?.review ||
+    (grants.includes('review') && !grants.some(a => ['local', 'local-commit', 'deploy-prod', 'paid'].includes(a))));
+  return { auth: grants, actions: list, review: Boolean(rec.review || meta?.review), readonly: Boolean(readonly) };
 }
 async function locked(fn) {
   mkdirSync(runsDir(), { recursive: true });
@@ -69,6 +83,11 @@ function refreshedRows() {
       row.state = rec?.status && rec.status !== 'running' ? rec.status : 'failed';
       row.finishedAt = Date.now(); write(row);
     }
+    if (row.state === 'waiting') {
+      row.waiters = (row.waiters || []).filter(w => isRecordedProcessAlive(w.pid, w.command));
+      if (!row.waiters.length) row.state = 'running';
+      write(row);
+    }
     return row;
   });
 }
@@ -85,16 +104,17 @@ function follows(rows, row, predecessor, seen = new Set()) {
   return dep?.runId === predecessor.runId || (dep && follows(rows, dep, predecessor, seen));
 }
 let detectedCapacity;
-function machineCapacity() {
+export function defaultCapacity(hardware) { return /Mac mini|Macmini/i.test(hardware) ? 5 : 6; }
+export function machineCapacity() {
   // Explicit override is for isolated executors/tests; transport labels never partition slots.
   if (process.env.FLEET_SLOT_CAPACITY) return Number(process.env.FLEET_SLOT_CAPACITY);
   if (detectedCapacity === undefined) {
     let hardware = '';
     if (process.platform === 'darwin') {
       try { hardware = execFileSync('/usr/sbin/system_profiler', ['SPHardwareDataType', '-json'], { encoding: 'utf8' }); }
-      catch { /* Unknown hardware keeps the smaller limit. */ }
+      catch { /* Unknown hardware uses the portable-machine default. */ }
     }
-    detectedCapacity = /Mac mini|Macmini/i.test(hardware) ? 5 : 3;
+    detectedCapacity = defaultCapacity(hardware);
   }
   return detectedCapacity;
 }
@@ -102,8 +122,9 @@ export async function registerQueue(rec) {
   return locked(() => {
     const rows = refreshedRows();
     const object = taskObject(rec.briefPath);
+    const identity = taskIdentity(rec);
     const row = { runId: rec.runId, name: rec.name, pid: process.pid, command: processCommand(process.pid),
-      machine: hostname(), model: rec.model, object, after: object?.after,
+      machine: hostname(), model: rec.model, briefPath: rec.briefPath, object, ...identity, after: object?.after,
       createdAt: Date.now(), state: 'queued' };
     if (row.after && !dependency(rows, row.after)) throw new Error('--after 找不到任务；请先派发前置单。');
     for (const other of rows) {
@@ -133,10 +154,11 @@ export async function acquireSlot(id) {
     if (!row || row.state !== 'queued') return row?.state === 'running';
     const dep = row.after && dependency(rows, row.after);
     if (dep && live.has(dep.state)) return false;
+    if (row.readonly) { row.state = 'running'; row.startedAt ??= Date.now(); write(row); return true; }
     const quota = read(join(runsDir(), 'codex-quota.json'));
     if (/^gpt-/.test(row.model) && quota?.usedPercent > 80 && (!quota.resetsAt || quota.resetsAt * 1000 > Date.now())) return false;
     const capacity = machineCapacity();
-    const active = rows.filter(r => r.state === 'running').length;
+    const active = rows.filter(r => r.state === 'running' && !r.readonly).length;
     // Older detached/foreground runs also occupy slots, without double-counting supervised children.
     const known = new Set(rows.map(r => r.runId));
     const legacy = new Set();
@@ -144,11 +166,11 @@ export async function acquireSlot(id) {
     for (const name of readdirSync(runsDir()).filter(n => n.endsWith('.json') && !n.endsWith('.queue.json'))) {
       const rec = read(join(runsDir(), name));
       const runId = rec?.runId || name.replace(/\.pid\.json$/, '');
-      if (!rec || known.has(runId) || registeredPids.has(rec.pid) || (rec.detach ? rec.status !== 'running' : !name.endsWith('.pid.json') || rec.finished)) continue;
-      if (isRecordedProcessAlive(rec.pid, rec.command)) legacy.add(runId);
+      if (!rec || known.has(runId) || known.has(rec?.slotRunId) || registeredPids.has(rec.pid) || (rec.detach ? rec.status !== 'running' : !name.endsWith('.pid.json') || rec.finished)) continue;
+      if (!taskIdentity(rec).readonly && isRecordedProcessAlive(rec.pid, rec.command)) legacy.add(runId);
     }
     if (active + legacy.size >= capacity) return false;
-    const earlier = rows.some(r => r.state === 'queued' &&
+    const earlier = rows.some(r => r.state === 'queued' && !r.readonly &&
       (r.createdAt < row.createdAt || (r.createdAt === row.createdAt && r.runId < row.runId)) &&
       (!r.after || !live.has(dependency(rows, r.after)?.state)) &&
       !(/^gpt-/.test(r.model) && quota?.usedPercent > 80 && (!quota.resetsAt || quota.resetsAt * 1000 > Date.now())));
@@ -168,3 +190,39 @@ export async function setSlotState(id, state) {
   });
 }
 export function queueEvent(event) { return fleetEvent(event) + '\n'; }
+
+// A wait lease is owned by the waiting process, not the executor/supervisor.
+// Dead waiters are reaped under the same queue lock on the next admission.
+export async function releaseParentSlot(id = process.env.FLEET_SLOT_RUN_ID || process.env.FLEET_DETACHED_RUN_ID) {
+  if (!id) return async () => {};
+  const token = randomUUID();
+  const released = await locked(() => {
+    const row = queueRecord(id);
+    if (!row || row.readonly || !['running', 'waiting'].includes(row.state)) return false;
+    row.waiters = [...(row.waiters || []), { token, pid: process.pid, command: processCommand(process.pid) }];
+    row.state = 'waiting'; write(row); return true;
+  });
+  return async () => {
+    if (!released) return;
+    const resume = await locked(() => {
+      const row = queueRecord(id);
+      if (!row || row.state !== 'waiting') return false;
+      row.waiters = row.waiters.filter(w => w.token !== token && isRecordedProcessAlive(w.pid, w.command));
+      if (row.waiters.length) { write(row); return false; }
+      row.state = 'queued'; write(row); return true;
+    });
+    if (resume) while (!(await acquireSlot(id))) {
+      if (queueRecord(id)?.state !== 'queued') break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+  };
+}
+
+// Python transport uses the same lock/state transitions, with stdin as its lease.
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href && process.argv[2] === '--wait-parent') {
+  const resume = await releaseParentSlot();
+  process.stdout.write('ready\n');
+  process.stdin.resume();
+  await new Promise(r => process.stdin.once('end', r));
+  await resume();
+}

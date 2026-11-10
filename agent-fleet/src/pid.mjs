@@ -30,6 +30,7 @@ export function readPidRecord(runId) {
 }
 
 export function writePidRecord(runId, rec) {
+  if (process.env.FLEET_SLOT_RUN_ID) rec = { ...rec, slotRunId: process.env.FLEET_SLOT_RUN_ID };
   writeFileSync(pidPath(runId), `${JSON.stringify(rec, null, 2)}\n`);
   return rec;
 }

@@ -246,7 +246,7 @@ def running(active_only=True):
             row['name'] = rec['name']
             row['state'] = row.get('status')
             row['location'] = 'mini'
-            if not active_only or row.get('status') in ('running', 'queued', 'parked', 'abnormal'): rows.append(row)
+            if not active_only or row.get('status') in ('running', 'queued', 'parked', 'waiting', 'abnormal'): rows.append(row)
         except (OSError, subprocess.SubprocessError, ValueError, ConnectionError):
             rows.append({'runId': rec['id'], 'name': rec['name'], 'briefPath': rec['brief'], 'status': 'unreachable', 'state': 'running', 'location': 'mini'})
     return rows
@@ -455,7 +455,8 @@ def amend(args):
         meta['on'] = args.on
         path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     original = path.read_text()
-    if re.search(r'^## 【修订 \d+（[^\n]+）】\n' + re.escape(args.message) + r'(?=\n\n)', original, re.M):
+    latest_revision = re.search(r'^## 【修订 \d+（[^\n]+）】\n', original, re.M)
+    if latest_revision and original[latest_revision.end():].startswith(args.message + '\n\n'):
         print('相同修订已存在，未重复插入。')
     else:
         numbers = [int(n) for n in re.findall(r'^## 【修订 (\d+)（', original, re.M)]
@@ -465,6 +466,10 @@ def amend(args):
         checked(revised, meta['to'])
         path.write_text(revised)
         print(f'已修订：{path}', flush=True)
+    action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', path.read_text(), re.M)
+    if action_match:
+        meta['actions'] = [a.strip() for a in action_match.group(1).split('/') if a.strip()]
+        path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     remote = mini.find(args.name) if meta.get('execution') == 'mini' else None
     if remote and not remote.get('local'):
         remote_brief = mini.remote_path(str(path))
@@ -476,7 +481,7 @@ pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
         res = mini.call(script, {'path': remote_brief, 'text': mini.rewrite_brief(path.read_text()), 'home': mini.REMOTE_HOME})
         if res.returncode: raise ValueError('Mini 修订同步失败。')
         if args.say:
-            if mini.query(remote).get('status') not in ('running', 'abnormal'):
+            if mini.query(remote).get('status') not in ('running', 'waiting', 'abnormal'):
                 print('没有运行中的 run：按修订后的 brief 直接 relaunch。', flush=True)
                 relaunch(args.name, on=args.on or meta.get('on'))
             sys.exit(mini.forward(['say', remote['id'], args.message]))
@@ -486,7 +491,7 @@ pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
         return
     if not args.say and not args.restart:
         return
-    matches = [r for r in running() if r.get('state', r.get('status')) == 'running'
+    matches = [r for r in running() if r.get('state', r.get('status')) in ('running', 'waiting')
                and (r.get('briefPath') == str(path) or r.get('name') == args.name)]
     if not matches and args.say:
         # 上一轮已结束（常见：部分完成后交回）：修订已写入 brief，直接按修订后的 brief 续派，省掉单独 relaunch
@@ -680,7 +685,10 @@ def new(args, prepare=False):
     location = args.on or os.environ.get('FLEET_DEFAULT_ON', 'mini')
     if location == 'mini' and not mini.available() and args.on != 'mini': location = 'local'
     checked(text, args.to, args.simple, location, not args.no_lint)
+    action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', body, re.M)
+    actions = args.task_action or (action_match.group(1) if action_match else '')
     meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
+            'auth': auth, 'actions': [a.strip() for a in actions.split('/') if a.strip()],
             'tier': args.tier, 'review': args.review, 'sol': args.sol, 'low': args.low, 'high': args.high,
             'xhigh': True if (args.to == 'gemini' and not (args.low or args.high)) else args.xhigh,
             'max': args.max, 'simple': args.simple, 'luna': args.luna, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,

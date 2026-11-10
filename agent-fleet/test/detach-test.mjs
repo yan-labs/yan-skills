@@ -362,32 +362,39 @@ console.log(`PASS detach integration; artifacts: ${scratch}`);
   const oldRuns = process.env.AGENT_FLEET_RUNS_DIR;
   process.env.AGENT_FLEET_RUNS_DIR = queueRuns;
   const { launchDetached, waitDetached } = await import('../src/detach.mjs');
-  const { queueRecord, setSlotState, saveCodexQuota, pathsOverlap, canonicalPath } = await import('../src/queue.mjs');
+  const { queueRecord, setSlotState, saveCodexQuota, pathsOverlap, canonicalPath, defaultCapacity, machineCapacity, taskIdentity, releaseParentSlot, acquireSlot } = await import('../src/queue.mjs');
   const { collectStatus } = await import('../src/control.mjs');
   const fake = join(scratch, 'fake-supervisor.mjs');
   writeFileSync(fake, `import {supervise} from ${JSON.stringify(pathToFileURL(resolve('src/detach.mjs')).href)};
 import {writeFileSync,existsSync} from 'node:fs';
+import {spawn} from 'node:child_process';
 if(process.argv[2]==='__supervise') await supervise(import.meta.filename);
 else {
  const id=process.env.FLEET_DETACHED_RUN_ID;
  writeFileSync(process.env.AGENT_FLEET_RUNS_DIR+'/'+id+'.started','yes');
  while(!existsSync(process.env.AGENT_FLEET_RUNS_DIR+'/'+id+'.release')) await new Promise(r=>setTimeout(r,30));
+ if(process.argv[2]==='parent') {
+   const child=spawn(process.execPath,[${JSON.stringify(cli)},'code','child fixture','--cwd',${JSON.stringify(scratch)},'--no-continue',...(process.argv.includes('attach')?['--attach']:[])],{env:{...process.env,...${JSON.stringify({FLEET_CODEX_BIN:stub,FLEET_CODEX_BACKEND:'exec',FLEET_NO_ARCHIVE_SWEEP:'1',FLEET_TEST_PIDS:join(scratch,'parent-child-pids'),FLEET_TEST_RESULT:join(scratch,'parent-child-result'),FLEET_TEST_SLEEP:'0.1',FLEET_TEST_EXIT:'0'})},AGENT_FLEET_RUNS_DIR:process.env.AGENT_FLEET_RUNS_DIR,FLEET_SLOT_CAPACITY:'1',FLEET_DETACHED_RUN_ID:id,FLEET_SLOT_RUN_ID:id}});
+   let output='';child.stdout.on('data',d=>output+=d);child.stderr.on('data',d=>output+=d);
+   const code=await new Promise(r=>child.once('close',r));
+   writeFileSync(process.env.AGENT_FLEET_RUNS_DIR+'/'+id+'.child-result',JSON.stringify({code,output}));
+ }
  process.send?.({brief:{ok:true,verdict:'ok'},resultText:'fake completed'});
  process.disconnect();
 }
 `);
   const launched = [];
   const until = async (fn, label) => { for(let i=0;i<160;i++) { if(fn()) return; await sleep(50); } throw Error(label); };
-  async function start(name, writes=[], after=null, machine='mini', model='mock', question=name, capacity=machine==='local'?3:5) {
+  async function start(name, writes=[], after=null, machine='mini', model='mock', question=name, capacity=machine==='local'?6:5, identity={}, command=['execute']) {
     const briefPath=join(queueRuns,name+'.brief.md');
     writeFileSync(briefPath,'fake brief');
-    writeFileSync(briefPath.replace(/\.md$/,'.json'), JSON.stringify({object:{repo:scratch,writes,environment:'test',question},after}));
+    writeFileSync(briefPath.replace(/\.md$/,'.json'), JSON.stringify({...identity,object:{repo:scratch,writes,environment:'test',question},after}));
     const oldMachine=process.env.FLEET_MACHINE;
     process.env.FLEET_MACHINE=machine;
     const oldCapacity=process.env.FLEET_SLOT_CAPACITY;
     process.env.FLEET_SLOT_CAPACITY=String(capacity);
     try {
-      const id=await launchDetached(fake,['execute'],{cwd:scratch,model,briefPath,name,noWait:true});
+      const id=await launchDetached(fake,command,{cwd:scratch,model,briefPath,name,noWait:true,...identity});
       launched.push(id);return id;
     } finally { if(oldCapacity===undefined) delete process.env.FLEET_SLOT_CAPACITY; else process.env.FLEET_SLOT_CAPACITY=oldCapacity; if(oldMachine===undefined) delete process.env.FLEET_MACHINE; else process.env.FLEET_MACHINE=oldMachine; }
   }
@@ -411,6 +418,78 @@ else {
     for(const id of launched) await waitDetached(id);
     assert.match(readFileSync(join(queueRuns,sixth+'.log'),'utf8'),/fleet\/queued/);
     assert.match(readFileSync(join(queueRuns,sixth+'.log'),'utf8'),/fleet\/wake/);
+
+    assert.equal(defaultCapacity('MacBook Pro'),6);
+    assert.equal(defaultCapacity('Mac mini'),5);
+    assert.equal(defaultCapacity('Macmini9,1'),5);
+    const savedCapacity=process.env.FLEET_SLOT_CAPACITY;
+    process.env.FLEET_SLOT_CAPACITY='8';assert.equal(machineCapacity(),8);
+    if(savedCapacity===undefined)delete process.env.FLEET_SLOT_CAPACITY;else process.env.FLEET_SLOT_CAPACITY=savedCapacity;
+    const six=[];
+    for(let i=0;i<6;i++)six.push(await start('book-'+i,[],null,'local'));
+    for(const id of six)await until(()=>began(id),'MacBook six start');
+    const book7=await start('book-7',[],null,'local');assert(!began(book7));
+    for(const id of [...six,book7])release(id);
+    for(const id of [...six,book7])await waitDetached(id);
+
+    const full=[];
+    for(let i=0;i<5;i++)full.push(await start('priority-full-'+i));
+    for(const id of full)await until(()=>began(id),'priority full');
+    const writingPatrol=await start('patrol-writing',[],null,'mini','mock','patrol-writing',5,{actions:['只读','改代码'],auth:['review']});
+    assert.equal(queueRecord(writingPatrol).state,'queued');
+    const readers=[];
+    for(const [name,identity] of [['review-auth',{auth:['review']}],['patrol-check',{actions:['只读']}],['prodwatch-check',{actions:['只读']}],['explicit-read',{actions:['只读']}],['flag-review',{review:true}]]) {
+      const id=await start(name,[],null,'mini','mock',name,5,identity);readers.push(id);
+      await until(()=>began(id),'readonly starts despite FIFO/full slots');assert.equal(queueRecord(id).readonly,true);
+    }
+    const frontRead=await cliRun(['code','read fixture','--review','--attach','--json','--cwd',scratch],{AGENT_FLEET_RUNS_DIR:queueRuns,FLEET_SLOT_CAPACITY:'5',FLEET_TEST_SESSION:'priority-thread'});
+    assert.equal(frontRead.code,0,frontRead.stderr);
+    const readId=JSON.parse(frontRead.stdout).logPath.split('/').pop().slice(0,-4);
+    for(const mode of ['--attach','--no-wait']) {
+      const resumed=await cliRun(['resume',readId,'continue',mode],{AGENT_FLEET_RUNS_DIR:queueRuns,FLEET_SLOT_CAPACITY:'5',FLEET_TEST_SESSION:'priority-thread'});
+      assert.equal(resumed.code,0,resumed.stderr);
+      if(mode==='--no-wait')assert.equal((await cliRun(['wait',resumed.stdout.match(/runId: (.+)/)[1]],{AGENT_FLEET_RUNS_DIR:queueRuns})).code,0);
+    }
+    release(full[0]);await until(()=>began(writingPatrol),'readonly does not block coding replacement');
+    for(const id of [...full,...readers,writingPatrol])release(id);
+    for(const id of [...full,...readers,writingPatrol])await waitDetached(id);
+    assert.equal(taskIdentity({name:'prodwatch-write'}).readonly,false);
+    assert.equal(taskIdentity({review:true,actions:['部署']}).readonly,false);
+
+    for(const mode of ['detach','attach']) {
+      const parent=await start('parent-'+mode,[],null,'mini','mock','parent-'+mode,1,{},['parent',mode]);
+      await until(()=>began(parent),'parent occupies only slot');release(parent);
+      await until(()=>existsSync(join(queueRuns,parent+'.child-result')),'child progresses under full parent slot');
+      const result=JSON.parse(readFileSync(join(queueRuns,parent+'.child-result'),'utf8'));
+      assert.equal(result.code,0,result.output);await waitDetached(parent);
+    }
+    const parent=await start('wait-failure',[],null,'mini','mock','wait-failure',1);
+    await until(()=>began(parent),'wait parent');
+    const missing=await cliRun(['wait','missing-child','--timeout','0'],{AGENT_FLEET_RUNS_DIR:queueRuns,FLEET_SLOT_RUN_ID:parent,FLEET_SLOT_CAPACITY:'1'});
+    assert.equal(missing.code,1);assert.equal(queueRecord(parent).state,'running','failure restores parent');
+    const resume=await releaseParentSlot(parent);
+    assert.equal(queueRecord(parent).state,'waiting');
+    const resumeNested=await releaseParentSlot(parent);await resumeNested();
+    assert.equal(queueRecord(parent).state,'waiting','nested waiter retains lease');
+    await resume();assert.equal(queueRecord(parent).state,'running');
+    const lease=spawn('python3',['-c',`import sys;sys.path.insert(0,${JSON.stringify(resolve('src'))});import mini
+with mini.parent_slot_released():
+ print('ready',flush=True)
+ sys.stdin.read()
+`],{env:{...env,AGENT_FLEET_RUNS_DIR:queueRuns,FLEET_SLOT_RUN_ID:parent,FLEET_SLOT_CAPACITY:'1'}});
+    let receipt='';lease.stdout.on('data',d=>receipt+=d);
+    let leaseError='';lease.stderr.on('data',d=>leaseError+=d);
+    const leaseClosed=new Promise(r=>lease.once('close',r));
+    await until(()=>receipt.includes('ready'),'Python transport releases parent');
+    assert.equal(queueRecord(parent).state,'waiting');lease.stdin.end();
+    assert.equal(await leaseClosed,0,leaseError);assert.equal(queueRecord(parent).state,'running');
+    const deadLease=spawn(process.execPath,[resolve('src/queue.mjs'),'--wait-parent'],{env:{...env,AGENT_FLEET_RUNS_DIR:queueRuns,FLEET_SLOT_RUN_ID:parent,FLEET_SLOT_CAPACITY:'1'}});
+    let deadReady='';deadLease.stdout.on('data',d=>deadReady+=d);
+    const deadClosed=new Promise(r=>deadLease.once('close',r));
+    await until(()=>deadReady.includes('ready'),'dead lease fixture ready');
+    deadLease.kill('SIGKILL');await deadClosed;
+    assert.equal(await acquireSlot(parent),true);assert.equal(queueRecord(parent).state,'running','dead waiter restores accounting');
+    release(parent);await waitDetached(parent);
 
     const writer=await start('writer',[join(scratch,'repo')]);
     await until(()=>began(writer),'writer starts');
@@ -447,9 +526,9 @@ else {
     const original=await start('same-question');release(original);await waitDetached(original);
     await assert.rejects(start('same-question-copy',[],null,'mini','mock','same-question'),/重复问题/);
     const local=[];
-    for(let i=0;i<3;i++) local.push(await start('local-'+i,[],null,'local'));
+    for(let i=0;i<3;i++) local.push(await start('local-'+i,[],null,'local','mock','local-'+i,3));
     for(const id of local) await until(()=>began(id),'local three start');
-    const fourth=await start('local-4',[],null,'local');assert(!began(fourth));
+    const fourth=await start('local-4',[],null,'local','mock','local-4',3);assert(!began(fourth));
     release(local[0]);await until(()=>began(fourth),'local limit three');
     for(const id of [...local,fourth]) release(id);
     for(const id of [...local,fourth]) await waitDetached(id);

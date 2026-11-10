@@ -42,3 +42,27 @@ export function createAsserter(title) {
 
   return { assert, assertThrows, finish, failures };
 }
+
+// Package test entry points share a private HOME, runs, ledger and temporary root.
+// Children inherit these defaults even when an individual fixture overrides HOME.
+if (process.argv[2] === '--isolated') {
+  const { spawn } = await import('node:child_process');
+  const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const root = mkdtempSync(join(tmpdir(), 'fleet-suite-'));
+  const home = join(root, 'home'), runs = join(root, 'runs'), temp = join(root, 'tmp');
+  for (const path of [home, runs, temp, join(home, '.agent-fleet', 'runs')]) mkdirSync(path, { recursive: true });
+  const sentinel = join(home, '.agent-fleet', 'runs', 'host-sentinel');
+  writeFileSync(sentinel, 'untouched');
+  const env = { ...process.env, HOME: home, TMPDIR: temp, AGENT_FLEET_RUNS_DIR: runs,
+    AGENT_FLEET_LEDGER: join(root, 'ledger.jsonl'), FLEET_NO_ARCHIVE_SWEEP: '1' };
+  for (const key of ['FLEET_DETACHED_RUN_ID', 'FLEET_DETACHED_BATCH', 'FLEET_SLOT_RUN_ID', 'FLEET_PARENT_RUN_ID', 'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT']) delete env[key];
+  const child = spawn(process.argv[3], process.argv.slice(4), { env, stdio: 'inherit' });
+  const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+  const clean = readFileSync(sentinel, 'utf8') === 'untouched' &&
+    JSON.stringify(readdirSync(join(home, '.agent-fleet', 'runs'))) === '["host-sentinel"]' &&
+    !readdirSync(join(home, '.agent-fleet')).some(n => /ledger|queue/.test(n));
+  console.log(`${clean ? 'PASS' : 'FAIL'} isolation: fake host runs/ledger/queue untouched; artifacts: ${root}`);
+  process.exitCode = clean ? code ?? 1 : 1;
+}

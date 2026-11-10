@@ -18,7 +18,7 @@
 
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { registerQueue, acquireSlot, setSlotState } from '../src/queue.mjs';
+import { registerQueue, acquireSlot, setSlotState, releaseParentSlot } from '../src/queue.mjs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve as resolvePath } from 'node:path';
@@ -306,7 +306,7 @@ function matchCwd(flags) {
 function cmdStatus(argv) {
   const flags = parseFlags(argv);
   const rows = collectStatus(flags.cwd ? { cwd: resolvePath(flags.cwd) } : {});
-  const selected = rows.filter(r => !flags.running || ['running', 'queued', 'parked', 'abnormal'].includes(r.state));
+  const selected = rows.filter(r => !flags.running || ['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(r.state));
   process.stdout.write(flags.json ? `${JSON.stringify(selected, null, 2)}\n`
     : selected.length ? selected.map(r =>
       `${formatStatusHuman([r]).trimEnd()}${r.launchDetached ? '  ⚠ detached-launch' : ''}\n`).join('')
@@ -389,9 +389,13 @@ async function cmdResume(argv) {
     for (const [key, value] of [['max-turns', flags['max-turns'] ?? rec.maxTurns], ['reasoning-effort', flags['reasoning-effort'] ?? rec.reasoningEffort]]) {
       if (value !== undefined && value !== null) args.push('--' + key, String(value));
     }
-    if (flags.attach) { await cmdGrok(args); return; }
+    if (flags.attach) {
+      const finish = await enterAttachedSlot({ ...rec, review: Boolean(rec.review || flags.review) });
+      try { await cmdGrok(args); } catch (err) { process.exitCode = 1; throw err; } finally { await finish(); }
+      return;
+    }
     const nextId = await launchDetached(fileURLToPath(import.meta.url), args, { cwd: flags.cwd ? resolvePath(flags.cwd) : rec.cwd || process.cwd(), model: `grok-cli:${model}`,
-      briefPath: rec.briefPath, name: flags.name ?? rec.name, reportPath: flags.report ?? rec.reportPath, noWait: Boolean(flags['no-wait']) });
+      review: Boolean(rec.review || flags.review), auth: rec.auth, actions: rec.actions, briefPath: rec.briefPath, name: flags.name ?? rec.name, reportPath: flags.report ?? rec.reportPath, noWait: Boolean(flags['no-wait']) });
     if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true });
     return;
   }
@@ -418,9 +422,13 @@ async function cmdResume(argv) {
     const reportPath = flags.report ?? rec.reportPath;
     if (name) args.push('--name', name);
     if (reportPath) args.push('--report', reportPath);
-    if (flags.attach) { await cmdCode(args); return; }
+    if (flags.attach) {
+      const finish = await enterAttachedSlot({ ...rec, review: Boolean(rec.review || flags.review), name, reportPath });
+      try { await cmdCode(args); } catch (err) { process.exitCode = 1; throw err; } finally { await finish(); }
+      return;
+    }
     const nextId = await launchDetached(fileURLToPath(import.meta.url), args, { cwd, model: rec.model,
-      briefPath: rec.briefPath, name, reportPath, noWait: Boolean(flags['no-wait']) });
+      review: Boolean(rec.review || flags.review), auth: rec.auth, actions: rec.actions, briefPath: rec.briefPath, name, reportPath, noWait: Boolean(flags['no-wait']) });
     if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true });
     return;
   }
@@ -523,11 +531,25 @@ async function cmdShortRun(command, argv) {
   await cmdRun(['--model', options.model, '--prompt', options.prompt, ...flagArgs(options.flags, ['model', 'prompt'])], { copyVoice: command === 'copy' });
 }
 
+async function enterAttachedSlot(options) {
+  const id = `attach-${randomUUID()}`;
+  await registerQueue({ ...options, runId: id });
+  while (!(await acquireSlot(id))) await new Promise(r => setTimeout(r, 250));
+  const previous = process.env.FLEET_SLOT_RUN_ID;
+  process.env.FLEET_SLOT_RUN_ID = id;
+  return async () => {
+    await setSlotState(id, process.exitCode ? 'failed' : 'done');
+    if (previous === undefined) delete process.env.FLEET_SLOT_RUN_ID;
+    else process.env.FLEET_SLOT_RUN_ID = previous;
+  };
+}
+
 async function cmdCode(argv) {
   const { positionals, flags } = splitShortArgs(argv);
   if (flags.help) { console.log(HELP_TEXT); return; }
-  const prompt = resolveBrief(flags.prompt ?? positionals[0]);
-  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), high: Boolean(flags.high), xhigh: Boolean(flags.xhigh), max: Boolean(flags.max), simple: Boolean(flags.simple), sol: Boolean(flags.sol), luna: Boolean(flags.luna), fast: Boolean(flags.fast), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
+  const source = flags.prompt ?? positionals[0];
+  const prompt = resolveBrief(source);
+  const result = await runCode({ prompt, briefPath: source && existsSync(source) ? resolvePath(source) : null, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), high: Boolean(flags.high), xhigh: Boolean(flags.xhigh), max: Boolean(flags.max), simple: Boolean(flags.simple), sol: Boolean(flags.sol), luna: Boolean(flags.luna), fast: Boolean(flags.fast), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
   await printRunResult(result, outputOptions(flags));
   process.exitCode = buildBrief(result, outputOptions(flags)).verdict === 'ok' ? 0 : 1;
 }
@@ -557,6 +579,7 @@ async function main() {
   if (process.env.FLEET_DETACHED_RUN_ID) {
     const owner = readState(process.env.FLEET_DETACHED_RUN_ID);
     if (owner?.childPid && owner.childPid !== process.pid) {
+      process.env.FLEET_SLOT_RUN_ID ||= process.env.FLEET_DETACHED_RUN_ID;
       delete process.env.FLEET_DETACHED_RUN_ID;
       delete process.env.FLEET_DETACHED_BATCH;
     }
@@ -572,7 +595,9 @@ async function main() {
     return;
   }
 
-  let attachedId;
+  let finishAttached;
+  const resumeParent = ['wait', 'resume', 'code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'run', 'run-many', 'judge'].includes(command) && !rest.includes('--no-wait') && !process.env.FLEET_DETACHED_RUN_ID
+    ? await releaseParentSlot() : async () => {};
   try {
     const geminiEffortCommands = new Set(['copy', 'bulk', 'run', 'resume']);
     if (rest.includes('--fast') && command !== 'code') throw new Error('--fast 仅用于 fleet code。');
@@ -606,6 +631,7 @@ async function main() {
       const launchOptions = {
         cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(),
         model: selectedModel,
+        review: Boolean(flags.review),
         briefPath: brief && existsSync(brief) ? resolvePath(brief) : null,
         name: flags.name ?? text.match(/^归类[^\r\n]*/m)?.[0],
         reportPath: flags.report || text.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim(),
@@ -613,9 +639,7 @@ async function main() {
         noWait: Boolean(flags['no-wait']),
       };
       if (flags.attach) {
-        attachedId = `attach-${randomUUID()}`;
-        await registerQueue({ ...launchOptions, runId: attachedId });
-        while (!(await acquireSlot(attachedId))) await new Promise(r => setTimeout(r, 250));
+        finishAttached = await enterAttachedSlot(launchOptions);
       } else {
         const runId = await launchDetached(fileURLToPath(import.meta.url), [command, ...positionals, ...args], launchOptions);
         if (!flags['no-wait']) process.exitCode = await waitDetached(runId, { originalOutput: true });
@@ -708,7 +732,8 @@ async function main() {
     }
     process.exitCode = 1;
   } finally {
-    if (attachedId) await setSlotState(attachedId, process.exitCode ? 'failed' : 'done');
+    if (finishAttached) await finishAttached();
+    await resumeParent();
   }
 }
 
