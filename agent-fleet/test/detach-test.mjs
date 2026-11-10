@@ -378,16 +378,18 @@ else {
 `);
   const launched = [];
   const until = async (fn, label) => { for(let i=0;i<160;i++) { if(fn()) return; await sleep(50); } throw Error(label); };
-  async function start(name, writes=[], after=null, machine='mini', model='mock', question=name) {
+  async function start(name, writes=[], after=null, machine='mini', model='mock', question=name, capacity=machine==='local'?3:5) {
     const briefPath=join(queueRuns,name+'.brief.md');
     writeFileSync(briefPath,'fake brief');
     writeFileSync(briefPath.replace(/\.md$/,'.json'), JSON.stringify({object:{repo:scratch,writes,environment:'test',question},after}));
     const oldMachine=process.env.FLEET_MACHINE;
     process.env.FLEET_MACHINE=machine;
+    const oldCapacity=process.env.FLEET_SLOT_CAPACITY;
+    process.env.FLEET_SLOT_CAPACITY=String(capacity);
     try {
       const id=await launchDetached(fake,['execute'],{cwd:scratch,model,briefPath,name,noWait:true});
       launched.push(id);return id;
-    } finally { if(oldMachine===undefined) delete process.env.FLEET_MACHINE; else process.env.FLEET_MACHINE=oldMachine; }
+    } finally { if(oldCapacity===undefined) delete process.env.FLEET_SLOT_CAPACITY; else process.env.FLEET_SLOT_CAPACITY=oldCapacity; if(oldMachine===undefined) delete process.env.FLEET_MACHINE; else process.env.FLEET_MACHINE=oldMachine; }
   }
   const release = id => writeFileSync(join(queueRuns,id+'.release'),'yes');
   const began = id => existsSync(join(queueRuns,id+'.started'));
@@ -395,7 +397,9 @@ else {
     const five=[];
     for(let i=0;i<5;i++) five.push(await start('slot-'+i));
     for(const id of five) await until(()=>began(id),'first five start');
-    const sixth=await start('slot-6');
+    // Local and remote labels on the same physical machine must share all five slots.
+    const sixth=await start('slot-6',[],null,'local','mock','slot-6',5);
+    assert.equal(queueRecord(sixth).machine,queueRecord(five[0]).machine);
     assert.equal(queueRecord(sixth).state,'queued');assert(!began(sixth));
     assert.equal(collectStatus().find(r=>r.runId===sixth).state,'queued');
     release(five[0]);
@@ -411,10 +415,35 @@ else {
     const writer=await start('writer',[join(scratch,'repo')]);
     await until(()=>began(writer),'writer starts');
     await assert.rejects(start('collision',[join(scratch,'repo','src')]),/可写路径重叠/);
+    const frontCollision=await cliRun(['code',join(queueRuns,'writer.brief.md'),'--cwd',scratch,'--attach'],{AGENT_FLEET_RUNS_DIR:queueRuns,FLEET_SLOT_CAPACITY:'5'});
+    assert.equal(frontCollision.code,1);assert.match(frontCollision.stderr,/可写路径重叠/);
     const after=await start('after',[join(scratch,'repo','src')],'writer');
     assert.equal(queueRecord(after).state,'queued');assert(!began(after));
     await setSlotState(writer,'parked');await sleep(350);assert(!began(after),'park retains dependency/path ownership');
     release(writer);await until(()=>began(after),'after waits for terminal state');release(after);await waitDetached(after);
+    const attachBrief=join(queueRuns,'attached.brief.md');
+    writeFileSync(attachBrief,'foreground fixture');
+    writeFileSync(attachBrief.replace(/\.md$/,'.json'),JSON.stringify({object:{repo:scratch,writes:[join(scratch,'attached-path')]}}));
+    const occupied=[];
+    for(let i=0;i<5;i++) occupied.push(await start('attach-slot-'+i));
+    for(const id of occupied) await until(()=>began(id),'attach slots occupied');
+    const attachPids=join(scratch,'queued-attach-pids');
+    const attachedResult=cliRun(['code',attachBrief,'--cwd',scratch,'--attach','--no-continue','--json'],{
+      AGENT_FLEET_RUNS_DIR:queueRuns,FLEET_SLOT_CAPACITY:'5',FLEET_TEST_PIDS:attachPids,FLEET_TEST_SLEEP:'2'});
+    let attachedId;
+    await until(()=>{
+      attachedId=readdirSync(queueRuns).filter(n=>n.endsWith('.queue.json')).map(n=>JSON.parse(readFileSync(join(queueRuns,n),'utf8'))).find(r=>r.runId.startsWith('attach-')&&r.state==='queued')?.runId;
+      return attachedId;
+    },'attach registered while full');
+    assert(!existsSync(attachPids),'queued foreground does not start executor');
+    await assert.rejects(start('attach-collision',[join(scratch,'attached-path','child')]),/可写路径重叠/);
+    release(occupied[0]);
+    await until(()=>existsSync(attachPids),'foreground starts on released slot');
+    assert.equal(queueRecord(attachedId).state,'running');
+    const attachResult=await attachedResult;assert.equal(attachResult.code,0,attachResult.stderr);
+    assert.equal(queueRecord(attachedId).state,'done');
+    for(const id of occupied) release(id);
+    for(const id of occupied) await waitDetached(id);
     const original=await start('same-question');release(original);await waitDetached(original);
     await assert.rejects(start('same-question-copy',[],null,'mini','mock','same-question'),/重复问题/);
     const local=[];

@@ -1,6 +1,8 @@
 // Machine-local admission state. Supervisors wait here without starting a model.
 import { existsSync, statSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { hostname } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { runsDir } from './progress.mjs';
 import { isRecordedProcessAlive, processCommand } from './pid.mjs';
 import { fleetEvent } from './timeline.mjs';
@@ -82,12 +84,26 @@ function follows(rows, row, predecessor, seen = new Set()) {
   const dep = dependency(rows, row.after);
   return dep?.runId === predecessor.runId || (dep && follows(rows, dep, predecessor, seen));
 }
+let detectedCapacity;
+function machineCapacity() {
+  // Explicit override is for isolated executors/tests; transport labels never partition slots.
+  if (process.env.FLEET_SLOT_CAPACITY) return Number(process.env.FLEET_SLOT_CAPACITY);
+  if (detectedCapacity === undefined) {
+    let hardware = '';
+    if (process.platform === 'darwin') {
+      try { hardware = execFileSync('/usr/sbin/system_profiler', ['SPHardwareDataType', '-json'], { encoding: 'utf8' }); }
+      catch { /* Unknown hardware keeps the smaller limit. */ }
+    }
+    detectedCapacity = /Mac mini|Macmini/i.test(hardware) ? 5 : 3;
+  }
+  return detectedCapacity;
+}
 export async function registerQueue(rec) {
   return locked(() => {
     const rows = refreshedRows();
     const object = taskObject(rec.briefPath);
     const row = { runId: rec.runId, name: rec.name, pid: process.pid, command: processCommand(process.pid),
-      machine: process.env.FLEET_MACHINE || 'local', model: rec.model, object, after: object?.after,
+      machine: hostname(), model: rec.model, object, after: object?.after,
       createdAt: Date.now(), state: 'queued' };
     if (row.after && !dependency(rows, row.after)) throw new Error('--after 找不到任务；请先派发前置单。');
     for (const other of rows) {
@@ -119,19 +135,20 @@ export async function acquireSlot(id) {
     if (dep && live.has(dep.state)) return false;
     const quota = read(join(runsDir(), 'codex-quota.json'));
     if (/^gpt-/.test(row.model) && quota?.usedPercent > 80 && (!quota.resetsAt || quota.resetsAt * 1000 > Date.now())) return false;
-    const capacity = row.machine === 'mini' ? 5 : 3;
-    const active = rows.filter(r => r.machine === row.machine && r.state === 'running').length;
+    const capacity = machineCapacity();
+    const active = rows.filter(r => r.state === 'running').length;
     // Older detached/foreground runs also occupy slots, without double-counting supervised children.
     const known = new Set(rows.map(r => r.runId));
     const legacy = new Set();
+    const registeredPids = new Set(rows.filter(r => live.has(r.state)).map(r => r.pid));
     for (const name of readdirSync(runsDir()).filter(n => n.endsWith('.json') && !n.endsWith('.queue.json'))) {
       const rec = read(join(runsDir(), name));
       const runId = rec?.runId || name.replace(/\.pid\.json$/, '');
-      if (!rec || known.has(runId) || (rec.detach ? rec.status !== 'running' : !name.endsWith('.pid.json') || rec.finished)) continue;
+      if (!rec || known.has(runId) || registeredPids.has(rec.pid) || (rec.detach ? rec.status !== 'running' : !name.endsWith('.pid.json') || rec.finished)) continue;
       if (isRecordedProcessAlive(rec.pid, rec.command)) legacy.add(runId);
     }
     if (active + legacy.size >= capacity) return false;
-    const earlier = rows.some(r => r.machine === row.machine && r.state === 'queued' &&
+    const earlier = rows.some(r => r.state === 'queued' &&
       (r.createdAt < row.createdAt || (r.createdAt === row.createdAt && r.runId < row.runId)) &&
       (!r.after || !live.has(dependency(rows, r.after)?.state)) &&
       !(/^gpt-/.test(r.model) && quota?.usedPercent > 80 && (!quota.resetsAt || quota.resetsAt * 1000 > Date.now())));

@@ -17,6 +17,8 @@
 // 不在这里写任何 SDK 调用细节——那些都在 src/run-task.mjs 里。
 
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { registerQueue, acquireSlot, setSlotState } from '../src/queue.mjs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve as resolvePath } from 'node:path';
@@ -570,6 +572,7 @@ async function main() {
     return;
   }
 
+  let attachedId;
   try {
     const geminiEffortCommands = new Set(['copy', 'bulk', 'run', 'resume']);
     if (rest.includes('--fast') && command !== 'code') throw new Error('--fast 仅用于 fleet code。');
@@ -590,7 +593,7 @@ async function main() {
     if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many', 'judge'].includes(command)
       && !process.env.FLEET_DETACHED_RUN_ID && !rest.includes('--help')) launchArchiveSweep();
     if ((['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many'].includes(command) || (command === 'judge' && rest.includes('--no-wait')))
-      && !process.env.FLEET_DETACHED_RUN_ID && !rest.includes('--attach')) {
+      && !process.env.FLEET_DETACHED_RUN_ID) {
       const { flags, positionals } = splitShortArgs(rest);
       if (flags.help) { console.log(HELP_TEXT); return; }
       if (command === 'run' && (!flags.model || !flags.prompt)) throw new Error('run 需要 --model 和 --prompt');
@@ -600,7 +603,7 @@ async function main() {
       const args = flagArgs(flags, ['detach', 'attach', 'no-wait', 'name', 'prompt']);
       if (flags.prompt !== undefined) args.push('--prompt', flags.prompt);
       const selectedModel = command === 'code' ? (flags.luna ? 'gpt-6-luna' : (flags.simple || (flags.review && !flags.sol)) ? 'gpt-6.1-terra' : 'gpt-6.1-sol') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : command === 'judge' ? 'jev' : flags.model ?? shortRunOptions(command, rest).model;
-      const runId = await launchDetached(fileURLToPath(import.meta.url), [command, ...positionals, ...args], {
+      const launchOptions = {
         cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(),
         model: selectedModel,
         briefPath: brief && existsSync(brief) ? resolvePath(brief) : null,
@@ -608,9 +611,16 @@ async function main() {
         reportPath: flags.report || text.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim(),
         effort: resolveTaskEffort({ effort: resolveEffortFlag(flags), friendlyModel: selectedModel }),
         noWait: Boolean(flags['no-wait']),
-      });
-      if (!flags['no-wait']) process.exitCode = await waitDetached(runId, { originalOutput: true });
-      return;
+      };
+      if (flags.attach) {
+        attachedId = `attach-${randomUUID()}`;
+        await registerQueue({ ...launchOptions, runId: attachedId });
+        while (!(await acquireSlot(attachedId))) await new Promise(r => setTimeout(r, 250));
+      } else {
+        const runId = await launchDetached(fileURLToPath(import.meta.url), [command, ...positionals, ...args], launchOptions);
+        if (!flags['no-wait']) process.exitCode = await waitDetached(runId, { originalOutput: true });
+        return;
+      }
     }
     switch (command) {
       case 'wait': {
@@ -697,6 +707,8 @@ async function main() {
       console.error(err);
     }
     process.exitCode = 1;
+  } finally {
+    if (attachedId) await setSlotState(attachedId, process.exitCode ? 'failed' : 'done');
   }
 }
 

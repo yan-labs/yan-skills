@@ -152,7 +152,16 @@ def lint(text, to='gpt', simple=False, on='local', extra=True):
                 repo_match = re.search(r'仓库[ \t]*[:：][ \t]*(/[^\s，,；;（(]+)', entry)
                 repo_path = repo_match.group(1) if repo_match else '/'
                 concrete = [os.path.normpath(f if f.startswith('/') else os.path.join(repo_path, f)) for f in files]
-                scoped = re.findall(r'^[ \t]*可写路径[ \t]*[:：][ \t]*(/[^\s，,；;（(]+)', entry, re.M)
+                object_match = re.search(r'^对象: (.+)$', text, re.M)
+                if object_match:
+                    # Generated scope starts with the report and task scratch directory.
+                    scoped = [*re.findall(r'^[ \t]*可写路径[ \t]*[:：][ \t]*(/[^\s，,；;（(]+)', entry, re.M),
+                              *json.loads(object_match.group(1)).get('writes', []),
+                              *(re.findall(r'^- (/[^\n]+)$', allowed.group(1), re.M)[2:] if allowed else [])]
+                else:
+                    report = re.search(r'^REPORT: (.+)$', text, re.M)
+                    outputs = {report.group(1), '/tmp/' + Path(report.group(1)).stem + '/'} if report else set()
+                    scoped = [p for p in writes if p not in outputs]
                 if not concrete or any(not any(f == w.rstrip('/') or f.startswith(w.rstrip('/') + '/') for f in concrete) for w in scoped):
                     errors.append('--simple 的跨服务目标入口未列全具体文件，请改用 Sol（移除 --simple）或补齐入口文件。')
         if errors:
@@ -292,7 +301,7 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     declared = [p for p in mini.referenced_paths('\n'.join(line for line in allowed.splitlines() if line.startswith('- ')))
                 if p not in (meta['report'], '/tmp/' + name + '/')]
     meta['paths'] = list(dict.fromkeys([*meta.get('paths', []), *mini.referenced_paths(scope), *mini.referenced_paths(revisions), *declared]))
-    checked(text, target)
+    checked(text, target, bool(selected_simple or (target == 'gpt' and meta.get('review') and not meta.get('sol'))), on or meta.get('on') or os.environ.get('FLEET_DEFAULT_ON', 'mini'), True)
     if target != meta['to']:
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
                                  ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('sol', ['gpt']), ('luna', ['gpt']), ('fast', ['gpt']), ('no-fast', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),

@@ -399,6 +399,7 @@ try {
       ['接入存储',entry,[],true],
       ['跨服务同步',entry,[],true],
       ['接入存储',entry+'具体文件: src/store.ts、src/index.ts\n',[],false],
+      ['接入存储',entry+'具体文件: src/store.ts、src/index.ts\n',[repos[0]+'/other'],true],
       ['打通入口',entry+`可写路径: ${repos[0]}/other\n具体文件: src/index.ts\n`,[],true],
       ['修复按钮',entry,[],false],
     ]) {
@@ -406,6 +407,27 @@ try {
       if(blocked) assert.match(r.stderr,/改用 Sol/);
     }
     assert.equal(invoke('跨服务同步',entry,[repos[0],repos[1]],false).status,0);
+  });
+  test('relaunch 按最终模型重查 simple 可写范围和未知入口', () => {
+    writeFileSync(states,'[]');
+    const entry=`## 入口\n仓库: ${temp}/repo-a\n可写路径: ${temp}/repo-a/src\n未知入口\n`;
+    const created=spawnSync(script,['new','route-relaunch','--to','gpt','--on','local','--goal','修复按钮','--action','改代码','--no-launch'],{encoding:'utf8',env,input:entry});
+    assert.equal(created.status,0,created.stderr);
+    reset();
+    const blocked=run(['relaunch','route-relaunch','--simple']);
+    assert.equal(blocked.status,1,blocked.stderr);assert.match(blocked.stderr,/不能使用 --simple/);
+    assert(!history().some(c=>c.args[0]==='code'));
+    assert.equal(run(['relaunch','route-relaunch']).status,7);
+    const metaPath=join(home,'.agent-reports',report.split('/').at(-2),'route-relaunch.brief.json');
+    const meta=JSON.parse(readFileSync(metaPath,'utf8'));meta.simple=true;writeFileSync(metaPath,JSON.stringify(meta));
+    assert.equal(run(['relaunch','route-relaunch']).status,1);
+    assert.equal(run(['relaunch','route-relaunch','--luna']).status,7);
+    const cross=spawnSync(script,['new','route-cross','--to','gpt','--on','local','--goal','接入存储','--action','改代码','--write',temp+'/repo-a/other','--no-launch'],{encoding:'utf8',env,input:entry.replace('未知入口','具体文件: src/store.ts')});
+    assert.equal(cross.status,0,cross.stderr);
+    const crossBlocked=run(['relaunch','route-cross','--simple']);
+    assert.equal(crossBlocked.status,1,crossBlocked.stderr);assert.match(crossBlocked.stderr,/入口未列全具体文件/);
+    assert.equal(run(['relaunch','route-cross']).status,7);
+
   });
   test('batch 先打印重叠矩阵，拒绝无 after 冲突、循环；允许串行及无重叠批次', () => {
     const body=join(temp,'batch-body.md');
