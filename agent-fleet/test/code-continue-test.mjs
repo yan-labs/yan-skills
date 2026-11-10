@@ -30,6 +30,7 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
    const conclusion = (mode === 'finish' && count > 1) || (mode === 'progress' && count > 5) || mode.startsWith('judge-') || mode === 'complete' || mode === 'missing-sections' ? '完成' : mode === 'fail' ? '失败' : '部分完成';
    let report = '# 测试\\n## 规则回执\\n测试\\n## 实际执行\\n测试\\n## 改动与产物\\n测试\\n## 验证证据\\n测试\\n## 偏差\\n无\\n## 结论\\n' + conclusion + '。\\n## 未完成/风险/需要用户决定的事\\n' + (mode === 'progress' ? count : '待办');
    if (mode === 'missing-sections' || (['finish', 'stuck', 'progress', 'env-off'].includes(mode) && !(mode === 'finish' && count > 1) && !(mode === 'progress' && count > 5))) report = '## 结论\\n' + conclusion + (mode === 'progress' ? count : '');
+   if (mode === 'progress') fs.writeFileSync(process.env.REPORT_FILE + '.artifact', String(count));
    fs.writeFileSync(process.env.REPORT_FILE, report);
    send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:conclusion}}});
    send({method:'turn/completed',params:{turn:{id,status:'completed'}}});
@@ -59,7 +60,7 @@ try {
       if (mode === 'judge-fail') return { ok: false };
       return { ok: true, answers: { deliverable: { choice: mode === 'judge-missing' ? 'file' : 'done', confidence: mode === 'judge-low' ? 0.4 : 0.9 } } };
     };
-    const result = await runCode({ continuationJudge, prompt: `REPORT: ${process.env.REPORT_FILE}\n测试`, cwd: scratch, codexBin: mock, ...options });
+    const result = await runCode({ continuationJudge, prompt: `REPORT: ${process.env.REPORT_FILE}\n测试${mode === 'progress' ? `\n产物清单：\n- 文件：${process.env.REPORT_FILE}.artifact\n` : ''}`, cwd: scratch, codexBin: mock, ...options });
     assert.equal(result.continueCount, expected, mode);
     assert.equal(result.continuation.length, expected, mode);
     const trace = readFileSync(process.env.TRACE, 'utf8').trim().split('\n').map(JSON.parse);
@@ -134,17 +135,38 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   const artifactBefore = readContinuationState(scratch, process.env.REPORT_FILE, artifactBrief);
   writeFileSync(artifact, 'after');
   assert(continuationProgress(artifactBefore, readContinuationState(scratch, process.env.REPORT_FILE, artifactBrief)).files);
-  const missing = continuationRules({ conclusion: '完成', report: '## 结论\n完成' }, '给出提交哈希和读回结果');
+  const authorizedCommit = '## 授权覆盖\n允许在本地分支提交。\n## 目标\n验收：必须提交代码，给出提交哈希。';
+  const missing = continuationRules({ conclusion: '完成', report: '## 结论\n完成' }, authorizedCommit + '\n给出读回结果');
   assert(missing.some(item => item.includes('规则回执')));
   assert(missing.some(item => item.includes('提交哈希')));
   assert(missing.some(item => item.includes('实际读回')));
   assert.deepEqual(continuationRules({ conclusion: '失败', report: '' }, '提交哈希'), []);
   assert.deepEqual(continuationRules({ conclusion: '完成', report: '## 规则回执\n## 结论\n## 实际执行\n## 改动与产物\nabcdef123\n## 验证证据\n读回结果：通过\n## 偏差\n## 未完成/风险/需要用户决定的事' }, '给出提交哈希和读回结果'), []);
   const completeReport = { conclusion: '完成', report: ['规则回执', '结论', '实际执行', '改动与产物', '验证证据', '偏差', '未完成/风险/需要用户决定的事'].map(section => `## ${section}\n完成`).join('\n') };
+  assert.deepEqual(continuationRules(completeReport, '## 授权覆盖\n允许在本地分支提交。\n## 目标\n修复提交哈希误判。'), []);
+  assert(continuationRules(completeReport, '## 授权覆盖\n发布全流程。\n## 目标\n验收：必须提交代码，给出提交哈希。').some(x => x.includes('提交哈希')));
+  const readonlyBrief = '## 授权覆盖\n本块不含 git 写操作。\n## 目标\n验收：分析并报告，列出提交哈希。';
+  assert.deepEqual(continuationRules(completeReport, readonlyBrief), []);
+  assert(continuationRules(completeReport, authorizedCommit).some(x => x.includes('提交哈希')));
+  assert.deepEqual(continuationRules(completeReport, '## 授权覆盖\n允许在本地分支提交。\n## 目标\n验收：分析并报告。'), []);
+  for (const blocker of ['缺少 Git 写授权', '缺少团队发布入口', '缺少必需外部输入', '需要主线程提供复现信息']) {
+    const blocked = { conclusion: '完成授权内步骤', report: completeReport.report + '\n' + blocker };
+    assert.deepEqual(continuationRules(blocked, authorizedCommit), [], blocker);
+    let called = false;
+    const decision = await judgeContinuation({ brief: authorizedCommit, report: blocked.report, finalReply: '', judge: async () => { called = true; return { ok: true, answers: { deliverable: { choice: 'commit', confidence: 0.9 } } }; } });
+    assert.equal(decision.decision, 'done', blocker);
+    assert.equal(called, false, blocker);
+  }
+  let localJudgePayload;
+  const localJudge = await judgeContinuation({ brief: readonlyBrief, report: completeReport.report, finalReply: '', judge: async payload => { localJudgePayload = payload; return { ok: true, answers: { deliverable: { choice: 'commit', confidence: 0.9 } } }; } });
+  assert.equal(localJudge.decision, 'done');
+  assert(!Object.hasOwn(localJudgePayload.questions.deliverable.criteria, 'commit'));
+  const reportBefore = { head: 'same', files: 'same', report: 'old' };
+  assert.equal(continuationProgress(reportBefore, { ...reportBefore, report: 'new' }).progress, false);
   const style = readFileSync(new URL('../skill/templates/blocks/style-sol.md', import.meta.url), 'utf8');
   assert.deepEqual(continuationRules(completeReport, style + '\n验收：本地测试通过。不提交、不部署。'), []);
   assert.deepEqual(continuationRules(completeReport, style + '\n要求不提交哈希，无需读回结果。'), []);
-  assert(continuationRules(completeReport, style + '\n验收：报告必须给出提交哈希和读回结果。').some(item => item.includes('提交哈希')));
+  assert(continuationRules(completeReport, style + '\n' + authorizedCommit + '\n验收：报告必须给出提交哈希和读回结果。').some(item => item.includes('提交哈希')));
   assert(continuationRules(completeReport, '不部署；验收：给出本地文件读回结果').some(item => item.includes('实际读回')));
   // 运行时拼接假凭据，拦截裁判入口核对 state 及 criteria 均已脱敏。
   const fake = 'sk-' + 'fakeCredentialForContinuationTest12345';
@@ -185,14 +207,14 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   const invalidJudge = await judgeContinuation({ brief: '测试', report: '', finalReply: '', judge: async () => ({ ok: true, answers: {} }) });
   assert.equal(invalidJudge.decision, 'skip');
   for (const choice of ['file', 'section', 'commit', 'readback']) {
-    const decision = await judgeContinuation({ brief: '验收：交付文件', report: '', finalReply: '', judge: async () => ({ ok: true, answers: { deliverable: { choice, confidence: 0.9 } } }) });
+    const decision = await judgeContinuation({ brief: choice === 'commit' ? authorizedCommit : '验收：交付文件', report: '', finalReply: '', judge: async () => ({ ok: true, answers: { deliverable: { choice, confidence: 0.9 } } }) });
     assert.equal(decision.decision, 'continue');
   }
   assert.deepEqual(continuationRules({ ...completeReport, conclusion: '部分完成' }, '覆盖未穷尽，还可补证'), []);
   const localBrief = '## 授权覆盖\n本块不含 git 写操作\n## 验收\n产物清单：\n- 报告：report.md\n报告列出本地提交哈希';
   writeFileSync(join(scratch, 'report.md'), 'ok');
   assert.deepEqual(continuationRules(completeReport, localBrief, scratch), []);
-  const commitBrief = '## 授权覆盖\n允许在本地分支提交。\n## 目标\n实现代码';
+  const commitBrief = '## 授权覆盖\n允许在本地分支提交。\n## 目标\n实现代码并提交，给出提交哈希。';
   const initial = { head: 'abc', files: 'unchanged' };
   assert(continuationRules({ ...completeReport, ...initial, files: 'other-change', conclusion: '未完成', report: completeReport.report + '\n基线 abcdef123' }, commitBrief, scratch, initial).some(x => x.includes('实现改动')));
   assert.equal(buildBrief({ok:true, result:'未完成', reportConclusion:'未完成'}).verdict, 'partial');
@@ -200,7 +222,7 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   assert(continuationRules(completeReport, '产物清单：\n- 报告：missing.md（上限 2 KB）\n', scratch).some(item => item.includes('missing.md')));
   const low = await judgeContinuation({ brief: '覆盖未穷尽', report: '', finalReply: '', judge: async () => ({ ok: true, answers: { deliverable: { choice: 'file', confidence: 0.4 } } }) });
   assert.equal(low.decision, 'done');
-  // 同一路径内容变化、提交、报告分别都能打破无进展计数。
+  // 同一路径内容变化、提交算进展，单独修改报告不算。
   const repo = join(scratch, 'repo'); mkdirSync(repo);
   const git = args => execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
   git(['init']); git(['config', 'user.email', 'test@example.invalid']); git(['config', 'user.name', 'test']);
@@ -233,6 +255,11 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   writeFileSync(join(repo, 'local-file'), 'local'); git(['add', 'local-file']); git(['commit', '-m', 'local only']);
   const localCommit = git(['rev-parse', 'HEAD']).toString().trim();
   assert(continuationRules({ ...remoteState, report: completeReport.report + `\n提交 ${localCommit}` }, remoteBrief, scratch, { head: previousCommit }).some(x => x.includes('实现改动')));
+  const trackedReport = join(repo, 'report.md');
+  writeFileSync(trackedReport, 'before');
+  const reportState = readContinuationState(repo, trackedReport, '产物清单：\n- 报告：report.md\n');
+  writeFileSync(trackedReport, 'after');
+  assert.equal(continuationProgress(reportState, readContinuationState(repo, trackedReport, '产物清单：\n- 报告：report.md\n')).progress, false);
   const nested = join(repo, 'nested'); mkdirSync(nested);
   writeFileSync(join(nested, 'file'), 'one'); git(['add', '.']); git(['commit', '-m', 'nested']);
   writeFileSync(join(nested, 'file'), 'two'); const nestedBefore = readContinuationState(nested);

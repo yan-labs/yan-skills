@@ -7,7 +7,7 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 
 | 让谁做 | 适合什么 | 命令示例 | 派用者顺位参考 |
 |---|---|---|---|
-| `gpt` | 编码和代码复核默认 Terra（`--simple`）；Sol 只在用户点名时用；部署和改配置也用 Terra；巡检、监工、定时、核对整理这类比 Haiku 复杂又不需要编码的活用 Luna（`--luna --high`，或默认 xhigh，不开 `--max`） | `fleet-go new fix --to gpt --simple --auth local --goal "修复问题" --body task.md` | 见[工具链](references/fallback-chains.md) |
+| `gpt` | 按[路由原则](#路由原则长期)选择 Terra、Sol 或 Luna | `fleet-go new fix --to gpt --simple --auth local --goal "修复问题" --body task.md` | 见[工具链](references/fallback-chains.md) |
 | `openai` | 官方 GPT API / ChatGPT 关联组织额度，复用原 Agent SDK | `fleet-go new task --to openai --auth local --goal "目标" --body task.md` | 单独入口，不改 Codex 默认 |
 | `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | 按任务类型选择替代执行者 |
 | `grok` | 视频与图片（生成、搜索）、X 平台（热点与实时讨论）、X/社媒实时检索、成人题材；Codex 不可用或并发满时优先承接编码 | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | 见[工具链](references/fallback-chains.md) |
@@ -151,15 +151,15 @@ Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定�
 
 ## 路由原则（长期）
 
-路由表定的是“默认先派谁”，不是能力上限：成本、额度、并发或用户点名时可以改派，不因“这类不归它管”停下。
+Terra 与 Sol 派单前问两句：brief 能否写清具体文件、入口和完成条件？做错能否便宜地重来？两句都是“能”用 Terra，任一句“不能”用 Sol（用户 2026-11-11）。成本、额度、并发或用户点名时可以改派。
 
 | 任务 | 默认执行者 |
 |---|---|
-| 正常开发与编程（逻辑、后端、数据、脚本、修 bug、补测试、小修） | Codex Terra，`--to gpt --simple`，medium，不开 fast |
-| 严谨开发（跨模块重构、数据迁移、权限、计费、删除、外部写入、架构级改动） | 仍用 Terra，brief 写明严谨要求；Sol 额度消耗快，只在用户点名时用（用户 11-10） |
-| 部署、发布、改配置（要写脚本） | Codex Terra，`--to gpt --simple`，medium |
+| 两问都是“能”（编码、复核、按已知源调研、机械改动） | Codex Terra，`--to gpt --simple`，medium，不开 fast |
+| 任一问“不能”（要自己摸入口、跨系统多步、总管、删除或生产写入、发布脚本、Terra 已交回过的单） | 开派即用 Sol，`--to gpt`，不带 `--simple`（用户 2026-11-11） |
+| 部署、改配置（要写脚本，发布脚本按上面的 Sol 行） | Codex Terra，`--to gpt --simple`，medium |
 | 巡检、监工、定时、核对整理（比 Haiku 复杂、不需要编码） | Luna，`--to gpt --luna --high`（或默认 xhigh），不开 `--max`（用户 2026-11-11） |
-| 调研、搜索、技术文档、报告、数据整理、一般任务 | Codex Terra，`--to gpt --simple` |
+| 调研、搜索、技术文档、报告、数据整理、一般任务 | 默认 Codex Terra，`--to gpt --simple`；首派仍按上面的两问判断 |
 | 文案、翻译、多语言、校对 | Gemini，`fleet copy`（批量用 `fleet bulk`） |
 | UI、样式、视觉交互、建站设计、3D、游戏内容 | `fleet sonnet`；要 Browser pane 用 `executor-sonnet` |
 | 方案、架构、方向未明的综合判断 | Claude Code Agent 工具，`subagent_type=executor-fable`；brief 须带“这个代码库是你的，做成什么样你说了算，以后也是你接着维护。” |
@@ -169,6 +169,7 @@ Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定�
 | 分类、是否、打分、成败校验 | JEV（`fleet judge`），置信度低于约 0.55 交回 |
 | 登录态浏览器采集（GSC、Semrush 等） | 现成脚本或 opencli adapter；缺脚本先让 Claude 写脚本再沉淀 |
 
+- Terra 单 30 分钟无新产物或两轮续做无进展，巡检直接改派 Sol，不再续做。
 - Claude 档先走 `fleet haiku|sonnet|opus`（订阅附赠的月度 API 额度），需要本应用工具、MCP、Browser pane、ccd_* 或本机登录态时才用 `executor-*`；用 Agent 工具每次显式传 `model`。
 - Codex 一律不开 fast，需要才显式 `--fast`。`--to openai`（OpenAI API 额度）不用 Sol、不开 fast，偏慢，适合不急的正经编程。
 - 设计稿由 Claude 出，按稿实施的编码可以交 Terra。
@@ -184,7 +185,7 @@ Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定�
 下面的顺位表只供派用者自行判断，代码不消费：
 - Claude 额度档：按任务类型与工具链换手。
 - **工具不可用或并发满**：按[工具链](references/fallback-chains.md)换手；编码由 Grok 或 Claude 承接，不派 Gemini。
-- GPT 档：编码及复核用 Terra；Sol 只在用户点名时用；部署和改配置用 Terra；巡检、监工、定时、核对整理用 Luna high/xhigh，不开 max。
+- GPT 档顺位与换班条件统一见[路由原则](#路由原则长期)。
 
 派用者决定后，用 `fleet-go relaunch <name> --to <产品> [--tier haiku|sonnet|opus] [--simple|--luna] [--low|--high|--xhigh|--max] [--fast]` 沿用 brief、name 与 report 重派。成功任务不产生失败上报。
 

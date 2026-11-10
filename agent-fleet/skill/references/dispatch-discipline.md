@@ -4,7 +4,7 @@
 - 自包含：首行 `归类：…；理由：…`（编程路由拿不准就归 Codex）；`REPORT: <绝对路径>`，默认 `~/.agent-reports/<YYYY-MM-DD>/<任务短名>.md`；目标、读写路径、边界、客观验收；多个任务并发写同一处时写 CONFLICT-SCOPE。
 - 路径一律写绝对路径；相对路径会按 `--cwd` 解析，找不到时执行者会空转。
 - 每句话都问一遍：省掉它会不会让执行者做错、白忙或出事故？会就留下。小事一两句，恢复和迁移类可以写长。事故任务先交代事件经过和有意保留的现状。
-- 授权参数和正文保持一致：`--auth local|local-commit|readonly-web|deploy-prod|paid|review` 按需组合；远程操作用 `deploy-prod,readonly-web`；要本地提交选 `local-commit`，验收写提交哈希，缺哈希按未完成重派。
+- 授权参数和正文保持一致：`--auth local|local-commit|readonly-web|deploy-prod|paid|review` 按需组合；远程操作用 `deploy-prod,readonly-web`；要本地提交选 `local-commit`；仅授权含 `local-commit` 或 `deploy-prod` 且正文明确要求提交时，缺哈希才算缺项，其余单不检查哈希。
 - Codex 单写明“自己在本线程顺序完成，不开子代理”（模板已带）；要等子任务回来才能收尾的单，写明负责人自己等到结果。允许开子任务时写明并发上限。
 - 需要执行者做授权、续聊这类动作的验收，要在 brief 里点名允许，否则它会停在门禁前。
 - 发出前核对：结果、独有信息、边界、回交条件、验收标准。

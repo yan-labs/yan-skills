@@ -1,14 +1,14 @@
 # 额度用尽时的工具链
 
-编码顺位：Codex Terra → OpenAI API Terra → Grok Build → Claude。Gemini 只负责文案、翻译和校对。Claude 的 Haiku、Sonnet、Opus 先用 fleet 档，没额度再用 executor；Fable 只用 Agent 工具的 `executor-fable`；拒绝或不可用按任务行换手，用户点名优先。
+常规编码顺位：Codex Terra → OpenAI API Terra → Grok Build → Claude；首派档位与停滞改派统一见 [路由原则](../SKILL.md#路由原则长期)。Gemini 只负责文案、翻译和校对。Claude 的 Haiku、Sonnet、Opus 先用 fleet 档，没额度再用 executor；Fable 只用 Agent 工具的 `executor-fable`；拒绝或不可用按任务行换手，用户点名优先。
 
 ## 顺位表
 
 | 任务 | 第 1 | 第 2 | 第 3 | 第 4 |
 |---|---|---|---|---|
 | 常规编程、修 bug、补测试、脚本 | Terra（Codex） | Terra（OpenAI API） | Grok Build | Claude |
-| 严谨开发，不可逆或很重要 | Terra | Grok Build | Claude | — |
-| 部署、发布、监工、定时 | Luna | Grok Build | Claude | — |
+| 严谨开发，不可逆或很重要 | 按[路由原则](../SKILL.md#路由原则长期)选 Terra / Sol | Grok Build | Claude | — |
+| 部署、发布、监工、定时 | 按[路由原则](../SKILL.md#路由原则长期)选档 | Grok Build | Claude | — |
 | 批量读源码、调研、文档、数据整理、一般任务 | Terra | Grok Build | Claude | — |
 | 文案、翻译、多语言 | Gemini 4 | `fleet sonnet` | Grok Build | Terra |
 | 写 UI、样式、视觉交互、3D、游戏内容 | Sonnet | Terra | Grok Build | Claude |
