@@ -566,6 +566,8 @@ def new(args):
     parts.append('## 已知坑\n' + '\n\n'.join(block('pitfall-' + p, values) for p in dict.fromkeys(pitfalls) if p))
     parts.extend(['## 验收\n' + block('accept-boilerplate', values) + '\n\n' + block('report-template', values)
                   + ('\n\n' + block('review-ledger', values) if is_review else ''), rule()])
+    if args.to == 'claude' and args.tier == 'fable':
+        parts.append(block('fable-owner'))
     text = '\n\n'.join(parts) + '\n'
     checked(text, args.to)
     meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,

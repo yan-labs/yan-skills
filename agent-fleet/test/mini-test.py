@@ -18,7 +18,9 @@ mini.REMOTE_BIN = '/home/b/fleet'
 assert mini.remote_path('/home/a/Project/x') == '/home/b/Project/x'
 assert mini.remote_path('/home/a-archive') == '/home/a-archive'
 assert mini.rewrite_brief('正文 /home/a/keep\n- 文本 /home/a/keep\n- /home/a/file\n') == '正文 /home/a/keep\n- 文本 /home/a/keep\n- /home/b/file\n'
-assert mini.referenced_paths('private/input.txt') == [str(Path.cwd() / 'private/input.txt')]
+assert not mini.referenced_paths('A/C P50/P95 fu/Bin Redis/DB Java/前端代码里找 private/input.txt')
+assert mini.referenced_paths('~/.agent-reports/2026-11-0*/x.md') == [str(Path.home() / '.agent-reports')]
+assert mini.referenced_paths('--read private/input.txt --write ./out* --cwd ../project') == [str(Path.cwd() / 'private/input.txt'), str(Path.cwd() / 'out*'), str(Path.cwd().parent / 'project')]
 assert mini.rewrite_brief('REPORT: /home/a/r\n普通内容 /home/a-archive') == 'REPORT: /home/b/r\n普通内容 /home/a-archive'
 assert mini.referenced_paths('./private/input $HOME/note') == [str(Path.cwd() / 'private/input'), str(Path.home() / 'note')]
 assert mini.local_path('/home/b/Project/x') == '/home/a/Project/x'

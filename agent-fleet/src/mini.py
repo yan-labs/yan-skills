@@ -31,7 +31,7 @@ def remote_path(value):
 def local_path(value):
     return map_path(value, REMOTE_HOME, LOCAL_HOME)
 
-PATH_PATTERN = r"(?<![\w:/.$~-])(?:\$HOME/|~/|\.\.?/|/|[A-Za-z0-9_.-]+/)[^\s\"'`<>（）()，,；;：:、\[\]{}]+"
+PATH_PATTERN = r"(?<![\w:/.$~-])(?:\$HOME/|~/|\.\.?/|/)[^\s\"'`<>（）()，,；;：:、\[\]{}]+"
 
 def expand_path(value):
     return os.path.abspath(os.path.expanduser(os.path.expandvars(value)))
@@ -96,7 +96,16 @@ def find(spec):
 
 
 def referenced_paths(text):
-    return list(dict.fromkeys(expand_path(x.rstrip('.。')) for x in re.findall(PATH_PATTERN, text)))
+    paths = []
+    pattern = r'--(?:read|write|cwd)\s+([^\s]+)|(' + PATH_PATTERN + ')'
+    for match in re.finditer(pattern, text):
+        explicit, token = match.groups()
+        path = expand_path((explicit or token).rstrip('.。'))
+        if not explicit and any(c in path for c in '*?['):
+            path = path[:min(path.index(c) for c in '*?[' if c in path)]
+            path = str(Path(path).parent)
+        paths.append(path)
+    return list(dict.fromkeys(paths))
 
 def preflight(meta, paths):
     if not REMOTE_HOME or not REMOTE_BIN: return 'Mini 路径未配置（FLEET_MINI_HOME、FLEET_MINI_BIN）'

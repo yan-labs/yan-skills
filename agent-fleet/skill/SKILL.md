@@ -149,7 +149,7 @@ Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定�
 | 调研、搜索、技术文档、报告、数据整理、一般任务 | Codex Terra，`--to gpt --simple` |
 | 文案、翻译、多语言、校对 | Gemini，`fleet copy`（批量用 `fleet bulk`） |
 | UI、样式、视觉交互、建站设计、3D、游戏内容 | `fleet sonnet`；要 Browser pane 用 `executor-sonnet` |
-| 方案、架构、方向未明的综合判断 | `fleet fable`（或 `executor-fable`） |
+| 方案、架构、方向未明的综合判断 | `fleet fable`（或 `executor-fable`）；`fleet fable` 和 `fleet-go new --to claude --tier fable` 自动加入代码库归属句 |
 | 较难的编程、Sonnet 反复打转 | `fleet opus` |
 | 小杂活、摘要、核实、机械替换、取证 | `fleet haiku`（要 Browser pane/MCP 用 `executor-haiku`） |
 | 视频、图片备选、X 热点与社媒实时检索、成人题材 | Grok |

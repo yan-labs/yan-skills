@@ -178,6 +178,9 @@ try {
       assert.equal(r.status,0,r.stderr); assert.ok(r.stderr.includes('fleet '+cmd+' '));
       assert.match(r.stdout,/归类：/); assert.match(r.stdout,/REPORT: /); assert.ok(r.stdout.includes(rule));
     }
+    const owner = readFileSync(join(root, 'skill/templates/blocks/fable-owner.md'), 'utf8').trim();
+    assert.ok(run(['new','owner','--to','claude','--tier','fable','--goal','x','--dry-run']).stdout.includes(owner));
+    assert.ok(!run(['new','owner','--to','claude','--tier','sonnet','--goal','x','--dry-run']).stdout.includes(owner));
     for(const tier of ['haiku','sonnet','opus','fable']) {
       const r=run(['new','tier','--to','claude','--tier',tier,'--goal','任务','--dry-run']);
       assert.equal(r.status,0,r.stderr); assert.ok(r.stderr.includes('fleet '+tier+' '));
