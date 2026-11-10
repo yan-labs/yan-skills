@@ -116,8 +116,10 @@ def launch(meta):
     Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     if reachable:
         sys.exit(mini.launch(meta, command(meta)))
+    if location == 'mini' and meta.get('on') == 'mini':
+        raise ValueError(reason + '；显式指定 --on mini，未回退。')
     if location == 'mini':
-        marker = reason + '，已在 MacBook 执行'
+        marker = '警告：' + reason + '，已在 MacBook 执行'
         path = Path(meta['brief'])
         text = path.read_text()
         if marker not in text:

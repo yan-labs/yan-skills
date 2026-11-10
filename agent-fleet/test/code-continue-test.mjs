@@ -165,7 +165,8 @@ try {
   assert.deepEqual(continuationRules(completeReport, localBrief, scratch), []);
   const commitBrief = '## 授权覆盖\n允许在本地分支提交。\n## 目标\n实现代码';
   const initial = { head: 'abc', files: 'unchanged' };
-  assert(continuationRules({ ...completeReport, ...initial, conclusion: '部分完成' }, commitBrief, scratch, initial).some(x => x.includes('实现改动')));
+  assert(continuationRules({ ...completeReport, ...initial, files: 'other-change', conclusion: '未完成', report: completeReport.report + '\n基线 abcdef123' }, commitBrief, scratch, initial).some(x => x.includes('实现改动')));
+  assert.equal(buildBrief({ok:true, result:'未完成', reportConclusion:'未完成'}).verdict, 'partial');
   assert(!continuationRules({ ...completeReport, ...initial, head: 'def', conclusion: '部分完成', report: completeReport.report + '\nabcdef123' }, commitBrief, scratch, initial).some(x => x.includes('实现改动')));
   assert(continuationRules(completeReport, '产物清单：\n- 报告：missing.md（上限 2 KB）\n', scratch).some(item => item.includes('missing.md')));
   const low = await judgeContinuation({ brief: '覆盖未穷尽', report: '', finalReply: '', judge: async () => ({ ok: true, answers: { deliverable: { choice: 'file', confidence: 0.4 } } }) });

@@ -64,7 +64,7 @@ CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有�
 
 首次使用前，在派单机设置 `FLEET_MINI_HOME`（Mini 家目录）和 `FLEET_MINI_BIN`（Mini 上 fleet 的绝对路径）；可选 `FLEET_LOCAL_HOME` 与 `FLEET_MINI_MM`。也可在本机 `~/.agent-fleet/mini.json` 配置 `remote_home`、`bin`、`local_home`、`mm`；环境变量优先。未配置或工作目录、引用路径在 Mini 不存在时回退本机，不创建空工作目录。显式 `--on local` 或 `FLEET_DEFAULT_ON=local` 沿用本机启动行为。
 
-brief 引用的文件一律写绝对路径，否则派单前检查发现不了 Mini 缺文件。
+brief 引用的文件请写绝对路径；预检只检查绝对文件路径，相对路径和 API 路由不受影响，显式指定 `--on mini` 时不会回退。
 
 ## 快速派单（默认写法）
 一条 Bash 调用，工具参数 `run_in_background:true`，命令保持单一前台调用；`fleet-go` 自身保持前台，完成即通知。正文只写独有内容（背景、要做的事、验收），其余样板自动带上。

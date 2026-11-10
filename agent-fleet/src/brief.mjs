@@ -182,7 +182,7 @@ export function buildBrief(result, { briefLines = DEFAULT_BRIEF_LINES, expectCha
     verdict: !result?.ok && !result?.stopped ? 'fail'
       : judged.verdict === 'fail' || judged.verdict === 'stopped' ? judged.verdict
       : result?.ok && result?.reportConclusion?.startsWith('失败') ? 'fail'
-      : result?.ok && (result?.reportConclusion?.startsWith('部分完成') || result?.continueRequired) ? 'partial' : judged.verdict,
+      : result?.ok && (/^(?:部分完成|未完成)/.test(result?.reportConclusion || '') || result?.continueRequired) ? 'partial' : judged.verdict,
     verdictNote: !result?.ok ? null : judged.note ?? null,
     durationMs: result?.durationMs ?? null,
     sdkDurationMs: result?.sdkDurationMs ?? null,

@@ -87,7 +87,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
   const taskGoal = prompt.match(/^## 目标\s*\n([^\n]+)/m)?.[1] || '';
   const documentTask = /文档|文案|写作|翻译|校对|review|复核|审查/i.test(taskHeader) || /^(?:写|撰写|编写|更新|修改|整理|翻译|校对|复核|审查)(?:文档|报告|文章|文案|资料|说明|代码)/.test(taskGoal);
   const continueEnabled = !review && !documentTask && !noContinue && process.env.FLEET_NO_CONTINUE !== '1';
-  const fullPrompt = review ? `${reviewPrompt()}\n\n${prompt}` : `${SCOPE_LOCK}\n\n${prompt}`;
+  const fullPrompt = review ? `${reviewPrompt()}\n\n${prompt}` : `${SCOPE_LOCK}\n\n安装、构建和测试可能持续 30 分钟以上；命令仍在运行时持续等待和轮询，不因耗时发送 Ctrl-C。\n\n${prompt}`;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   mkdirSync(runsDir(), { recursive: true });
   const runId = process.env.FLEET_DETACHED_RUN_ID || `${stamp}-codex`;

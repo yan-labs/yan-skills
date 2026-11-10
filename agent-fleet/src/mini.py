@@ -37,19 +37,7 @@ def expand_path(value):
     return os.path.abspath(os.path.expanduser(os.path.expandvars(value)))
 
 def rewrite_brief(text):
-    def convert(match):
-        token = match.group(0)
-        path = expand_path(token)
-        return remote_path(path) if path == LOCAL_HOME or path.startswith(LOCAL_HOME + '/') else token
-    lines = []
-    for line in text.splitlines(keepends=True):
-        if re.match(r'^\s*(?:REPORT:\s*|[-*]\s+)(?:`|[\"\'])?(?:/|~/|\$HOME/|\.\.?/)', line):
-            line = re.sub(PATH_PATTERN, convert, line)
-        else:
-            line = re.sub(r'`([^`]+)`', lambda m: '`' + re.sub(PATH_PATTERN, convert, m.group(1)) + '`', line)
-            line = re.sub(r'(--(?:read|write|cwd)\s+)([^\s]+)', lambda m: m.group(1) + re.sub(PATH_PATTERN, convert, m.group(2)), line)
-        lines.append(line)
-    return ''.join(lines)
+    return re.sub(re.escape(LOCAL_HOME) + r'(?![\w-])', lambda m: REMOTE_HOME, text) if LOCAL_HOME and REMOTE_HOME else text
 
 def available():
     try:
@@ -97,13 +85,15 @@ def find(spec):
 
 def referenced_paths(text):
     paths = []
-    pattern = r'--(?:read|write|cwd)\s+([^\s]+)|(' + PATH_PATTERN + ')'
-    for match in re.finditer(pattern, text):
-        explicit, token = match.groups()
-        path = expand_path((explicit or token).rstrip('.。'))
-        if not explicit and any(c in path for c in '*?['):
-            path = path[:min(path.index(c) for c in '*?[' if c in path)]
-            path = os.path.dirname(path)
+    # Only filesystem roots, never relative paths or routes such as /api/foo.
+    roots = (LOCAL_HOME, '/Users', '/Volumes', '/tmp', '/private', '/home')
+    for match in re.finditer(PATH_PATTERN, text):
+        token = match.group(0).rstrip('.。')
+        if not (token.startswith('~/') or token.startswith('$HOME/') or any(token == root or token.startswith(root + '/') for root in roots if root)):
+            continue
+        path = expand_path(token)
+        if any(c in path for c in '*?['):
+            path = os.path.dirname(path[:min(path.index(c) for c in '*?[' if c in path)])
         paths.append(path)
     return list(dict.fromkeys(paths))
 
@@ -147,9 +137,17 @@ def launch(meta, argv):
             args[i] = remote_path(expand_path(value))
     args[0] = REMOTE_BIN
     args.append('--no-wait')
-    payload = {'files': files, 'args': args, 'cwd': remote_path(os.getcwd()), 'report': remote_path(meta['report'])}
+    payload = {'files': files, 'args': args, 'cwd': remote_path(os.getcwd()), 'report': remote_path(meta['report']), 'home': REMOTE_HOME}
     script = '''import base64,json,os,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1]));
+# macOS volumes can preserve a different spelling than callers use.
+home=pathlib.Path(p['home']); names=[x.name for x in home.iterdir() if x.name.lower()=='project'] if home.is_dir() else []
+if len(names)==1:
+ import re
+ pattern=re.compile(re.escape(str(home)) + r'/project(?=/|$)',re.I)
+ def canonical(value): return pattern.sub(lambda _: str(home / names[0]),value)
+ p['args']=[canonical(x) for x in p['args']]; p['cwd']=canonical(p['cwd']); p['report']=canonical(p['report'])
+ p['files']={canonical(k):canonical(v) for k,v in p['files'].items()}
 binary=pathlib.Path(p['args'][0]); p['args'][0]=str(binary/'fleet' if binary.is_dir() else binary)
 for name,text in p['files'].items():
  f=pathlib.Path(name); f.parent.mkdir(parents=True,exist_ok=True); f.write_text(text)

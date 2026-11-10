@@ -26,16 +26,16 @@ mini.REMOTE_BIN = '/home/b/fleet'
 
 assert mini.remote_path('/home/a/Project/x') == '/home/b/Project/x'
 assert mini.remote_path('/home/a-archive') == '/home/a-archive'
-assert mini.rewrite_brief('正文 /home/a/keep\n- 文本 /home/a/keep\n- /home/a/file\n') == '正文 /home/a/keep\n- 文本 /home/a/keep\n- /home/b/file\n'
+assert mini.rewrite_brief('正文 /home/a/keep\n- 文本 /home/a/keep\n- /home/a/file\n') == '正文 /home/b/keep\n- 文本 /home/b/keep\n- /home/b/file\n'
 assert not mini.referenced_paths('A/C P50/P95 fu/Bin Redis/DB Java/前端代码里找 private/input.txt')
 assert mini.referenced_paths('~/.agent-reports/2026-11-0*/x.md') == [str(Path.home() / '.agent-reports')]
 assert mini.referenced_paths('/tmp/report[0-9].md /tmp/report?.md /tmp/*/x.md') == ['/tmp']
-assert mini.referenced_paths('--read private/input.txt --write ./out* --cwd ../project') == [str(Path.cwd() / 'private/input.txt'), str(Path.cwd() / 'out*'), str(Path.cwd().parent / 'project')]
+assert mini.referenced_paths('--read private/input.txt --write ./out* --cwd ../project') == []
 assert mini.rewrite_brief('REPORT: /home/a/r\n普通内容 /home/a-archive') == 'REPORT: /home/b/r\n普通内容 /home/a-archive'
-assert mini.referenced_paths('./private/input $HOME/note') == [str(Path.cwd() / 'private/input'), str(Path.home() / 'note')]
+assert mini.referenced_paths('./private/input $HOME/note') == [str(Path.home() / 'note')]
 assert mini.local_path('/home/b/Project/x') == '/home/a/Project/x'
 assert '/home/a/.agent-reports/rules-slim' in mini.referenced_paths('读取 /home/a/.agent-reports/rules-slim，或 ~/notes')
-assert not mini.referenced_paths('https://example.com/a')
+assert not mini.referenced_paths('https://example.com/a ../x /api/foo `/api/events`')
 with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, json.dumps({'missing':['/home/b/a'], 'ready':False}), '')):
     reason = mini.preflight({'to':'claude'}, ['/home/a/a'])
     assert 'Mini 缺少路径：/home/a/a' in reason and 'claude 通道不可用' in reason
@@ -123,10 +123,8 @@ if [ "$1" = --method ]; then echo direct; else echo '{"missing":["/home/b/missin
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','dev-default','--to','gpt','--goal','x'], env=default_env, text=True, capture_output=True)
     assert proc.returncode == 0 and 'Mini 缺少路径' in proc.stdout
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','unready','--to','claude','--on','mini','--read','/home/a/missing','--goal','x'], env=env, text=True, capture_output=True)
-    assert proc.returncode == 0, proc.stderr
-    assert 'Mini 缺少路径：/home/a/missing' in proc.stdout and 'claude 通道不可用' in proc.stdout
-    report = next((tmp/'.agent-reports').glob('*/unready.md'))
-    assert 'claude 通道不可用' in report.read_text()
+    assert proc.returncode != 0
+    assert 'Mini 缺少路径：/home/a/missing' in proc.stderr and 'claude 通道不可用' in proc.stderr and '未回退' in proc.stderr
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','recheck','--to','gpt','--read','/home/a/original','--goal','x','--no-launch'], env=env, text=True, capture_output=True)
     assert proc.returncode == 0, proc.stderr
     # 原 brief 标记 Mini，但最新同名 run 在本机时 amend 不应同步到 Mini。
@@ -141,7 +139,7 @@ if [ "$1" = --method ]; then echo direct; else echo '{"missing":["/home/b/missin
     assert proc.returncode == 0, proc.stderr
     assert json.loads(next((tmp/'.agent-reports').glob('*/recheck.brief.json')).read_text())['on'] == 'local'
     proc = subprocess.run([str(root/'bin/fleet-go'),'relaunch','recheck','--on','mini'], env=env, text=True, capture_output=True)
-    assert proc.returncode == 0, proc.stderr
+    assert proc.returncode != 0 and '未回退' in proc.stderr
     metadata = json.loads(next((tmp/'.agent-reports').glob('*/recheck.brief.json')).read_text())
     assert '/home/a/original' in metadata['paths'] and '/home/a/revised' in metadata['paths']
 print('PASS: path rewrite, mini command assembly, unavailable fallback')
