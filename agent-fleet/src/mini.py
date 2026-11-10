@@ -111,10 +111,10 @@ def preflight(meta, paths):
     if not REMOTE_HOME or not REMOTE_BIN: return 'Mini 路径未配置（FLEET_MINI_HOME、FLEET_MINI_BIN）'
     script = """import base64,json,os,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1])); missing=[x for x in p['paths'] if not pathlib.Path(x).exists()]
-kind=p['kind']; envnames={'claude':'ANTHROPIC_CREDIT_API_KEY','openai':'OPENAI_CREDIT_API_KEY','gemini':'KOLLAB_PROD_API_KEY','jev':'TYPESAFE_API_KEY'}
+kind=p['kind']; binary=pathlib.Path(p['bin']); root=binary.parent if binary.is_dir() else binary.parent.parent; envnames={'claude':'ANTHROPIC_CREDIT_API_KEY','openai':'OPENAI_CREDIT_API_KEY','gemini':'KOLLAB_PROD_API_KEY','jev':'TYPESAFE_API_KEY'}
 if kind in envnames:
  js="import {loadEnvFile} from './src/env.mjs'; loadEnvFile('.env'); process.exit(process.env[process.argv[1]] ? 0 : 1)"
- r=subprocess.run(['node','--input-type=module','-e',js,envnames[kind]],cwd=p['root'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10); ready=r.returncode==0
+ r=subprocess.run(['node','--input-type=module','-e',js,envnames[kind]],cwd=root,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10); ready=r.returncode==0
  if kind=='claude' and ready:
   try: ready=subprocess.run(['claude','auth','status'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10).returncode==0
   except (OSError,subprocess.TimeoutExpired): ready=False
@@ -125,7 +125,7 @@ elif kind in ('gpt','grok'):
 else: ready=False
 print(json.dumps({'missing':missing,'ready':ready}))
 """
-    payload = {'paths': [remote_path(expand_path(p)) for p in [os.getcwd(), *paths]], 'kind': meta['to'], 'root': str(Path(REMOTE_BIN).parent.parent)}
+    payload = {'paths': [remote_path(expand_path(p)) for p in [os.getcwd(), *paths]], 'kind': meta['to'], 'bin': REMOTE_BIN}
     try:
         result = call(script, payload, timeout=25)
         if result.returncode: return 'Mini 环境检查失败'
@@ -150,13 +150,14 @@ def launch(meta, argv):
     payload = {'files': files, 'args': args, 'cwd': remote_path(os.getcwd()), 'report': remote_path(meta['report'])}
     script = '''import base64,json,os,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1]));
+binary=pathlib.Path(p['args'][0]); p['args'][0]=str(binary/'fleet' if binary.is_dir() else binary)
 for name,text in p['files'].items():
  f=pathlib.Path(name); f.parent.mkdir(parents=True,exist_ok=True); f.write_text(text)
 pathlib.Path(p['report']).parent.mkdir(parents=True,exist_ok=True)
 r=subprocess.run(p['args'],cwd=p['cwd'],capture_output=True,text=True); print(r.stdout,end=''); print(r.stderr,end='',file=sys.stderr); sys.exit(r.returncode)
 '''
     p = call(script, payload)
-    if p.returncode: raise ValueError('Mini 启动失败；请检查 Mini 端任务状态，避免重复启动。')
+    if p.returncode: raise ValueError('Mini 启动失败；请检查 Mini 端任务状态，避免重复启动。\n' + ((p.stderr or '') + (p.stdout or ''))[-600:])
     import re
     m = re.search(r'^runId: (\S+)', p.stdout, re.M)
     if not m: raise ValueError('Mini 启动回执缺少 runId；请先检查 Mini 端状态。')
@@ -226,8 +227,8 @@ def wait(rec, pull=False):
             print('Mini 连接中断，等待重连…', file=sys.stderr, flush=True); time.sleep(5)
 
 def forward(args):
-    p = call('''import base64,json,subprocess,sys
-p=json.loads(base64.b64decode(sys.argv[1])); r=subprocess.run(p, text=True); sys.exit(r.returncode)
+    p = call('''import base64,json,pathlib,subprocess,sys
+p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p[0]); p[0]=str(binary/'fleet' if binary.is_dir() else binary); r=subprocess.run(p, text=True); sys.exit(r.returncode)
 ''', [REMOTE_BIN, *args], timeout=90)
     sys.stdout.write(p.stdout); sys.stderr.write(p.stderr)
     return p.returncode

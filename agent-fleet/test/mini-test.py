@@ -81,6 +81,14 @@ echo '[{"runId":"old-run","status":"done"}]'
     def local_call(script, payload, timeout=30):
         data = base64.b64encode(json.dumps(payload).encode()).decode()
         return subprocess.run([sys.executable, '-c', script, data], capture_output=True, text=True)
+    launch_bin = tmp/'launch-bin'; launch_bin.mkdir()
+    launch_fleet = launch_bin/'fleet'
+    launch_fleet.write_text('#!/bin/sh\necho "runId: directory-run"\n')
+    launch_fleet.chmod(0o755)
+    for configured in (launch_bin, launch_fleet):
+        with patch.object(mini, 'REMOTE_BIN', str(configured)), patch.object(mini, 'call', local_call), patch.object(mini, 'wait', return_value=0), patch.object(mini.os, 'getcwd', return_value=str(tmp)):
+            assert mini.launch({**meta, 'report': str(tmp/'report.md')}, ['fleet', 'code', str(brief), '--report', str(tmp/'report.md')]) == 0
+            assert mini.forward(['status']) == 0
     for configured in (status_bin, status_fleet):
         with patch.object(mini, 'REMOTE_BIN', str(configured)), patch.object(mini, 'call', local_call):
             assert mini.query({'id':'old-run'})['status'] == 'done'
