@@ -13,6 +13,7 @@ import { runsDir } from './progress.mjs';
 import { patchPidRecord, processCommand, collectDescendantPids, readPidPpidTable, isPidAlive } from './pid.mjs';
 import { watchInbox } from './inbox.mjs';
 import { SCOPE_LOCK } from './scope.mjs';
+import { fleetEvent, FLEET_EVENTS } from './timeline.mjs';
 
 const REVIEW_REFERENCE = fileURLToPath(new URL('../skill/references/codex-coding.md', import.meta.url));
 
@@ -182,7 +183,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
         try {
           captureChildren();
           await rpc('turn/steer', { threadId: metadata.threadId, expectedTurnId: turnId, input: textInput(text) });
-          metadata.steerCount++; log('\n[codex] steer accepted\n'); record();
+          metadata.steerCount++; log(fleetEvent(FLEET_EVENTS.STEER)); record();
           continue;
         } catch (error) {
           fallback(`turn/steer rejected: ${error.message}; SIGINT + exec resume`);
@@ -278,6 +279,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
           if (completed?.status !== 'completed' || stopping || offsetQueue.length || review) break;
           const state = readContinuationState(workdir, reportPath, prompt);
           metadata.reportConclusion = state.conclusion;
+          if (/^(?:阻塞|受阻)/.test(state.conclusion)) log(fleetEvent(FLEET_EVENTS.BLOCKED));
           if (previous) {
             const progress = continuationProgress(previous, state);
             metadata.continuation.push({ attempt: metadata.continueCount, ...progress });

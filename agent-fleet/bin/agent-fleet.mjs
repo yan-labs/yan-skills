@@ -28,6 +28,7 @@ import { runMany } from '../src/run-many.mjs';
 import { judgeTask } from '../src/judge-task.mjs';
 import { createProgress } from '../src/progress.mjs';
 import { tailLatestLog } from '../src/tail-log.mjs';
+import { timelineFile } from '../src/timeline.mjs';
 import { buildBrief, DEFAULT_BRIEF_LINES, renderManyOutput, renderRunOutput, failureReport, redactEvidence, inspectGit } from '../src/brief.mjs';
 import { collectStatus, deliverSay, formatStatusHuman, requestStop } from '../src/control.mjs';
 import { readPidRecord, resolveRunId, isRecordedProcessAlive, patchPidRecord, runIdFromLogPath } from '../src/pid.mjs';
@@ -49,6 +50,7 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
   fleet judge <state文件> <questions文件> [--json]
   fleet run --model name --prompt "任务" [--cwd dir] [--max-turns N]
   fleet run-many --config batch.json | status | tail [--follow]
+  fleet timeline <runId|名字>
   fleet wait <id|latest> [--timeout 秒]
   fleet say <id|latest> "消息" | stop <id|latest> | resume <id|latest>
   fleet media list | run <tool> --model <id> --prompt "..." [--input-json '{}'] [--out dir]
@@ -647,6 +649,19 @@ async function main() {
       case 'run-many':
         await cmdRunMany(rest);
         break;
+      case 'timeline': {
+        const { flags, positionals } = splitShortArgs(rest);
+        if (!positionals[0]) throw new Error('用法: fleet timeline <runId|名字>');
+        let id = resolveDetached(positionals[0], matchCwd(flags));
+        if (!readState(id) && /^[0-9a-f]{8}$/i.test(positionals[0])) id = resolveDetached(`detach-${positionals[0]}`, matchCwd(flags));
+        const rec = readState(id);
+        if (!rec?.logPath) throw new Error('找不到日志');
+        const t = timelineFile(rec.logPath);
+        console.log('分类 | 分钟');
+        for (const [label, key] of [['命令','cmdMs'], ['等待','waitMs'], ['模型','modelMs'], ['断线','disconnectMs'], ['挂起','parkedMs'], ['排队','queuedMs']]) console.log(`${label} | ${(t[key] / 60000).toFixed(2)}`);
+        console.log(`来源: ${t.timeSource}; pollCount=${t.pollCount}; askCount=${t.askCount}`);
+        break;
+      }
       case 'tail':
         await cmdTail(rest);
         break;

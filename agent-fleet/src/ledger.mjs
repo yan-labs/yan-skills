@@ -6,6 +6,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { timelineFile } from './timeline.mjs';
 
 export const LEDGER_VERSION = 1;
 const TERMINAL = new Set(['done', 'failed', 'stopped']);
@@ -149,9 +150,12 @@ export function buildRow(rec, index, { useReport = true, backfilled = false } = 
   const report = useReport ? safeRead(rec.reportPath) : '';
   const section = /^##\s*结论[ \t]*\n+([^\n]{0,200})/m.exec(report);
   const concluded = conclusionOutcome(rec.reportConclusion ?? section?.[1]);
-  const outcome = rec.status === 'stopped' || verdict === 'stopped' ? 'stopped'
-    : verdict === 'ok' ? (concluded === 'partial' || concluded === 'failed' ? concluded : 'complete')
-    : verdict === 'partial' ? 'partial' : 'failed';
+  const yieldText = safeRead(rec.logPath?.replace(/\.log$/, '.yield'));
+  let yielded; try { yielded = JSON.parse(yieldText); } catch {}
+  const yieldKind = typeof yielded === 'string' ? yielded : yielded?.type ?? yielded?.kind;
+  const outcome = yieldKind === 'blocked' ? 'partial' : yieldKind === 'park' || yieldKind === 'handoff' ? 'partial'
+    : rec.status === 'stopped' || verdict === 'stopped' ? 'stopped'
+    : concluded ?? (verdict === 'ok' ? 'complete' : verdict === 'partial' ? 'partial' : 'failed');
   const trailer = parseTrailer(result) ?? parseTrailer(report);
   const isReview = meta.type === 'review' || (!meta.type && Boolean(rec.review || meta.review || meta.for || guessMakerName(name)));
   const executor = executorOf(rec.model, brief.resolvedModel);
@@ -171,6 +175,7 @@ export function buildRow(rec, index, { useReport = true, backfilled = false } = 
     report: tilde(rec.reportPath),
     tokens: rec.usage?.total?.totalTokens ?? null, costUsd: rec.totalCostUsd ?? brief.totalCostUsd ?? null,
     backfilled,
+    ...timelineFile(rec.logPath),
   };
   const prev = (rec.resumedFrom && index.byId.get(rec.resumedFrom)) || index.prevOf(row);
   if (prev) Object.assign(row, { prevRunId: prev.runId, prevExecutor: prev.executor, prevFailure: prev.failure });
