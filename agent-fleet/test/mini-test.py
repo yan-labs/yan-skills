@@ -1,5 +1,6 @@
 import base64
 import json
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -107,6 +108,20 @@ echo '[{"runId":"old-run","status":"done"}]'
             assert mini.forward(['status']) == 0
     # Remote case-preserving filesystem spelling applies to the whole brief and cwd.
     project = tmp / 'PROJECT'; project.mkdir()
+    (project / 'repo').mkdir()
+    (project / 'writable').mkdir()
+    spec = importlib.util.spec_from_file_location('fleet_go', root / 'src/fleet-go.py')
+    fleet_go = importlib.util.module_from_spec(spec); spec.loader.exec_module(fleet_go)
+    entry = '归类：编码；理由：测试\nREPORT: /tmp/r\n' + fleet_go.EARLY_RULE + '\n## 授权覆盖\n允许范围\n## 目标\n修复代码\n## 入口\n仓库：/home/a/Project/repo\n可写路径：/home/a/Project/writable\n'
+    with patch.object(mini, 'REMOTE_HOME', str(tmp)), patch.object(mini, 'call', local_call):
+        assert not fleet_go.lint(entry, on='mini')
+        assert any('仓库不存在' in e for e in fleet_go.lint(entry.replace('/repo', '/missing'), on='mini'))
+        assert any('仓库不存在' in e for e in fleet_go.lint(entry, on='local'))
+        fake_bin = tmp / 'fake-bin'; fake_bin.mkdir()
+        codex = fake_bin / 'codex'; codex.write_text('#!/bin/sh\nexit 0\n'); codex.chmod(0o755)
+        with patch.dict(os.environ, {'PATH': str(fake_bin) + ':' + os.environ['PATH']}), patch.object(mini.os, 'getcwd', return_value=str(tmp)):
+            assert mini.preflight({'to':'gpt'}, ['/home/a/Project/repo', '/home/a/Project/writable']) is None
+            assert '缺少路径' in mini.preflight({'to':'gpt'}, ['/home/a/Project/missing'])
     case_brief = tmp / 'case.md'; case_brief.write_text(f'文件 {tmp}/Project/demo 和 `{tmp}/Project`')
     with patch.object(mini, 'REMOTE_HOME', str(tmp)), patch.object(mini, 'REMOTE_BIN', str(launch_fleet)), patch.object(mini, 'call', local_call), patch.object(mini, 'wait', return_value=0), patch.object(mini.os, 'getcwd', return_value=str(tmp)):
         assert mini.launch({'brief':str(case_brief),'report':str(tmp/'report.md'),'name':'case'}, ['fleet','code',str(case_brief),'--report',str(tmp/'report.md')]) == 0

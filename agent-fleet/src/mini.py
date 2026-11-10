@@ -100,7 +100,9 @@ def referenced_paths(text):
 def preflight(meta, paths):
     if not REMOTE_HOME or not REMOTE_BIN: return 'Mini 路径未配置（FLEET_MINI_HOME、FLEET_MINI_BIN）'
     script = """import base64,json,os,pathlib,subprocess,sys
-p=json.loads(base64.b64decode(sys.argv[1])); missing=[x for x in p['paths'] if not pathlib.Path(x).exists()]
+p=json.loads(base64.b64decode(sys.argv[1]))
+""" + CANONICAL_SCRIPT + """
+p['paths']=[canonical(x) for x in p['paths']]; missing=[x for x in p['paths'] if not pathlib.Path(x).exists()]
 kind=p['kind']; binary=pathlib.Path(p['bin']); root=binary.parent if binary.is_dir() else binary.parent.parent; envnames={'claude':'ANTHROPIC_CREDIT_API_KEY','openai':'OPENAI_CREDIT_API_KEY','gemini':'KOLLAB_PROD_API_KEY','jev':'TYPESAFE_API_KEY'}
 if kind in envnames:
  js="import {loadEnvFile} from './src/env.mjs'; loadEnvFile('.env'); process.exit(process.env[process.argv[1]] ? 0 : 1)"
@@ -121,7 +123,7 @@ print(json.dumps({'missing':missing,'ready':ready}))
     def is_input(path):
         path = os.path.normpath(expand_path(path))
         return path not in (report, checkpoint, temp) and not (temp and path.startswith(temp + os.sep))
-    payload = {'paths': [remote_path(expand_path(p)) for p in [os.getcwd(), *paths] if is_input(p)], 'kind': meta['to'], 'bin': REMOTE_BIN}
+    payload = {'paths': [remote_path(expand_path(p)) for p in [os.getcwd(), *paths] if is_input(p)], 'kind': meta['to'], 'bin': REMOTE_BIN, 'home': REMOTE_HOME}
     try:
         result = call(script, payload, timeout=25)
         if result.returncode: return 'Mini 环境检查失败'

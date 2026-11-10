@@ -103,7 +103,7 @@ def lint(text, to='gpt', simple=False, on='local', extra=True):
                     errors.append('入口仓库需要绝对路径。')
                 elif on == 'mini':
                     try:
-                        result = mini.call("import base64,json,os,sys; p=json.loads(base64.b64decode(sys.argv[1])); print(int(os.path.isdir(p['path'])))", {'path': repo_path})
+                        result = mini.call("import base64,json,os,pathlib,sys; p=json.loads(base64.b64decode(sys.argv[1]))\n" + mini.CANONICAL_SCRIPT + "\nprint(int(os.path.isdir(canonical(p['path']))))", {'path': mini.remote_path(repo_path), 'home': mini.REMOTE_HOME})
                         if result.returncode or result.stdout.strip() != '1': errors.append('执行机器上的入口仓库不存在。')
                     except (OSError, subprocess.SubprocessError): errors.append('无法校验执行机器上的入口仓库。')
                 elif not Path(repo_path).is_dir(): errors.append('执行机器上的入口仓库不存在。')
