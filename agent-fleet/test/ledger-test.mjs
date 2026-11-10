@@ -70,6 +70,7 @@ try {
   assert(kind(failed('Grok 退出码 1', { logPath: grokLog })) === 'quota', '日志尾部的 402 → quota');
 
   // 3. 结论口径、执行者、复核单名字
+  assert(L.buildRow(rec({ status: 'done', verdict: 'ok', reportConclusion: '受阻：缺输入' }), new L.LedgerIndex()).outcome === 'partial', '受阻报告不记完成');
   assert(L.conclusionOutcome('部分完成：xxx') === 'partial' && L.conclusionOutcome('**仍为部分完成**') === 'partial', '部分完成口径');
   assert(L.conclusionOutcome('完成本单授权内工作') === 'complete' && L.conclusionOutcome('失败：xx') === 'failed' && L.conclusionOutcome('本地盘点') === null, '完成/失败/读不出');
   assert([['gpt-6.1-sol'], ['openai-gpt-terra'], ['gpt-6-luna'], ['grok-cli:grok-4.7'], ['kollab-gateway-copy', 'gemini-4-argon'], ['claude-opus'], ['kollab-gateway-gpt-sol', 'gpt-6-sol']]

@@ -79,7 +79,7 @@ export function classifyFailure(rec) {
 /** 报告「结论」首句的口径:完成 / 部分(含未完成、局部、阻塞) / 失败;读不出返回 null。 */
 export function conclusionOutcome(text) {
   const s = String(text ?? '').replace(/^[\s*_`>#-]+/, '');
-  if (/^(?:仍为?)?(?:部分完成|未完成|仍未|局部|范围缩小|阻塞|未达成)/.test(s)) return 'partial';
+  if (/^(?:仍为?)?(?:部分完成|未完成|仍未|局部|范围缩小|阻塞|受阻|未达成)/.test(s)) return 'partial';
   if (/^失败/.test(s)) return 'failed';
   if (/^(?:已)?完成/.test(s)) return 'complete';
   return null;

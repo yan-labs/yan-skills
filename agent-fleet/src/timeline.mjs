@@ -22,7 +22,7 @@ export function analyzeTimeline(text) {
     if (disconnected) disconnected = false;
     const item = e.params?.item;
     if (e.method === 'item/started' && item?.type === 'commandExecution') {
-      const wait = /\b(?:sleep|fleet(?:-go)?\s+wait|write_stdin)\b/i.test(item.command || '');
+      const wait = /\b(?:sleep|fleet(?:-go)?\s+wait|fleet-go\s+new|write_stdin)\b/i.test(item.command || '');
       running.set(item.id, wait ? 'wait' : 'cmd');
       if (wait) totals.pollCount++;
     }
