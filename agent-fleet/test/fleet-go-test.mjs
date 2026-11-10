@@ -103,6 +103,20 @@ try {
     const admission=JSON.parse(readFileSync(queueEnv.QUEUE_RESULT,'utf8'));
     assert.equal(admission.admitted,false,'writing restart must wait for coding slot');
     assert.equal(admission.row.readonly,false);assert.equal(admission.row.state,'queued');
+    for (const [message, readonly] of [
+      ['动作: 只读\n现在只做复核', true],
+      ['动作: 改代码\n现在执行写代码任务', false],
+    ]) {
+      writeFileSync(states,JSON.stringify([{runId:'fake-restarted',name:'prodwatch-amend',briefPath,status:'running'}]));
+      const restarted=run(['amend','prodwatch-amend',message,'--restart'],queueEnv);
+      assert.equal(restarted.status,7,restarted.stderr);
+      assert.deepEqual(JSON.parse(readFileSync(briefPath.replace(/\.md$/,'.json'),'utf8')).actions,[readonly?'只读':'改代码']);
+      const next=JSON.parse(readFileSync(queueEnv.QUEUE_RESULT,'utf8'));
+      assert.equal(next.admitted,readonly,'repeated historical write must wait for coding slot');
+      assert.equal(next.row.readonly,readonly);
+      assert.equal(next.row.state,readonly?'running':'queued');
+    }
+    assert.match(readFileSync(briefPath,'utf8'),/修订 3（/);
     writeFileSync(states,'[]');
     const metadata=JSON.parse(readFileSync(briefPath.replace(/\.md$/,'.json'),'utf8'));
     metadata.actions=['只读'];writeFileSync(briefPath.replace(/\.md$/,'.json'),JSON.stringify(metadata));

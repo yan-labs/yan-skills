@@ -455,7 +455,8 @@ def amend(args):
         meta['on'] = args.on
         path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     original = path.read_text()
-    if re.search(r'^## 【修订 \d+（[^\n]+）】\n' + re.escape(args.message) + r'(?=\n\n)', original, re.M):
+    latest_revision = re.search(r'^## 【修订 \d+（[^\n]+）】\n', original, re.M)
+    if latest_revision and original[latest_revision.end():].startswith(args.message + '\n\n'):
         print('相同修订已存在，未重复插入。')
     else:
         numbers = [int(n) for n in re.findall(r'^## 【修订 (\d+)（', original, re.M)]
