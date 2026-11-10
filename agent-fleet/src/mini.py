@@ -31,7 +31,7 @@ def remote_path(value):
 def local_path(value):
     return map_path(value, REMOTE_HOME, LOCAL_HOME)
 
-PATH_PATTERN = r"(?<![\w:/.$~-])(?:\$HOME/|~/|\.\.?/|/)(?:\[[^\]\s]+\]|[^\s\"'`<>（）()，,；;：:、\[\]{}])+"
+PATH_PATTERN = r"(?<![\w:/.$~-])(?:\$HOME/|~/|\.\.?/|/)(?:\[[^\]\s「」『』（）【】，。、；：！？“”‘’]+\]|[^\s\"'`<>「」『』（）【】，。、；：！？“”‘’(),;:\[\]{}])+"
 
 def expand_path(value):
     return os.path.abspath(os.path.expanduser(os.path.expandvars(value)))

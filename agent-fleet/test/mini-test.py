@@ -35,6 +35,9 @@ assert mini.rewrite_brief('REPORT: /home/a/r\n普通内容 /home/a-archive') == 
 assert mini.referenced_paths('./private/input $HOME/note') == [str(Path.home() / 'note')]
 assert mini.local_path('/home/b/Project/x') == '/home/a/Project/x'
 assert '/home/a/.agent-reports/rules-slim' in mini.referenced_paths('读取 /home/a/.agent-reports/rules-slim，或 ~/notes')
+assert mini.referenced_paths('/home/a/kollab-chain-audit.md「缺陷 7」') == ['/home/a/kollab-chain-audit.md']
+for punctuation in '「」『』（）【】，。、；：！？“”‘’\u3000':
+    assert mini.referenced_paths('/home/a/file.md' + punctuation + '说明') == ['/home/a/file.md']
 assert not mini.referenced_paths('https://example.com/a ../x /api/foo `/api/events`')
 with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, json.dumps({'missing':['/home/b/a'], 'ready':False}), '')):
     reason = mini.preflight({'to':'claude'}, ['/home/a/a'])
