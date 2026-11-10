@@ -176,6 +176,13 @@ try {
   const git = args => execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
   git(['init']); git(['config', 'user.email', 'test@example.invalid']); git(['config', 'user.name', 'test']);
   writeFileSync(join(repo, 'file'), 'a'); git(['add', '.']); git(['commit', '-m', 'fixture']);
+  const previousCommit = git(['rev-parse', 'HEAD']).toString().trim();
+  const carriedState = { ...completeReport, conclusion: '部分完成', head: previousCommit, report: completeReport.report + `\n提交 ${previousCommit}` };
+  const carriedBrief = `${commitBrief}\n## 续接（上一轮已本地提交 ${previousCommit.slice(0, 7)}，未推送）`;
+  assert(!continuationRules(carriedState, carriedBrief, repo, { head: previousCommit }).some(x => x.includes('实现改动')));
+  assert(continuationRules(carriedState, commitBrief, repo, { head: previousCommit }).some(x => x.includes('实现改动')));
+  assert(continuationRules({ ...carriedState, report: completeReport.report }, carriedBrief, repo, { head: previousCommit }).some(x => x.includes('实现改动')));
+  assert(continuationRules(carriedState, `${commitBrief}\n续接：上一轮提交 deadbeef123`, repo, { head: previousCommit }).some(x => x.includes('实现改动')));
   const nested = join(repo, 'nested'); mkdirSync(nested);
   writeFileSync(join(nested, 'file'), 'one'); git(['add', '.']); git(['commit', '-m', 'nested']);
   writeFileSync(join(nested, 'file'), 'two'); const nestedBefore = readContinuationState(nested);

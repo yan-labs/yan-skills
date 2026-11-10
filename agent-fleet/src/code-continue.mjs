@@ -37,6 +37,20 @@ export function continuationProgress(before, after) {
 
 const REPORT_SECTIONS = ['规则回执', '结论', '实际执行', '改动与产物', '验证证据', '偏差', '未完成/风险/需要用户决定的事'];
 
+function hasCarriedCommit(brief, report, cwd) {
+  const lines = brief.split('\n').filter(line => /续接|上一轮|上轮/.test(line) && /提交/.test(line));
+  const reported = report.match(/\b[0-9a-f]{7,40}\b/gi) || [];
+  for (const hash of lines.flatMap(line => line.match(/\b[0-9a-f]{7,40}\b/gi) || [])) {
+    try {
+      const full = execFileSync('git', ['rev-parse', '--verify', `${hash}^{commit}`], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      if (!reported.some(value => full.startsWith(value.toLowerCase()))) continue;
+      execFileSync('git', ['merge-base', '--is-ancestor', full, 'HEAD'], { cwd, stdio: 'ignore' });
+      return true;
+    } catch { /* 不存在或不在当前历史中的提交不算 */ }
+  }
+  return false;
+}
+
 /** 第一层只检查报告结构及 brief 明确要求的交付凭据，不以“完成”二字代替证据。 */
 export function continuationRules(state, brief, cwd = process.cwd(), initial = null) {
   if (state.conclusion.startsWith('失败')) return [];
@@ -58,7 +72,7 @@ export function continuationRules(state, brief, cwd = process.cwd(), initial = n
   const needsCommit = (deliverables ? /提交|commit/i.test(deliverables) : commitAuth || requirements.some(clause => /提交哈希|commit hash|(?:本地)?提交(?:一次|代码|改动|并)/i.test(clause) && !/不(?:要|用|需|必)?提交|无需提交|无须提交|禁止提交|不.*commit/i.test(clause))
     && !/不(?:要|用|需|必)?提交|无需提交|无须提交|禁止提交/.test(brief));
   const needsReadback = requirements.some(clause => /读回结果|回读结果/.test(clause) && !/不(?:要|用|需|必)?(?:读回|回读)|无需(?:读回|回读)|无须(?:读回|回读)|禁止(?:读回|回读)/.test(clause));
-  if (commitAuth && initial && /^(?:部分完成|未完成)/.test(state.conclusion) && state.head === initial.head) missing.push('缺少实现改动和提交');
+  if (commitAuth && initial && /^(?:部分完成|未完成)/.test(state.conclusion) && state.head === initial.head && !hasCarriedCommit(brief, state.report, cwd)) missing.push('缺少实现改动和提交');
   if (needsCommit && !/\b[0-9a-f]{7,40}\b/i.test(state.report)) missing.push('补齐 brief 要求的提交哈希');
   if (needsReadback && !/(?:读回|回读)[^\n]*(?:通过|成功|一致|正常|published|HTTP\s*200|结果[：:]\s*\S)/i.test(state.report)) missing.push('补齐 brief 要求的实际读回结果');
   return missing;
