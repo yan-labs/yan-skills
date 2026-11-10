@@ -77,14 +77,14 @@ chmodSync(mock, 0o755);
 process.env.AGENT_FLEET_RUNS_DIR = scratch;
 
 let scenarioNumber = 0;
-async function scenario(mode, { backend, say, stop, resume, review = false, low = false, high = false, xhigh = false, max = false, simple = false, luna = false, fast = false } = {}) {
+async function scenario(mode, { backend, say, stop, resume, review = false, low = false, high = false, xhigh = false, max = false, simple = false, sol = false, luna = false, fast = false } = {}) {
   const runId = `codex-${++scenarioNumber}-${mode}-${review ? 'review' : 'code'}`;
   process.env.FLEET_DETACHED_RUN_ID = runId;
   process.env.FLEET_STEER_TEST_MODE = mode;
   process.env.FLEET_STEER_TEST_TRACE = join(scratch, `${runId}.trace`);
   if (backend) process.env.FLEET_CODEX_BACKEND = backend;
   else delete process.env.FLEET_CODEX_BACKEND;
-  const pending = runCode({ noContinue: true, prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则', cwd: scratch, codexBin: mock, resume, review, low, high, xhigh, max, simple, luna, fast });
+  const pending = runCode({ noContinue: true, prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则', cwd: scratch, codexBin: mock, resume, review, low, high, xhigh, max, simple, sol, luna, fast });
   if (say || stop) {
     for (let attempt = 0; attempt < 500; attempt++) {
       if (existsSync(process.env.FLEET_STEER_TEST_TRACE) && readFileSync(process.env.FLEET_STEER_TEST_TRACE, 'utf8').includes('turn/start')) break;
@@ -179,7 +179,7 @@ try {
   for (const options of [{ low: true, high: true }, { luna: true, low: true, xhigh: true }, { luna: true, high: true, xhigh: true }, { luna: true, low: true, max: true }, { luna: true, high: true, max: true }, { luna: true, xhigh: true, max: true }]) await assert.rejects(runCode({ prompt: 'x', ...options }), /不能同用/);
   await assert.rejects(runCode({ prompt: 'x', xhigh: true }), /--xhigh.*--luna/);
   await assert.rejects(runCode({ prompt: 'x', max: true }), /--max.*--luna/);
-  await assert.rejects(runCode({ prompt: 'x', simple: true, review: true }), /--simple.*--review/);
+  await assert.rejects(runCode({ prompt: 'x', simple: true, sol: true }), /--sol.*--simple/);
   const initial = normal.trace.find(entry => entry.method === 'turn/start');
   assert.equal(initial.params.effort, 'low');
   assert.match(initial.params.input[0].text, /归类：\(a\) Codex 编码\nREPORT: \/tmp\/report\n原任务规则$/);
@@ -269,10 +269,13 @@ try {
 
   const review = await scenario('normal', { review: true });
   assert.equal(review.result.ok, true);
+  assert.equal(review.result.model, 'gpt-6.1-terra');
   assert.equal(review.result.backend, 'codex-app-server');
   assert.equal(review.trace.find(entry => entry.method === 'thread/start').params.sandbox, 'danger-full-access');
   assert.equal(review.trace.find(entry => entry.method === 'thread/start').params.approvalPolicy, 'never');
   assert.match(review.trace.find(entry => entry.method === 'turn/start').params.input[0].text, /自己的.*mktemp -d/);
+  const reviewSol = await scenario('normal', { review: true, sol: true });
+  assert.equal(reviewSol.result.model, 'gpt-6.1-sol');
   const reviewExec = await scenario('normal', { review: true, backend: 'exec' });
   const reviewFallback = await scenario('app-fail', { review: true });
   const reviewResume = await scenario('normal', { review: true, resume: 'thread-one' });

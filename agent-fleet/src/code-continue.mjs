@@ -8,7 +8,7 @@ import { redactEvidence } from './brief.mjs';
 export const CONTINUE_PROMPT = '报告写的是部分完成。把『未完成』里授权范围内能做的步骤继续做完——包括等 runner 空闲、推送、发布、读回——不要结束回合去等；只有真正缺授权或缺必需输入的那一步才可以停。做完更新报告七节并给出提交哈希与读回结果。';
 
 /** 读取回合结束时的实际状态；文件内容指纹能识别同一脏文件再次修改。 */
-export function readContinuationState(cwd, reportPath) {
+export function readContinuationState(cwd, reportPath, brief = '') {
   let report = '';
   try { if (reportPath) report = readFileSync(resolve(cwd, reportPath), 'utf8'); } catch { /* 无可读报告时不猜测续做 */ }
   const conclusion = report.match(/^## 结论[^\S\r\n]*\r?\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1]?.trim().split(/\r?\n/)[0]?.replace(/^\*\*/, '') || '';
@@ -17,6 +17,12 @@ export function readContinuationState(cwd, reportPath) {
     catch { return ''; }
   };
   const paths = [...new Set([...git(['diff', '--relative', '--name-only', 'HEAD', '-z']).split('\0'), ...git(['ls-files', '--others', '--exclude-standard', '-z']).split('\0')].filter(Boolean))].sort();
+  const declared = brief.match(/^产物清单：\n(?:- .*\n)*/m)?.[0] || '';
+  for (const line of declared.split('\n')) {
+    const path = line.match(/^- .*?[：:]\s*([^\s（(]+)/)?.[1];
+    if (path && !paths.includes(path)) paths.push(path);
+  }
+  paths.sort();
   // shortcut: 共享工作树里的其他人改动也算进展；需要区分作者时再加入任务归属。
   const hash = createHash('sha256');
   for (const path of paths) {
@@ -55,6 +61,7 @@ function hasCarriedCommit(brief, report, cwd) {
 export function continuationRules(state, brief, cwd = process.cwd(), initial = null) {
   if (state.conclusion.startsWith('失败')) return [];
   const missing = [];
+  if (state.conclusion.startsWith('未完成')) missing.push('完成报告中未完成的任务');
   for (const line of brief.match(/^产物清单：\n(?:- .*\n)*/m)?.[0].split('\n').slice(1) ?? []) {
     const path = line.match(/^- .*?[：:]\s*([^\s（(]+)/)?.[1];
     if (path && !existsSync(resolve(cwd, path))) missing.push(`缺少文件：${path}`);

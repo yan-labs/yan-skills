@@ -72,14 +72,14 @@ async function threadLifecycle(codexBin, method, threadId) {
 }
 
 /** 执行 Codex 任务；自动续做保留 thread，用户插话仍走现有 steer/resume 链路。 */
-export async function runCode({ prompt, cwd = process.cwd(), low = false, high = false, xhigh = false, max = false, simple = false, luna = false, fast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
+export async function runCode({ prompt, cwd = process.cwd(), low = false, high = false, xhigh = false, max = false, simple = false, sol = false, luna = false, fast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
   codexBin = process.env.FLEET_CODEX_BIN || 'codex' }) {
   if ([low, high, xhigh, max].filter(Boolean).length > 1) throw new Error('--low、--high、--xhigh 和 --max 不能同用。');
   if ((xhigh || max) && !luna) throw new Error('--xhigh 和 --max 仅用于 --luna。');
-  if (simple && review) throw new Error('--simple 不能与 --review 同用；复核固定使用 Sol。');
+  if (sol && (simple || luna)) throw new Error('--sol 不能与 --simple 或 --luna 同用。');
   if (luna && (simple || review)) throw new Error('--luna 不能与 --simple 或 --review 同用。');
   const effort = max ? 'max' : xhigh ? 'xhigh' : high ? 'high' : low ? 'low' : process.env.FLEET_CODEX_EFFORT || (luna ? 'xhigh' : 'medium');
-  const model = luna ? 'gpt-6-luna' : simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol';
+  const model = luna ? 'gpt-6-luna' : (simple || (review && !sol)) ? 'gpt-6.1-terra' : 'gpt-6.1-sol';
   const serviceTier = fast ? 'priority' : null;
   const workdir = resolve(cwd);
   reportPath ||= prompt.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim();
@@ -87,7 +87,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
   const taskGoal = prompt.match(/^## 目标\s*\n([^\n]+)/m)?.[1] || '';
   const documentTask = /文档|文案|写作|翻译|校对|review|复核|审查/i.test(taskHeader) || /^(?:写|撰写|编写|更新|修改|整理|翻译|校对|复核|审查)(?:文档|报告|文章|文案|资料|说明|代码)/.test(taskGoal);
   const continueEnabled = !review && !documentTask && !noContinue && process.env.FLEET_NO_CONTINUE !== '1';
-  const fullPrompt = review ? `${reviewPrompt()}\n\n${prompt}` : `${SCOPE_LOCK}\n\n安装、构建和测试可能持续 30 分钟以上；命令仍在运行时持续等待和轮询，不因耗时发送 Ctrl-C。\n\n${prompt}`;
+  const fullPrompt = review ? `${reviewPrompt()}\n\n${prompt}` : `${SCOPE_LOCK}\n\n安装、构建和测试可能持续 30 分钟以上；命令仍在运行时用 write_stdin 发送空内容轮询等待，绝不发送 Ctrl-C（\\u0003）；不因耗时中断。\n\n${prompt}`;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   mkdirSync(runsDir(), { recursive: true });
   const runId = process.env.FLEET_DETACHED_RUN_ID || `${stamp}-codex`;
@@ -95,13 +95,14 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
   const logPath = `${base}.log`;
   const resultPath = `${base}.result.md`;
   const before = snapshotGit(workdir);
+  const initial = readContinuationState(workdir, reportPath, prompt);
   const startedAt = Date.now();
   writeFileSync(resultPath, '');
   if (!process.env.FLEET_DETACHED_RUN_ID) writeFileSync(logPath, '');
   let stderr = '', activeChild, closed, rpc, turnId, completed, turnFinished, stopping = false;
   let offsetQueue = [], drain = Promise.resolve(), activeDescendants = [];
   const metadata = { backend: 'codex-exec', threadId: resume || null, sessionId: resume || null,
-    steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, high, xhigh, max, simple, luna, model, tier: effort, serviceTier, review, resumedFrom };
+    steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, high, xhigh, max, simple, sol, luna, model, tier: effort, serviceTier, review, resumedFrom };
   const record = (patch = {}) => {
     process.send?.({ codexMetadata: metadata });
     return patchPidRecord(runId, { pid: process.pid, command: processCommand(process.pid),
@@ -265,7 +266,6 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
         const response = await rpc('thread/start', { cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
         metadata.threadId = metadata.sessionId = response.thread.id; ownsAppThread = true; record();
         let nextPrompt = fullPrompt, previous, stagnant = 0;
-        const initial = readContinuationState(workdir, reportPath);
         while (true) {
           // 每轮都先安装完成监听，避免很快结束的回合漏掉通知。
           completed = null;
@@ -276,7 +276,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
           await turnDone;
           inbox.pump(); await drain;
           if (completed?.status !== 'completed' || stopping || offsetQueue.length || review) break;
-          const state = readContinuationState(workdir, reportPath);
+          const state = readContinuationState(workdir, reportPath, prompt);
           metadata.reportConclusion = state.conclusion;
           if (previous) {
             const progress = continuationProgress(previous, state);
@@ -295,7 +295,6 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
           }
           metadata.continueRequired = missing.length > 0;
           if (metadata.continueRequired && stagnant >= 2) metadata.continueStop = '连续两次续做无进展';
-          else if (metadata.continueRequired && metadata.continueCount >= 3) metadata.continueStop = '达到最多 3 次续做';
           record();
           if (!metadata.continueRequired || metadata.continueStop) break;
           previous = state;
@@ -314,6 +313,7 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
     if (!stopping && !metadata.resumeBlocked && (!outcome || offsetQueue.length)) {
       metadata.backend = 'codex-exec';
       let session = metadata.threadId;
+      let previous, stagnant = 0;
       let nextPrompt = session ? offsetQueue.splice(0).join('\n\n') || fullPrompt : fullPrompt;
       do {
         writeFileSync(resultPath, '');
@@ -347,11 +347,32 @@ export async function runCode({ prompt, cwd = process.cwd(), low = false, high =
         if (buffer) log(buffer);
         inbox.pump(); await drain;
         activeChild = null;
-        if (!offsetQueue.length || stopping) break;
-        if (!metadata.threadId) { fallback('Codex 不支持插话，改方向请用 --restart'); break; }
+        if (stopping || outcome.code !== 0) break;
+        if (offsetQueue.length) {
+          if (!metadata.threadId) { fallback('Codex 不支持插话，改方向请用 --restart'); break; }
+          session = metadata.threadId;
+          nextPrompt = `${review ? `${reviewPrompt()}\n\n` : ''}${offsetQueue.splice(0).join('\n\n')}`;
+          log('\n[codex] say: exec resume same thread\n');
+          continue;
+        }
+        const state = readContinuationState(workdir, reportPath, prompt);
+        metadata.reportConclusion = state.conclusion;
+        if (previous) {
+          const progress = continuationProgress(previous, state);
+          metadata.continuation.push({ attempt: metadata.continueCount, ...progress });
+          stagnant = progress.progress ? 0 : stagnant + 1;
+        }
+        const missing = continueEnabled && reportPath ? continuationRules(state, prompt, workdir, initial) : [];
+        metadata.continueRequired = missing.length > 0;
+        metadata.continuationChecks.push({ turn: metadata.numTurns, rules: missing, judge: null });
+        if (metadata.continueRequired && stagnant >= 2) metadata.continueStop = '连续两次续做无进展';
+        if (!metadata.continueRequired || metadata.continueStop) break;
+        if (!metadata.threadId) { metadata.continueStop = '缺少 threadId，无法续做'; break; }
+        previous = state;
+        metadata.continueCount++;
         session = metadata.threadId;
-        nextPrompt = `${review ? `${reviewPrompt()}\n\n` : ''}${offsetQueue.splice(0).join('\n\n')}`;
-        log('\n[codex] say: exec resume same thread\n');
+        nextPrompt = `继续完成本任务，具体缺项：\n${missing.map(item => `- ${item}`).join('\n')}\n只做 brief 已授权范围；做完更新报告七节及要求的交付凭据，中途自查不是最终交付。`;
+        log(`[codex] 续做 ${metadata.continueCount} 次`);
       } while (true);
       if (outcome.code !== 0 && metadata.resumeCount) fallback('exec resume failed；改方向请用 --restart');
     }

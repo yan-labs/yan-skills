@@ -115,7 +115,13 @@ elif kind in ('gpt','grok'):
 else: ready=False
 print(json.dumps({'missing':missing,'ready':ready}))
 """
-    payload = {'paths': [remote_path(expand_path(p)) for p in [os.getcwd(), *paths]], 'kind': meta['to'], 'bin': REMOTE_BIN}
+    report = os.path.normpath(meta['report']) if meta.get('report') else None
+    checkpoint = os.path.splitext(report)[0] + '.checkpoint.md' if report else None
+    temp = os.path.normpath('/tmp/' + meta['name']) if meta.get('name') else None
+    def is_input(path):
+        path = os.path.normpath(expand_path(path))
+        return path not in (report, checkpoint, temp) and not (temp and path.startswith(temp + os.sep))
+    payload = {'paths': [remote_path(expand_path(p)) for p in [os.getcwd(), *paths] if is_input(p)], 'kind': meta['to'], 'bin': REMOTE_BIN}
     try:
         result = call(script, payload, timeout=25)
         if result.returncode: return 'Mini 环境检查失败'
@@ -126,6 +132,16 @@ print(json.dumps({'missing':missing,'ready':ready}))
         return '；'.join(reasons) if reasons else None
     except (OSError, subprocess.TimeoutExpired, ValueError, KeyError):
         return 'Mini 环境检查失败'
+
+CANONICAL_SCRIPT = '''
+import re
+home=pathlib.Path(p['home']); names=[x.name for x in home.iterdir() if x.name.lower()=='project'] if home.is_dir() else []
+if len(names)==1:
+ pattern=re.compile(re.escape(str(home)) + r'/project(?![\\w-])',re.I)
+ def canonical(value): return pattern.sub(lambda _: str(home / names[0]),value)
+else:
+ def canonical(value): return value
+'''
 
 def launch(meta, argv):
     files = {remote_path(meta['brief']): rewrite_brief(Path(meta['brief']).read_text())}
@@ -140,14 +156,9 @@ def launch(meta, argv):
     payload = {'files': files, 'args': args, 'cwd': remote_path(os.getcwd()), 'report': remote_path(meta['report']), 'home': REMOTE_HOME}
     script = '''import base64,json,os,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1]));
-# macOS volumes can preserve a different spelling than callers use.
-home=pathlib.Path(p['home']); names=[x.name for x in home.iterdir() if x.name.lower()=='project'] if home.is_dir() else []
-if len(names)==1:
- import re
- pattern=re.compile(re.escape(str(home)) + r'/project(?![\\w-])',re.I)
- def canonical(value): return pattern.sub(lambda _: str(home / names[0]),value)
- p['args']=[canonical(x) for x in p['args']]; p['cwd']=canonical(p['cwd']); p['report']=canonical(p['report'])
- p['files']={canonical(k):canonical(v) for k,v in p['files'].items()}
+''' + CANONICAL_SCRIPT + '''
+p['args']=[canonical(x) for x in p['args']]; p['cwd']=canonical(p['cwd']); p['report']=canonical(p['report'])
+p['files']={canonical(k):canonical(v) for k,v in p['files'].items()}
 binary=pathlib.Path(p['args'][0]); p['args'][0]=str(binary/'fleet' if binary.is_dir() else binary)
 for name,text in p['files'].items():
  f=pathlib.Path(name); f.parent.mkdir(parents=True,exist_ok=True); f.write_text(text)

@@ -237,7 +237,8 @@ try {
       assert.equal(bad.status, 1); assert.match(bad.stderr, /--simple.*--to gpt/);
     }
     const review = run(['new','bad-simple','--to','gpt','--simple','--review','--goal','x','--dry-run']);
-    assert.equal(review.status, 1); assert.match(review.stderr, /--simple.*--review/);
+    assert.equal(review.status, 0);
+    assert.equal(run(['new','review-sol','--to','gpt','--sol','--review','--goal','x','--dry-run']).status, 0);
     reset();
     assert.equal(run(['relaunch','simple-mode','--to','claude']).status, 7);
     assert(!history().at(-1).args.includes('--simple'));

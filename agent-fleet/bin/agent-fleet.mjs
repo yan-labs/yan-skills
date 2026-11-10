@@ -404,6 +404,7 @@ async function cmdResume(argv) {
       '--resume-session', sessionId, '--resumed-from', runId, '--cwd', cwd];
     if ((flags.xhigh || flags.max) && !rec.luna) throw new Error('--xhigh 和 --max 仅用于 --luna。');
     if (rec.simple) args.push('--simple');
+    if (rec.sol) args.push('--sol');
     if (rec.luna) args.push('--luna');
     if (rec.serviceTier === 'priority') args.push('--fast');
     const selectedEffort = flags.low ? 'low' : flags.high ? 'high' : flags.xhigh ? 'xhigh' : flags.max ? 'max' : rec.luna && (rec.max || rec.tier === 'max') ? 'max' : rec.luna && (rec.xhigh || rec.tier === 'xhigh') ? 'xhigh' : rec.low || rec.tier === 'low' ? 'low' : rec.high || rec.tier === 'high' ? 'high' : null;
@@ -522,7 +523,7 @@ async function cmdCode(argv) {
   const { positionals, flags } = splitShortArgs(argv);
   if (flags.help) { console.log(HELP_TEXT); return; }
   const prompt = resolveBrief(flags.prompt ?? positionals[0]);
-  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), high: Boolean(flags.high), xhigh: Boolean(flags.xhigh), max: Boolean(flags.max), simple: Boolean(flags.simple), luna: Boolean(flags.luna), fast: Boolean(flags.fast), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
+  const result = await runCode({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), high: Boolean(flags.high), xhigh: Boolean(flags.xhigh), max: Boolean(flags.max), simple: Boolean(flags.simple), sol: Boolean(flags.sol), luna: Boolean(flags.luna), fast: Boolean(flags.fast), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
   await printRunResult(result, outputOptions(flags));
   process.exitCode = buildBrief(result, outputOptions(flags)).verdict === 'ok' ? 0 : 1;
 }
@@ -581,8 +582,8 @@ async function main() {
     }
     if (rest.includes('--simple')) {
       if (command !== 'code') throw new Error('--simple 仅用于 fleet code（fleet-go --to gpt）。');
-      if (rest.includes('--review')) throw new Error('--simple 不能与 --review 同用；复核固定使用 Sol。');
     }
+    if (rest.includes('--sol') && (command !== 'code' || rest.includes('--simple') || rest.includes('--luna'))) throw new Error('--sol 仅用于 fleet code，且不能与 --simple 或 --luna 同用。');
     if (command === '__supervise') { await supervise(fileURLToPath(import.meta.url)); return; }
     if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many', 'judge'].includes(command)
       && !process.env.FLEET_DETACHED_RUN_ID && !rest.includes('--help')) launchArchiveSweep();
@@ -596,7 +597,7 @@ async function main() {
       const text = command === 'run-many' ? '' : resolveBrief(brief);
       const args = flagArgs(flags, ['detach', 'attach', 'no-wait', 'name', 'prompt']);
       if (flags.prompt !== undefined) args.push('--prompt', flags.prompt);
-      const selectedModel = command === 'code' ? (flags.luna ? 'gpt-6-luna' : flags.simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : command === 'judge' ? 'jev' : flags.model ?? shortRunOptions(command, rest).model;
+      const selectedModel = command === 'code' ? (flags.luna ? 'gpt-6-luna' : (flags.simple || (flags.review && !flags.sol)) ? 'gpt-6.1-terra' : 'gpt-6.1-sol') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : command === 'judge' ? 'jev' : flags.model ?? shortRunOptions(command, rest).model;
       const runId = await launchDetached(fileURLToPath(import.meta.url), [command, ...positionals, ...args], {
         cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(),
         model: selectedModel,

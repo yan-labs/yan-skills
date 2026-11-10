@@ -57,7 +57,7 @@ writeFileSync(loader, `export async function resolve(specifier, context, next) {
 }`);
 const cfg = join(scratch, 'models.json');
 writeFileSync(cfg, JSON.stringify({ stub: { model: 'stub-gemini', baseURL:'http://127.0.0.1:1', apiKeyEnv:'FLEET_TEST_KEY' } }));
-const env = { ...process.env, FLEET_TEST_SLEEP:'1', FLEET_TEST_EXIT:'0', AGENT_FLEET_RUNS_DIR:runs, FLEET_CODEX_BIN:stub, FLEET_CODEX_BACKEND:'exec',
+const env = { ...process.env, FLEET_TEST_SLEEP:'1', FLEET_TEST_EXIT:'0', AGENT_FLEET_RUNS_DIR:runs, FLEET_CODEX_BIN:stub, FLEET_CODEX_BACKEND:'exec', FLEET_NO_ARCHIVE_SWEEP:'1',
   FLEET_TEST_PIDS:join(scratch,'pids'), FLEET_TEST_RESULT:join(scratch,'gateway-result'),
   FLEET_TEST_KEY:'fake-test-key', NODE_OPTIONS:`--no-warnings --experimental-loader=${pathToFileURL(loader).href}` };
 // 测试启动器不能继承宿主 fleet 的执行器身份。
@@ -96,6 +96,9 @@ assert.equal((await cliRun(['wait',code])).code,0);
 assert.equal(state(code).status,'done');assert.equal(state(code).brief.verdict,'ok');
 assert.match((await cliRun(['tail','--follow'])).stdout,/stub log/);
 assert.match((await cliRun(['status'])).stdout,/done/);
+const warning=await launch('code',{FLEET_FALLBACK_WARNING:'警告：Mini 不可达，已在 MacBook 执行'});
+assert.equal((await cliRun(['wait',warning])).code,0);
+assert.match(readFileSync(state(warning).resultPath,'utf8'), /警告：Mini 不可达/);
 const fail=await launch('code',{FLEET_TEST_EXIT:'1'});
 assert.equal((await cliRun(['wait',fail])).code,1);assert.equal(state(fail).status,'failed');
 const suspect=await launch('code',{},['--expect-changes']);
@@ -142,7 +145,7 @@ assert.equal(state(simpleContinuedId).simple,true);
 assert.equal(state(simpleContinuedId).serviceTier,'priority');
 const simpleArgs=readFileSync(simpleArgsPath,'utf8').trim().split('\n');
 assert(simpleArgs.includes('gpt-6.1-terra') && simpleArgs.includes('service_tier="priority"') && simpleArgs.includes('model_reasoning_effort=low'));
-assert.equal((await cliRun(['code','x','--simple','--review'])).code,1);
+assert.equal((await cliRun(['code','x','--simple','--sol'])).code,1);
 assert.match((await cliRun(['copy','x','--simple'])).stderr,/--simple.*fleet code/);
 const lunaId = await launch('code', { FLEET_TEST_SESSION:'luna-thread' }, ['--luna','--max']);
 assert.equal((await cliRun(['wait',lunaId])).code,0);
@@ -200,7 +203,8 @@ for(let i=0;i<100&&!existsSync(stubbornPids);i++)await sleep(50);
 const stubbornIds=readFileSync(stubbornPids,'utf8').trim().split(' ').map(Number);
 const stale=state(stubbornId);stale.heartbeatAt='2000-01-01T00:00:00.000Z';writeFileSync(join(runs,stubbornId+'.json'),JSON.stringify(stale));
 assert.match((await cliRun(['status'])).stdout,/最后心跳=2000/);
-assert.equal((await cliRun(['stop',stubbornId.slice(stubbornId.indexOf('detach-'))])).code,0);await sleep(200);
+assert.equal((await cliRun(['stop',stubbornId.slice(stubbornId.indexOf('detach-'))])).code,0);
+for(let i=0;i<100&&stubbornIds.some(alive);i++) await sleep(50);
 assert(stubbornIds.every(pid=>!alive(pid)),'stale heartbeat and detached TERM-ignoring descendant stopped');
 console.log('new-group stop: '+psReceipt([state(stubbornId).pid,state(stubbornId).childPid,...stubbornIds]));
 const stopped=await launch('code',{FLEET_TEST_SLEEP:'60',FLEET_TEST_PIDS:join(scratch,'stop-pids')});
@@ -223,7 +227,7 @@ const front=await cliRun(['code','stub brief','--cwd',scratch,'--json','--attach
 const briefFile=join(scratch,'default-brief.md');
 writeFileSync(briefFile,'归类：(a) 默认桩任务\nREPORT: '+join(scratch,'report.md')+'\n完成桩任务');
 const started=Date.now();
-const defaultRun=await cliRun(['code',briefFile,'--cwd',scratch,'--json'],{FLEET_TEST_SLEEP:'2'});
+const defaultRun=await cliRun(['code',briefFile,'--cwd',scratch,'--json','--no-continue'],{FLEET_TEST_SLEEP:'2'});
 assert.equal(defaultRun.code,0,defaultRun.stderr);assert(Date.now()-started>=2000);
 assert.equal(JSON.parse(defaultRun.stdout).verdict,'ok');
 const defaultId=JSON.parse(defaultRun.stdout).logPath.split('/').pop().slice(0,-4);
@@ -274,7 +278,7 @@ assert.equal(stoppedReceipt.code,1);assert.match(stoppedReceipt.stdout,/verdict:
 // 24小时窗口、running筛选及早期心跳的中断提示。
 const archived=state(defaultId);archived.finishedAt='2000-01-01T00:00:00Z';writeFileSync(join(runs,defaultId+'.json'),JSON.stringify(archived));
 assert(!JSON.parse((await cliRun(['status','--json'])).stdout).some(r=>r.runId===defaultId));
-const synthetic={...archived,runId:'synthetic-abnormal',status:'running',pid:0,heartbeatAt:archived.startedAt};
+const synthetic={...archived,runId:'synthetic-abnormal',status:'running',finishedAt:null,pid:process.pid,command:execFileSync('ps',['-o','command=','-p',String(process.pid)],{encoding:'utf8'}).trim(),heartbeatAt:'2000-01-01T00:00:00Z'};
 writeFileSync(join(runs,synthetic.runId+'.json'),JSON.stringify(synthetic));
 const abnormalRows=JSON.parse((await cliRun(['status','--running','--json'])).stdout);
 assert(abnormalRows.every(r=>['running','abnormal'].includes(r.status ?? r.state)));

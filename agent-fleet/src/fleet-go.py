@@ -86,7 +86,7 @@ def command(meta):
     if to == 'jev':
         args.append(meta['questions'])
     args.extend(['--name', meta['name'], '--report', meta['report']])
-    for option in ['review', 'low', 'high', 'xhigh', 'max', 'simple', 'luna', 'fast', 'no-fast', 'subagents', 'expect-changes']:
+    for option in ['review', 'low', 'high', 'xhigh', 'max', 'simple', 'sol', 'luna', 'fast', 'no-fast', 'subagents', 'expect-changes']:
         if meta.get(option):
             args.append('--' + option)
     if meta.get('model'):
@@ -126,19 +126,10 @@ def launch(meta):
             lines = text.splitlines(keepends=True)
             path.write_text(''.join(lines[:2]) + '\n' + marker + '\n' + ''.join(lines[2:]))
         print(marker, flush=True)
-        code = subprocess.run(command(meta)).returncode
+        code = subprocess.run(command(meta), env={**os.environ, 'FLEET_FALLBACK_WARNING': marker}).returncode
         report = Path(meta['report'])
         if report.exists():
             with report.open('a') as f: f.write('\n' + marker + '\n')
-        try:
-            rows = json.loads(subprocess.run(['fleet', 'status', '--json'], capture_output=True, text=True, check=True).stdout)
-            matches = [r for r in rows if r.get('name') == meta['name'] and r.get('resultPath')]
-            if matches:
-                result = Path(max(matches, key=lambda r: r.get('startedAt', ''))['resultPath'])
-                if result.exists():
-                    with result.open('a') as f: f.write('\n' + marker + '\n')
-        except (OSError, subprocess.SubprocessError, ValueError, KeyError):
-            pass
         sys.exit(code)
     os.execvp('fleet', command(meta))
 
@@ -186,8 +177,8 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         raise ValueError('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）')
     if tier and target != 'claude':
         raise ValueError('--tier 仅用于 --to claude。')
-    if simple and (target != 'gpt' or meta.get('review')):
-        raise ValueError('--simple 仅用于非 review 的 --to gpt（Sol 容量故障时改派 Terra）。')
+    if simple and target != 'gpt':
+        raise ValueError('--simple 仅用于 --to gpt。')
     selected_luna = luna or (not simple and target == 'gpt' and meta.get('luna'))
     selected_simple = simple or (not luna and target == 'gpt' and meta.get('simple'))
     if selected_luna and target != 'gpt':
@@ -216,7 +207,7 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     checked(text, target)
     if target != meta['to']:
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
-                                 ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('luna', ['gpt']), ('fast', ['gpt']), ('no-fast', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
+                                 ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('sol', ['gpt']), ('luna', ['gpt']), ('fast', ['gpt']), ('no-fast', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                                  ('bulk', ['gemini'])]:
             if target not in products:
                 meta.pop(option, None)
@@ -229,11 +220,11 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     if tier:
         meta['tier'] = tier
     if simple:
-        meta['simple'], meta['luna'] = True, False
+        meta['simple'], meta['luna'], meta['sol'] = True, False, False
         if not (low or high or xhigh or max):
             meta['xhigh'] = meta['max'] = False
     if luna:
-        meta['luna'], meta['simple'] = True, False
+        meta['luna'], meta['simple'], meta['sol'] = True, False, False
     if low:
         meta['low'] = True
         meta['high'] = meta['xhigh'] = meta['max'] = False
@@ -332,18 +323,18 @@ def amend(args):
             raise ValueError('--simple、--luna 和 --max 仅用于 --to gpt。')
         if (args.low or args.high or args.xhigh) and meta['to'] not in ('gpt', 'gemini'):
             raise ValueError('--low、--high 和 --xhigh 仅用于 --to gpt|gemini。')
-        if ((args.luna or args.simple) and meta.get('review')) or (args.luna and args.simple):
+        if (args.luna and meta.get('review')) or (args.luna and args.simple):
             raise ValueError('--luna 和 --simple 不能同用，也不能与 --review 同用。')
         if sum([args.low, args.high, args.xhigh, args.max]) > 1:
             raise ValueError('--low、--high、--xhigh 和 --max 不能同用。')
         if meta['to'] == 'gpt' and (args.xhigh or args.max) and not (args.luna or (not args.simple and meta.get('luna'))):
             raise ValueError('--xhigh 和 --max 仅用于 --luna。')
         if args.simple:
-            meta['simple'], meta['luna'] = True, False
+            meta['simple'], meta['luna'], meta['sol'] = True, False, False
             if not (args.low or args.high or args.xhigh or args.max):
                 meta['xhigh'] = meta['max'] = False
         if args.luna:
-            meta['luna'], meta['simple'] = True, False
+            meta['luna'], meta['simple'], meta['sol'] = True, False, False
         if args.low:
             meta['low'] = True
             meta['high'] = meta['xhigh'] = meta['max'] = False
@@ -381,9 +372,11 @@ def amend(args):
     if remote and not remote.get('local'):
         remote_brief = mini.remote_path(str(path))
         script = '''import base64,json,pathlib,sys
-p=json.loads(base64.b64decode(sys.argv[1])); pathlib.Path(p['path']).write_text(p['text'])
+p=json.loads(base64.b64decode(sys.argv[1]))
+''' + mini.CANONICAL_SCRIPT + '''
+pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
 '''
-        res = mini.call(script, {'path': remote_brief, 'text': mini.rewrite_brief(path.read_text())})
+        res = mini.call(script, {'path': remote_brief, 'text': mini.rewrite_brief(path.read_text()), 'home': mini.REMOTE_HOME})
         if res.returncode: raise ValueError('Mini 修订同步失败。')
         if args.say:
             if mini.query(remote).get('status') not in ('running', 'abnormal'):
@@ -509,7 +502,7 @@ def new(args):
     if args.to == 'claude' and args.tier == 'fable':
         raise ValueError('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）')
     for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
-                             ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('luna', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
+                             ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('sol', ['gpt']), ('luna', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                              ('bulk', ['gemini'])]:
         if getattr(args, option) and args.to not in products:
             raise ValueError('--' + option + ' 仅用于 --to ' + '|'.join(products) + '。')
@@ -521,8 +514,8 @@ def new(args):
         raise ValueError('--xhigh 和 --max 仅用于 --luna。')
     if args.luna and (args.simple or args.review):
         raise ValueError('--luna 不能与 --simple 或 --review 同用。')
-    if args.simple and args.review:
-        raise ValueError('--simple 不能与 --review 同用；复核固定使用 Sol。')
+    if args.sol and (args.simple or args.luna):
+        raise ValueError('--sol 不能与 --simple 或 --luna 同用。')
     if args.make == 'video' and args.to != 'grok':
         raise ValueError('--make video 仅用于 --to grok。')
     if args.for_name and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.for_name):
@@ -581,7 +574,7 @@ def new(args):
     text = '\n\n'.join(parts) + '\n'
     checked(text, args.to)
     meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
-            'tier': args.tier, 'review': args.review, 'low': args.low, 'high': args.high,
+            'tier': args.tier, 'review': args.review, 'sol': args.sol, 'low': args.low, 'high': args.high,
             'xhigh': True if (args.to == 'gemini' and not (args.low or args.high)) else args.xhigh,
             'max': args.max, 'simple': args.simple, 'luna': args.luna, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,
             'subagents': args.subagents, 'bulk': args.bulk, 'expect-changes': args.expect_changes,
@@ -618,7 +611,7 @@ def main():
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
     p.add_argument('--model')
     p.add_argument('--make', choices=['image', 'video'])
-    for option in ['review', 'low', 'high', 'xhigh', 'max', 'simple', 'luna', 'fast', 'no-fast', 'subagents', 'bulk', 'expect-changes']:
+    for option in ['review', 'low', 'high', 'xhigh', 'max', 'simple', 'sol', 'luna', 'fast', 'no-fast', 'subagents', 'bulk', 'expect-changes']:
         p.add_argument('--' + option, action='store_true')
     for option in ['why', 'goal', 'body', 'budget', 'forbid', 'pitfalls', 'report']:
         p.add_argument('--' + option)

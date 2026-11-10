@@ -89,7 +89,7 @@ fleet-go new gen-test --to gpt --auth paid,local --goal "..." --body body.md
 fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述" --body body.md
 ```
 - review 的只读是 brief 约定：项目文件保持原样，允许联网、运行测试和脚本，只在自己的 `mktemp -d` 临时目录建删文件；各执行路径不加只读工具名单、沙箱或文件快照失败判定。SDK 使用 `bypassPermissions`，Codex 使用 `danger-full-access`，Grok 使用 `--always-approve`。JEV 只有结构化 API，没有命令执行器。
-- `--to gpt|openai|claude|grok|gemini|jev` 必填；GPT 的 `--simple` 选 Terra，`--luna` 选 Luna，二者均不能与 `--review` 同用。Luna 与 Gemini 默认 xhigh（Luna 可用 `--max`，Gemini 可用 `--low`/`--high`/`--xhigh`）；Terra/Sol 默认 medium。`--low` 可降档，`--low`、`--high`、`--xhigh` 与 `--max` 互斥。Codex 默认不开 fast，必要时显式 `--fast`。Claude `--tier haiku|sonnet|opus`，Grok `--model`/`--subagents`，Gemini `--bulk`。其余授权、预算与正文选项沿用。
+- `--to gpt|openai|claude|grok|gemini|jev` 必填；GPT 的 `--simple` 选 Terra，`--luna` 选 Luna；`--review` 默认 Terra，可用 `--sol` 显式选择 Sol，且不能与 `--luna` 同用。Luna 与 Gemini 默认 xhigh（Luna 可用 `--max`，Gemini 可用 `--low`/`--high`/`--xhigh`）；Terra/Sol 默认 medium。`--low` 可降档，`--low`、`--high`、`--xhigh` 与 `--max` 互斥。Codex 默认不开 fast，必要时显式 `--fast`。Claude `--tier haiku|sonnet|opus`，Grok `--model`/`--subagents`，Gemini `--bulk`。其余授权、预算与正文选项沿用。
 - `--deliverables "产物：路径（上限 N KB 或行）"` 可多次传入，逐项写入验收段；可省略，lint 不强制要求。
 - `--budget` 可选：用户给了预算与重试限制才传入并写进 brief；没给则不写、不设默认值。
 - 需要本地提交时用 `--auth local-commit` 代替 `local`：允许在本地分支提交；与 `deploy-prod` 同传时推送、合入环境分支、流水线发布都已授权（执行者不得因“本块不含推送”停下），单独使用时不推送；验收报告要列提交哈希。可与 `readonly-web`、`paid` 组合；与 `local` 同传时取代 `local`。只读审查、生产部署仍用各自的授权块。
@@ -98,7 +98,7 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 - `--body body.md` 只接受现存文件路径；`--body -` 显式读取 stdin，也可以省略 `--body` 使用 heredoc。不存在的路径会明确报错。
 - 重新拉起已有任务：`fleet-go relaunch <name> [--to <产品>] [--tier <档位>]`，沿用唯一同名 brief、`--name` 和 `--report`，由派用者显式决定执行者；仍有未结束同名任务时拒绝重复派发。
 - **先预览再派**：`fleet-go new ... --dry-run`（只打印 brief，命令写 stderr）；`--no-launch` 只写 brief 不派发；`fleet-go lint brief.md` 检查样板（归类行、REPORT 行、逐字规则句、允许范围小节、密钥字面量）。
-- Codex app-server 两层续做闸门只针对缺失的硬性产物（文件、报告必需节、要求的提交哈希或读回结果）；覆盖未穷尽、补证和低置信度本身不触发续做。JEV 也只判断这些缺项。review 和文档类任务默认不续做；`--no-continue` 或 `FLEET_NO_CONTINUE=1` 可关闭，exec 兜底与其他产品不适用。最多续做 3 次，连续两次无进展停止；amend/steer/relaunch 行为不变。
+- Codex app-server 两层续做闸门只针对缺失的硬性产物（文件、报告必需节、要求的提交哈希或读回结果）；覆盖未穷尽、补证和低置信度本身不触发续做。JEV 也只判断这些缺项。review 和文档类任务默认不续做；`--no-continue` 或 `FLEET_NO_CONTINUE=1` 可关闭，exec 路径同样适用，其他产品不适用。有进展就继续续做，不设次数上限；连续两次无进展停止；amend/steer/relaunch 行为不变。
 
 - **改方向**：用 `fleet-go amend <name> "补充要求"`，它给 brief 顶部追加「修订 N」并（`--say`）尽量发给运行中的任务；Codex 优先同轮 steer，失败尝试中断后续会话；任务已结束（常见：部分完成交回）时 `--say` 直接按修订后的 brief relaunch（整条命令放 `run_in_background`），不必再单独 relaunch；运行中且两者都不可用时会提示，此时才考虑 `--restart`（只停止所选 run，按 runId/brief/`--name` 核验残留，最多等 60 秒、每 0.5 秒轮询，再走 `relaunch`，以 run 身份判断。超时已确认 stopped 且无同一 runId 存活时告警并重新拉起，否则保留修订并报错）。调整沿用 `amend` / `relaunch` 保存的 brief 与任务身份。`amend` 和 `relaunch` 显式传 `--simple` 或 `--luna` 会替换并保存旧模型档位；显式传 `--low`、`--high`、`--xhigh` 或 `--max` 会替换保存的推理档位。同一次命令中的互斥选项仍不能同用；切到 Terra 时若未指定推理档位，会清除 Luna 专用的 xhigh/max。`amend` 的档位在重启或下次重派生效，运行中插话不会切换当前模型。
 - 看进度：`fleet-go status`（默认非终态及最近 1 小时，`--all` 查看全部本地历史；脱离启动的任务带 ⚠）；仍可用 `fleet status --running --json`。

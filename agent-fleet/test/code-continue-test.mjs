@@ -1,14 +1,14 @@
 // 假 app-server 验证同线程续做，不调用真实 Codex 或付费服务。
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runCode } from '../src/code-runner.mjs';
 import { CONTINUE_PROMPT, readContinuationState, continuationProgress, continuationRules, judgeContinuation } from '../src/code-continue.mjs';
 import { buildBrief, formatBriefHuman, redactEvidence } from '../src/brief.mjs';
 import { splitShortArgs } from '../src/shortcuts.mjs';
 
-const scratch = `/tmp/fleet-continue-gate/test-${process.pid}`;
+const scratch = mkdtempSync(join(process.env.TMPDIR || '/tmp', 'fleet-continue-'));
 mkdirSync(scratch, { recursive: true });
 const saved = { ...process.env };
 const mock = join(scratch, 'codex-mock.cjs');
@@ -27,9 +27,9 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
   send({method:'turn/started',params:{turn:{id}}});
   setTimeout(() => {
    const mode = process.env.MODE;
-   const conclusion = mode === 'finish' && count > 1 || mode.startsWith('judge-') || mode === 'complete' || mode === 'missing-sections' ? '完成' : mode === 'fail' ? '失败' : '部分完成';
+   const conclusion = (mode === 'finish' && count > 1) || (mode === 'progress' && count > 5) || mode.startsWith('judge-') || mode === 'complete' || mode === 'missing-sections' ? '完成' : mode === 'fail' ? '失败' : '部分完成';
    let report = '# 测试\\n## 规则回执\\n测试\\n## 实际执行\\n测试\\n## 改动与产物\\n测试\\n## 验证证据\\n测试\\n## 偏差\\n无\\n## 结论\\n' + conclusion + '。\\n## 未完成/风险/需要用户决定的事\\n' + (mode === 'progress' ? count : '待办');
-   if (mode === 'missing-sections' || (['finish', 'stuck', 'progress', 'env-off'].includes(mode) && !(mode === 'finish' && count > 1))) report = '## 结论\\n' + conclusion + (mode === 'progress' ? count : '');
+   if (mode === 'missing-sections' || (['finish', 'stuck', 'progress', 'env-off'].includes(mode) && !(mode === 'finish' && count > 1) && !(mode === 'progress' && count > 5))) report = '## 结论\\n' + conclusion + (mode === 'progress' ? count : '');
    fs.writeFileSync(process.env.REPORT_FILE, report);
    send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:conclusion}}});
    send({method:'turn/completed',params:{turn:{id,status:'completed'}}});
@@ -46,7 +46,7 @@ try {
   for (const [mode, options, expected] of [
     ['finish', {}, 1], ['complete', {}, 0], ['fail', {}, 0],
     ['missing-sections', {}, 2], ['judge-done', {}, 0], ['judge-missing', {}, 2], ['judge-low', {}, 0], ['judge-fail', {}, 0], ['judge-throw', {}, 0],
-    ['stuck', {}, 2], ['progress', {}, 3], ['stuck', { review: true }, 0],
+    ['stuck', {}, 2], ['progress', {}, 5], ['stuck', { review: true }, 0],
     ['stuck', { noContinue: true }, 0], ['env-off', {}, 0],
   ]) {
     process.env.FLEET_DETACHED_RUN_ID = `${mode}-${Object.keys(options).join() || 'default'}`;
@@ -70,7 +70,7 @@ try {
     if (mode === 'judge-missing') assert.match(starts[1].params.input[0].text, /缺少 brief 要求的文件/);
     if (mode.startsWith('judge-')) assert(result.continuationChecks.every(check => check.judge));
     const brief = buildBrief(result);
-    assert.equal(brief.verdict, mode === 'fail' ? 'fail' : ['finish', 'complete', 'judge-done', 'judge-low', 'judge-fail', 'judge-throw'].includes(mode) || options.review ? 'ok' : 'partial');
+    assert.equal(brief.verdict, mode === 'fail' ? 'fail' : ['finish', 'progress', 'complete', 'judge-done', 'judge-low', 'judge-fail', 'judge-throw'].includes(mode) || options.review ? 'ok' : 'partial');
     assert.match(formatBriefHuman(brief), new RegExp(`续做 ${expected} 次`));
     assert.match(readFileSync(result.resultPath, 'utf8'), new RegExp(`续做 ${expected} 次`));
     if (mode === 'stuck' && expected === 2) {
@@ -79,9 +79,32 @@ try {
     }
     if (mode === 'progress') {
       assert(result.continuation.every(step => step.progress && step.report));
-      assert.match(result.continueStop, /最多 3 次/);
+      assert.equal(result.continueStop, undefined);
     }
   }
+  delete process.env.FLEET_NO_CONTINUE;
+  const execMock = join(scratch, 'codex-exec-mock.cjs');
+  writeFileSync(execMock, `#!/usr/bin/env node
+const fs = require('node:fs');
+if (process.argv[2] === 'app-server') process.exit(1);
+let count = 0; try { count = Number(fs.readFileSync(process.env.EXEC_COUNT)); } catch {}
+fs.writeFileSync(process.env.EXEC_COUNT, String(++count));
+fs.writeFileSync(process.env.REPORT_FILE, count === 1 ? '## 结论\\n未完成' : '# 测试\\n## 规则回执\\n测试\\n## 结论\\n完成\\n## 实际执行\\n测试\\n## 改动与产物\\n测试\\n## 验证证据\\n测试\\n## 偏差\\n无\\n## 未完成/风险/需要用户决定的事\\n无');
+fs.writeFileSync(process.argv[process.argv.indexOf('-o') + 1], '完成');
+console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
+`);
+  chmodSync(execMock, 0o755);
+  for (const backend of ['exec', 'fallback']) {
+    process.env.EXEC_COUNT = join(scratch, `exec-${backend}.count`);
+    process.env.FLEET_CODEX_BACKEND = backend === 'exec' ? 'exec' : 'app-server';
+    process.env.FLEET_DETACHED_RUN_ID = `test-${backend}`;
+    const result = await runCode({ prompt: `REPORT: ${process.env.REPORT_FILE}\n测试`, cwd: scratch, codexBin: execMock });
+    assert.equal(result.continueCount, 1, backend);
+    assert.equal(result.reportConclusion, '完成');
+    assert.equal(result.continueRequired, false);
+    assert.equal(buildBrief(result).verdict, 'ok');
+  }
+  delete process.env.FLEET_CODEX_BACKEND;
   process.env.MODE = 'missing-sections';
   process.env.TRACE = join(scratch, 'document.trace');
   const documentRun = await runCode({ prompt: `归类：Codex 文档任务\nREPORT: ${process.env.REPORT_FILE}\n## 目标\n更新文档`, cwd: scratch, codexBin: mock });
@@ -105,6 +128,12 @@ try {
   assert.match(detached, /续做 2 次/);
   const reportOnlyTrace = readFileSync(process.env.TRACE, 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(reportOnlyTrace.filter(q => q.method === 'turn/start').length, 3);
+  const artifact = join(scratch, 'declared-output');
+  const artifactBrief = `产物清单：\n- 文件：${artifact}（上限 2 KB）\n`;
+  writeFileSync(artifact, 'before');
+  const artifactBefore = readContinuationState(scratch, process.env.REPORT_FILE, artifactBrief);
+  writeFileSync(artifact, 'after');
+  assert(continuationProgress(artifactBefore, readContinuationState(scratch, process.env.REPORT_FILE, artifactBrief)).files);
   const missing = continuationRules({ conclusion: '完成', report: '## 结论\n完成' }, '给出提交哈希和读回结果');
   assert(missing.some(item => item.includes('规则回执')));
   assert(missing.some(item => item.includes('提交哈希')));
@@ -195,7 +224,7 @@ try {
   assert(continuationProgress(b, c).files);
   git(['add', '.']); git(['commit', '-m', 'progress']);
   assert(continuationProgress(c, readContinuationState(repo)).commits);
-  console.log('PASS - 部分完成同线程续做、终态/开关/review 跳过、连续两次无进展停止、三次上限与进展记录');
+  console.log('PASS - 部分完成同线程续做、终态/开关/review 跳过、连续两次无进展停止、超过三次的进展续做');
 } finally {
   for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
   Object.assign(process.env, saved);

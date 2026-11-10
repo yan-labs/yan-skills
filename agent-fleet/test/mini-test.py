@@ -39,6 +39,10 @@ assert not mini.referenced_paths('https://example.com/a ../x /api/foo `/api/even
 with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, json.dumps({'missing':['/home/b/a'], 'ready':False}), '')):
     reason = mini.preflight({'to':'claude'}, ['/home/a/a'])
     assert 'Mini 缺少路径：/home/a/a' in reason and 'claude 通道不可用' in reason
+with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, json.dumps({'missing':[], 'ready':True}), '')) as remote:
+    assert mini.preflight({'to':'gpt', 'name':'unit', 'report':'/tmp/report.md'}, ['/tmp/unit/', '/tmp/report.md', '/tmp/report.checkpoint.md', '/tmp/input']) is None
+    assert remote.call_args.args[1]['paths'][-1:] == ['/tmp/input']
+
 with tempfile.TemporaryDirectory() as d:
     tmp = Path(d)
     brief = tmp / 'brief.md'; brief.write_text('REPORT: /home/a/a\n/read /home/a/b')
@@ -104,6 +108,15 @@ echo '[{"runId":"old-run","status":"done"}]'
     with patch.object(mini, 'REMOTE_HOME', str(tmp)), patch.object(mini, 'REMOTE_BIN', str(launch_fleet)), patch.object(mini, 'call', local_call), patch.object(mini, 'wait', return_value=0), patch.object(mini.os, 'getcwd', return_value=str(tmp)):
         assert mini.launch({'brief':str(case_brief),'report':str(tmp/'report.md'),'name':'case'}, ['fleet','code',str(case_brief),'--report',str(tmp/'report.md')]) == 0
     assert case_brief.read_text() == f'文件 {tmp}/PROJECT/demo 和 `{tmp}/PROJECT`'
+    amend_script = '''import base64,json,pathlib,sys
+p=json.loads(base64.b64decode(sys.argv[1]))
+''' + mini.CANONICAL_SCRIPT + '''
+pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
+'''
+    amended = tmp / 'amended.md'
+    result = local_call(amend_script, {'path':str(amended), 'text':f'修改 {tmp}/Project/demo', 'home':str(tmp)})
+    assert result.returncode == 0, result.stderr
+    assert amended.read_text() == f'修改 {tmp}/PROJECT/demo'
     for configured in (status_bin, status_fleet):
         with patch.object(mini, 'REMOTE_BIN', str(configured)), patch.object(mini, 'call', local_call):
             assert mini.query({'id':'old-run'})['status'] == 'done'

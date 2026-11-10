@@ -83,7 +83,7 @@ export async function launchDetached(cli, args, { cwd, model, briefPath, name, r
   const base = join(runsDir(), runId);
   const rec = { detach: true, runId, status: 'running', pid: null, childPid: null,
     startedAt: new Date().toISOString(), heartbeatAt: new Date().toISOString(), finishedAt: null,
-    exitCode: null, verdict: null, briefPath: briefPath ?? null, cwd, model, name: name ?? null, reportPath: reportPath ?? null,
+    exitCode: null, verdict: null, briefPath: briefPath ?? null, cwd, model, name: name ?? null, reportPath: reportPath ?? null, fallbackWarning: process.env.FLEET_FALLBACK_WARNING || null,
     ...(effort ? { tier: effort, [effort]: true } : {}),
     resultPath: `${base}.result.md`, logPath: `${base}.log` };
   // 任务参数只经 IPC 传递，避免把 prompt 或认证参数留在进程命令行/状态文件。
@@ -247,6 +247,7 @@ export async function supervise(cli) {
     rec.finishedAt = new Date().toISOString();
     if (!existsSync(rec.resultPath)) writeFileSync(rec.resultPath, rec.error ?? '任务被停止，未生成结果。\n');
     if (!summary && rec.brief?.failureReport) writeFileSync(rec.resultPath, `${redactEvidence(readFileSync(rec.resultPath, 'utf8'))}\n\n## 失败事实\n${JSON.stringify(rec.brief.failureReport, null, 2)}\n`);
+    if (rec.fallbackWarning) appendFileSync(rec.resultPath, `\n${rec.fallbackWarning}\n`);
     beat();
     appendFileSync(rec.logPath, `[agent-fleet] done ${rec.status === 'done' ? 'ok' : 'error'}\n`);
     if (process.connected) process.disconnect();
