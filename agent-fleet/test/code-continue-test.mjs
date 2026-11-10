@@ -174,6 +174,8 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
     '## 授权覆盖\n不允许在本地分支提交。\n## 验收\n报告列出本地提交哈希。',
     '## 授权覆盖\n授权块：不含 local-commit\n## 验收\n报告列出本地提交哈希。',
     '## 授权覆盖\n授权块：不含 deploy-prod\n## 验收\n报告列出本地提交哈希。',
+    '## 授权覆盖\n允许在本地分支提交。本单不做任何 git 提交。\n## 验收\n报告列出本地提交哈希。',
+    '## 授权覆盖\n本单不做任何 git 提交；允许在本地分支提交。\n## 验收\n报告列出本地提交哈希。',
     `${authorizedCommit}\n本单不做任何 git 提交。`,
     `${authorizedCommit}\n本单不做任何提交。`,
     `${authorizedCommit}\n本单不提交、不需要提交哈希。`,
@@ -183,6 +185,17 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
     const decision = await judgeContinuation({ brief, report: completeReport.report, finalReply: '', judge: async value => { payload = value; return { ok: true, answers: { deliverable: { choice: 'commit', confidence: 0.9 } } }; } });
     assert(!Object.hasOwn(payload.questions.deliverable.criteria, 'commit'));
     assert.equal(decision.decision, 'done');
+  }
+  const generatedCommitBrief = execFileSync('python3', [new URL('../src/fleet-go.py', import.meta.url).pathname,
+    'new', 'continue-commit-test', '--to', 'gpt', '--on', 'local', '--auth', 'local-commit',
+    '--goal', '修复并本地提交', '--body', '-', '--pitfalls', '', '--dry-run', '--no-lint'], { encoding: 'utf8', input: '' });
+  assert.match(generatedCommitBrief, /授权含提交才写哈希，否则写“本单不提交”/);
+  for (const brief of [generatedCommitBrief, `${authorizedCommit}\n模板引用：授权含提交才写哈希，否则写“本单不提交”`]) {
+    assert(continuationRules(completeReport, brief).some(item => item.includes('提交哈希')));
+    let payload;
+    const decision = await judgeContinuation({ brief, report: completeReport.report, finalReply: '', judge: async value => { payload = value; return { ok: true, answers: { deliverable: { choice: 'commit', confidence: 0.9 } } }; } });
+    assert(Object.hasOwn(payload.questions.deliverable.criteria, 'commit'));
+    assert.equal(decision.decision, 'continue');
   }
   for (const auth of ['允许在本地分支提交。', '授权块：local-commit', '授权块：deploy-prod',
     readFileSync(new URL('../skill/templates/blocks/auth-local-commit.md', import.meta.url), 'utf8'),

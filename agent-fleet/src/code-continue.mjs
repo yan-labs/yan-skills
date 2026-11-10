@@ -82,8 +82,10 @@ function commitRequired(brief) {
   const authBlock = /## 授权覆盖\r?\n([\s\S]*?)(?=\r?\n## |$)/;
   const auth = brief.match(authBlock)?.[1] || '';
   if (!/(?:^|[，,。；;：:])\s*允许在本地分支提交|(?:^|上的)发布全流程|^授权块：[ \t]*(?:local-commit|deploy-prod)\b/m.test(auth)) return false;
+  // 实际禁令优先于授权；报告模板的条件说明不属于禁令。
+  const instructions = brief.replace(/授权含提交才写哈希[，,]否则写[“"「]本单不提交[”"」]/g, '');
+  if (instructions.split('\n').some(line => !/^## 改动与产物/.test(line) && /本单不(?:做\s*(?:任何\s*)?(?:git\s*)?提交|提交)/i.test(line))) return false;
   const body = brief.replace(authBlock, '');
-  if (body.split('\n').some(line => !/^## 改动与产物/.test(line) && /本单不(?:做\s*(?:任何\s*)?(?:git\s*)?提交|提交)/i.test(line))) return false;
   const requirements = body.split('\n').filter(line => !/收工前对照|完成标志|^## 改动与产物|^REPORT 按/.test(line))
     .flatMap(line => line.split(/[。；;]/))
     .filter(clause => /要求|必须|需要|给出|给|列出|提供|包含|附上|记录|补齐|验收[：:]|提交(?:一次|代码|改动|修复|并)/.test(clause));
