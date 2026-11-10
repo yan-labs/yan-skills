@@ -156,7 +156,7 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
     assert.equal(decision.decision, 'continue', negative);
   }
   assert.deepEqual(continuationRules(completeReport, '## 授权覆盖\n允许在本地分支提交。\n## 目标\n验收：分析并报告。'), []);
-  for (const blocker of ['缺少 Git 写授权', '缺少团队发布入口', '缺少必需外部输入', '需要主线程提供复现信息']) {
+  for (const blocker of ['缺少 Git 写授权', '缺少团队发布入口', '缺少必需外部输入', '需要主线程提供复现信息', '无需额外权限但缺少必需输入']) {
     const blocked = { conclusion: '完成授权内步骤', report: completeReport.report + '\n' + blocker };
     assert.deepEqual(continuationRules(blocked, authorizedCommit), [], blocker);
     let called = false;
