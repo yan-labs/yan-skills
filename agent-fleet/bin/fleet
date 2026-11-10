@@ -9,6 +9,18 @@ while [ -L "$script" ]; do
   esac
 done
 dir=$(CDPATH= cd -P "$(dirname "$script")" && pwd -P)
+case "${1:-}" in
+  wait|say|stop|tail)
+    if [ -n "${2:-}" ]; then
+      if python3 "$dir/../src/mini.py" has "$2"; then
+        exec python3 "$dir/../src/mini.py" "$@"
+      else
+        rc=$?
+        [ "$rc" -eq 2 ] || exit "$rc"
+      fi
+    fi
+    ;;
+esac
 if [ "${1:-}" = web ]; then
   shift
   exec node "$dir/chatgpt-web-ask.mjs" "$@"

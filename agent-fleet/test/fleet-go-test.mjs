@@ -25,7 +25,7 @@ if(args[0]==='say' && process.env.SAY_FAIL) process.exit(1);
 if(['code','openai','copy','bulk','grok-cli','haiku','sonnet','opus','fable','judge'].includes(args[0])) process.exit(7);
 `, { mode: 0o755 });
 writeFileSync(join(bin, 'pgrep'), '#!/bin/sh\nif [ -n "${RESIDUAL:-}" ]; then\n printf "%s\\n" "$RESIDUAL"\n exit 0\nfi\nexit 1\n', { mode: 0o755 });
-const env = { ...process.env, HOME: home, PATH: bin + ':' + process.env.PATH, CALLS: calls, STATES: states };
+const env = { ...process.env, FLEET_DEFAULT_ON: 'local', HOME: home, PATH: bin + ':' + process.env.PATH, CALLS: calls, STATES: states };
 const run = (args, extra={}) => spawnSync(script, args, { encoding:'utf8', env:{...env,...extra}, input:'' });
 const history = () => existsSync(calls) ? readFileSync(calls,'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [];
 const reset = () => writeFileSync(calls, '');

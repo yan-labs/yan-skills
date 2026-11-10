@@ -59,7 +59,7 @@ export function resolveDetached(spec, cwd = process.cwd()) {
   if (spec !== 'latest') {
     const records = listDetached();
     if (records.some(r => r.runId === spec)) return spec;
-    const matches = records.filter(r => r.name === spec || r.runId.startsWith(spec));
+    const matches = records.filter(r => r.name === spec || r.runId.startsWith(spec) || (spec.startsWith('detach-') && r.runId.endsWith(spec)));
     if (matches.length === 1) return matches[0].runId;
     if (matches.length > 1 && matches.every(r => r.name === spec && (r.model?.startsWith('grok-cli:') || ['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'].includes(r.model)))) {
       const active = matches.filter(r => detachedState(r) === 'running');

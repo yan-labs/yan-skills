@@ -113,7 +113,7 @@ function sleep(ms) {
  * 共享同一个 pid 的其它未结束任务存在时不发信号(run-many 同进程),只靠 inbox + interrupt。
  */
 export async function requestStop(spec, { grace = 60, sleepFn = sleep, cwd } = {}) {
-  const runId = resolveRunId(spec, cwd);
+  const runId = resolveRunId(spec !== 'latest' ? resolveDetached(spec, cwd) : spec, cwd);
   const detached = readState(runId);
   if (detached) return stopDetached(detached);
   const rec = readPidRecord(runId);

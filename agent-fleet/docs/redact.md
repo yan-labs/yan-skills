@@ -3,7 +3,7 @@
 本地依赖：Python 3；`safe-grep` 还需要 `rg`。不联网、不读凭据、不修改输入文件。
 
 ```sh
-export PATH="/Users/kcsx/Project/kcsx/macmini/yan-skills/agent-fleet/bin:$PATH"
+export PATH="$AGENT_FLEET_DIR/bin:$PATH"
 # 外部命令的两个输出通道都进入脱敏器；不要先输出原文。
 配置读取命令 2>&1 | redact
 safe-grep '目标变量名|目标主机名' /path/to/config-directory

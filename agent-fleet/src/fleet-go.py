@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 import unicodedata
+import mini
 
 BLOCKS = Path(__file__).resolve().parents[1] / 'skill/templates/blocks'
 LEGACY_RULE = "禁止单纯转发，允许分发子步骤：不能把整个任务原样甩给另一个 agent 后只回'已启动/等结果'就结束当轮；可以拆出边界清晰的子步骤交给更便宜的 agent 做，但你必须自己掌握全局、消化并验证子任务结果，最终给出真正的结论作为你的最终答案"
@@ -95,6 +96,48 @@ def command(meta):
 
 def launch(meta):
     """由 new/relaunch 前台替换为 fleet，保留完成通知和退出码。"""
+    location = meta.get('on') or os.environ.get('FLEET_DEFAULT_ON', 'mini')
+    if location == 'local':
+        os.execvp('fleet', command(meta))
+    brief = Path(meta['brief'])
+    previous = brief.read_text()
+    cleaned = re.sub(r'^Mini .+，已在 MacBook 执行\n', '', previous, flags=re.M)
+    if cleaned != previous: brief.write_text(cleaned)
+    if location not in ('mini', 'local'):
+        raise ValueError('FLEET_DEFAULT_ON 只能是 mini 或 local。')
+    reason = None
+    if location == 'mini':
+        if not mini.available():
+            reason = 'Mini 不可达'
+        else:
+            reason = mini.preflight(meta, meta.get('paths', []))
+    reachable = location == 'mini' and not reason
+    meta['execution'] = 'mini' if reachable else 'local'
+    Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
+    if reachable:
+        sys.exit(mini.launch(meta, command(meta)))
+    if location == 'mini':
+        marker = reason + '，已在 MacBook 执行'
+        path = Path(meta['brief'])
+        text = path.read_text()
+        if marker not in text:
+            lines = text.splitlines(keepends=True)
+            path.write_text(''.join(lines[:2]) + '\n' + marker + '\n' + ''.join(lines[2:]))
+        print(marker, flush=True)
+        code = subprocess.run(command(meta)).returncode
+        report = Path(meta['report'])
+        if report.exists():
+            with report.open('a') as f: f.write('\n' + marker + '\n')
+        try:
+            rows = json.loads(subprocess.run(['fleet', 'status', '--json'], capture_output=True, text=True, check=True).stdout)
+            matches = [r for r in rows if r.get('name') == meta['name'] and r.get('resultPath')]
+            if matches:
+                result = Path(max(matches, key=lambda r: r.get('startedAt', ''))['resultPath'])
+                if result.exists():
+                    with result.open('a') as f: f.write('\n' + marker + '\n')
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError):
+            pass
+        sys.exit(code)
     os.execvp('fleet', command(meta))
 
 
@@ -106,6 +149,16 @@ def running(active_only=True):
     rows = json.loads(result.stdout)
     if not isinstance(rows, list):
         raise ValueError('fleet status 返回格式不是数组。')
+    for rec in mini.records():
+        try:
+            row = mini.query(rec)
+            row['briefPath'] = rec['brief']
+            row['name'] = rec['name']
+            row['state'] = row.get('status')
+            row['location'] = 'mini'
+            if not active_only or row.get('status') in ('running', 'abnormal'): rows.append(row)
+        except (OSError, subprocess.SubprocessError, ValueError, ConnectionError):
+            rows.append({'runId': rec['id'], 'name': rec['name'], 'briefPath': rec['brief'], 'status': 'unreachable', 'state': 'running', 'location': 'mini'})
     return rows
 
 
@@ -120,7 +173,7 @@ def locate(name):
     return path, meta
 
 
-def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False):
+def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     path, meta = locate(name)
     matches = [r for r in running() if r.get('briefPath') == str(path) or r.get('name') == name]
@@ -150,6 +203,12 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     if (low or high or xhigh) and target not in ('gpt', 'gemini'):
         raise ValueError('--low、--high 和 --xhigh 仅用于 --to gpt|gemini。')
     text = path.read_text()
+    scope = text.split('## 目标', 1)[-1].split('## 允许范围', 1)[0] if 'paths' not in meta else ''
+    revisions = '\n'.join(re.findall(r'^## 【修订 [^\n]+】\n(.*?)(?=\n\n)', text, re.M | re.S))
+    allowed = text.split('## 允许范围', 1)[-1].split('## 已知坑', 1)[0]
+    declared = [p for p in mini.referenced_paths('\n'.join(line for line in allowed.splitlines() if line.startswith('- ')))
+                if p not in (meta['report'], '/tmp/' + name + '/')]
+    meta['paths'] = list(dict.fromkeys([*meta.get('paths', []), *mini.referenced_paths(scope), *mini.referenced_paths(revisions), *declared]))
     checked(text, target)
     if target != meta['to']:
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
@@ -161,6 +220,8 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
             meta.pop('xhigh', None)
             meta.pop('max', None)
     meta.update(to=target, name=name, brief=str(path))
+    if on is not None: meta['on'] = on
+    meta['pull'] = pull
     if tier:
         meta['tier'] = tier
     if simple:
@@ -292,6 +353,9 @@ def amend(args):
             meta['xhigh'] = False
             meta['max'] = True
         path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
+    if args.on is not None:
+        meta['on'] = args.on
+        path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     original = path.read_text()
     if re.search(r'^## 【修订 \d+（[^\n]+）】\n' + re.escape(args.message) + r'(?=\n\n)', original, re.M):
         print('相同修订已存在，未重复插入。')
@@ -303,6 +367,23 @@ def amend(args):
         checked(revised, meta['to'])
         path.write_text(revised)
         print(f'已修订：{path}', flush=True)
+    remote = mini.find(args.name) if meta.get('execution') == 'mini' else None
+    if remote:
+        remote_brief = mini.remote_path(str(path))
+        script = '''import base64,json,pathlib,sys
+p=json.loads(base64.b64decode(sys.argv[1])); pathlib.Path(p['path']).write_text(p['text'])
+'''
+        res = mini.call(script, {'path': remote_brief, 'text': mini.rewrite_brief(path.read_text())})
+        if res.returncode: raise ValueError('Mini 修订同步失败。')
+        if args.say:
+            if mini.query(remote).get('status') not in ('running', 'abnormal'):
+                print('没有运行中的 run：按修订后的 brief 直接 relaunch。', flush=True)
+                relaunch(args.name, on=args.on or meta.get('on'))
+            sys.exit(mini.forward(['say', remote['id'], args.message]))
+        if args.restart:
+            if mini.forward(['stop', remote['id']]): raise ValueError('Mini 停止失败。')
+            relaunch(args.name, on=args.on or meta.get('on'))
+        return
     if not args.say and not args.restart:
         return
     matches = [r for r in running() if r.get('state', r.get('status')) == 'running'
@@ -493,7 +574,8 @@ def new(args):
             'max': args.max, 'simple': args.simple, 'luna': args.luna, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,
             'subagents': args.subagents, 'bulk': args.bulk, 'expect-changes': args.expect_changes,
             # 账本用：难度档、任务类型、被复核任务名；relaunch/amend 沿用 meta，不另存。
-            'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
+            'paths': list(dict.fromkeys([*(mini.expand_path(p) for p in (args.read or [])), *(mini.expand_path(p) for p in (args.write or [])), *mini.referenced_paths((args.goal or '') + '\n' + body)])),
+            'on': args.on, 'pull': args.pull, 'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
     if args.to == 'jev':
         meta['questions'] = str(path.with_suffix('.questions.json'))
     if args.dry_run:
@@ -519,6 +601,8 @@ def main():
     p = sub.add_parser('new')
     p.add_argument('name')
     p.add_argument('--to', choices=PRODUCTS, required=True)
+    p.add_argument('--on', choices=['mini', 'local'])
+    p.add_argument('--pull', action='store_true')
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
     p.add_argument('--model')
     p.add_argument('--make', choices=['image', 'video'])
@@ -538,6 +622,7 @@ def main():
     p = sub.add_parser('amend')
     p.add_argument('name')
     p.add_argument('message')
+    p.add_argument('--on', choices=['mini', 'local'])
     p.add_argument('--luna', action='store_true', help='后续重派使用 Luna')
     p.add_argument('--low', action='store_true', help='后续重派使用 low 推理')
     p.add_argument('--high', action='store_true', help='后续重派使用 high 推理')
@@ -548,6 +633,8 @@ def main():
     group.add_argument('--restart', action='store_true')
     p = sub.add_parser('relaunch')
     p.add_argument('name')
+    p.add_argument('--on', choices=['mini', 'local'])
+    p.add_argument('--pull', action='store_true')
     p.add_argument('--to', choices=PRODUCTS)
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
     p.add_argument('--simple', action='store_true', help='GPT 任务改用 Terra，默认不开 fast')
@@ -558,6 +645,16 @@ def main():
     p.add_argument('--max', action='store_true', help='Luna 使用 max 推理')
     p.add_argument('--fast', action='store_true', help='GPT 任务开启 fast')
     p.add_argument('--no-fast', action='store_true', help='兼容旧用法，无副作用')
+    p = sub.add_parser('read')
+    p.add_argument('name')
+    group = p.add_mutually_exclusive_group()
+    for option in ['report', 'result', 'log']: group.add_argument('--' + option, action='store_true')
+    p.add_argument('--head', type=int)
+    p.add_argument('--pull', action='store_true')
+    for action in ['say', 'stop']:
+        p = sub.add_parser(action)
+        p.add_argument('name')
+        if action == 'say': p.add_argument('message')
     p = sub.add_parser('lint')
     p.add_argument('brief')
     p.add_argument('--to', choices=PRODUCTS, default='gpt')
@@ -576,7 +673,13 @@ def main():
     elif args.action == 'amend':
         amend(args)
     elif args.action == 'relaunch':
-        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low)
+        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull)
+    elif args.action == 'read':
+        rec = mini.find(args.name)
+        if not rec: raise ValueError('找不到 Mini 任务。')
+        sys.exit(mini.read(rec, 'log' if args.log else 'result' if args.result else 'report', args.head, args.pull))
+    elif args.action in ('say', 'stop'):
+        os.execvp('fleet', ['fleet', args.action, args.name] + ([args.message] if args.action == 'say' else []))
     elif args.action == 'team':
         os.execvp('fleet', ['fleet', 'team'])
     elif args.action == 'lint':
@@ -621,7 +724,7 @@ def main():
         rows.sort(key=lambda r: r.get('startedAt') or '', reverse=True)
         for r in rows:
             warning = '⚠ ' if r.get('launchDetached') else ''
-            print(f"{warning}{r['runId'][-16:]} {r.get('status', '?')} {r.get('duration', '?')} {Path(r.get('briefPath') or r.get('name') or '?').name} {r.get('model', '?')}")
+            print(f"{warning}{r['runId'][-16:]} {r.get('status', '?')} {r.get('duration', '?')} {Path(r.get('briefPath') or r.get('name') or '?').name} {r.get('model', '?')} {r.get('location', 'local')}")
             if warning:
                 print('请用 fleet wait ' + r['runId'] + ' 挂上通知。')
         if not rows:

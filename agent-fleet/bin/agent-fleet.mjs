@@ -281,6 +281,7 @@ async function cmdJudge(argv) {
   } else {
     printJudgeResultHuman(result);
   }
+  if (process.env.FLEET_DETACHED_RUN_ID) process.send?.({ brief: { model: 'jev', verdict: result.ok ? 'ok' : 'fail', ok: result.ok }, resultText: JSON.stringify(result, null, 2) });
   process.exitCode = result.ok ? 0 : 1;
 }
 
@@ -580,7 +581,7 @@ async function main() {
     if (command === '__supervise') { await supervise(fileURLToPath(import.meta.url)); return; }
     if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many', 'judge'].includes(command)
       && !process.env.FLEET_DETACHED_RUN_ID && !rest.includes('--help')) launchArchiveSweep();
-    if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many'].includes(command)
+    if ((['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many'].includes(command) || (command === 'judge' && rest.includes('--no-wait')))
       && !process.env.FLEET_DETACHED_RUN_ID && !rest.includes('--attach')) {
       const { flags, positionals } = splitShortArgs(rest);
       if (flags.help) { console.log(HELP_TEXT); return; }
@@ -590,7 +591,7 @@ async function main() {
       const text = command === 'run-many' ? '' : resolveBrief(brief);
       const args = flagArgs(flags, ['detach', 'attach', 'no-wait', 'name', 'prompt']);
       if (flags.prompt !== undefined) args.push('--prompt', flags.prompt);
-      const selectedModel = command === 'code' ? (flags.luna ? 'gpt-6-luna' : flags.simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : flags.model ?? shortRunOptions(command, rest).model;
+      const selectedModel = command === 'code' ? (flags.luna ? 'gpt-6-luna' : flags.simple ? 'gpt-6.1-terra' : 'gpt-6.1-sol') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : command === 'judge' ? 'jev' : flags.model ?? shortRunOptions(command, rest).model;
       const runId = await launchDetached(fileURLToPath(import.meta.url), [command, ...positionals, ...args], {
         cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(),
         model: selectedModel,

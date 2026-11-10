@@ -49,6 +49,12 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 > 对每个 run 各开一条新的 Bash：`fleet wait <runId>`，工具参数 `run_in_background: true`，重新挂上完成通知。
 > ③ 启动后自检：工具应返回「Command running in background with ID …」；输出文件持续有内容或任务仍是 running，而不是几秒内就 completed。
 
+## 执行位置
+
+默认在 Mac Mini 执行；Mini 任务的报告留在 Mini，用 `fleet-go read <名字或 runId>` 按需读取，`--pull` 显式拉回。所需路径在 Mini 不存在或所选通道不可用时，自动在 MacBook 执行并记录原因。需要 Claude 应用工具（Browser pane、MCP、`executor-*`、读取其他会话或 Claude 定时任务）、只有 MacBook 有登录态的网页后台、操作 Mini 自身，以及一两条命令的只读查询，留在 MacBook。浏览器自动化默认在 Mini 使用 opencli 或 agent-desktop；Mini Chrome 尚未登录目标站时退回 MacBook，并在报告列出需在 Mini 登录的站点。
+
+首次使用前，在派单机设置 `FLEET_MINI_HOME`（Mini 家目录）和 `FLEET_MINI_BIN`（Mini 上 fleet 的绝对路径）；可选 `FLEET_LOCAL_HOME` 与 `FLEET_MINI_MM`。也可在本机 `~/.agent-fleet/mini.json` 配置 `remote_home`、`bin`、`local_home`、`mm`；环境变量优先。未配置或工作目录、引用路径在 Mini 不存在时回退本机，不创建空工作目录。显式 `--on local` 或 `FLEET_DEFAULT_ON=local` 沿用本机启动行为。
+
 ## 快速派单（默认写法）
 一条 Bash 调用，工具参数 `run_in_background:true`，命令保持单一前台调用；`fleet-go` 自身保持前台，完成即通知。正文只写独有内容（背景、要做的事、验收），其余样板自动带上。
 ```sh
@@ -156,7 +162,7 @@ Kollab 网关 402 会话预算：本小时预算按首次请求时的余额定�
 
 ## 简报与验收
 
-**简报怎么写**：像交代给刚接手的同事，用大白话讲清背景、想要的结果、允许范围、缺口处理和完成条件；按任务需要伸缩，把做法留给执行者。正文补充任务独有的上下文和已知坑，其余复用自动样板，一单只围绕一个目标。完整规则以 [~/.claude/CLAUDE.md §4.1a](/Users/kcsx/.claude/CLAUDE.md) 为准；授权与模板保持一致，本地提交选上面的 `local-commit`。 配置与环境变量的读取动作统一遵循 [密钥输出已知坑](templates/blocks/pitfall-secrets.md)，默认使用 `safe-grep` / `redact`。
+**简报怎么写**：像交代给刚接手的同事，用大白话讲清背景、想要的结果、允许范围、缺口处理和完成条件；按任务需要伸缩，把做法留给执行者。正文补充任务独有的上下文和已知坑，其余复用自动样板，一单只围绕一个目标。完整规则以 [~/.claude/CLAUDE.md §4.1a](~/.claude/CLAUDE.md) 为准；授权与模板保持一致，本地提交选上面的 `local-commit`。 配置与环境变量的读取动作统一遵循 [密钥输出已知坑](templates/blocks/pitfall-secrets.md)，默认使用 `safe-grep` / `redact`。
 
 | verdict | 含义与处理 |
 |---|---|

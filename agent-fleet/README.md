@@ -3,7 +3,7 @@
 ## 快速开始
 
 ```bash
-ln -sf /Users/kcsx/Project/kcsx/macmini/yan-skills/agent-fleet/bin/fleet ~/.local/bin/fleet
+ln -sf $AGENT_FLEET_DIR/bin/fleet ~/.local/bin/fleet
 fleet-go new fix --to gpt --auth local --write /path/to/project --goal "修复问题" --body task.md --dry-run
 fleet team  # 五产品能力、顺位链与可用性；只显示存在性/登录状态
 ```
