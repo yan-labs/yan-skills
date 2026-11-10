@@ -10,7 +10,7 @@
 Bash(command="fleet code brief.md --cwd <目录> > /tmp/<名>.out 2>&1", run_in_background=true, timeout=7200000)
 ```
 
-默认独立运行（code/grok-cli/copy/grok/bulk/gpt/haiku/sonnet/opus/fable/run/run-many）：监督进程脱离派发者，launcher 等到终态才退出并给简报，关闭 Claude 不影响任务。`--detach` 兼容默认；脚本需立即返回用 `--no-wait`，旧前台行为用 `--attach`。可用 `--name <短名>`、`--report <路径>`；未传时从 brief 的“归类…”和 `REPORT:` 行提取。
+默认独立运行（code/grok-cli/copy/grok/bulk/gpt/haiku/sonnet/opus/run/run-many）：监督进程脱离派发者，launcher 等到终态才退出并给简报，关闭 Claude 不影响任务。`--detach` 兼容默认；脚本需立即返回用 `--no-wait`，旧前台行为用 `--attach`。可用 `--name <短名>`、`--report <路径>`；未传时从 brief 的“归类…”和 `REPORT:` 行提取。
 
 **新会话先 `fleet status --running`（机器读取用 `--json`），有未结束任务就对每个 `fleet wait <id>` 发一条 Bash，`run_in_background:true`、`timeout:7200000` 接着等，沿用原任务。** `wait` / `tail` 可用短名或唯一 runId 前缀，终态 wait 立即返回；`latest` 是当前 cwd 最近任务。默认 status 跨目录列出非终态与最近24小时终态。
 

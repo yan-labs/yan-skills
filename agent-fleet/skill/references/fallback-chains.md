@@ -1,6 +1,6 @@
 # 额度用尽时的工具链
 
-编码顺位：Codex Terra → OpenAI API Terra → Grok Build → Claude。Gemini 只负责文案、翻译和校对。Claude 先用 fleet 档，没额度再用 executor；拒绝或不可用按任务行换手，用户点名优先。
+编码顺位：Codex Terra → OpenAI API Terra → Grok Build → Claude。Gemini 只负责文案、翻译和校对。Claude 的 Haiku、Sonnet、Opus 先用 fleet 档，没额度再用 executor；Fable 只用 Agent 工具的 `executor-fable`；拒绝或不可用按任务行换手，用户点名优先。
 
 ## 顺位表
 
@@ -12,7 +12,7 @@
 | 批量读源码、调研、文档、数据整理、一般任务 | Terra | Grok Build | Claude | — |
 | 文案、翻译、多语言 | Gemini 4 | `fleet sonnet` | Grok Build | Terra |
 | 写 UI、样式、视觉交互、3D、游戏内容 | Sonnet | Terra | Grok Build | Claude |
-| 特别重要的规划：方案、技术方案、架构 | Fable | Opus | Terra | Grok |
+| 特别重要的规划：方案、技术方案、架构 | `executor-fable` | Opus | Terra | Grok |
 | Claude 侧一般任务 | Sonnet | Terra | Grok Build | — |
 | 较难编程、个别难题、Sonnet 反复打转 | `fleet opus` | `executor-opus` | `executor-fable` 给方案后交执行者 | Grok Build |
 | 小杂活、摘要、核实、机械替换 | Haiku | Terra | Grok | — |
@@ -32,7 +32,7 @@
 | Gemini | 402、空结果 | 重试 1 次后换手；充值按全局常设授权执行 |
 | Gemini | 429 `workspace concurrent request limit`（Kollab 网关按空间实时余额分档：余额 ≥5000 时单 key 同时 20 个请求、单空间 32 个，<5000 时单 key 4 个、单空间 8 个；2026-11-06 生产 `2026.11.06` 起生效，线上无环境变量覆盖，10 个并发 Gemini 探针实测零 429） | 不算额度用尽；同一时间 fleet Gemini 任务控制在约 15 个以内；若出现 429，先核对是不是 Kollab 生产正在滚动发布（旧任务摘流约 30 分钟内仍按旧上限 4 拒绝），等发布完再重派 |
 | `fleet` Claude 通道 | 402、月度额度耗尽（走 `ANTHROPIC_CREDIT_API_KEY`，每月 $200） | 改对应 `executor-*`，它走订阅用量 |
-| `executor-*` | usage limit、后台任务标记失败 | 改 `fleet <档位>`；两边都没有时走表里的非 Claude 顺位 |
+| `executor-*` | usage limit、后台任务标记失败 | Haiku、Sonnet、Opus 改 `fleet <档位>`；Fable 不走 fleet，不可用时走表里的其他顺位 |
 | Claude 子代理并发 | `Concurrent subagent limit reached`（默认 20） | 不重试，等通知或改派第三方 |
 
 网络抖动同档重试 1 次。其余按上表换手，不让原执行者空转。

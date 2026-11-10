@@ -178,10 +178,9 @@ try {
       assert.equal(r.status,0,r.stderr); assert.ok(r.stderr.includes('fleet '+cmd+' '));
       assert.match(r.stdout,/归类：/); assert.match(r.stdout,/REPORT: /); assert.ok(r.stdout.includes(rule));
     }
-    const owner = readFileSync(join(root, 'skill/templates/blocks/fable-owner.md'), 'utf8').trim();
-    assert.ok(run(['new','owner','--to','claude','--tier','fable','--goal','x','--dry-run']).stdout.includes(owner));
-    assert.ok(!run(['new','owner','--to','claude','--tier','sonnet','--goal','x','--dry-run']).stdout.includes(owner));
-    for(const tier of ['haiku','sonnet','opus','fable']) {
+    const blocked = run(['new','owner','--to','claude','--tier','fable','--goal','x','--dry-run']);
+    assert.equal(blocked.status,1); assert.ok(blocked.stderr.includes('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）'));
+    for(const tier of ['haiku','sonnet','opus']) {
       const r=run(['new','tier','--to','claude','--tier',tier,'--goal','任务','--dry-run']);
       assert.equal(r.status,0,r.stderr); assert.ok(r.stderr.includes('fleet '+tier+' '));
     }
@@ -282,6 +281,10 @@ try {
     const meta=JSON.parse(readFileSync(path.replace(/\.md$/,'.json'),'utf8')); assert.equal(meta.to,'claude'); assert.equal(meta.tier,'opus');
     reset(); r=run(['relaunch','one']); assert.equal(r.status,7,r.stderr); assert.equal(history().at(-1).args[0],'opus');
     assert.equal(run(['relaunch','one','--to','gpt','--tier','haiku']).status,1);
+    r=run(['relaunch','one','--tier','fable']); assert.equal(r.status,1); assert.ok(r.stderr.includes('Fable 只用 executor-fable 子代理派单'));
+    meta.tier='fable'; writeFileSync(path.replace(/\.md$/,'.json'),JSON.stringify(meta));
+    r=run(['relaunch','one']); assert.equal(r.status,1); assert.ok(r.stderr.includes('Fable 只用 executor-fable 子代理派单'));
+    meta.tier='opus'; writeFileSync(path.replace(/\.md$/,'.json'),JSON.stringify(meta));
     state(); reset(); r=run(['relaunch','one','--to','grok']); assert.equal(r.status,1); assert.deepEqual(history().map(c=>c.args[0]),['status']);
     writeFileSync(states,'[]');
   });

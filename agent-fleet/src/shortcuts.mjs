@@ -40,14 +40,9 @@ export function resolveBrief(value) {
 export function shortRunOptions(command, argv) {
   const { positionals, flags } = splitShortArgs(argv);
   const brief = flags.prompt ?? positionals[0];
-  let prompt = resolveBrief(brief);
-  if (command === 'fable') {
-    const owner = readFileSync(new URL('../skill/templates/blocks/fable-owner.md', import.meta.url), 'utf8').trim();
-    if (!prompt.includes(owner)) prompt += `\n\n${owner}`;
-  }
   return {
     model: flags.model ?? MODEL_ALIASES[command],
-    prompt,
+    prompt: resolveBrief(brief),
     cwd: flags.cwd ?? process.cwd(),
     maxTurns: flags['max-turns'] === undefined ? undefined : Number(flags['max-turns']),
     quiet: !flags.verbose || Boolean(flags.quiet),

@@ -180,6 +180,8 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     if matches:
         raise ValueError('同名任务仍未结束；需要重启请用 amend --restart，未重复派发。')
     target = to or meta['to']
+    if target == 'claude' and (tier or (meta.get('tier') if meta['to'] == 'claude' else None)) == 'fable':
+        raise ValueError('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）')
     if tier and target != 'claude':
         raise ValueError('--tier 仅用于 --to claude。')
     if simple and (target != 'gpt' or meta.get('review')):
@@ -496,6 +498,8 @@ def score(args):
 
 def new(args):
     """组装标准 brief；预览不写盘，正文文件与 stdin 使用明确输入规则。"""
+    if args.to == 'claude' and args.tier == 'fable':
+        raise ValueError('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）')
     for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
                              ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('luna', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                              ('bulk', ['gemini'])]:
@@ -566,8 +570,6 @@ def new(args):
     parts.append('## 已知坑\n' + '\n\n'.join(block('pitfall-' + p, values) for p in dict.fromkeys(pitfalls) if p))
     parts.extend(['## 验收\n' + block('accept-boilerplate', values) + '\n\n' + block('report-template', values)
                   + ('\n\n' + block('review-ledger', values) if is_review else ''), rule()])
-    if args.to == 'claude' and args.tier == 'fable':
-        parts.append(block('fable-owner'))
     text = '\n\n'.join(parts) + '\n'
     checked(text, args.to)
     meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,

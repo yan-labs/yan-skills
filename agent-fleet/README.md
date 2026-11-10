@@ -61,7 +61,7 @@ Claude Code 派单写法与误加 `&` 后的补救见 [Skill 顶部「派单前�
 
 新会话先 `fleet status --running`，对已有任务逐个 `fleet wait <id>` 接着等，不要重派。`status` 默认跨 cwd 列出全部非终态及最近24小时终态，`--running` 只列 running/abnormal，`--json` 返回数组；每行包含 runId、短名、模型、状态、时长、cwd、报告路径及最后心跳。`--name`、`--report` 可指定元数据，未传时从 brief 的“归类…”行及 `REPORT:` 行提取。
 
-Claude 通道（haiku/sonnet/opus/fable）的 key 是用户级 `sk-ant-usr-…` 时，Anthropic 要求每个请求带 `anthropic-workspace-id` 头，否则 400「This API key is not scoped to a workspace」。`models.config.json` 的 claude-* 条目用 `headerEnvs` 指向 `.env` 里的 `ANTHROPIC_WORKSPACE_ID`（`wrkspc_` 开头，非密钥，在 Console 的 Settings > Workspaces 的 ID 列；只有 Default 工作区时填它）。缺这个变量时 fleet 直接报缺变量名，而不是发出必然 400 的请求。该头通过 Claude Code 的 `ANTHROPIC_CUSTOM_HEADERS` 随每个请求发出。返回「Credit balance is too low」说明工作区头已生效、月度额度已用完，需要用户在 Console 充值或等下次发放。
+Claude 通道（haiku/sonnet/opus）的 key 是用户级 `sk-ant-usr-…` 时，Anthropic 要求每个请求带 `anthropic-workspace-id` 头，否则 400「This API key is not scoped to a workspace」。`models.config.json` 的 claude-* 条目用 `headerEnvs` 指向 `.env` 里的 `ANTHROPIC_WORKSPACE_ID`（`wrkspc_` 开头，非密钥，在 Console 的 Settings > Workspaces 的 ID 列；只有 Default 工作区时填它）。缺这个变量时 fleet 直接报缺变量名，而不是发出必然 400 的请求。该头通过 Claude Code 的 `ANTHROPIC_CUSTOM_HEADERS` 随每个请求发出。返回「Credit balance is too low」说明工作区头已生效、月度额度已用完，需要用户在 Console 充值或等下次发放。
 
 状态保存在 `~/.agent-fleet/runs/<runId>.json`，原子更新监督/执行 PID、每30秒心跳、结果/日志路径及简报。PID死亡（或 pid 已被别的进程复用：记录里存了启动时的命令行，当前命令行不同即视为已死）或心跳超过90秒判为 abnormal；若最后心跳早于启动+10分钟，提示可能重启/强制休眠中断及 `fleet resume <id>`。监督进程与执行进程都已不在的记录，`status`/`wait`/`stop` 读到时会自动补写失败终态（`status: failed`、`abnormalExit: true`，结束时间取最后心跳；对已死任务执行 stop 则记为 stopped），之后按普通终态 24 小时退出列表，不再长期停在 abnormal；进程还活着只是心跳过期、或监督进程已死但执行进程仍在跑，保持 abnormal，交人处理（`fleet stop`）。读不到进程命令行或无权发信号（EPERM）时按存活处理，不会因此误判已死。`wait` 每两秒只读状态与 PID，终态立即返回简报；超时只结束等待，任务继续。`wait` / `tail` 支持短名、唯一runId前缀，`latest` 指当前目录最近任务（包括终态）；stop/say/resume 的 latest 保持当前目录最近存活任务规则。
 
@@ -473,7 +473,7 @@ ANTHROPIC_DEFAULT_SONNET_MODEL=<subagentModel 的值>
 
 ## 安全边界
 
-review 的只读是 brief 约定，而非沙箱。项目文件保持原样；允许联网、运行测试和脚本，只在自己的 `mktemp -d` 临时目录建删文件。Codex 普通/review 的 app-server、exec 和 resume 均使用 `danger-full-access`；SDK（Claude haiku/sonnet/opus/fable、Gemini 与网关）均使用 `bypassPermissions`，不设只读 allowedTools/disallowedTools/canUseTool，也不带入受信项目配置中的 permissions、sandbox 或工具名单。Grok 普通/review 均使用 `--always-approve`、不传 sandbox、不做文件快照失败判定。Gemini 不因编码/UI/expect-changes 关键词硬拒绝；JEV 是结构化 API，没有 Bash/文件工具，不存在只读沙箱。
+review 的只读是 brief 约定，而非沙箱。项目文件保持原样；允许联网、运行测试和脚本，只在自己的 `mktemp -d` 临时目录建删文件。Codex 普通/review 的 app-server、exec 和 resume 均使用 `danger-full-access`；SDK（Claude haiku/sonnet/opus、Gemini 与网关）均使用 `bypassPermissions`，不设只读 allowedTools/disallowedTools/canUseTool，也不带入受信项目配置中的 permissions、sandbox 或工具名单。Grok 普通/review 均使用 `--always-approve`、不传 sandbox、不做文件快照失败判定。Gemini 不因编码/UI/expect-changes 关键词硬拒绝；JEV 是结构化 API，没有 Bash/文件工具，不存在只读沙箱。
 
 各命令执行器保留宿主的 HTTP(S)_PROXY、ALL_PROXY、NO_PROXY 及小写形式，Node 子进程开启 `NODE_USE_ENV_PROXY=1`。全权限允许实际修改项目，执行者必须遵守 brief；这不是防止写入的安全隔离。密钥脱敏与凭据路由隔离、用户明确给出的费用上限、生产写授权继续保留；真实系统访问控制和上游协议能力不由 fleet 绕过。原有 git dirty 信息只作产物提示，不因 review 文件变化单独判失败。
 

@@ -45,7 +45,7 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
   fleet copy|grok|bulk|gpt|openai <brief文件或文本> [--low|--high|--xhigh] [--cwd dir] [--verbose]
   fleet grok-cli <brief文件或文本> [--review] [--cwd dir] [--model id] [--name name] [--report path] [--no-subagents|--subagents]
   fleet code <brief文件或文本> [--low|--high|--xhigh|--max] [--simple|--luna] [--fast] [--review] [--no-continue] [--cwd dir]
-  fleet haiku|sonnet|opus|fable <brief.md|文本>   # Claude 官方端点，走每月 API 赠送额度
+  fleet haiku|sonnet|opus <brief.md|文本>   # Claude 官方端点，走每月 API 赠送额度
   fleet judge <state文件> <questions文件> [--json]
   fleet run --model name --prompt "任务" [--cwd dir] [--max-turns N]
   fleet run-many --config batch.json | status | tail [--follow]
@@ -543,6 +543,11 @@ async function cmdShortJudge(argv) {
 
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
+  if (command === 'fable') {
+    console.error('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）');
+    process.exitCode = 1;
+    return;
+  }
   // 执行器身份只属于监督器直接启动的进程，嵌套 fleet 必须创建自己的 runId 和收件箱。
   if (process.env.FLEET_DETACHED_RUN_ID) {
     const owner = readState(process.env.FLEET_DETACHED_RUN_ID);

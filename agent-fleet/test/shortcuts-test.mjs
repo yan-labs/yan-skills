@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +11,7 @@ import { MODEL_ALIASES, resolveBrief, shortRunOptions, splitShortArgs } from '..
 import { runCode, reviewPrompt } from '../src/code-runner.mjs';
 import { DEFAULT_EXECUTOR_SYSTEM_PROMPT } from '../src/run-task.mjs';
 
+const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const { assert, finish } = createAsserter('短命令单测');
 const scratch = mkdtempSync(join(tmpdir(), 'fleet-shortcuts-'));
 const priorRunsDir = process.env.AGENT_FLEET_RUNS_DIR;
@@ -23,10 +27,8 @@ try {
   })) assert(MODEL_ALIASES[alias] === model && shortRunOptions(alias, ['任务']).model === model, `${alias} 映射模型`);
   assert(resolveBrief(brief) === '来自文件的任务', '存在的 brief 文件读取内容');
   assert(resolveBrief('直接写的任务') === '直接写的任务', '非文件参数当文本');
-  const owner = readFileSync(new URL('../skill/templates/blocks/fable-owner.md', import.meta.url), 'utf8').trim();
-  assert(shortRunOptions('fable', [brief]).prompt.includes(owner), 'Fable 自动加入归属句');
-  assert(shortRunOptions('fable', [owner]).prompt === owner, '已有归属句不重复');
-  assert(!shortRunOptions('sonnet', [brief]).prompt.includes(owner), '其他档位不加归属句');
+  const blocked = spawnSync(process.execPath, [join(root, 'bin/agent-fleet.mjs'), 'fable', '任务'], { encoding: 'utf8' });
+  assert(blocked.status === 1 && blocked.stderr.includes('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）'), 'fleet fable 拒绝派单');
   const defaults = shortRunOptions('copy', [brief]);
   assert(defaults.prompt === '来自文件的任务' && defaults.maxTurns === undefined && defaults.quiet && defaults.cwd === process.cwd(), '默认 brief、不设轮数上限、安静、cwd');
   const custom = shortRunOptions('copy', ['--verbose', brief, '--model', 'custom', '--max-turns', '12', '--cwd', scratch, '--system-prompt', '额外']);

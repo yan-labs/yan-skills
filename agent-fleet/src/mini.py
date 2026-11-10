@@ -31,7 +31,7 @@ def remote_path(value):
 def local_path(value):
     return map_path(value, REMOTE_HOME, LOCAL_HOME)
 
-PATH_PATTERN = r"(?<![\w:/.$~-])(?:\$HOME/|~/|\.\.?/|/)[^\s\"'`<>（）()，,；;：:、\[\]{}]+"
+PATH_PATTERN = r"(?<![\w:/.$~-])(?:\$HOME/|~/|\.\.?/|/)(?:\[[^\]\s]+\]|[^\s\"'`<>（）()，,；;：:、\[\]{}])+"
 
 def expand_path(value):
     return os.path.abspath(os.path.expanduser(os.path.expandvars(value)))
@@ -103,7 +103,7 @@ def referenced_paths(text):
         path = expand_path((explicit or token).rstrip('.。'))
         if not explicit and any(c in path for c in '*?['):
             path = path[:min(path.index(c) for c in '*?[' if c in path)]
-            path = str(Path(path).parent)
+            path = os.path.dirname(path)
         paths.append(path)
     return list(dict.fromkeys(paths))
 
@@ -168,7 +168,7 @@ r=subprocess.run(p['args'],cwd=p['cwd'],capture_output=True,text=True); print(r.
 
 def query(rec):
     script = '''import base64,json,pathlib,subprocess,sys
-p=json.loads(base64.b64decode(sys.argv[1])); r=subprocess.run([p['bin'],'status','--json'],capture_output=True,text=True,check=True); rows=json.loads(r.stdout); row=next((x for x in rows if x.get('runId')==p['id']),None)
+p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary; r=subprocess.run([str(binary),'status','--json'],capture_output=True,text=True,check=True); rows=json.loads(r.stdout); row=next((x for x in rows if x.get('runId')==p['id']),None)
 if row is None: row=json.loads((pathlib.Path.home()/'.agent-fleet/runs'/(p['id']+'.json')).read_text())
 print(json.dumps({k:row.get(k) for k in ('runId','status','state','verdict','exitCode','resultPath','startedAt','finishedAt','model','duration','heartbeatAt','launchDetached')}))
 '''

@@ -20,6 +20,7 @@ assert mini.remote_path('/home/a-archive') == '/home/a-archive'
 assert mini.rewrite_brief('正文 /home/a/keep\n- 文本 /home/a/keep\n- /home/a/file\n') == '正文 /home/a/keep\n- 文本 /home/a/keep\n- /home/b/file\n'
 assert not mini.referenced_paths('A/C P50/P95 fu/Bin Redis/DB Java/前端代码里找 private/input.txt')
 assert mini.referenced_paths('~/.agent-reports/2026-11-0*/x.md') == [str(Path.home() / '.agent-reports')]
+assert mini.referenced_paths('/tmp/report[0-9].md /tmp/report?.md /tmp/*/x.md') == ['/tmp']
 assert mini.referenced_paths('--read private/input.txt --write ./out* --cwd ../project') == [str(Path.cwd() / 'private/input.txt'), str(Path.cwd() / 'out*'), str(Path.cwd().parent / 'project')]
 assert mini.rewrite_brief('REPORT: /home/a/r\n普通内容 /home/a-archive') == 'REPORT: /home/b/r\n普通内容 /home/a-archive'
 assert mini.referenced_paths('./private/input $HOME/note') == [str(Path.cwd() / 'private/input'), str(Path.home() / 'note')]
@@ -71,6 +72,18 @@ with tempfile.TemporaryDirectory() as d:
         assert mini.wait({'id':'failed-run','report':str(tmp/'absent.md')}) == 1
     with patch.object(mini, "MM", str(tmp / "missing-mm")):
         assert not mini.available()
+    status_bin = tmp/'status-bin'; status_bin.mkdir()
+    status_fleet = status_bin/'fleet'
+    status_fleet.write_text('''#!/bin/sh
+echo '[{"runId":"old-run","status":"done"}]'
+''')
+    status_fleet.chmod(0o755)
+    def local_call(script, payload, timeout=30):
+        data = base64.b64encode(json.dumps(payload).encode()).decode()
+        return subprocess.run([sys.executable, '-c', script, data], capture_output=True, text=True)
+    for configured in (status_bin, status_fleet):
+        with patch.object(mini, 'REMOTE_BIN', str(configured)), patch.object(mini, 'call', local_call):
+            assert mini.query({'id':'old-run'})['status'] == 'done'
     bin = tmp/'bin'; bin.mkdir()
     fleet = bin/'fleet'
     fleet.write_text('#!/bin/sh\nif [ "$1" = status ]; then echo "[]"; exit 0; fi\nwhile [ "$#" -gt 0 ]; do if [ "$1" = --report ]; then shift; mkdir -p "$(dirname "$1")"; echo result > "$1"; break; fi; shift; done\n')

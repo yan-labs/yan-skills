@@ -11,7 +11,7 @@
 ## 往哪派
 
 - 编码和代码复核默认 Codex Terra（`fleet-go new --to gpt --simple`）；Sol 只在用户点名时用。文案、翻译和校对走 Gemini；其他路由见 agent-fleet。
-- Claude 档优先 `fleet haiku|sonnet|opus|fable`，需要本应用工具或本机登录态时用 `executor-*`。
+- Claude 的 Haiku、Sonnet、Opus 优先 `fleet`，需要本应用工具或本机登录态时用 `executor-*`；Fable 只用 Agent 工具的 `executor-fable`，brief 规则见 agent-fleet。
 - 模型档位是运行时配置，不在 Skill 里断言本机当前模型或某个版本的表现；具体模型名、命令与回退顺序以 `agent-fleet` 当前文档为准。
 
 ## 第三方失败与执行纪律
