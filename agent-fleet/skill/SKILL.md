@@ -25,7 +25,15 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 轻量适配的实现范围与开源参考见 [OpenAI桥接说明](references/openai-bridge.md)。
 
 ## 巡检与换班
-有任务在跑时，主线程用每 30 分钟的定时任务拉起 Luna 巡检单。卡住、空转、循环或偏题的任务用 `fleet-go amend --say` 纠正；判断无望时用 `fleet stop` 终止。单个 run 约 2 小时没有新产物，或累计运行约 5 小时时，先让执行者写 checkpoint 并结束本轮，再用 `fleet-go relaunch` 换新 agent，并用 `amend --say` 要求它读取 checkpoint 接着做。全局规则见 `~/.claude/CLAUDE.md` §3.2。
+派出后台任务后，派单主会话必须用 CronCreate 挂会话内巡检，计划为 `7,37 * * * *`，提示词以「【半小时巡检】」开头。已有这条巡检时不重复挂；7 天到期但仍有后台任务时续挂。巡检使用会话内 Cron，不用独立定时任务。
+
+每次触发先检查是否有后台任务在跑：没有就用 CronList 找到这条巡检并 CronDelete；有则在本会话派一个 Luna 巡检子单，brief 放在本机文件 `~/.agent-fleet/patrol-brief.md`。巡检检查日志与产物变化，纠正卡住、空转、循环或偏题的任务；判断无望时终止。单个 run 约 2 小时没有新产物，或累计运行约 5 小时时，要求执行者写 checkpoint 并结束本轮，再用 `fleet-go relaunch` 换新 agent，要求读取 checkpoint 接着做。巡检记录追加到当天的 `fleet-patrol.md`。
+
+CronCreate 示例（可直接复制并按本会话支持的字段调用）：
+```text
+CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有后台任务在跑；没有则用 CronList 找到这条巡检并 CronDelete；有则在本会话按本机 ~/.agent-fleet/patrol-brief.md 执行 Luna 巡检，并将记录追加到当天 fleet-patrol.md。")
+```
+全局规则见 `~/.claude/CLAUDE.md` §3.2。
 
 ## 中途插话（沿用现有任务调整方向）
 统一入口：`fleet say <任务> "新指令"` 或 `fleet-go amend <名字> --say "补充要求"`（`--restart` 只作最后兜底）。
@@ -48,6 +56,7 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 > ② 补救：发现已经用错，或新会话接手未结束任务，先 `fleet status --running --json`。
 > 对每个 run 各开一条新的 Bash：`fleet wait <runId>`，工具参数 `run_in_background: true`，重新挂上完成通知。
 > ③ 启动后自检：工具应返回「Command running in background with ID …」；输出文件持续有内容或任务仍是 running，而不是几秒内就 completed。
+> 派出后台任务后，确认会话内半小时巡检已挂；规则和 CronCreate 示例见上文「巡检与换班」。
 
 ## 执行位置
 
