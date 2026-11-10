@@ -168,6 +168,17 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   const localJudge = await judgeContinuation({ brief: readonlyBrief, report: completeReport.report, finalReply: '', judge: async payload => { localJudgePayload = payload; return { ok: true, answers: { deliverable: { choice: 'commit', confidence: 0.9 } } }; } });
   assert.equal(localJudge.decision, 'done');
   assert(!Object.hasOwn(localJudgePayload.questions.deliverable.criteria, 'commit'));
+  const localAuth = readFileSync(new URL('../skill/templates/blocks/auth-local.md', import.meta.url), 'utf8');
+  for (const brief of [
+    `## 授权覆盖\n${localAuth}\n## 验收\n报告列出本地提交哈希。`,
+    `${authorizedCommit}\n本单不提交、不需要提交哈希。`,
+  ]) {
+    assert.deepEqual(continuationRules(completeReport, brief), []);
+    let payload;
+    const decision = await judgeContinuation({ brief, report: completeReport.report, finalReply: '', judge: async value => { payload = value; return { ok: true, answers: { deliverable: { choice: 'commit', confidence: 0.9 } } }; } });
+    assert(!Object.hasOwn(payload.questions.deliverable.criteria, 'commit'));
+    assert.equal(decision.decision, 'done');
+  }
   const reportBefore = { head: 'same', files: 'same', report: 'old' };
   assert.equal(continuationProgress(reportBefore, { ...reportBefore, report: 'new' }).progress, false);
   const style = readFileSync(new URL('../skill/templates/blocks/style-sol.md', import.meta.url), 'utf8');
