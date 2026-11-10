@@ -29,9 +29,11 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 
 每次触发先检查是否有后台任务在跑：没有就用 CronList 找到这条巡检并 CronDelete；有则在本会话派一个 Luna 巡检子单，brief 放在本机文件 `~/.agent-fleet/patrol-brief.md`。巡检检查日志与产物变化，纠正卡住、空转、循环或偏题的任务；判断无望时终止。单个 run 约 2 小时没有新产物，或累计运行约 5 小时时，要求执行者写 checkpoint 并结束本轮，再用 `fleet-go relaunch` 换新 agent，要求读取 checkpoint 接着做。巡检记录追加到当天的 `fleet-patrol.md`。
 
+**巡检结论交回主会话裁定。** 巡检单用 `run_in_background` 派出，完成通知回到派单主会话。巡检只自行处理上面的纠偏、终止和换班。它最终回复的第一段写「需要主会话处理」，列出自己用 fleet 命令解决不了的事，例如缺授权、需要改派执行者或档位、多单争用同一资源、需要用户配合、已终止的单是否重派；每条写明任务名、现象和建议，没有就写「无」。主会话收到通知后必须读取这一段并逐条处理，包括补授权、改派、调整顺序、找用户或重派，不能只看巡检记录。巡检提示里写明本会话负责的任务名，巡检只看这些任务。
+
 CronCreate 示例（可直接复制并按本会话支持的字段调用）：
 ```text
-CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有后台任务在跑；没有则用 CronList 找到这条巡检并 CronDelete；有则在本会话按本机 ~/.agent-fleet/patrol-brief.md 执行 Luna 巡检，并将记录追加到当天 fleet-patrol.md。")
+CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有后台任务在跑；没有则用 CronList 找到这条巡检并 CronDelete；有则在本会话按本机 ~/.agent-fleet/patrol-brief.md 派 Luna 巡检子单（run_in_background），只看本会话负责的任务：<任务名列表>；完成通知回来后，读它的「需要主会话处理」并逐条处理。")
 ```
 全局规则见 `~/.claude/CLAUDE.md` §3.2。
 
