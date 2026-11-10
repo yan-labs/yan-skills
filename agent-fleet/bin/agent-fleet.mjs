@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { currentRun, writeYield, ask, startBackground } from '../src/yield.mjs';
 // agent-fleet CLI 入口。
 //
 // 定位:通用多模型子任务执行工具。给一个任务描述 + 一个模型友好名字,用 Claude Agent SDK
@@ -53,7 +54,15 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
   fleet run --model name --prompt "任务" [--cwd dir] [--max-turns N]
   fleet run-many --config batch.json | status | tail [--follow]
   fleet timeline <runId|名字>
-  fleet wait <id|latest> [--timeout 秒]
+  fleet wait <id|latest> [--timeout 秒]   ask 提前返回码 3
+  fleet park --until <条件> --timeout 2h --say <醒来做什么>
+  fleet blocked --need auth|input|access --what <缺口> --tried <查过哪里> --who <谁能给>
+  fleet ask --kind help|shared|decision "问题" [--wait] [--timeout 30m]
+  fleet bg -- <命令> [参数]
+  本地条件：file:<路径> / run:<本机runId> / job:<jobId> / after:2m / at:<ISO时间> / reply
+  all:/any: 后接条件 JSON 数组；cmd:<命令> 探测间隔至少 2 分钟。
+  远程条件由 watchd 写 runs/<runId>.wake.json：{condition,at(毫秒),status:done|failed,logPath?}。
+  park/blocked/ask 在任务内定位本单，独立调用可用 --run <runId>。
   fleet say <id|latest> "消息" | stop <id|latest> | resume <id|latest>
   fleet media list | run <tool> --model <id> --prompt "..." [--input-json '{}'] [--out dir]
   fleet media models [--source openrouter] [--search text]
@@ -584,7 +593,7 @@ async function main() {
       delete process.env.FLEET_DETACHED_BATCH;
     }
   }
-  if (command !== 'media') loadEnvFile(join(PKG_ROOT, '.env'));
+  if (!['media', 'park', 'blocked', 'ask', 'bg'].includes(command)) loadEnvFile(join(PKG_ROOT, '.env'));
 
   if (!command || command === 'help' || command === '--help' || command === '-h') {
     console.log(HELP_TEXT);
@@ -647,6 +656,22 @@ async function main() {
       }
     }
     switch (command) {
+      case 'park':
+      case 'blocked':
+      case 'ask': {
+        const { flags, positionals } = splitShortArgs(rest);
+        const id = currentRun(flags);
+        const result = command === 'ask' ? ask(id, { kind: flags.kind, text: positionals.join(' '), wait: flags.wait, timeout: flags.timeout })
+          : writeYield(id, command === 'park' ? { type: 'park', until: flags.until, timeout: flags.timeout, say: flags.say }
+            : { type: 'blocked', need: flags.need, what: flags.what, tried: flags.tried, who: flags.who });
+        console.log(JSON.stringify(result));
+        break;
+      }
+      case 'bg': {
+        const args = rest[0] === '--' ? rest.slice(1) : rest;
+        console.log(JSON.stringify(startBackground(args)));
+        break;
+      }
       case 'wait': {
         const { flags, positionals } = splitShortArgs(rest);
         if (!positionals[0]) throw new Error('用法: fleet wait <runId|latest> [--timeout 秒]');

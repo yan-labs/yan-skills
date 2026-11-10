@@ -923,7 +923,7 @@ def main():
                 # 前台历史无 status 字段，沿用 fleet 的日志终态判定。
                 log = Path(rec['logPath']).read_text() if rec.get('logPath') and Path(rec['logPath']).exists() else ''
                 rec.update(runId=run_id, status='failed' if re.search(r'\] done error', log) else 'done')
-            if rec.get('runId') not in known and rec.get('status') in ('done', 'failed', 'stopped'):
+            if rec.get('runId') not in known and rec.get('status') in ('done', 'failed', 'stopped', 'blocked'):
                 rows.append(rec)
                 known.add(rec['runId'])
         if not args.all:
@@ -932,7 +932,7 @@ def main():
             for r in rows:
                 stamp = r.get('finishedAt') or r.get('startedAt')
                 recent = stamp and datetime.datetime.fromisoformat(stamp.replace('Z', '+00:00')).timestamp() >= cutoff
-                if r.get('state', r.get('status')) not in ('done', 'failed', 'stopped') or recent:
+                if r.get('state', r.get('status')) not in ('done', 'failed', 'stopped', 'blocked') or recent:
                     selected.append(r)
             rows = selected
         rows.sort(key=lambda r: r.get('startedAt') or '', reverse=True)

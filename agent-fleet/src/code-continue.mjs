@@ -99,15 +99,9 @@ function commitRequired(brief) {
     && !/不(?:要|用|需|必)?提交|无需提交|无须提交|禁止提交|不.*commit/i.test(clause));
 }
 
-function reportedBlocked(report) {
-  const findings = report.replace(/^## 规则回执[^\n]*\n[\s\S]*?(?=^## |$(?![\s\S]))/m, '')
-    .replace(/(?:不缺|不欠缺|无需|不需要|不存在缺少|没有缺少)[^。；，\n]{0,24}?(?:授权|权限|入口|必需输入|外部输入|复现信息)|(?:无|没有)[^。；，\n]{0,24}?(?:授权|权限|入口|必需输入|外部输入|复现信息)(?:问题|缺口|障碍)/g, '');
-  return /(?:缺少?|欠缺|没有|未获|无)[^。；\n]{0,24}(?:授权|权限|入口|必需输入|外部输入|复现信息)|(?:需要|等待|需由)(?:用户|主线程|主会话|外部)[^。；\n]{0,24}(?:提供|授权|输入)/.test(findings);
-}
-
 /** 第一层只检查报告结构及 brief 明确要求的交付凭据，不以“完成”二字代替证据。 */
 export function continuationRules(state, brief, cwd = process.cwd(), initial = null) {
-  if (state.conclusion.startsWith('失败') || reportedBlocked(state.report)) return [];
+  if (state.conclusion.startsWith('失败') || state.yield) return [];
   const missing = [];
   if (state.conclusion.startsWith('未完成')) missing.push('完成报告中未完成的任务');
   for (const line of brief.match(/^产物清单：\n(?:- .*\n)*/m)?.[0].split('\n').slice(1) ?? []) {
@@ -130,11 +124,11 @@ export function continuationRules(state, brief, cwd = process.cwd(), initial = n
 }
 
 /** JEV 只判断明确缺失的硬性产物；不因证据可补充或置信度低续做。 */
-export async function judgeContinuation({ brief, report, finalReply, judge }) {
-  if (reportedBlocked(report)) return { decision: 'done', reason: '报告已说明缺授权、缺入口或缺必需外部输入，交回主会话' };
+export async function judgeContinuation({ brief, report, finalReply, judge, yield: yielded }) {
+  if (yielded) return { decision: 'done', reason: '显式 yield，不自动续做' };
   const questions = { deliverable: {
     type: 'choice',
-    instructions: '报告说明缺授权、缺入口或缺必需外部输入时选 done，不续做。提交哈希仅在授权含 local-commit 或 deploy-prod 且正文明确要求提交时适用。仅当明确缺少 brief 要求的文件、报告必需节、提交哈希或读回结果时选对应项；覆盖未穷尽、可补证、未确认或只是部分完成都选 done。无法确定也选 done。',
+    instructions: '提交哈希仅在授权含 local-commit 或 deploy-prod 且正文明确要求提交时适用。仅当明确缺少 brief 要求的文件、报告必需节、提交哈希或读回结果时选对应项；覆盖未穷尽、可补证、未确认或只是部分完成都选 done。无法确定也选 done。',
     criteria: { done: '没有明确缺失的硬性产物', file: '缺少 brief 要求的文件', section: '缺少报告必需节', ...(commitRequired(brief) ? { commit: '缺少已授权且明确要求的提交哈希' } : {}), readback: '缺少要求的读回结果' },
   } };
   try {

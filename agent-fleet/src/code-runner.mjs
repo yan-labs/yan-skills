@@ -1,4 +1,5 @@
-import { saveCodexQuota, taskIdentity, queueRecord } from './queue.mjs';
+import { readYield, resolveYield, writeYield, localCondition } from './yield.mjs';
+import { saveCodexQuota, taskIdentity, queueRecord, setSlotState, acquireSlot } from './queue.mjs';
 // Codex 执行层：管理 app-server 回合、插话、自动续做与 exec 降级。
 import { readContinuationState, continuationProgress, continuationRules, judgeContinuation } from './code-continue.mjs';
 import { judgeTask } from './judge-task.mjs';
@@ -92,7 +93,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const fullPrompt = review ? `${reviewPrompt()}\n\n${prompt}` : `${SCOPE_LOCK}\n\n安装、构建和测试可能持续 30 分钟以上；命令仍在运行时用 write_stdin 发送空内容轮询等待，绝不发送 Ctrl-C（\\u0003）；不因耗时中断。\n\n${prompt}`;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   mkdirSync(runsDir(), { recursive: true });
-  const runId = process.env.FLEET_DETACHED_RUN_ID || `${stamp}-codex`;
+  const runId = process.env.FLEET_DETACHED_RUN_ID || process.env.FLEET_SLOT_RUN_ID || `${stamp}-codex`;
   const base = join(runsDir(), runId);
   const logPath = `${base}.log`;
   const resultPath = `${base}.result.md`;
@@ -102,6 +103,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   writeFileSync(resultPath, '');
   if (!process.env.FLEET_DETACHED_RUN_ID) writeFileSync(logPath, '');
   let stderr = '', activeChild, closed, rpc, turnId, completed, turnFinished, stopping = false;
+  let yielding = false;
   let offsetQueue = [], drain = Promise.resolve(), activeDescendants = [];
   const slot = process.env.FLEET_SLOT_RUN_ID ? queueRecord(process.env.FLEET_SLOT_RUN_ID) : null;
   briefPath ??= slot?.briefPath;
@@ -180,6 +182,8 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const textInput = text => [{ type: 'text', text, text_elements: [] }];
   const consume = async () => {
     while (offsetQueue.length && !stopping && activeChild) {
+      const yielded = readYield(runId);
+      if (yielding || (yielded && !yielded.resolvedAt)) return;
       if (metadata.backend === 'codex-app-server' && !turnId) return;
       if (!metadata.threadId) return;
       const text = offsetQueue.shift();
@@ -202,7 +206,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   record({ finished: false });
   const inbox = watchInbox(runId, entry => {
     if (entry.type === 'stop') { stopping = true; void interrupt(); }
-    else { offsetQueue.push(entry.text); schedule(); }
+    else if (entry.type === 'say') { offsetQueue.push(entry.text); schedule(); }
   });
   let archived = false, archivePending, ownsAppThread = Boolean(resume);
   const archive = () => {
@@ -218,6 +222,53 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         fallback(`thread/archive failed: ${error.message}`);
       } finally { archivePending = null; }
     })();
+  };
+  const handleYield = async () => {
+    const entry = readYield(runId);
+    if (!entry || entry.resolvedAt) return null;
+    yielding = true;
+    metadata.yield = entry;
+    metadata.continueRequired = false;
+    record({ activeTurnId: null });
+    if (entry.type === 'blocked') {
+      metadata.reportConclusion = '受阻';
+      if (reportPath) {
+        const path = resolve(workdir, reportPath);
+        let report = existsSync(path) ? readFileSync(path, 'utf8') : '';
+        const line = `受阻：${entry.need}｜${entry.what}｜${entry.tried}｜${entry.who}`;
+        const heading = '## 未完成/风险/需要用户决定的事';
+        report = report.includes(heading) ? report.replace(heading, heading + '\n' + line) : report + '\n' + heading + '\n' + line + '\n';
+        writeFileSync(path, report);
+      }
+      record();
+      return { blocked: true };
+    }
+    const slotId = process.env.FLEET_SLOT_RUN_ID || runId;
+    await setSlotState(slotId, 'parked');
+    let result;
+    while (!stopping) {
+      inbox.pump();
+      result = await localCondition(entry.until, { id: runId, entry, cwd: workdir, replies: offsetQueue });
+      if (result || Date.now() >= entry.at + entry.timeoutMs) break;
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    if (stopping) { resolveYield(runId, entry, { status: 'stopped' }); return { blocked: true }; }
+    result ||= { status: 'timeout' };
+    resolveYield(runId, entry, result);
+    if (result.status === 'timeout' && entry.timeouts >= 1) {
+      writeYield(runId, { type: 'blocked', need: 'input', what: `同条件第二次超时：${entry.until}`, tried: '本地条件等待两次', who: '派单主会话' });
+      return handleYield();
+    }
+    await setSlotState(slotId, 'queued');
+    while (queueRecord(slotId) && !(await acquireSlot(slotId))) {
+      if (stopping) return { blocked: true };
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    const replies = offsetQueue.splice(0);
+    metadata.yield = null;
+    yielding = false;
+    log(fleetEvent(FLEET_EVENTS.WAKE)); record();
+    return { prompt: `${entry.say}\n条件：${entry.until}\n终态：${JSON.stringify(result)}${replies.length ? '\n答复：' + replies.join('\n\n') : ''}` };
   };
   let outcome;
   try {
@@ -281,7 +332,11 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
           turnId = turn.turn.id; record({ activeTurnId: turnId }); schedule();
           await turnDone;
           inbox.pump(); await drain;
-          if (completed?.status !== 'completed' || stopping || offsetQueue.length || review) break;
+          if (completed?.status !== 'completed' || stopping) break;
+          const yielded = await handleYield();
+          if (yielded?.blocked) break;
+          if (yielded?.prompt) { nextPrompt = yielded.prompt; continue; }
+          if (offsetQueue.length || review) break;
           const state = readContinuationState(workdir, reportPath, prompt);
           metadata.reportConclusion = state.conclusion;
           if (/^(?:阻塞|受阻)/.test(state.conclusion)) log(fleetEvent(FLEET_EVENTS.BLOCKED));
@@ -317,7 +372,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         await interrupt();
       }
     }
-    if (!stopping && !metadata.resumeBlocked && (!outcome || offsetQueue.length)) {
+    if (!stopping && !metadata.yield && !metadata.resumeBlocked && (!outcome || offsetQueue.length)) {
       metadata.backend = 'codex-exec';
       let session = metadata.threadId;
       let previous, stagnant = 0;
@@ -355,6 +410,9 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         inbox.pump(); await drain;
         activeChild = null;
         if (stopping || outcome.code !== 0) break;
+        const yielded = await handleYield();
+        if (yielded?.blocked) break;
+        if (yielded?.prompt) { session = metadata.threadId; nextPrompt = yielded.prompt; continue; }
         if (offsetQueue.length) {
           if (!metadata.threadId) { fallback('Codex 不支持插话，改方向请用 --restart'); break; }
           session = metadata.threadId;

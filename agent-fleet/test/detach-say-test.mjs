@@ -11,6 +11,7 @@ const cli = resolve('bin/agent-fleet.mjs');
 const mock = join(scratch, 'codex.cjs');
 writeFileSync(mock, `#!/usr/bin/env node
 const fs = require('node:fs');
+let turns = 0;
 const send = o => process.stdout.write(JSON.stringify(o)+'\\n');
 process.on('SIGINT', () => process.exit(0));
 require('node:readline').createInterface({input:process.stdin}).on('line', line => {
@@ -19,6 +20,13 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
  else if(q.method==='turn/start') {
   send({id:q.id,result:{turn:{id:'turn-test'}}});
   send({method:'turn/started',params:{turn:{id:'turn-test'}}});
+  const text = q.params.input[0].text;
+  turns++;
+  if (text.includes('park fixture') || turns > 1) {
+   if (text.includes('park fixture')) require('node:child_process').execFileSync(process.execPath,[process.env.FLEET_TEST_CLI,'ask','--kind','help','需要答复','--wait']);
+   send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:'完成'}}});
+   send({method:'turn/completed',params:{turn:{id:'turn-test',status:'completed'}}});
+  }
  } else if(q.method==='turn/steer') {
   send({id:q.id,result:{}});
   send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:'完成'}}});
@@ -55,6 +63,25 @@ try {
   const trace = readFileSync(env.TRACE, 'utf8').trim().split('\n').map(JSON.parse);
   assert(trace.some(q => q.method === 'turn/steer' && q.params.input[0].text === '修订后的具体要求'));
   assert(trace.some(q => q.method === 'turn/steer' && q.params.input[0].text === '嵌套任务要求'));
+  // Use the real supervisor, queue and say command while the mock model is parked.
+  const local = { FLEET_SLOT_CAPACITY:'1', FLEET_TEST_CLI:cli };
+  run(['code','park fixture','--cwd',scratch,'--name','parked','--no-wait'],local);
+  const parked = states().find(s => s.name === 'parked');
+  await waitFor(() => existsSync(join(scratch,`${parked.runId}.queue.json`)) && JSON.parse(readFileSync(join(scratch,`${parked.runId}.queue.json`),'utf8')).state === 'parked');
+  assert.throws(() => run(['wait',parked.runId],local), error => error.status === 3 && /需要答复/.test(error.stdout));
+  const silent = readFileSync(env.TRACE,'utf8');
+  await delay(350);
+  assert.equal(readFileSync(env.TRACE,'utf8'),silent,'监督器挂起期零模型请求');
+  run(['code','queued fixture','--cwd',scratch,'--name','behind-park','--no-wait'],local);
+  const behind = states().find(s => s.name === 'behind-park');
+  await waitFor(() => existsSync(join(scratch,`${behind.runId}.pid.json`)) && JSON.parse(readFileSync(join(scratch,`${behind.runId}.pid.json`),'utf8')).threadId);
+  run(['say',parked.runId,'收到，按原方案继续'],local);
+  run(['say',behind.runId,'排队任务完成'],local);
+  run(['wait',behind.runId],local);
+  run(['wait',parked.runId],local);
+  const wakeTrace = readFileSync(env.TRACE,'utf8').trim().split('\n').map(JSON.parse);
+  assert(wakeTrace.some(q => q.method === 'turn/start' && q.params.threadId === 'thread-test' && /答复.*收到/.test(q.params.input[0].text)));
+  assert(!wakeTrace.some(q => q.method === 'turn/steer' && /收到，按原方案继续/.test(q.params.input[0].text)),'park 答复不可 steer 已完成的 turn');
   // 监督器活着但没有执行器时，应报告具体问题，不误报整个任务已退出。
   const selfCommand = execFileSync('ps', ['-o', 'command=', '-p', String(process.pid)], { encoding: 'utf8' }).trim();
   const broken = { ...outer, runId: 'broken', name: 'broken', status: 'running', pid: process.pid, command: selfCommand, childPid: null, heartbeatAt: new Date().toISOString() };

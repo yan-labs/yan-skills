@@ -78,7 +78,7 @@ function refreshedRows() {
   return queueRows().map(row => {
     if (!live.has(row.state)) return row;
     const rec = read(join(runsDir(), `${row.runId}.json`));
-    if ((rec && ['done', 'failed', 'stopped'].includes(rec.status)) ||
+    if ((rec && ['done', 'failed', 'stopped', 'blocked'].includes(rec.status)) ||
         (!isRecordedProcessAlive(row.pid, row.command) && !isRecordedProcessAlive(rec?.childPid, rec?.childCommand))) {
       row.state = rec?.status && rec.status !== 'running' ? rec.status : 'failed';
       row.finishedAt = Date.now(); write(row);
@@ -180,7 +180,7 @@ export async function acquireSlot(id) {
 }
 // Step 4 calls this only after parking the executor, and reacquires before waking it.
 export async function setSlotState(id, state) {
-  if (!['parked', 'queued', 'done', 'failed', 'stopped'].includes(state)) throw new Error('无效槽位状态。');
+  if (!['parked', 'queued', 'done', 'failed', 'stopped', 'blocked'].includes(state)) throw new Error('无效槽位状态。');
   return locked(() => {
     const row = queueRecord(id);
     if (!row) return;

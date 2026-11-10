@@ -1,8 +1,13 @@
 // 假 app-server 验证同线程续做，不调用真实 Codex 或付费服务。
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { writeYield, readYield, ask, takeAsk, localCondition, startBackground } from '../src/yield.mjs';
+import { registerQueue, acquireSlot, queueRecord, setSlotState } from '../src/queue.mjs';
+import { waitDetached } from '../src/detach.mjs';
+import { appendInbox } from '../src/inbox.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
 import { runCode } from '../src/code-runner.mjs';
 import { CONTINUE_PROMPT, readContinuationState, continuationProgress, continuationRules, judgeContinuation } from '../src/code-continue.mjs';
 import { buildBrief, formatBriefHuman, redactEvidence } from '../src/brief.mjs';
@@ -27,6 +32,15 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
   send({method:'turn/started',params:{turn:{id}}});
   setTimeout(() => {
    const mode = process.env.MODE;
+   if (count === 1 && (mode === 'yield-park' || mode === 'yield-blocked')) {
+    fs.writeFileSync(process.env.YIELD_FILE, JSON.stringify(mode === 'yield-park'
+      ? {type:'park',until:'file:ready',say:'醒来执行指定动作',at:Date.now(),timeoutMs:5000,timeouts:0}
+      : {type:'blocked',need:'input',what:'缺测试输入',tried:'仓库、文档、配置',who:'主会话',at:Date.now()}));
+   }
+   if (mode === 'yield-timeout' && count <= 2) {
+    let previous = {}; try {previous = JSON.parse(fs.readFileSync(process.env.YIELD_FILE));} catch {}
+    fs.writeFileSync(process.env.YIELD_FILE, JSON.stringify({type:'park',until:'file:never-ready',say:'继续等待输入',at:Date.now()-20,timeoutMs:10,timeouts:previous.timeouts||0}));
+   }
    const conclusion = (mode === 'finish' && count > 1) || (mode === 'progress' && count > 5) || mode.startsWith('judge-') || mode === 'complete' || mode === 'missing-sections' ? '完成' : mode === 'fail' ? '失败' : '部分完成';
    let report = '# 测试\\n## 规则回执\\n测试\\n## 实际执行\\n测试\\n## 改动与产物\\n测试\\n## 验证证据\\n测试\\n## 偏差\\n无\\n## 结论\\n' + conclusion + '。\\n## 未完成/风险/需要用户决定的事\\n' + (mode === 'progress' ? count : '待办');
    if (mode === 'missing-sections' || (['finish', 'stuck', 'progress', 'env-off'].includes(mode) && !(mode === 'finish' && count > 1) && !(mode === 'progress' && count > 5))) report = '## 结论\\n' + conclusion + (mode === 'progress' ? count : '');
@@ -44,6 +58,124 @@ try {
   delete process.env.FLEET_CODEX_BACKEND;
   delete process.env.FLEET_NO_CONTINUE;
   assert.equal(splitShortArgs(['--no-continue', 'brief.md']).flags['no-continue'], true);
+  // A parked turn frees its slot; no RPC is sent until a local condition wakes it.
+  process.env.FLEET_SLOT_CAPACITY = '1';
+  for (const mode of ['yield-park', 'yield-blocked']) {
+    const id = mode;
+    process.env.FLEET_DETACHED_RUN_ID = process.env.FLEET_SLOT_RUN_ID = id;
+    process.env.MODE = mode;
+    process.env.TRACE = join(scratch, `${id}.trace`);
+    process.env.YIELD_FILE = join(scratch, `${id}.yield`);
+    process.env.REPORT_FILE = join(scratch, `${id}.report`);
+    await registerQueue({runId:id,model:'gpt-6.1-sol'});
+    assert(await acquireSlot(id));
+    let judgeCalls = 0;
+    const pending = runCode({prompt:`REPORT: ${process.env.REPORT_FILE}`,cwd:scratch,codexBin:mock,
+      continuationJudge:async () => { judgeCalls++; throw new Error('yield must skip judge'); }});
+    if (mode === 'yield-park') {
+      for (let i = 0; i < 500 && queueRecord(id)?.state !== 'parked'; i++) await delay(10);
+      assert.equal(queueRecord(id).state, 'parked');
+      const waitingId = 'queued-behind-park';
+      await registerQueue({runId:waitingId,model:'gpt-6.1-sol'});
+      assert(await acquireSlot(waitingId), 'park 释放槽位，队列可启动');
+      const before = readFileSync(process.env.TRACE, 'utf8');
+      await delay(350);
+      assert.equal(readFileSync(process.env.TRACE, 'utf8'), before, '挂起期零模型/RPC请求');
+      writeFileSync(join(scratch, 'ready'), 'ready');
+      await delay(300);
+      assert.equal(readFileSync(process.env.TRACE, 'utf8'), before, '唤醒前必须重拿槽位');
+      await setSlotState(waitingId, 'done');
+    }
+    const result = await pending;
+    const starts = readFileSync(process.env.TRACE, 'utf8').trim().split('\n').map(JSON.parse).filter(e => e.method === 'turn/start');
+    assert.equal(starts.length, mode === 'yield-park' ? 2 : 1);
+    assert(starts.every(e => e.params.threadId === 'same-thread'));
+    if (mode === 'yield-park') assert.match(starts[1].params.input[0].text, /醒来执行指定动作[\s\S]*终态/);
+    else {
+      assert.equal(result.yield.type, 'blocked');
+      assert.equal(buildBrief(result).verdict, 'partial');
+      assert.match(readFileSync(process.env.REPORT_FILE,'utf8'), /## 未完成\/风险\/需要用户决定的事\n受阻：input｜缺测试输入｜仓库、文档、配置｜主会话/);
+    }
+    assert.equal(result.continueCount, 0);
+    assert.equal(judgeCalls, 0);
+    await setSlotState(id, 'done');
+  }
+  process.env.FLEET_DETACHED_RUN_ID = process.env.FLEET_SLOT_RUN_ID = 'yield-timeout';
+  process.env.MODE = 'yield-timeout';
+  process.env.TRACE = join(scratch,'timeout.trace');
+  process.env.YIELD_FILE = join(scratch,'yield-timeout.yield');
+  process.env.REPORT_FILE = join(scratch,'timeout.report');
+  await registerQueue({runId:'yield-timeout',model:'gpt-6.1-sol'});
+  assert(await acquireSlot('yield-timeout'));
+  const timed = await runCode({prompt:`REPORT: ${process.env.REPORT_FILE}`,cwd:scratch,codexBin:mock});
+  assert.equal(timed.numTurns,2,'同条件第二次超时直接 blocked，不能开第三轮');
+  assert.equal(timed.yield.type,'blocked');
+  await setSlotState('yield-timeout','blocked');
+  process.env.FLEET_DETACHED_RUN_ID = process.env.FLEET_SLOT_RUN_ID = 'reply-test';
+  process.env.MODE = 'complete';
+  process.env.TRACE = join(scratch,'reply.trace');
+  process.env.REPORT_FILE = join(scratch,'reply.report');
+  ask('reply-test',{kind:'help',text:'等待答复',wait:true});
+  const replyPending = runCode({noContinue:true,prompt:`REPORT: ${process.env.REPORT_FILE}`,cwd:scratch,codexBin:mock});
+  for(let i=0;i<500;i++) {
+    if (existsSync(process.env.TRACE) && readFileSync(process.env.TRACE,'utf8').includes('turn/start')) break;
+    await delay(10);
+  }
+  appendInbox('reply-test',{type:'say',text:'采用方案 A'});
+  const replyResult = await replyPending;
+  assert.equal(replyResult.numTurns,2);
+  assert.match(readFileSync(process.env.TRACE,'utf8'),/采用方案 A/);
+  delete process.env.FLEET_SLOT_RUN_ID;
+  delete process.env.FLEET_SLOT_CAPACITY;
+  const askId = 'ask-child';
+  writeFileSync(join(scratch, `${askId}.json`), JSON.stringify({detach:true,runId:askId,status:'done',cwd:scratch,exitCode:0}));
+  ask(askId, {kind:'decision',text:'选哪种办法？'});
+  assert.equal(await waitDetached(askId), 3, 'ask 优先于完成通知，wait 码3');
+  assert.equal(takeAsk(askId), null, '重新 wait 不重复消费 ask');
+  const yieldCli = new URL('../bin/agent-fleet.mjs', import.meta.url).pathname;
+  const cliEnv = {...process.env};
+  for(const key of ['FLEET_SLOT_RUN_ID','FLEET_DETACHED_RUN_ID','FLEET_PARENT_RUN_ID']) delete cliEnv[key];
+  assert.equal(spawnSync(process.execPath,[yieldCli,'ask','--run',askId,'--kind','shared','共享事实'],{env:cliEnv}).status,0);
+  const waited = spawnSync(process.execPath,[yieldCli,'wait',askId],{env:cliEnv,encoding:'utf8'});
+  assert.equal(waited.status,3,'CLI wait 真正退出码3');
+  assert.match(waited.stdout,/共享事实/);
+  writeFileSync(join(scratch,'upstream-child.json'),JSON.stringify({parentRunId:'upstream-parent'}));
+  ask('upstream-child',{text:'上行问题'});
+  assert.match(readFileSync(join(scratch,'upstream-parent.inbox'),'utf8'),/上行问题/);
+  const blockedCLI = spawnSync(process.execPath,[yieldCli,'blocked','--run','cli-blocked','--need','access','--what','入口','--tried','三处','--who','协调者'],{env:cliEnv,encoding:'utf8'});
+  assert.equal(blockedCLI.status,0,blockedCLI.stderr);
+  assert.equal(readYield('cli-blocked').type,'blocked');
+  assert.equal(spawnSync(process.execPath,[yieldCli,'park','--run','cli-park','--until','after:1s','--say','继续'],{env:cliEnv}).status,0);
+  assert.equal(readYield('cli-park').until,'after:1s');
+
+  assert.throws(() => writeYield('invalid-blocked', {type:'blocked',need:'input',what:'输入',who:'主会话'}), /--tried/);
+  assert.deepEqual(continuationRules({yield:{type:'blocked'},conclusion:'部分完成',report:''}, '提交哈希'), []);
+  let calledForYield = false;
+  assert.equal((await judgeContinuation({yield:{type:'park'},judge:async () => { calledForYield=true; }})).decision, 'done');
+  assert.equal(calledForYield, false);
+  const probeEntry = {at:Date.now()};
+  assert.equal((await localCondition('all:["file:ready","after:1ms"]', {id:'conditions',entry:{at:Date.now()-10},cwd:scratch})).status, 'done');
+  assert.equal((await localCondition('run:missing-local', {id:'conditions',entry:probeEntry,cwd:scratch})).status, 'failed');
+  assert.equal(await localCondition('gh-run:123', {id:'conditions',entry:probeEntry,cwd:scratch}), null);
+  writeFileSync(join(scratch,'conditions.wake.json'), JSON.stringify({condition:'gh-run:123',at:Date.now(),status:'failed',logPath:'failure.log'}));
+  assert.equal((await localCondition('gh-run:123', {id:'conditions',entry:probeEntry,cwd:scratch})).logPath, 'failure.log');
+  const cmdResult = await localCondition('cmd:printf probe-output', {id:'cmd-probe',entry:probeEntry,cwd:scratch});
+  assert.equal(cmdResult.status,'done');
+  assert.match(readFileSync(cmdResult.logPath,'utf8'),/probe-output/);
+  assert.equal(await localCondition('cmd:printf probe-output', {id:'cmd-probe',entry:probeEntry,cwd:scratch}),null,'cmd 探测不早于2分钟重跑');
+  const cmdFailure = await localCondition('cmd:echo failed-probe >&2; exit 1', {id:'cmd-failure',entry:probeEntry,cwd:scratch});
+  assert.equal(cmdFailure.status,'failed');
+  assert.match(readFileSync(cmdFailure.logPath,'utf8'),/failed-probe/);
+  const bg = startBackground([process.execPath, '-e', 'console.log("job output")'], scratch);
+  let jobResult;
+  for (let i=0; i<500; i++) {
+    jobResult = await localCondition(bg.until, {id:'conditions',entry:probeEntry,cwd:scratch});
+    if (jobResult) break;
+    await delay(10);
+  }
+  assert.equal(jobResult.status, 'done');
+  assert.match(readFileSync(bg.logPath,'utf8'), /job output/);
+  console.log('PASS - yield 同线程唤醒、零挂起请求、释放/重拿槽、blocked 跳闸门、ask wait=3、本地条件与 bg');
   for (const [mode, options, expected] of [
     ['finish', {}, 1], ['complete', {}, 0], ['fail', {}, 0],
     ['missing-sections', {}, 2], ['judge-done', {}, 0], ['judge-missing', {}, 2], ['judge-low', {}, 0], ['judge-fail', {}, 0], ['judge-throw', {}, 0],
@@ -158,11 +290,11 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   assert.deepEqual(continuationRules(completeReport, '## 授权覆盖\n允许在本地分支提交。\n## 目标\n验收：分析并报告。'), []);
   for (const blocker of ['缺少 Git 写授权', '缺少团队发布入口', '缺少必需外部输入', '需要主线程提供复现信息', '无需额外权限但缺少必需输入']) {
     const blocked = { conclusion: '完成授权内步骤', report: completeReport.report + '\n' + blocker };
-    assert.deepEqual(continuationRules(blocked, authorizedCommit), [], blocker);
+    assert(continuationRules(blocked, authorizedCommit).some(x => x.includes('提交哈希')), blocker);
     let called = false;
     const decision = await judgeContinuation({ brief: authorizedCommit, report: blocked.report, finalReply: '', judge: async () => { called = true; return { ok: true, answers: { deliverable: { choice: 'commit', confidence: 0.9 } } }; } });
-    assert.equal(decision.decision, 'done', blocker);
-    assert.equal(called, false, blocker);
+    assert.equal(decision.decision, 'continue', blocker);
+    assert.equal(called, true, blocker);
   }
   let localJudgePayload;
   const localJudge = await judgeContinuation({ brief: readonlyBrief, report: completeReport.report, finalReply: '', judge: async payload => { localJudgePayload = payload; return { ok: true, answers: { deliverable: { choice: 'commit', confidence: 0.9 } } }; } });

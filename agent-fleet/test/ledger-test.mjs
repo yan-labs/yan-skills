@@ -42,6 +42,18 @@ try {
   process.env.AGENT_FLEET_RUNS_DIR = runs;
   process.env.AGENT_FLEET_LEDGER = keepLedger;
 
+  const yieldedRun = rec();
+  const yieldedPath = yieldedRun.logPath.replace(/\.log$/, '.yield');
+  writeFileSync(yieldedPath, JSON.stringify({type:'park'}));
+  assert(L.buildRow(yieldedRun,new L.LedgerIndex()).outcome === 'partial','未唤醒 park 记部分完成');
+  writeFileSync(yieldedPath, JSON.stringify({type:'park',resolvedAt:Date.now()}));
+  assert(L.buildRow(yieldedRun,new L.LedgerIndex()).outcome === 'complete','已唤醒 park 不污染最终完成口径');
+  const blockedRun = rec({status:'blocked',verdict:'partial'});
+  writeFileSync(blockedRun.logPath.replace(/\.log$/,'.yield'),JSON.stringify({type:'blocked'}));
+  process.env.AGENT_FLEET_LEDGER = join(scratch,'blocked-ledger.jsonl');
+  L.recordRun(blockedRun);
+  assert(L.readLedger(process.env.AGENT_FLEET_LEDGER).some(row => row.runId === blockedRun.runId && row.outcome === 'partial'),'blocked 终态写账本');
+  process.env.AGENT_FLEET_LEDGER = ledger;
   // 1. 复核尾注
   assert(JSON.stringify(L.parseTrailer('x\nLEDGER: blockers=2 verdict=fail\n')) === '{"blockers":2,"verdict":"fail"}', '尾注解析');
   assert(L.parseTrailer('LEDGER: blockers=0 verdict=pass\nLEDGER: blockers=3 verdict=partial').blockers === 3, '多条取最后一条');

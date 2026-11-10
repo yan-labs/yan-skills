@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { timelineFile } from './timeline.mjs';
 
 export const LEDGER_VERSION = 1;
-const TERMINAL = new Set(['done', 'failed', 'stopped']);
+const TERMINAL = new Set(['done', 'failed', 'stopped', 'blocked']);
 // 测试用的 mock 与 run-many 批量父记录不是真实执行者,不进账本。
 const NOISE_MODELS = new Set(['mock', 'run-many']);
 
@@ -152,7 +152,7 @@ export function buildRow(rec, index, { useReport = true, backfilled = false } = 
   const concluded = conclusionOutcome(rec.reportConclusion ?? section?.[1]);
   const yieldText = safeRead(rec.logPath?.replace(/\.log$/, '.yield'));
   let yielded; try { yielded = JSON.parse(yieldText); } catch {}
-  const yieldKind = typeof yielded === 'string' ? yielded : yielded?.type ?? yielded?.kind;
+  const yieldKind = yielded?.resolvedAt ? null : typeof yielded === 'string' ? yielded : yielded?.type ?? yielded?.kind;
   const outcome = yieldKind === 'blocked' ? 'partial' : yieldKind === 'park' || yieldKind === 'handoff' ? 'partial'
     : rec.status === 'stopped' || verdict === 'stopped' ? 'stopped'
     : concluded ?? (verdict === 'ok' ? 'complete' : verdict === 'partial' ? 'partial' : 'failed');

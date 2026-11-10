@@ -21,11 +21,12 @@ export function parseInboxLine(line) {
   } catch {
     return null;
   }
-  if (obj?.type !== 'say' && obj?.type !== 'stop') return null;
+  if (!['say', 'stop', 'ask'].includes(obj?.type)) return null;
   const graceRaw = obj.grace;
   const grace = graceRaw === undefined || graceRaw === null ? undefined : Number(graceRaw);
   return {
     type: obj.type,
+    ...(obj.type === 'ask' ? { id: obj.id, runId: obj.runId, kind: obj.kind } : {}),
     text: typeof obj.text === 'string' ? obj.text : '',
     at: typeof obj.at === 'string' ? obj.at : null,
     ...(Number.isFinite(grace) ? { grace } : {}),
@@ -43,6 +44,7 @@ export function appendInbox(runId, entry) {
   ensureInbox(runId);
   const rec = {
     type: entry.type,
+    ...(entry.type === 'ask' ? { id: entry.id, runId: entry.runId, kind: entry.kind } : {}),
     text: entry.text ?? '',
     at: entry.at ?? new Date().toISOString(),
   };

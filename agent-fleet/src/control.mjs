@@ -81,12 +81,12 @@ export function formatStatusHuman(rows) {
 /** say 以 detach 的监督状态判断存活，收件箱始终绑定精确 runId。 */
 export function deliverSay(spec, text, { cwd } = {}) {
   if (!text) throw new Error('缺少消息。用法: agent-fleet say <run-id|latest> "<消息>"');
-  const selected = spec === 'latest' ? collectStatus({ cwd: cwd ?? process.cwd() }).find(row => row.state === 'running')?.runId : spec;
+  const selected = spec === 'latest' ? collectStatus({ cwd: cwd ?? process.cwd() }).find(row => ['running', 'parked', 'waiting'].includes(row.state))?.runId : spec;
   const runId = resolveRunId(selected && selected !== 'latest' ? resolveDetached(selected, cwd) : spec, cwd);
   let rec = readPidRecord(runId);
   const detached = readState(runId);
   if (detached?.status === 'running') {
-    if (!['running', 'waiting'].includes(detachedState(detached))) throw new Error(`任务 ${runId} 的监督器已退出或心跳超时，无法确认插话通道可用。`);
+    if (!['running', 'parked', 'waiting'].includes(detachedState(detached))) throw new Error(`任务 ${runId} 的监督器已退出或心跳超时，无法确认插话通道可用。`);
     if (!isRecordedProcessAlive(detached.childPid, detached.childCommand)) throw new Error(`任务 ${runId} 的监督器仍在运行，但执行器尚未就绪或已退出，无法投递插话。`);
     // 嵌套 fleet 的历史记录可能覆盖 finished/pid；真正监听此收件箱的是监督器的执行子进程。
     rec = { ...rec, ...detached, pid: detached.childPid, command: detached.childCommand, finished: false };

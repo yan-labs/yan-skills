@@ -1,3 +1,4 @@
+import { takeAsk } from './yield.mjs';
 import { spawn } from 'node:child_process';
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -83,7 +84,7 @@ export async function launchDetached(cli, args, { cwd, model, briefPath, name, r
   const runId = `${new Date().toISOString().replace(/[:.]/g, '-')}-detach-${randomUUID().slice(0, 8)}`;
   const base = join(runsDir(), runId);
   const identity = taskIdentity({ briefPath, review, auth, actions });
-  const rec = { ...identity, detach: true, runId, status: 'running', pid: null, childPid: null,
+  const rec = { parentRunId: process.env.FLEET_SLOT_RUN_ID || process.env.FLEET_DETACHED_RUN_ID || null, ...identity, detach: true, runId, status: 'running', pid: null, childPid: null,
     startedAt: new Date().toISOString(), heartbeatAt: new Date().toISOString(), finishedAt: null,
     exitCode: null, verdict: null, briefPath: briefPath ?? null, cwd, model, name: name ?? null, reportPath: reportPath ?? null, fallbackWarning: process.env.FLEET_FALLBACK_WARNING || null,
     ...(effort ? { tier: effort, [effort]: true } : {}),
@@ -206,7 +207,7 @@ export async function supervise(cli) {
     if (!admitted) appendFileSync(rec.logPath, queueEvent('wake'));
     child = spawn(process.execPath, [cli, ...payload.args], {
       detached: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-      env: { ...process.env, FLEET_DETACHED_RUN_ID: rec.runId, FLEET_SLOT_RUN_ID: rec.runId, FLEET_DETACHED_BATCH: payload.args[0] === 'run-many' ? '1' : '' },
+      env: { ...process.env, FLEET_DETACHED_RUN_ID: rec.runId, FLEET_SLOT_RUN_ID: rec.runId, FLEET_PARENT_RUN_ID: rec.parentRunId || '', FLEET_DETACHED_BATCH: payload.args[0] === 'run-many' ? '1' : '' },
     });
     child.stdout.on('data', chunk => appendFileSync(rec.logPath, chunk));
     rec.stderr = '';
@@ -244,7 +245,7 @@ export async function supervise(cli) {
     if (stopping) rec.brief = { ...rec.brief, ok: false, verdict: 'stopped', stopped: true };
     rec.verdict = Array.isArray(rec.brief) ? rec.brief.every(b => b.verdict === 'ok') ? 'ok' : 'fail' : rec.brief.verdict;
     rec.exitCode = rec.verdict === 'ok' ? 0 : 1;
-    rec.status = stopping ? 'stopped' : rec.verdict === 'ok' ? 'done' : 'failed';
+    rec.status = stopping ? 'stopped' : rec.yield?.type === 'blocked' ? 'blocked' : rec.verdict === 'ok' ? 'done' : 'failed';
   } catch (err) {
     if (child?.pid) forceStop();
     rec.status = stopping ? 'stopped' : 'failed';
@@ -283,6 +284,8 @@ export async function waitDetached(spec, { cwd, timeout, originalOutput = false 
     const rec = reconcileDetached(readState(id));
     if (!rec) throw new Error(`找不到 detach 任务 ${id}`);
     const state = detachedState(rec);
+    const question = takeAsk(id);
+    if (question) { process.stdout.write(JSON.stringify(question) + '\n'); return 3; }
     if (!['running', 'queued', 'parked', 'waiting'].includes(state)) {
       const brief = state === 'abnormal' ? buildBrief({ ...failureFacts(rec), ok: false,
         error: `异常终止；最后心跳 ${rec.heartbeatAt}`, resultPath: rec.resultPath, logPath: rec.logPath })
