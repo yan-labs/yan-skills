@@ -2,12 +2,12 @@
 name: imagegen
 metadata:
   version: "1.0.0"
-description: 当用户要求生成图片、配图、插图、logo、吉祥物、封面、海报、og 图、favicon 源图、真人场景图，或建站时页面缺图、仍有占位图时使用。包括“画一张”“出一套图”“网站需要配图”“image gen”。本 Skill 负责提示词、生成、三道验收、压缩与落盘；只是让 Codex CLI 做代码代理任务时用 codex，普通派单走 agent-fleet，页面 SEO 与上线闸门走 rankup。
+description: 当用户要求生成图片、动图、GIF、gif 图、配图、插图、logo、吉祥物、封面、海报、og 图、favicon 源图、真人场景图，或建站时页面缺图、仍有占位图时使用。包括“画一张”“出一套图”“网站需要配图”“image gen”。本 Skill 负责提示词、生成、三道验收、压缩与落盘；只是让 Codex CLI 做代码代理任务时用 codex，普通派单走 agent-fleet，页面 SEO 与上线闸门走 rankup。
 ---
 
 # imagegen
 
-**一句话定位**：借 Codex agent 内置的图像生成能力出图；本 Skill 只管五件事——把需求翻成好提示词、把命令跑通、验收、压缩、放进项目该在的目录。
+**一句话定位**：静图用 Codex 内置图像生成，GIF 用 Kollab GPT Image 2.6；本 Skill 只管五件事——把需求翻成好提示词、把命令跑通、验收、压缩、放进项目该在的目录。
 
 图像生成**不是 CLI 子命令**（没有 `codex image`；`codex exec --image` 是把图当输入附上）。它是 Codex agent 的内置工具 `image_gen`。不要翻 `codex --help` 找 flag，找不到就下结论"不能生图"——这个结论是错的。描述你要的图，让 agent 自己选方法。
 
@@ -32,6 +32,22 @@ cat <outdir>/prompt.md | codex exec --skip-git-repo-check \
 | 原图在哪 | Codex 每次 `image_gen` 的原始输出都落在 `~/.codex/generated_images/<session-id>/exec-*.png`（0.7–1.5 MB/张）；输出目录里的是它后处理过的版本，要原图去那里取 |
 
 `codex --version` 失败或启动就退出：先 `codex doctor`，如实报告，不要盲目重试。
+
+## 动图 GIF
+
+官网和更新日志需要展示动作或变化时优先用动图；静态素材继续走上面的内置 `image_gen`。GPT Image 2.6 经 Kollab 的 `gpt-image-2` 调用，生成和编辑支持 GIF，编辑 GIF 不支持 mask。生产是否可用以 `fleet media list` 为准；未发布时用 TEST，进程级设置 `KOLLAB_API_URL=https://test.flowus.work` 和独立 TEST 会话，勿覆盖生产 profile。
+
+提示词写清首尾无缝循环、动作幅度和方向、固定镜头、帧间造型/颜色/位置连贯，主体不跳、不变形；避免文字。先用 9 帧、每帧 200ms（默认）做短循环；允许 2–16 帧、每帧 20–2000ms，按动作速度调整，帧越多通常体积越大。TEST 实测请求 2 帧曾返回默认 9 帧，落盘后检查实际帧数与时长。
+
+```bash
+fleet media run generate_image --model gpt-image-2 \
+  --input-json '{"prompt":"A blue paper bird gently flaps in place, seamless loop, fixed camera, consistent subject, no text","output_format":"gif","frame_count":9,"frame_duration_ms":200}' \
+  --out <outdir>
+```
+
+生成后保留原始 GIF 和提示词到 `<project>/design/imagegen/<batch>/`，发布版本放 `<project>/public/images/<section>/`；网页动图目标尽量小于 2 MB，超出先缩尺寸或帧数。已有 `gifsicle` 或 `ffmpeg` 时再压缩，并检查循环、帧时长和画质；MacBook 不安装软件。保留 GIF 格式，不用静图压缩命令覆盖。
+
+三道验收用于动图：逐帧抽查并看完整循环（含首尾衔接），将代表帧缩到 120px 做接触印相；透明主体逐帧量 alpha 包围盒占比（不透明图不适用）；独立盲评播放结果和代表帧，对照提示词检查连贯、主体不跳及风格。单一方案无对照时如实记录盲评未做。
 
 ## 提示词怎么写
 
