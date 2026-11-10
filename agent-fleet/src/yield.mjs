@@ -94,9 +94,13 @@ export async function localCondition(condition, { id, entry, cwd, replies = [] }
   const index = condition.indexOf(':'), kind = condition.slice(0, index), value = condition.slice(index + 1);
   if (kind === 'all' || kind === 'any') {
     const results = await Promise.all(JSON.parse(value).map(c => localCondition(c, { id, entry, cwd, replies })));
+    if (kind === 'any') {
+      if (results.some(r => r?.status === 'done')) return { status: 'done', results };
+      return results.every(Boolean) ? results[0] : null;
+    }
     const failed = results.find(r => r && r.status !== 'done');
     if (failed) return failed;
-    return (kind === 'all' ? results.every(Boolean) : results.some(Boolean)) ? { status: 'done', results } : null;
+    return results.every(Boolean) ? { status: 'done', results } : null;
   }
   if (kind === 'file') return existsSync(resolve(cwd, value)) ? { status: 'done', path: value } : null;
   if (kind === 'after' || kind === 'at') return Date.now() >= (kind === 'after' ? entry.at + duration(value) : Date.parse(value)) ? { status: 'done' } : null;

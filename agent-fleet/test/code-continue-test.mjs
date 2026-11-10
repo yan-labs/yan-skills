@@ -154,6 +154,10 @@ try {
   assert.equal((await judgeContinuation({yield:{type:'park'},judge:async () => { calledForYield=true; }})).decision, 'done');
   assert.equal(calledForYield, false);
   const probeEntry = {at:Date.now()};
+  const conditionContext = {id:'conditions',entry:probeEntry,cwd:scratch};
+  assert.equal((await localCondition('any:["run:missing-local","file:ready"]', conditionContext)).status, 'done', 'any 成功优先于失败');
+  assert.equal(await localCondition('any:["run:missing-local","file:pending"]', conditionContext), null, 'any 失败加 pending 继续等待');
+  assert.equal((await localCondition('any:["run:missing-local","job:missing-local"]', conditionContext)).status, 'failed', 'any 全失败才失败');
   assert.equal((await localCondition('all:["file:ready","after:1ms"]', {id:'conditions',entry:{at:Date.now()-10},cwd:scratch})).status, 'done');
   assert.equal((await localCondition('run:missing-local', {id:'conditions',entry:probeEntry,cwd:scratch})).status, 'failed');
   assert.equal(await localCondition('gh-run:123', {id:'conditions',entry:probeEntry,cwd:scratch}), null);

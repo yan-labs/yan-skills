@@ -105,6 +105,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   let stderr = '', activeChild, closed, rpc, turnId, completed, turnFinished, stopping = false;
   let yielding = false;
   let offsetQueue = [], drain = Promise.resolve(), activeDescendants = [];
+  const pendingAsks = new Set();
   const slot = process.env.FLEET_SLOT_RUN_ID ? queueRecord(process.env.FLEET_SLOT_RUN_ID) : null;
   briefPath ??= slot?.briefPath;
   const identity = taskIdentity({ ...slot, briefPath, review });
@@ -191,6 +192,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         try {
           captureChildren();
           await rpc('turn/steer', { threadId: metadata.threadId, expectedTurnId: turnId, input: textInput(text) });
+          pendingAsks.delete(text);
           metadata.steerCount++; log(fleetEvent(FLEET_EVENTS.STEER)); record();
           continue;
         } catch (error) {
@@ -207,6 +209,12 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const inbox = watchInbox(runId, entry => {
     if (entry.type === 'stop') { stopping = true; void interrupt(); }
     else if (entry.type === 'say') { offsetQueue.push(entry.text); schedule(); }
+    else if (entry.type === 'ask') {
+      const text = `子任务 ${entry.runId} 请求帮助（${entry.kind}）：\n${entry.text}\n请用 fleet say ${entry.runId} "<答复>" 回复。`;
+      pendingAsks.add(text);
+      offsetQueue.push(text);
+      schedule();
+    }
   });
   let archived = false, archivePending, ownsAppThread = Boolean(resume);
   const archive = () => {
@@ -248,6 +256,11 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     let result;
     while (!stopping) {
       inbox.pump();
+      // A child waiting for our answer cannot finish the run we parked on.
+      if (offsetQueue.some(text => pendingAsks.has(text))) {
+        result = { status: 'ask', text: '先处理子任务求助，再决定是否继续等待原条件。' };
+        break;
+      }
       result = await localCondition(entry.until, { id: runId, entry, cwd: workdir, replies: offsetQueue });
       if (result || Date.now() >= entry.at + entry.timeoutMs) break;
       await new Promise(resolve => setTimeout(resolve, 250));
@@ -265,6 +278,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       await new Promise(resolve => setTimeout(resolve, 250));
     }
     const replies = offsetQueue.splice(0);
+    for (const text of replies) pendingAsks.delete(text);
     metadata.yield = null;
     yielding = false;
     log(fleetEvent(FLEET_EVENTS.WAKE)); record();

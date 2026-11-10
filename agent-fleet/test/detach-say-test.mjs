@@ -13,6 +13,15 @@ writeFileSync(mock, `#!/usr/bin/env node
 const fs = require('node:fs');
 let turns = 0;
 const send = o => process.stdout.write(JSON.stringify(o)+'\\n');
+const cli = (...args) => require('node:child_process').execFileSync(process.execPath,[process.env.FLEET_TEST_CLI,...args]);
+const reply = text => {
+ const target = text.match(/fleet say (\\S+)/);
+ if (target && text.includes('父子回归问题')) cli('say',target[1],'父模型答复');
+};
+const finish = () => {
+ send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:'完成'}}});
+ send({method:'turn/completed',params:{turn:{id:'turn-test',status:'completed'}}});
+};
 process.on('SIGINT', () => process.exit(0));
 require('node:readline').createInterface({input:process.stdin}).on('line', line => {
  const q = JSON.parse(line); fs.appendFileSync(process.env.TRACE, line+'\\n');
@@ -22,12 +31,26 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   send({method:'turn/started',params:{turn:{id:'turn-test'}}});
   const text = q.params.input[0].text;
   turns++;
-  if (text.includes('park fixture') || turns > 1) {
+  if (text.includes('delayed child ask fixture')) {
+   const timer = setInterval(() => {
+    if (!fs.existsSync(process.env.ASK_GATE)) return;
+    clearInterval(timer);
+    cli('ask','--kind','decision','父子回归问题','--wait');
+    finish();
+   }, 10);
+   return;
+  }
+  if (text.includes('child ask fixture') || text.includes('park fixture') || turns > 1) {
+   reply(text);
+   if (text.includes('child ask fixture')) require('node:child_process').execFileSync(process.execPath,[process.env.FLEET_TEST_CLI,'ask','--kind','decision','父子回归问题','--wait']);
    if (text.includes('park fixture')) require('node:child_process').execFileSync(process.execPath,[process.env.FLEET_TEST_CLI,'ask','--kind','help','需要答复','--wait']);
    send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:'完成'}}});
    send({method:'turn/completed',params:{turn:{id:'turn-test',status:'completed'}}});
   }
  } else if(q.method==='turn/steer') {
+  const text = q.params.input[0].text;
+  reply(text);
+  if (text.startsWith('park for child ')) cli('park','--until','run:'+text.slice('park for child '.length),'--say','子任务完成后收尾');
   send({id:q.id,result:{}});
   send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:'完成'}}});
   send({method:'turn/completed',params:{turn:{id:'turn-test',status:'completed'}}});
@@ -82,6 +105,39 @@ try {
   const wakeTrace = readFileSync(env.TRACE,'utf8').trim().split('\n').map(JSON.parse);
   assert(wakeTrace.some(q => q.method === 'turn/start' && q.params.threadId === 'thread-test' && /答复.*收到/.test(q.params.input[0].text)));
   assert(!wakeTrace.some(q => q.method === 'turn/steer' && /收到，按原方案继续/.test(q.params.input[0].text)),'park 答复不可 steer 已完成的 turn');
+  // A real child ask must reach the parent's model, which replies to that exact child.
+  for (const parkedParent of [false, true]) {
+  const traceStart = readFileSync(env.TRACE,'utf8').length;
+  const suffix = parkedParent ? '-parked' : '';
+  const family = { FLEET_SLOT_CAPACITY:'2', FLEET_TEST_CLI:cli, ASK_GATE:join(scratch,'ask-gate') };
+  run(['code','parent fixture','--cwd',scratch,'--name','ask-parent'+suffix,'--no-wait'],family);
+  const parent = states().find(s => s.name === 'ask-parent'+suffix);
+  await waitFor(() => existsSync(join(scratch,`${parent.runId}.pid.json`)) && JSON.parse(readFileSync(join(scratch,`${parent.runId}.pid.json`),'utf8')).activeTurnId);
+  run(['code',parkedParent ? 'delayed child ask fixture' : 'child ask fixture','--cwd',scratch,'--name','ask-child'+suffix,'--no-wait'],{...family,FLEET_DETACHED_RUN_ID:parent.runId});
+  const child = states().find(s => s.name === 'ask-child'+suffix);
+  assert.equal(child.parentRunId,parent.runId);
+  if (parkedParent) {
+    run(['say',parent.runId,'park for child '+child.runId],family);
+    await waitFor(() => JSON.parse(readFileSync(join(scratch,`${parent.runId}.queue.json`),'utf8')).state === 'parked');
+    writeFileSync(family.ASK_GATE,'ready');
+  }
+  const requests = () => readFileSync(env.TRACE,'utf8').slice(traceStart).trim().split('\n').filter(Boolean).map(JSON.parse);
+  const method = parkedParent ? 'turn/start' : 'turn/steer';
+  await waitFor(() => requests().some(q => q.method === method && q.params.input[0].text.includes('父子回归问题')));
+  run(['wait',parent.runId],family);
+  assert.throws(() => run(['wait',child.runId],family), error => error.status === 3);
+  run(['wait',child.runId],family);
+  const familyTrace = requests();
+  const delivery = familyTrace.find(q => q.method === method && q.params.input[0].text.includes('父子回归问题'));
+  const question = delivery.params.input[0].text;
+  assert(question.includes(child.runId) && question.includes('decision'),'上行问题保留子 runId 与 kind');
+  assert(familyTrace.some(q => q.method === 'turn/start' && q.params.input[0].text.includes('答复：父模型答复')),'父模型 say 唤醒原子任务');
+  if (parkedParent) {
+    assert.equal(delivery.params.threadId,'thread-test');
+    assert.equal(JSON.parse(readFileSync(join(scratch,`${parent.runId}.yield`),'utf8')).result.status,'ask');
+    assert(!familyTrace.some(q => q.method === 'turn/steer' && q.params.input[0].text.includes('父子回归问题')),'挂起父任务的 ask 通过新回合处理');
+  }
+  }
   // 监督器活着但没有执行器时，应报告具体问题，不误报整个任务已退出。
   const selfCommand = execFileSync('ps', ['-o', 'command=', '-p', String(process.pid)], { encoding: 'utf8' }).trim();
   const broken = { ...outer, runId: 'broken', name: 'broken', status: 'running', pid: process.pid, command: selfCommand, childPid: null, heartbeatAt: new Date().toISOString() };
