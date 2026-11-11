@@ -82,7 +82,7 @@ fix-card 已修过手机卡片溢出，需要确认改动和报告是否对得�
 BRIEF
 
 # 部署生产（正文写齐目标、环境、回滚条件及回读清单，齐全后执行部署）
-fleet-go new deploy-site --to gpt --auth deploy-prod,readonly-web --goal "部署 <HEAD> 并回读" --body body.md
+fleet-go new deploy-site --to gpt --luna --high --auth deploy-prod,readonly-web --goal "部署 <HEAD> 并回读" --body body.md
 
 # 花钱生成（预算可选）
 fleet-go new gen-test --to gpt --auth paid,local --goal "..." --body body.md
@@ -158,8 +158,9 @@ Terra 与 Sol 派单前问两句：brief 能否写清具体文件、入口和完
 | 任务 | 默认执行者 |
 |---|---|
 | 两问都是“能”（编码、复核、按已知源调研、机械改动） | Codex Terra，`--to gpt`，medium，不开 fast |
-| 任一问“不能”（要自己摸入口、跨系统多步、总管、删除或生产写入、发布脚本、Terra 已交回过的单） | 开派即用 Sol，`--to gpt --sol`（用户 2026-11-11） |
-| 部署、改配置（要写脚本，发布脚本按上面的 Sol 行） | Codex Terra，`--to gpt`，medium |
+| 任一问“不能”（要自己摸入口、跨系统多步编码、总管、删除数据、新写或大改发布脚本、Terra 已交回过的单） | 开派即用 Sol，`--to gpt --sol`（用户 2026-11-11） |
+| 发布、部署推进（跑现成流水线、合并分支、等 CI/部署、回读、生产实测、写更新日志），不写代码 | Luna，`--to gpt --luna --high`；不用 Terra/Sol（用户 2026-11-11：“这种没必要用 terra 或者 sol”） |
+| 改部署配置、写部署脚本（要写代码） | Codex Terra，`--to gpt`，medium |
 | 巡检、监工、定时、核对整理（比 Haiku 复杂、不需要编码） | Luna，`--to gpt --luna --high`（或默认 xhigh），不开 `--max`（用户 2026-11-11） |
 | 调研、搜索、技术文档、报告、数据整理、一般任务 | 默认 Codex Terra，`--to gpt`；首派仍按上面的两问判断 |
 | 文案、翻译、多语言、校对 | Gemini，`fleet copy`（批量用 `fleet bulk`） |
