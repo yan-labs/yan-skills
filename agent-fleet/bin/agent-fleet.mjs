@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { land } from '../src/land.mjs';
 import { currentRun, writeYield, ask, startBackground } from '../src/yield.mjs';
 // agent-fleet CLI 入口。
 //
@@ -53,6 +54,7 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
   fleet judge <state文件> <questions文件> [--json]
   fleet run --model name --prompt "任务" [--cwd dir] [--max-turns N]
   fleet run-many --config batch.json | status | tail [--follow]
+  fleet land --repo <主克隆> --env test [--commit SHA --run ID | --flush --config <私有JSON> | --status]
   fleet timeline <runId|名字>
   fleet wait <id|latest> [--timeout 秒]   ask 提前返回码 3
   fleet park --until <条件> --timeout 2h --say <醒来做什么>
@@ -595,7 +597,7 @@ async function main() {
       delete process.env.FLEET_DETACHED_BATCH;
     }
   }
-  if (!['media', 'park', 'blocked', 'ask', 'bg'].includes(command)) loadEnvFile(join(PKG_ROOT, '.env'));
+  if (!['media', 'park', 'blocked', 'ask', 'bg', 'land'].includes(command)) loadEnvFile(join(PKG_ROOT, '.env'));
 
   if (!command || command === 'help' || command === '--help' || command === '-h') {
     console.log(HELP_TEXT);
@@ -712,6 +714,12 @@ async function main() {
       case 'run-many':
         await cmdRunMany(rest);
         break;
+      case 'land': {
+        const result = await land(parseFlags(rest));
+        console.log(JSON.stringify(result));
+        if (result.status === 'failed') process.exitCode = 1;
+        break;
+      }
       case 'timeline': {
         const { flags, positionals } = splitShortArgs(rest);
         if (!positionals[0]) throw new Error('用法: fleet timeline <runId|名字>');

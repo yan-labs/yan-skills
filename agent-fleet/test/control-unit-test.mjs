@@ -195,4 +195,108 @@ assert(wallClockDurationMs('bad', 10) === 0, '非法 startedAt 墙钟为 0');
   assert(brief.sdkDurationMs === 9122, 'SDK duration 另起 sdkDurationMs 字段');
 }
 
+// Land uses real disposable git repositories, local bare remotes and fake team pipelines.
+{
+  const { land } = await import('../src/land.mjs');
+  const { execFileSync } = await import('node:child_process');
+  const { mkdirSync, readFileSync, existsSync } = await import('node:fs');
+  const { localCondition } = await import('../src/yield.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'fleet-land-test-'));
+  const previous = process.env.AGENT_FLEET_RUNS_DIR;
+  process.env.AGENT_FLEET_RUNS_DIR = join(root, 'runs');
+  const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const cli = join(import.meta.dirname || new URL('.', import.meta.url).pathname, '..', 'bin', 'agent-fleet.mjs');
+  try {
+    for (const kind of ['kollab-test', 'nextspace-test']) {
+      const dir = join(root, kind); mkdirSync(dir);
+      const repo = join(dir, 'main'), remote = join(dir, 'remote.git');
+      git(dir, 'init', '--bare', remote); git(dir, 'clone', remote, repo);
+      git(repo, 'checkout', '-b', 'test'); writeFileSync(join(repo, 'base'), 'base');
+      git(repo, 'add', '.'); git(repo, 'commit', '-m', 'base'); git(repo, 'push', 'origin', 'test');
+      const base = git(repo, 'rev-parse', 'HEAD'), commits = [];
+      for (const name of ['good-a', 'bad', 'good-c']) {
+        git(repo, 'checkout', '-b', name, base); writeFileSync(join(repo, name), name);
+        git(repo, 'add', '.'); git(repo, 'commit', '-m', name); commits.push(git(repo, 'rev-parse', 'HEAD'));
+      }
+      git(repo, 'checkout', 'test');
+      const hook = join(dir, 'adapter.mjs'), config = join(dir, 'runtime.json'), calls = join(dir, 'calls.jsonl');
+      writeFileSync(hook, `import {readFileSync,appendFileSync,existsSync} from 'node:fs';
+        import {execFileSync} from 'node:child_process';
+        let raw='';for await(const c of process.stdin)raw+=c;const c=JSON.parse(raw);
+        appendFileSync(${JSON.stringify(calls)},JSON.stringify(c)+'\\n');
+        if(c.phase==='check'&&existsSync(c.cwd+'/bad')){console.error('bad candidate');process.exit(1)}
+        if(c.phase==='verify') { const sha=execFileSync('git',['rev-parse','HEAD'],{cwd:c.repo,encoding:'utf8'}).trim();if(sha!==c.candidate)process.exit(2); }
+        console.log(c.phase==='pipeline'?'team-pipeline-1':'ok');`);
+      const cfg = { kind, repo, env: 'test', branch: 'test', expectedHead: base, runningCommit: base,
+        check: [process.execPath, hook], pipeline: [process.execPath, hook], verify: [process.execPath, hook] };
+      writeFileSync(config, JSON.stringify({ adapters: [cfg] }));
+      for (let i = 0; i < commits.length; i++) {
+        const result = JSON.parse(execFileSync(process.execPath, [cli, 'land', '--repo', repo, '--env', 'test', '--commit', commits[i], '--run', `${kind}-${i}`], { encoding: 'utf8' }));
+        assert(result.status === 'queued', `${kind} register ${i} queues without publishing`);
+      }
+      await land({ repo, env: 'test', commit: commits[0], run: `${kind}-0` });
+      assert((await land({ repo, env: 'test', status: true })).pending.length === 3, `${kind} duplicate registration is idempotent`);
+      assert(!existsSync(calls), `${kind} three registrations trigger no pipeline`);
+      const result = await land({ repo, env: 'test', flush: true, config });
+      assert(result.status === 'done' && result.accepted?.length === 2 && result.rejected.length === 1, `${kind} rejects bad commit and lands two good members`);
+      const events = readFileSync(calls, 'utf8').trim().split('\n').map(JSON.parse);
+      assert(events.filter(c => c.phase === 'pipeline').length === 1, `${kind} batch triggers exactly one team pipeline`);
+      assert(events.find(c => c.phase === 'pipeline').trigger === (kind === 'nextspace-test'), `${kind} respects push-trigger versus explicit Jenkins trigger`);
+      assert(existsSync(join(repo, 'good-a')) && existsSync(join(repo, 'good-c')) && !existsSync(join(repo, 'bad')), `${kind} final environment contains only good changes`);
+      assert(git(repo, 'rev-parse', 'HEAD') === git(remote, 'rev-parse', 'test'), `${kind} main clone and remote environment branch readback agree`);
+      const wake = await localCondition(`land:${result.key}`, { id: `${kind}-1`, entry: { at: 0 }, cwd: repo });
+      assert(wake?.status === 'failed' && existsSync(wake.logPath), `${kind} bad member receives failure wake and log`);
+      assert((await localCondition(`land:${result.key}`, { id: `${kind}-0`, entry: { at: 0 }, cwd: repo }))?.status === 'done', `${kind} good member receives success wake`);
+      const count = events.length;
+      assert((await land({ repo, env: 'test', flush: true, config })).status === 'empty' && readFileSync(calls, 'utf8').trim().split('\n').length === count, `${kind} empty flush never repeats pipeline`);
+      const candidate = await land({ repo, env: 'production', run: `${kind}-prod` });
+      assert(candidate.status === 'candidate-only', `${kind} production records candidate only`);
+      let error;
+      try { await land({ repo, env: 'production', flush: true, config }); } catch (e) { error = e.message; }
+      assert(error?.includes('生产仅登记'), `${kind} production flush refused before mutation`);
+      // Preserve dirty/staged edits, and require an updated coordinator snapshot.
+      await land({ repo, env: 'test', run: `${kind}-dirty` });
+      writeFileSync(join(repo, 'personal'), 'keep'); git(repo, 'add', 'personal');
+      const before = git(repo, 'status', '--porcelain');
+      const dirty = await land({ repo, env: 'test', flush: true, config });
+      assert(dirty.status === 'failed' && git(repo, 'status', '--porcelain') === before && readFileSync(join(repo, 'personal'), 'utf8') === 'keep', `${kind} refuses dirty clone and preserves staged edits`);
+      assert(git(repo, 'worktree', 'list', '--porcelain').match(/worktree /g).length === 1, `${kind} candidate worktree cleaned up`);
+      git(repo, 'reset', '--hard', 'HEAD');
+      process.env.AGENT_FLEET_RUNS_DIR = join(dir, 'drift-runs');
+      await land({ repo, env: 'test', run: `${kind}-drift` });
+      const drift = await land({ repo, env: 'test', flush: true, config });
+      assert(drift.status === 'failed' && drift.error.includes('枢纽快照'), `${kind} stale coordinator snapshot stops before push/pipeline`);
+      const candidateHead = git(repo, 'rev-parse', 'HEAD');
+      cfg.expectedHead = candidateHead; cfg.runningCommit = candidateHead;
+      cfg.pipeline = [process.execPath, '-e', 'console.error("pipeline failed");process.exit(1)'];
+      writeFileSync(config, JSON.stringify({ adapters: [cfg] }));
+      process.env.AGENT_FLEET_RUNS_DIR = join(dir, 'failed-pipeline-runs');
+      await land({ repo, env: 'test', run: `${kind}-pipeline-fail` });
+      const failed = await land({ repo, env: 'test', flush: true, config });
+      assert(failed.status === 'failed' && failed.error.includes('pipeline failed'), `${kind} team pipeline failure is never reported done`);
+      await land({ repo, env: 'test', run: `${kind}-no-replay` });
+      error = '';
+      try { await land({ repo, env: 'test', flush: true, config }); } catch (e) { error = e.message; }
+      assert(error.includes('上批发布未确认'), `${kind} failed pipeline cannot be automatically replayed`);
+      if (kind === 'nextspace-test') {
+        const alternate = join(dir, 'alternate');
+        git(repo, 'worktree', 'add', '-b', 'old-test', alternate, base);
+        git(repo, 'checkout', '--detach'); git(alternate, 'checkout', 'test');
+        cfg.repo = alternate; writeFileSync(config, JSON.stringify({ adapters: [cfg] }));
+        process.env.AGENT_FLEET_RUNS_DIR = join(dir, 'alternate-runs');
+        await land({ repo: alternate, env: 'test', run: 'alternate-test' });
+        const refused = await land({ repo: alternate, env: 'test', flush: true, config });
+        assert(refused.status === 'failed' && refused.error.includes('主克隆'), 'nextspace refuses environment merge from linked worktree');
+        git(repo, 'worktree', 'remove', '--force', alternate);
+      }
+      process.env.AGENT_FLEET_RUNS_DIR = join(root, 'runs');
+
+    }
+  } finally {
+    if (previous === undefined) delete process.env.AGENT_FLEET_RUNS_DIR;
+    else process.env.AGENT_FLEET_RUNS_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 finish();
