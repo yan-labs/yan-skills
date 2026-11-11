@@ -33,8 +33,8 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
   send({method:'turn/started',params:{turn:{id}}});
   setTimeout(() => {
    const mode = process.env.MODE;
-   if (mode === 'plan' && count === 1) fs.writeFileSync(process.env.YIELD_FILE,JSON.stringify({type:'plan',text:'实现：假测试通过\\n验收点：报告完成',at:Date.now()}));
-   if (mode === 'handoff' && count === 1)
+   if ((mode === 'plan' && count === 1) || (mode === 'replan' && count === 2)) fs.writeFileSync(process.env.YIELD_FILE,JSON.stringify({type:'plan',text:'实现：假测试通过\\n验收点：报告完成',at:Date.now()}));
+   if ((mode === 'handoff' && count === 1) || (mode === 'replan' && (count === 1 || count === 3)))
      fs.writeFileSync(process.env.YIELD_FILE, JSON.stringify({type:'handoff',text:'已完成及证据；决定及理由；未决外部事项；坑勿重做；下一步',next:'继续',at:Date.now()}));
 
    if (count === 1 && (mode === 'yield-park' || mode === 'yield-blocked')) {
@@ -114,6 +114,67 @@ try {
   appendInbox('stage-plan',{type:'say',text:'批准计划'});
   await planning;
   assert.equal(JSON.parse(readFileSync(join(scratch,'stage-plan.stages.json'),'utf8')).stages.length,2);
+  // Approval gates never permit a work turn after refusal or timeout.
+  for (const mode of ['plan', 'handoff']) for (const decision of ['reject', 'timeout']) {
+    const id = `${mode}-${decision}`;
+    process.env.FLEET_DETACHED_RUN_ID = id;
+    process.env.MODE = mode;
+    process.env.YIELD_FILE = join(scratch, `${id}.yield`);
+    process.env.TRACE = join(scratch, `${id}.trace`);
+    const pending = runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,
+      continuationJudge:async()=>({ok:true,answers:{aligned:{choice:'reject',confidence:0.9}}})});
+    for(let n=0;n<500 && !existsSync(join(scratch, `${id}.asks`));n++) await delay(10);
+    assert(existsSync(join(scratch, `${id}.asks`)));
+    const clock = Date.now;
+    if (decision === 'reject') appendInbox(id,{type:'say',text:'不批准，拒绝继续'});
+    else {
+      Date.now = () => clock() + 1800001;
+    }
+    const stopped = await pending.finally(() => { Date.now = clock; });
+    assert.equal(stopped.numTurns,1,`${id}: zero subsequent work turns`);
+    assert.match(stopped.continueStop,/未获批准/);
+    assert.equal(stopped.reportConclusion,'部分完成');
+    assert.equal(JSON.parse(readFileSync(join(scratch, `${id}.stages.json`))).stage,0);
+  }
+  // Incomplete handoffs keep the same stage; evidence-confirmed completion advances it.
+  for (const complete of [false,true]) {
+    const id = `stage-complete-${complete}`;
+    process.env.FLEET_DETACHED_RUN_ID = id;
+    process.env.MODE = 'handoff';
+    process.env.YIELD_FILE = join(scratch, `${id}.yield`);
+    process.env.TRACE = join(scratch, `${id}.trace`);
+    const checks = [];
+    await runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,
+      continuationJudge:async payload => { checks.push(payload); return {ok:true,answers:{
+        aligned:{choice:'pass',confidence:0.9},completed:{choice:complete?'pass':'reject',confidence:0.9}}}; }});
+    const state = JSON.parse(readFileSync(join(scratch, `${id}.stages.json`)));
+    assert.equal(state.stage,complete?1:0);
+    assert.equal(state.baton,2);
+    assert.equal(checks[1].state.stage,anchor.match(/^阶段：.+$/gm)[complete?1:0]);
+  }
+  // Reordering with the same stage count resets position and the exhausted baton budget.
+  process.env.FLEET_DETACHED_RUN_ID = 'replan';
+  process.env.MODE = 'replan';
+  process.env.YIELD_FILE = join(scratch,'replan.yield');
+  process.env.TRACE = join(scratch,'replan.trace');
+  writeFileSync(join(scratch,'replan.stages.json'),JSON.stringify({anchor,stages:['旧阶段一','旧阶段二'],stage:1,baton:4}));
+  const replan = runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,
+    continuationJudge:async()=>({ok:true,answers:{aligned:{choice:'pass',confidence:0.9}}})});
+  for(let n=0;n<500 && !existsSync(join(scratch,'replan.asks'));n++) await delay(10);
+  appendInbox('replan',{type:'say',text:'同意重排，请提交新计划'});
+  for(let n=0;n<500;n++) {
+    if (existsSync(join(scratch,'replan.asks')) && readFileSync(join(scratch,'replan.asks'),'utf8').trim().split('\n').length===2) break;
+    await delay(10);
+  }
+  assert.equal(readFileSync(join(scratch,'replan.asks'),'utf8').trim().split('\n').length,2);
+  appendInbox('replan',{type:'say',text:'批准新计划，从第一阶段开始'});
+  await replan;
+  const replanned = JSON.parse(readFileSync(join(scratch,'replan.stages.json')));
+  assert.equal(replanned.stages.length,2);
+  assert.equal(replanned.stage,0);
+  assert.equal(replanned.baton,2);
+  assert.equal(readFileSync(join(scratch,'replan.trace'),'utf8').split('"method":"thread/start"').length-1,2);
+  console.log('PASS - refusal/timeout stop; stage completion gate; approved replan resets baton and stage');
   // Recreate a dead runner's durable park: resume must wait before any model turn.
   process.env.FLEET_DETACHED_RUN_ID = 'recovered-park';
   process.env.MODE = 'complete';

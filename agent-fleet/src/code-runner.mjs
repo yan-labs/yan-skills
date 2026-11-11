@@ -242,6 +242,13 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       } finally { archivePending = null; }
     })();
   };
+  const stopUnapproved = () => {
+    stopping = true;
+    metadata.continueStop = '阶段计划或交接未获批准，停止执行';
+    metadata.reportConclusion = '部分完成';
+    record();
+    return { blocked: true };
+  };
   const handleYield = async () => {
     const entry = readYield(runId);
     if (!entry || entry.resolvedAt) return null;
@@ -249,28 +256,29 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       resolveYield(runId, entry, { status: 'submitted' });
       ask(runId, { kind: 'decision', text: '请批准阶段计划：' + entry.text, wait: true });
       const approval = await handleYield();
-      if (approval?.approved) {
-        stages.stages = entry.text.split('\n').filter(Boolean);
-        persistStages();
-      }
+      if (!approval?.approved) return stopUnapproved();
+      stages.stages = entry.text.split('\n').filter(Boolean);
+      stages.stage = 0;
+      stages.baton = 1;
+      persistStages();
       return approval;
     }
     if (entry.type === 'handoff') {
       resolveYield(runId, entry, { status: 'checked' });
       entry.text += '\n下一步第一动作：' + entry.next;
-      const aligned = await alignStage(stages, entry.text, 'handoff', continuationJudge);
+      const { aligned, completed: stageCompleted } = await alignStage(stages, entry.text, 'handoff', continuationJudge, { details: true });
       const needsPlan = !stages.stages.length || stages.baton >= stages.stages.length + 2;
       if (!aligned || needsPlan || /验收点/.test(stages.stages[stages.stage] || '')) {
         ask(runId, { kind: 'decision', text: '交接需要枢纽放行或重排：' + entry.text, wait: true });
         const approval = await handleYield();
-        if (!approval?.approved) return approval;
+        if (!approval?.approved) return stopUnapproved();
         if (needsPlan) return { prompt: approval.prompt + '\n尚无阶段计划或棒数已达上限；先 fleet plan 提交重排后的计划，批准前不开新 thread。' };
         // Approval does not silently accept drift: the hub supplies the corrected handoff.
         entry.text += '\n枢纽答复：' + approval.prompt;
       }
       stages.latest = entry.text;
       stages.baton++;
-      stages.stage++;
+      if (aligned && stageCompleted) stages.stage++;
       persistStages();
       needsRestatement = true;
       log(fleetEvent('handoff'));
@@ -417,7 +425,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
             if (!aligned) {
               ask(runId, { kind: 'decision', text: '接棒复述未对齐：' + text, wait: true });
               const correction = await handleYield();
-              if (correction?.blocked) break;
+              if (!correction?.approved) { stopUnapproved(); break; }
               nextPrompt = correction.prompt + '\n请重新仅复述目标、阶段边界、不做什么。';
               continue;
             }

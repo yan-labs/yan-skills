@@ -165,15 +165,20 @@ export function stageState(id, anchor) {
   return state;
 }
 export function saveStages(id, state) { save(pathFor(validId(id), 'stages.json'), state); }
-export async function alignStage(state, text, kind, judge) {
+export async function alignStage(state, text, kind, judge, { details = false } = {}) {
   try {
     const result = await judge(JSON.parse(redactEvidence({
       state: { anchor: state.anchor, stage: state.stages[state.stage], text, kind },
       questions: { aligned: { type: 'choice',
         instructions: '对照不变锚和本阶段条件。交接须含已完成及证据、决定及理由、未决与外部事项、坑与勿重做、下一步；复述须含目标、阶段边界、不做什么。偏离或缺项选 reject。',
-        criteria: { pass: '完整且对齐', reject: '偏离或缺项' } } }
+        criteria: { pass: '完整且对齐', reject: '偏离或缺项' } },
+        ...(details ? { completed: { type: 'choice',
+          instructions: '仅依据交接中明确的完成证据核对当前阶段全部完成条件；阶段内换棒、仍有阶段内待办或证据不足选 reject。',
+          criteria: { pass: '本阶段完成条件已由证据确认', reject: '本阶段未完成或未确认' } } } : {}) }
     })));
     const answer = result.answers?.aligned;
-    return result.ok && answer?.choice === 'pass' && answer.confidence >= 0.55;
-  } catch { return false; }
+    const aligned = Boolean(result.ok && answer?.choice === 'pass' && answer.confidence >= 0.55);
+    const completion = result.answers?.completed;
+    return details ? { aligned, completed: Boolean(aligned && completion?.choice === 'pass' && completion.confidence >= 0.55) } : aligned;
+  } catch { return details ? { aligned: false, completed: false } : false; }
 }
