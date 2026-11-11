@@ -200,7 +200,7 @@ assert(wallClockDurationMs('bad', 10) === 0, '非法 startedAt 墙钟为 0');
   const { land } = await import('../src/land.mjs');
   const { execFileSync } = await import('node:child_process');
   const { mkdirSync, readFileSync, existsSync } = await import('node:fs');
-  const { localCondition } = await import('../src/yield.mjs');
+  const { localCondition, writeYield } = await import('../src/yield.mjs');
   const root = mkdtempSync(join(tmpdir(), 'fleet-land-test-'));
   const previous = process.env.AGENT_FLEET_RUNS_DIR;
   process.env.AGENT_FLEET_RUNS_DIR = join(root, 'runs');
@@ -225,11 +225,20 @@ assert(wallClockDurationMs('bad', 10) === 0, '非法 startedAt 墙钟为 0');
         let raw='';for await(const c of process.stdin)raw+=c;const c=JSON.parse(raw);
         appendFileSync(${JSON.stringify(calls)},JSON.stringify(c)+'\\n');
         if(c.phase==='check'&&existsSync(c.cwd+'/bad')){console.error('bad candidate');process.exit(1)}
+        if(c.phase==='push') execFileSync('git',['push',c.remote,'HEAD:refs/heads/'+c.branch],{cwd:c.repo});
         if(c.phase==='verify') { const sha=execFileSync('git',['rev-parse','HEAD'],{cwd:c.repo,encoding:'utf8'}).trim();if(sha!==c.candidate)process.exit(2); }
         console.log(c.phase==='pipeline'?'team-pipeline-1':'ok');`);
       const cfg = { kind, repo, env: 'test', branch: 'test', expectedHead: base, runningCommit: base,
-        check: [process.execPath, hook], pipeline: [process.execPath, hook], verify: [process.execPath, hook] };
+        push: [process.execPath, hook], check: [process.execPath, hook], pipeline: [process.execPath, hook], verify: [process.execPath, hook] };
       writeFileSync(config, JSON.stringify({ adapters: [cfg] }));
+      if (kind === 'kollab-test') {
+        const missingPush = {...cfg}; delete missingPush.push;
+        writeFileSync(config, JSON.stringify({adapters:[missingPush]}));
+        let error = '';
+        try { await land({repo,env:'test',flush:true,config}); } catch(e) { error = e.message; }
+        assert(error.includes('push') && !existsSync(calls), 'Kollab requires explicit private push protocol before any mutation');
+        writeFileSync(config, JSON.stringify({adapters:[cfg]}));
+      }
       for (let i = 0; i < commits.length; i++) {
         const result = JSON.parse(execFileSync(process.execPath, [cli, 'land', '--repo', repo, '--env', 'test', '--commit', commits[i], '--run', `${kind}-${i}`], { encoding: 'utf8' }));
         assert(result.status === 'queued', `${kind} register ${i} queues without publishing`);
@@ -239,7 +248,11 @@ assert(wallClockDurationMs('bad', 10) === 0, '非法 startedAt 墙钟为 0');
       assert(!existsSync(calls), `${kind} three registrations trigger no pipeline`);
       const result = await land({ repo, env: 'test', flush: true, config });
       assert(result.status === 'done' && result.accepted?.length === 2 && result.rejected.length === 1, `${kind} rejects bad commit and lands two good members`);
+      const latePark = writeYield(`${kind}-0`, {type:'park',until:`land:${result.key}`,say:'continue',timeout:'1m'});
+      assert((await localCondition(latePark.until, {id:`${kind}-0`,entry:latePark,cwd:repo}))?.batchId === result.id, `${kind} completion before park is consumed by registration`);
       const events = readFileSync(calls, 'utf8').trim().split('\n').map(JSON.parse);
+      assert(events.filter(c => c.phase === 'push').length === 1, `${kind} private push hook runs exactly once`);
+      assert(events.find(c => c.phase === 'push')?.base === base && events.find(c => c.phase === 'push')?.candidate === result.candidate, `${kind} push hook receives expected base and candidate`);
       assert(events.filter(c => c.phase === 'pipeline').length === 1, `${kind} batch triggers exactly one team pipeline`);
       assert(events.find(c => c.phase === 'pipeline').trigger === (kind === 'nextspace-test'), `${kind} respects push-trigger versus explicit Jenkins trigger`);
       assert(existsSync(join(repo, 'good-a')) && existsSync(join(repo, 'good-c')) && !existsSync(join(repo, 'bad')), `${kind} final environment contains only good changes`);
@@ -249,6 +262,8 @@ assert(wallClockDurationMs('bad', 10) === 0, '非法 startedAt 墙钟为 0');
       assert((await localCondition(`land:${result.key}`, { id: `${kind}-0`, entry: { at: 0 }, cwd: repo }))?.status === 'done', `${kind} good member receives success wake`);
       const count = events.length;
       assert((await land({ repo, env: 'test', flush: true, config })).status === 'empty' && readFileSync(calls, 'utf8').trim().split('\n').length === count, `${kind} empty flush never repeats pipeline`);
+      await land({ repo, env: 'test', run: `${kind}-0` });
+      assert(await localCondition(latePark.until, {id:`${kind}-0`,entry:latePark,cwd:repo}) === null, `${kind} new registration cannot consume previous batch result`);
       const candidate = await land({ repo, env: 'production', run: `${kind}-prod` });
       assert(candidate.status === 'candidate-only', `${kind} production records candidate only`);
       let error;
@@ -268,6 +283,34 @@ assert(wallClockDurationMs('bad', 10) === 0, '非法 startedAt 墙钟为 0');
       assert(drift.status === 'failed' && drift.error.includes('枢纽快照'), `${kind} stale coordinator snapshot stops before push/pipeline`);
       const candidateHead = git(repo, 'rev-parse', 'HEAD');
       cfg.expectedHead = candidateHead; cfg.runningCommit = candidateHead;
+      git(repo,'checkout','-b','recovery-candidate',candidateHead);
+      writeFileSync(join(repo,'recovery-change'),'new candidate'); git(repo,'add','.'); git(repo,'commit','-m','unpublished candidate');
+      const recoveryCommit = git(repo,'rev-parse','HEAD'); git(repo,'checkout','test');
+      const movedHead = git(remote,'commit-tree',`${candidateHead}^{tree}`,'-p',candidateHead,'-m','concurrent remote commit');
+      const normalPush = cfg.push;
+      for (const moveRemote of [false, true, 'local-edit']) {
+        process.env.AGENT_FLEET_RUNS_DIR = join(dir, `refused-${moveRemote}-runs`);
+        cfg.expectedHead = git(repo, 'rev-parse', 'HEAD'); cfg.runningCommit = cfg.expectedHead;
+        cfg.push = [process.execPath, '-e', moveRemote === 'local-edit'
+          ? `require('node:fs').writeFileSync(${JSON.stringify(join(repo,'concurrent-edit'))},'keep');console.error('permission denied');process.exit(1)`
+          : moveRemote
+          ? `const {execFileSync:g}=require('node:child_process');g('git',['update-ref','refs/heads/test',${JSON.stringify(movedHead)}],{cwd:${JSON.stringify(remote)}});console.error('remote moved');process.exit(1)`
+          : 'console.error("permission denied");process.exit(1)'];
+        writeFileSync(config, JSON.stringify({adapters:[cfg]}));
+        await land({repo,env:'test',commit:recoveryCommit,run:`refused-${moveRemote}`});
+        const refused = await land({repo,env:'test',flush:true,config});
+        if (moveRemote === 'local-edit') {
+          assert(refused.status === 'failed' && !refused.recoveredHead && readFileSync(join(repo,'concurrent-edit'),'utf8') === 'keep' && refused.recoveryCommands.length === 5, `${kind} concurrent edits preserved with executable recovery argv`);
+          rmSync(join(repo,'concurrent-edit'));
+          git(repo,'checkout','--detach'); git(repo,'branch','-f','test',cfg.expectedHead); git(repo,'checkout','test');
+        } else assert(refused.status === 'failed' && git(repo,'rev-parse','HEAD') === git(remote,'rev-parse','test') && !git(repo,'status','--porcelain'), `${kind} rejected push restores clean local test to current remote (${moveRemote})`);
+        assert(git(repo,'rev-parse',refused.recoveryRef) === refused.candidate, `${kind} rejected candidate preserved by recovery ref (${moveRemote})`);
+        assert(git(remote,'rev-parse','test') === (moveRemote ? movedHead : candidateHead), `${kind} rejected private hook never falls back to direct push (${moveRemote})`);
+      }
+      // Restore only the disposable remote/fixture to the last successful head.
+      git(remote,'update-ref','refs/heads/test',candidateHead);
+      git(repo,'checkout','--detach'); git(repo,'branch','-f','test',candidateHead); git(repo,'checkout','test');
+      cfg.expectedHead = candidateHead; cfg.runningCommit = candidateHead; cfg.push = normalPush;
       cfg.pipeline = [process.execPath, '-e', 'console.error("pipeline failed");process.exit(1)'];
       writeFileSync(config, JSON.stringify({ adapters: [cfg] }));
       process.env.AGENT_FLEET_RUNS_DIR = join(dir, 'failed-pipeline-runs');

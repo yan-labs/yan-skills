@@ -1,10 +1,13 @@
 // Private runtime adapters own project-specific checks and team pipeline entry points.
 // Runtime JSON: {adapters:[{kind:'kollab-test'|'nextspace-test', repo, env:'test',
 // branch:'test', remote:'origin', expectedHead, runningCommit, check:argv,
-// pipeline:argv, verify:argv}]}. Never commit real entries or credentials.
+// push:argv, pipeline:argv, verify:argv}]}. Never commit real entries or credentials.
 // Hooks receive batch/candidate/members/cwd as JSON on stdin; exit 0 means complete.
 // check is isolated and must not deploy. pipeline waits the team pipeline to finish,
 // handles project-required rollback on failure; trigger=false only waits a push's CI.
+// Kollab requires push: a private argv wrapper around the project release-ref protocol.
+// It validates the expected base/candidate and pushes exactly once; land never retries it.
+// The wrapper must reuse the project release script; private entry points stay in runtime config.
 // verify must read back this candidate's digest and project smoke checks.
 import { mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, mkdtempSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -41,7 +44,7 @@ function adapterConfig(path, repo, env) {
   const config = entries?.find(c => realpathSync(c.repo) === realpathSync(repo) && c.env === env);
   if (!config || !['kollab-test', 'nextspace-test'].includes(config.kind) || env !== 'test' || config.branch !== 'test')
     throw new Error('只支持配置明确指定的 Kollab/nextspace test；生产仅登记候选。');
-  for (const phase of ['check', 'pipeline', 'verify']) {
+  for (const phase of ['check', 'pipeline', 'verify', ...(config.kind === 'kollab-test' || config.push !== undefined ? ['push'] : [])]) {
     if (!Array.isArray(config[phase]) || !config[phase].length || config[phase].some(s => typeof s !== 'string')) throw new Error(`adapter 缺少 ${phase} 命令数组。`);
   }
   if (!/^[a-f0-9]{40}$/.test(config.expectedHead || '') || !/^[a-f0-9]{40}$/.test(config.runningCommit || ''))
@@ -61,7 +64,12 @@ export async function land(flags) {
     if (!flags.flush) {
       const runId = currentRun(flags);
       const sha = await git(repo, 'rev-parse', '--verify', '--end-of-options', `${flags.commit || 'HEAD'}^{commit}`);
-      if (!state.pending.some(m => m.runId === runId && m.sha === sha)) state.pending.push({ runId, sha });
+      let member = state.pending.find(m => m.runId === runId && m.sha === sha);
+      if (!member) { member = { runId, sha, registrationId: randomUUID() }; state.pending.push(member); }
+      const registrationsPath = join(runsDir(), `${runId}.land.json`);
+      const registrations = readJSON(registrationsPath) || {};
+      registrations[`land:${key}`] = { registrationId: member.registrationId };
+      save(registrationsPath, registrations);
       save(path, state);
       return { key, until: `land:${key}`, status: env === 'test' ? 'queued' : 'candidate-only', pending: state.pending };
     }
@@ -129,7 +137,35 @@ export async function land(flags) {
         await git(repo, 'merge', '--ff-only', candidate);
         batch.candidate = candidate; batch.status = 'publishing';
         state.batches.push(batch); state.pending = []; save(path, state);
-        await git(repo, 'push', config.remote, `HEAD:refs/heads/${config.branch}`);
+        try {
+          if (config.push) await invoke('push', { ...context, candidate, members: accepted, remote: config.remote });
+          else await git(repo, 'push', config.remote, `HEAD:refs/heads/${config.branch}`);
+        } catch (error) {
+          // Preserve the candidate before moving any branch; never reset someone else's edits.
+          batch.recoveryRef = `refs/heads/fleet-land-recovery-${batch.id}`;
+          batch.recoveryCommands = [
+            ['git', 'update-ref', batch.recoveryRef, candidate, '0'.repeat(40)],
+            ['git', 'fetch', config.remote, config.branch],
+            ['git', 'switch', '--detach', candidate],
+            ['git', 'update-ref', `refs/heads/${config.branch}`, 'FETCH_HEAD', candidate],
+            ['git', 'switch', config.branch],
+          ];
+          try {
+            await git(repo, ...batch.recoveryCommands[0].slice(1));
+            await git(repo, 'fetch', config.remote, config.branch);
+            const remote = await git(repo, 'rev-parse', 'FETCH_HEAD');
+            if (await git(repo, 'status', '--porcelain') || await git(repo, 'rev-parse', 'HEAD') !== candidate ||
+                await git(repo, 'symbolic-ref', '--short', 'HEAD') !== config.branch)
+              throw new Error('主克隆已被他人修改；保留原状，恢复前先保存其改动。');
+            await git(repo, 'switch', '--detach', candidate);
+            await git(repo, 'update-ref', `refs/heads/${config.branch}`, remote, candidate);
+            await git(repo, 'switch', config.branch);
+            batch.recoveredHead = remote;
+          } catch (recoveryError) {
+            log(`恢复未完成：${recoveryError.message}`);
+          }
+          throw new Error(`${error.message}\n候选保留于 ${batch.recoveryRef}；本地同步 ${batch.recoveredHead || '未完成'}。恢复 argv（在主克隆干净且 HEAD 仍为候选时执行；已完成步骤可跳过）：${JSON.stringify(batch.recoveryCommands)}`);
+        }
         const remoteHead = (await git(repo, 'ls-remote', config.remote, `refs/heads/${config.branch}`)).split(/\s/)[0];
         if (remoteHead !== candidate) throw new Error('推送后远端头不符，停止发布。');
         // Kollab: wait/read back the push-triggered pipeline. Nextspace: trigger and wait Jenkins.
@@ -151,6 +187,12 @@ export async function land(flags) {
       const rejected = batch.rejected.some(m => m.runId === member.runId && m.sha === member.sha);
       const status = batch.status === 'done' && !rejected ? 'done' : 'failed';
       const result = { condition: `land:${key}`, at: Date.now(), status, logPath, batchId: batch.id, candidate: batch.candidate };
+      const registrationsPath = join(runsDir(), `${member.runId}.land.json`);
+      const registrations = readJSON(registrationsPath) || {};
+      if (registrations[result.condition]?.registrationId === member.registrationId) {
+        registrations[result.condition].result = result;
+        save(registrationsPath, registrations);
+      }
       save(join(runsDir(), `${member.runId}.wake.json`), result);
       appendInbox(member.runId, { type: 'say', text: `land ${status}; batch=${batch.id}; log=${logPath}${rejected ? '; rejected merge/check' : ''}` });
     }

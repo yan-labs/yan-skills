@@ -129,6 +129,11 @@ export async function localCondition(condition, { id, entry, cwd, replies = [] }
       return { status: 'failed', text: `cmd 退出 ${error.code}`, logPath };
     }
   }
+  if (kind === 'land') {
+    // Registration, not park time, owns the result: a batch may finish before park.
+    const registration = readJSON(pathFor(id, 'land.json'))?.[condition];
+    return registration?.result || null;
+  }
   // Step 5 owns remote probes; this runner only consumes their explicit terminal record.
   const wake = readJSON(pathFor(id, 'wake.json'));
   return wake?.condition === condition && wake.at >= entry.at && ['done', 'failed'].includes(wake.status) ? wake : null;
