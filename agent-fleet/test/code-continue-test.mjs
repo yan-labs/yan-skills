@@ -92,7 +92,7 @@ try {
   assert(existsSync(join(scratch,'rejected-handoff.asks')));
   assert.equal(readYield('rejected-handoff').until,'reply');
   assert.equal(readFileSync(process.env.TRACE,'utf8').split('"method":"thread/start"').length-1,1);
-  appendInbox('rejected-handoff',{type:'say',text:'放行，按原锚继续',at:new Date().toISOString()});
+  appendInbox('rejected-handoff',{type:'say',text:'{"approved":true,"instruction":"按原锚继续"}',at:new Date().toISOString()});
   await rejecting;
   process.env.FLEET_DETACHED_RUN_ID = 'baton-limit';
   process.env.YIELD_FILE = join(scratch,'baton-limit.yield');
@@ -104,18 +104,22 @@ try {
   appendInbox('baton-limit',{type:'say',text:'放行'});
   await limited;
   assert.equal(readFileSync(process.env.TRACE,'utf8').split('"method":"thread/start"').length-1,1);
-  process.env.FLEET_DETACHED_RUN_ID = 'stage-plan';
-  process.env.MODE = 'plan';
-  process.env.YIELD_FILE = join(scratch,'stage-plan.yield');
-  process.env.TRACE = join(scratch,'stage-plan.trace');
-  const planning = runCode({prompt:'原始锚',cwd:scratch,codexBin:mock,noContinue:true});
-  for(let n=0;n<500 && !existsSync(join(scratch,'stage-plan.asks'));n++) await delay(10);
-  assert.equal(readYield('stage-plan').until,'reply');
-  appendInbox('stage-plan',{type:'say',text:'批准计划'});
-  await planning;
-  assert.equal(JSON.parse(readFileSync(join(scratch,'stage-plan.stages.json'),'utf8')).stages.length,2);
+  for (const [index, reply] of ['批准','同意','放行','{"approved":true}'].entries()) {
+    const id = `stage-plan-${index}`;
+    process.env.FLEET_DETACHED_RUN_ID = id;
+    process.env.MODE = 'plan';
+    process.env.YIELD_FILE = join(scratch,`${id}.yield`);
+    process.env.TRACE = join(scratch,`${id}.trace`);
+    const planning = runCode({prompt:'原始锚',cwd:scratch,codexBin:mock,noContinue:true});
+    for(let n=0;n<500 && !existsSync(join(scratch,`${id}.asks`));n++) await delay(10);
+    assert.equal(readYield(id).until,'reply');
+    assert.match(readFileSync(join(scratch,`${id}.asks`),'utf8'),/approved/);
+    appendInbox(id,{type:'say',text:reply});
+    await planning;
+    assert.equal(JSON.parse(readFileSync(join(scratch,`${id}.stages.json`),'utf8')).stages.length,2);
+  }
   // Approval gates never permit a work turn after refusal or timeout.
-  for (const mode of ['plan', 'handoff']) for (const decision of ['reject', 'timeout']) {
+  for (const mode of ['plan', 'handoff']) for (const [decision, reply] of Object.entries({reject:'不予批准', disagree:'不同意', unapproved:'未批准', wrapped:'不能说“批准”', ambiguous:'请考虑批准', structuredFalse:'{"approved":false}', stringTrue:'{"approved":"true"}', timeout:null})) {
     const id = `${mode}-${decision}`;
     process.env.FLEET_DETACHED_RUN_ID = id;
     process.env.MODE = mode;
@@ -126,7 +130,7 @@ try {
     for(let n=0;n<500 && !existsSync(join(scratch, `${id}.asks`));n++) await delay(10);
     assert(existsSync(join(scratch, `${id}.asks`)));
     const clock = Date.now;
-    if (decision === 'reject') appendInbox(id,{type:'say',text:'不批准，拒绝继续'});
+    if (reply !== null) appendInbox(id,{type:'say',text:reply});
     else {
       Date.now = () => clock() + 1800001;
     }
@@ -161,13 +165,13 @@ try {
   const replan = runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,
     continuationJudge:async()=>({ok:true,answers:{aligned:{choice:'pass',confidence:0.9}}})});
   for(let n=0;n<500 && !existsSync(join(scratch,'replan.asks'));n++) await delay(10);
-  appendInbox('replan',{type:'say',text:'同意重排，请提交新计划'});
+  appendInbox('replan',{type:'say',text:'{"approved":true,"instruction":"重排，请提交新计划"}'});
   for(let n=0;n<500;n++) {
     if (existsSync(join(scratch,'replan.asks')) && readFileSync(join(scratch,'replan.asks'),'utf8').trim().split('\n').length===2) break;
     await delay(10);
   }
   assert.equal(readFileSync(join(scratch,'replan.asks'),'utf8').trim().split('\n').length,2);
-  appendInbox('replan',{type:'say',text:'批准新计划，从第一阶段开始'});
+  appendInbox('replan',{type:'say',text:'同意'});
   await replan;
   const replanned = JSON.parse(readFileSync(join(scratch,'replan.stages.json')));
   assert.equal(replanned.stages.length,2);

@@ -242,6 +242,12 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       } finally { archivePending = null; }
     })();
   };
+  const approvalFormat = '\n批准请仅回复“批准”“同意”或“放行”，或回复 JSON {"approved":true,"instruction":"可选的纠正或重排指令"}；其他回复不放行。';
+  const isApproved = text => {
+    if (/^(批准|同意|放行)$/.test(text.trim())) return true;
+    try { return JSON.parse(text)?.approved === true; }
+    catch { return false; }
+  };
   const stopUnapproved = () => {
     stopping = true;
     metadata.continueStop = '阶段计划或交接未获批准，停止执行';
@@ -254,7 +260,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     if (!entry || entry.resolvedAt) return null;
     if (entry.type === 'plan') {
       resolveYield(runId, entry, { status: 'submitted' });
-      ask(runId, { kind: 'decision', text: '请批准阶段计划：' + entry.text, wait: true });
+      ask(runId, { kind: 'decision', text: '请批准阶段计划：' + entry.text + approvalFormat, wait: true });
       const approval = await handleYield();
       if (!approval?.approved) return stopUnapproved();
       stages.stages = entry.text.split('\n').filter(Boolean);
@@ -269,7 +275,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       const { aligned, completed: stageCompleted } = await alignStage(stages, entry.text, 'handoff', continuationJudge, { details: true });
       const needsPlan = !stages.stages.length || stages.baton >= stages.stages.length + 2;
       if (!aligned || needsPlan || /验收点/.test(stages.stages[stages.stage] || '')) {
-        ask(runId, { kind: 'decision', text: '交接需要枢纽放行或重排：' + entry.text, wait: true });
+        ask(runId, { kind: 'decision', text: '交接需要枢纽放行或重排：' + entry.text + approvalFormat, wait: true });
         const approval = await handleYield();
         if (!approval?.approved) return stopUnapproved();
         if (needsPlan) return { prompt: approval.prompt + '\n尚无阶段计划或棒数已达上限；先 fleet plan 提交重排后的计划，批准前不开新 thread。' };
@@ -333,7 +339,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     yielding = false;
     log(fleetEvent(FLEET_EVENTS.WAKE)); record();
     activeSince = Date.now();
-    return { approved: entry.until === 'reply' && result.status === 'done' && /批准|放行|同意/.test(replies.join('\n')) && !/不批准|不放行|不同意|拒绝|否决|暂缓/.test(replies.join('\n')), prompt: `${entry.say}\n条件：${entry.until}\n终态：${JSON.stringify(result)}${replies.length ? '\n答复：' + replies.join('\n\n') : ''}` };
+    return { approved: entry.until === 'reply' && result.status === 'done' && isApproved(replies.join('\n')), prompt: `${entry.say}\n条件：${entry.until}\n终态：${JSON.stringify(result)}${replies.length ? '\n答复：' + replies.join('\n\n') : ''}` };
   };
   let outcome;
   try {
@@ -423,7 +429,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
             const text = readFileSync(resultPath, 'utf8');
             const aligned = await alignStage(stages, text, 'restatement', continuationJudge);
             if (!aligned) {
-              ask(runId, { kind: 'decision', text: '接棒复述未对齐：' + text, wait: true });
+              ask(runId, { kind: 'decision', text: '接棒复述未对齐：' + text + approvalFormat, wait: true });
               const correction = await handleYield();
               if (!correction?.approved) { stopUnapproved(); break; }
               nextPrompt = correction.prompt + '\n请重新仅复述目标、阶段边界、不做什么。';
