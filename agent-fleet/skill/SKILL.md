@@ -5,6 +5,8 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 
 # agent-fleet
 
+任务名额分为轻量池（Luna、Gemini/copy/bulk、Haiku、JEV，默认 10）和编码池（其他模型，默认 4），分别排队；只读任务不占名额。`FLEET_LIGHT_CAPACITY` / `FLEET_CODE_CAPACITY` 可分别调整，`FLEET_SLOT_CAPACITY` 则覆盖为全局总名额。
+
 | 让谁做 | 适合什么 | 命令示例 | 派用者顺位参考 |
 |---|---|---|---|
 | `gpt` | 按[路由原则](#路由原则长期)选择 Terra、Sol 或 Luna | `fleet-go new fix --to gpt --auth local --goal "修复问题" --body task.md` | 见[工具链](references/fallback-chains.md) |

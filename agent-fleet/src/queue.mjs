@@ -4,7 +4,6 @@ import { dirname, join, resolve } from 'node:path';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { execFileSync } from 'node:child_process';
 import { runsDir } from './progress.mjs';
 import { isRecordedProcessAlive, processCommand } from './pid.mjs';
 import { fleetEvent } from './timeline.mjs';
@@ -103,20 +102,11 @@ function follows(rows, row, predecessor, seen = new Set()) {
   const dep = dependency(rows, row.after);
   return dep?.runId === predecessor.runId || (dep && follows(rows, dep, predecessor, seen));
 }
-let detectedCapacity;
-export function defaultCapacity(hardware) { return /Mac mini|Macmini/i.test(hardware) ? 5 : 6; }
-export function machineCapacity() {
-  // Explicit override is for isolated executors/tests; transport labels never partition slots.
-  if (process.env.FLEET_SLOT_CAPACITY) return Number(process.env.FLEET_SLOT_CAPACITY);
-  if (detectedCapacity === undefined) {
-    let hardware = '';
-    if (process.platform === 'darwin') {
-      try { hardware = execFileSync('/usr/sbin/system_profiler', ['SPHardwareDataType', '-json'], { encoding: 'utf8' }); }
-      catch { /* Unknown hardware uses the portable-machine default. */ }
-    }
-    detectedCapacity = defaultCapacity(hardware);
-  }
-  return detectedCapacity;
+export function slotPool(model) {
+  return /(?:^|[-/:])(luna|gemini|copy|bulk|haiku|jev)(?:$|[-/:.0-9])/i.test(String(model || '')) ? 'light' : 'code';
+}
+function poolCapacity(pool) {
+  return Number(process.env[pool === 'light' ? 'FLEET_LIGHT_CAPACITY' : 'FLEET_CODE_CAPACITY'] || (pool === 'light' ? 10 : 4));
 }
 export async function registerQueue(rec) {
   return locked(() => {
@@ -157,8 +147,11 @@ export async function acquireSlot(id) {
     if (row.readonly) { row.state = 'running'; row.startedAt ??= Date.now(); write(row); return true; }
     const quota = read(join(runsDir(), 'codex-quota.json'));
     if (/^gpt-/.test(row.model) && quota?.usedPercent > 80 && (!quota.resetsAt || quota.resetsAt * 1000 > Date.now())) return false;
-    const capacity = machineCapacity();
-    const active = rows.filter(r => r.state === 'running' && !r.readonly).length;
+    const pool = slotPool(row.model);
+    const totalOverride = process.env.FLEET_SLOT_CAPACITY;
+    const samePool = r => totalOverride || slotPool(r.model) === pool;
+    const capacity = totalOverride ? Number(totalOverride) : poolCapacity(pool);
+    const active = rows.filter(r => r.state === 'running' && !r.readonly && samePool(r)).length;
     // Older detached/foreground runs also occupy slots, without double-counting supervised children.
     const known = new Set(rows.map(r => r.runId));
     const legacy = new Set();
@@ -167,10 +160,10 @@ export async function acquireSlot(id) {
       const rec = read(join(runsDir(), name));
       const runId = rec?.runId || name.replace(/\.pid\.json$/, '');
       if (!rec || known.has(runId) || known.has(rec?.slotRunId) || registeredPids.has(rec.pid) || (rec.detach ? rec.status !== 'running' : !name.endsWith('.pid.json') || rec.finished)) continue;
-      if (!taskIdentity(rec).readonly && isRecordedProcessAlive(rec.pid, rec.command)) legacy.add(runId);
+      if (!taskIdentity(rec).readonly && samePool(rec) && isRecordedProcessAlive(rec.pid, rec.command)) legacy.add(runId);
     }
     if (active + legacy.size >= capacity) return false;
-    const earlier = rows.some(r => r.state === 'queued' && !r.readonly &&
+    const earlier = rows.some(r => r.state === 'queued' && !r.readonly && slotPool(r.model) === pool &&
       (r.createdAt < row.createdAt || (r.createdAt === row.createdAt && r.runId < row.runId)) &&
       (!r.after || !live.has(dependency(rows, r.after)?.state)) &&
       !(/^gpt-/.test(r.model) && quota?.usedPercent > 80 && (!quota.resetsAt || quota.resetsAt * 1000 > Date.now())));

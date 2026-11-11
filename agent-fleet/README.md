@@ -1,5 +1,7 @@
 # agent-fleet — 通用多模型子任务执行工具
 
+任务名额分为轻量池（Luna、Gemini/copy/bulk、Haiku、JEV，默认 10）和编码池（其他模型，默认 4），分别排队；只读任务不占名额。`FLEET_LIGHT_CAPACITY` / `FLEET_CODE_CAPACITY` 可分别调整，`FLEET_SLOT_CAPACITY` 则覆盖为全局总名额。
+
 Mini 同步：在本仓将目标提交用 `git archive HEAD` 解包到临时目录，再用 `rsync -a` 覆盖 Mini 的 `~/PROJECT/kcsx/macmini/yan-skills/`；保留远端未跟踪的配置和依赖。
 
 ## 快速开始
