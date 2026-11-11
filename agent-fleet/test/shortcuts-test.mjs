@@ -64,6 +64,15 @@ printf 'mock codex log\n'
   const args = readFileSync(capturedArgs, 'utf8');
   assert(!args.includes('service_tier='), 'Codex 沿用本机 service_tier 配置，不强制 fast');
   assert(args.includes('model_reasoning_effort=medium') && args.includes('danger-full-access') && args.includes(scratch), 'review 使用 medium、全权限 sandbox 和指定 cwd');
+  const terra = await runCode({ prompt: '检查文件', cwd: scratch, codexBin: mockCodex });
+  assert(terra.model === 'gpt-6.1-terra', '普通任务默认 Terra');
+  const sol = await runCode({ prompt: '检查文件', cwd: scratch, codexBin: mockCodex, sol: true });
+  assert(sol.model === 'gpt-6.1-sol', '--sol 选择 Sol');
+  for (const flag of ['simple', 'luna']) {
+    let rejected = false;
+    try { await runCode({ prompt: 'x', sol: true, [flag]: true }); } catch (error) { rejected = /--sol/.test(error.message); }
+    assert(rejected, '--sol 与 ' + flag + ' 互斥');
+  }
   delete process.env.FLEET_TEST_CAPTURE;
   delete process.env.FLEET_TEST_ARGS;
 } finally {

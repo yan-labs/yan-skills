@@ -117,7 +117,7 @@ try {
   assert(readFileSync(normal.result.logPath, 'utf8').trim().split('\n').map(JSON.parse).length > 1, 'app 日志保持 JSONL 行边界');
   assert.equal(normal.result.usage.total.totalTokens, 17);
   const threadStart = normal.trace.find(entry => entry.method === 'thread/start');
-  assert.deepEqual([threadStart.params.cwd, threadStart.params.model, threadStart.params.sandbox, threadStart.params.approvalPolicy], [scratch, 'gpt-6.1-sol', 'danger-full-access', 'never']);
+  assert.deepEqual([threadStart.params.cwd, threadStart.params.model, threadStart.params.sandbox, threadStart.params.approvalPolicy], [scratch, 'gpt-6.1-terra', 'danger-full-access', 'never']);
   assert.equal('serviceTier' in threadStart.params, false);
   assert.equal(normal.record.simple, false);
   assert.equal(normal.result.serviceTier, null);

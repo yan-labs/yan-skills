@@ -7,7 +7,7 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 
 | 让谁做 | 适合什么 | 命令示例 | 派用者顺位参考 |
 |---|---|---|---|
-| `gpt` | 按[路由原则](#路由原则长期)选择 Terra、Sol 或 Luna | `fleet-go new fix --to gpt --simple --auth local --goal "修复问题" --body task.md` | 见[工具链](references/fallback-chains.md) |
+| `gpt` | 按[路由原则](#路由原则长期)选择 Terra、Sol 或 Luna | `fleet-go new fix --to gpt --auth local --goal "修复问题" --body task.md` | 见[工具链](references/fallback-chains.md) |
 | `openai` | 官方 GPT API / ChatGPT 关联组织额度，复用原 Agent SDK | `fleet-go new task --to openai --auth local --goal "目标" --body task.md` | 单独入口，不改 Codex 默认 |
 | `claude` | Claude 月度额度任务；默认 sonnet | `fleet-go new check --to claude --tier haiku --goal "复核报告" --body task.md` | 按任务类型选择替代执行者 |
 | `grok` | 视频与图片（生成、搜索）、X 平台（热点与实时讨论）、X/社媒实时检索、成人题材；Codex 不可用或并发满时优先承接编码 | `fleet-go new trend --to grok --goal "整理 X 热点" --body task.md` | 见[工具链](references/fallback-chains.md) |
@@ -72,7 +72,7 @@ brief 引用的文件请写绝对路径；预检只检查绝对文件路径，�
 一条 Bash 调用，工具参数 `run_in_background:true`，命令保持单一前台调用；`fleet-go` 自身保持前台，完成即通知。正文只写独有内容（背景、要做的事、验收），其余样板自动带上。
 ```sh
 # 改代码（允许范围：本地）
-fleet-go new fix-card --to gpt --simple --auth local --write /path/to/project --goal "修复卡片布局" <<'BRIEF'
+fleet-go new fix-card --to gpt --auth local --write /path/to/project --goal "修复卡片布局" <<'BRIEF'
 卡片在手机窄屏上会溢出，希望内容能完整读到。可以改卡片和必要的相邻样式，保留其他人的现有改动；共享组件默认样式由主线程另行授权，先完成现有范围内的修复并报告剩余缺口。现有构建通过，窄屏上内容完整并适配视口宽度，就算做完。
 BRIEF
 
@@ -82,7 +82,7 @@ fix-card 已修过手机卡片溢出，需要确认改动和报告是否对得�
 BRIEF
 
 # 部署生产（正文写齐目标、环境、回滚条件及回读清单，齐全后执行部署）
-fleet-go new deploy-site --to gpt --simple --auth deploy-prod,readonly-web --goal "部署 <HEAD> 并回读" --body body.md
+fleet-go new deploy-site --to gpt --auth deploy-prod,readonly-web --goal "部署 <HEAD> 并回读" --body body.md
 
 # 花钱生成（预算可选）
 fleet-go new gen-test --to gpt --auth paid,local --goal "..." --body body.md
@@ -91,7 +91,7 @@ fleet-go new gen-test --to gpt --auth paid,local --goal "..." --body body.md
 fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述" --body body.md
 ```
 - review 的只读是 brief 约定：项目文件保持原样，允许联网、运行测试和脚本，只在自己的 `mktemp -d` 临时目录建删文件；各执行路径不加只读工具名单、沙箱或文件快照失败判定。SDK 使用 `bypassPermissions`，Codex 使用 `danger-full-access`，Grok 使用 `--always-approve`。JEV 只有结构化 API，没有命令执行器。
-- `--to gpt|openai|claude|grok|gemini|jev` 必填；GPT 的 `--simple` 选 Terra，`--luna` 选 Luna；`--review` 默认 Terra，可用 `--sol` 显式选择 Sol，且不能与 `--luna` 同用。Luna 与 Gemini 默认 xhigh（Luna 可用 `--max`，Gemini 可用 `--low`/`--high`/`--xhigh`）；Terra/Sol 默认 medium。`--low` 可降档，`--low`、`--high`、`--xhigh` 与 `--max` 互斥。Codex 默认不开 fast，必要时显式 `--fast`。Claude `--tier haiku|sonnet|opus`，Grok `--model`/`--subagents`，Gemini `--bulk`。其余授权、预算与正文选项沿用。
+- `--to gpt|openai|claude|grok|gemini|jev` 必填；GPT 默认 Terra，`--sol` 选 Sol，`--simple` 是 Terra 的兼容别名，`--luna` 选 Luna；`--review` 默认 Terra，可用 `--sol` 显式选择 Sol，且不能与 `--luna` 同用。Luna 与 Gemini 默认 xhigh（Luna 可用 `--max`，Gemini 可用 `--low`/`--high`/`--xhigh`）；Terra/Sol 默认 medium。`--low` 可降档，`--low`、`--high`、`--xhigh` 与 `--max` 互斥。Codex 默认不开 fast，必要时显式 `--fast`。Claude `--tier haiku|sonnet|opus`，Grok `--model`/`--subagents`，Gemini `--bulk`。其余授权、预算与正文选项沿用。
 - `--deliverables "产物：路径（上限 N KB 或行）"` 可多次传入，逐项写入验收段；可省略，lint 不强制要求。
 - `--budget` 可选：用户给了预算与重试限制才传入并写进 brief；没给则不写、不设默认值。
 - 需要本地提交时用 `--auth local-commit` 代替 `local`：允许在本地分支提交；与 `deploy-prod` 同传时推送、合入环境分支、流水线发布都已授权（执行者不得因“本块不含推送”停下），单独使用时不推送；验收报告要列提交哈希。可与 `readonly-web`、`paid` 组合；与 `local` 同传时取代 `local`。只读审查、生产部署仍用各自的授权块。
@@ -100,11 +100,11 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 - `--body body.md` 只接受现存文件路径；`--body -` 显式读取 stdin，也可以省略 `--body` 使用 heredoc。不存在的路径会明确报错。
 - 重新拉起已有任务：`fleet-go relaunch <name> [--to <产品>] [--tier <档位>]`，沿用唯一同名 brief、`--name` 和 `--report`，由派用者显式决定执行者；仍有未结束同名任务时拒绝重复派发。
 - 派单正文写固定字段 `动作: 只读 / 改代码 / 本地提交 / 推送 / 部署 / 付费`（仅列实际动作，可多选）；`fleet-go new --action '改代码 / 本地提交'` 可自动写入。缺动作行过渡期仅警告。动作决定授权：改代码需 local 或 local-commit；本地提交需 local-commit；推送、部署需 local-commit 和 deploy-prod；付费需 paid。
-- 正文另写 `## 入口`，下一行 `仓库: /绝对路径`；只读只需仓库，其他动作还需 `可写路径: /绝对路径`。远程访问方式和凭据文件按任务需要自行写明。入口含“未知/自己找”不能用 `--simple`；特殊单可用 `--no-lint` 豁免入口与授权检查。
+- 正文另写 `## 入口`，下一行 `仓库: /绝对路径`；只读只需仓库，其他动作还需 `可写路径: /绝对路径`。远程访问方式和凭据文件按任务需要自行写明。入口含“未知/自己找”必须显式加 `--sol`；特殊单可用 `--no-lint` 豁免入口与授权检查。
 - **先预览再派**：`fleet-go new ... --dry-run`（只打印 brief，命令写 stderr）；`--no-launch` 只写 brief 不派发；`fleet-go lint brief.md` 检查样板（归类行、REPORT 行、逐字规则句、允许范围小节、密钥字面量）。
 - Codex app-server 两层续做闸门只针对缺失的硬性产物（文件、报告必需节、要求的提交哈希或读回结果）；覆盖未穷尽、补证和低置信度本身不触发续做。JEV 也只判断这些缺项。review 和文档类任务默认不续做；`--no-continue` 或 `FLEET_NO_CONTINUE=1` 可关闭，exec 路径同样适用，其他产品不适用。有进展就继续续做，不设次数上限；连续两次无进展停止；amend/steer/relaunch 行为不变。
 
-- **改方向**：用 `fleet-go amend <name> "补充要求"`，它给 brief 顶部追加「修订 N」并（`--say`）尽量发给运行中的任务；Codex 优先同轮 steer，失败尝试中断后续会话；任务已结束（常见：部分完成交回）时 `--say` 直接按修订后的 brief relaunch（整条命令放 `run_in_background`），不必再单独 relaunch；运行中且两者都不可用时会提示，此时才考虑 `--restart`（只停止所选 run，按 runId/brief/`--name` 核验残留，最多等 60 秒、每 0.5 秒轮询，再走 `relaunch`，以 run 身份判断。超时已确认 stopped 且无同一 runId 存活时告警并重新拉起，否则保留修订并报错）。调整沿用 `amend` / `relaunch` 保存的 brief 与任务身份。`amend` 和 `relaunch` 显式传 `--simple` 或 `--luna` 会替换并保存旧模型档位；显式传 `--low`、`--high`、`--xhigh` 或 `--max` 会替换保存的推理档位。同一次命令中的互斥选项仍不能同用；切到 Terra 时若未指定推理档位，会清除 Luna 专用的 xhigh/max。`amend` 的档位在重启或下次重派生效，运行中插话不会切换当前模型。
+- **改方向**：用 `fleet-go amend <name> "补充要求"`，它给 brief 顶部追加「修订 N」并（`--say`）尽量发给运行中的任务；Codex 优先同轮 steer，失败尝试中断后续会话；任务已结束（常见：部分完成交回）时 `--say` 直接按修订后的 brief relaunch（整条命令放 `run_in_background`），不必再单独 relaunch；运行中且两者都不可用时会提示，此时才考虑 `--restart`（只停止所选 run，按 runId/brief/`--name` 核验残留，最多等 60 秒、每 0.5 秒轮询，再走 `relaunch`，以 run 身份判断。超时已确认 stopped 且无同一 runId 存活时告警并重新拉起，否则保留修订并报错）。调整沿用 `amend` / `relaunch` 保存的 brief 与任务身份。`amend` 和 `relaunch` 显式传 `--sol`、`--simple` 或 `--luna` 会替换并保存旧模型档位；显式传 `--low`、`--high`、`--xhigh` 或 `--max` 会替换保存的推理档位。同一次命令中的互斥选项仍不能同用；切到 Terra 时若未指定推理档位，会清除 Luna 专用的 xhigh/max。`amend` 的档位在重启或下次重派生效，运行中插话不会切换当前模型。
 - 看进度：`fleet-go status`（默认非终态及最近 1 小时，`--all` 查看全部本地历史；脱离启动的任务带 ⚠）；仍可用 `fleet status --running --json`。
 - 账本与打分：每个 run 结束自动往 `~/.agent-fleet/ledger.jsonl` 追加一行元数据；`fleet-go new` 可带 `--level L1-L4`、`--type`、`--for <被复核任务名>`，复核结论末尾写 `LEDGER: blockers=<n> verdict=<pass|fail|partial>`；`fleet-go score [--since 日期]` 按执行者输出计数。字段、配对、回填见[账本与 score](references/ledger.md)。
 - 一个任务一次 Bash 调用；多个独立任务同一条消息里并行发多条 Bash。同一份共享工作树按单写入者串行执行。
@@ -126,7 +126,7 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 | `fleet bulk brief.md [--low\|--high]` | Gemini 批量文案处理（默认 xhigh） |
 | `fleet gpt brief.md` | 托管 GPT 任务 |
 | `node ~/Project/kcsx/macmini/yan-skills/agent-fleet/bin/fleet-archive-sweep.mjs [--dry-run]` | 派单前及 Codex 完成后补扫归档 |
-| `fleet code brief.md [--simple|--luna] [--fast] [--low|--high|--xhigh|--max] [--cwd dir]` | 默认 Sol；`--simple` Terra、`--luna` Luna；Luna 默认 xhigh、可用 --max；Terra/Sol 默认 medium；不设 fast |
+| `fleet code brief.md [--simple|--sol|--luna] [--fast] [--low|--high|--xhigh|--max] [--cwd dir]` | 默认 Terra；`--sol` Sol、`--simple` Terra 兼容别名、`--luna` Luna；Luna 默认 xhigh、可用 --max；Terra/Sol 默认 medium；不设 fast |
 | `fleet code brief.md --review` | 本机 Codex 只读审查 |
 | `fleet haiku\|sonnet\|opus brief.md` | Claude 官方端点直连，走订阅附赠的每月 API 额度（`ANTHROPIC_CREDIT_API_KEY`；用户级 key 另需 `ANTHROPIC_WORKSPACE_ID`，见 .env.example），**使用独立于 Claude App 的用量**；Claude 侧任务优先走这里 |
 | `fleet judge state.txt questions.json` | JEV 结构化判断 |
@@ -157,11 +157,11 @@ Terra 与 Sol 派单前问两句：brief 能否写清具体文件、入口和完
 
 | 任务 | 默认执行者 |
 |---|---|
-| 两问都是“能”（编码、复核、按已知源调研、机械改动） | Codex Terra，`--to gpt --simple`，medium，不开 fast |
-| 任一问“不能”（要自己摸入口、跨系统多步、总管、删除或生产写入、发布脚本、Terra 已交回过的单） | 开派即用 Sol，`--to gpt`，不带 `--simple`（用户 2026-11-11） |
-| 部署、改配置（要写脚本，发布脚本按上面的 Sol 行） | Codex Terra，`--to gpt --simple`，medium |
+| 两问都是“能”（编码、复核、按已知源调研、机械改动） | Codex Terra，`--to gpt`，medium，不开 fast |
+| 任一问“不能”（要自己摸入口、跨系统多步、总管、删除或生产写入、发布脚本、Terra 已交回过的单） | 开派即用 Sol，`--to gpt --sol`（用户 2026-11-11） |
+| 部署、改配置（要写脚本，发布脚本按上面的 Sol 行） | Codex Terra，`--to gpt`，medium |
 | 巡检、监工、定时、核对整理（比 Haiku 复杂、不需要编码） | Luna，`--to gpt --luna --high`（或默认 xhigh），不开 `--max`（用户 2026-11-11） |
-| 调研、搜索、技术文档、报告、数据整理、一般任务 | 默认 Codex Terra，`--to gpt --simple`；首派仍按上面的两问判断 |
+| 调研、搜索、技术文档、报告、数据整理、一般任务 | 默认 Codex Terra，`--to gpt`；首派仍按上面的两问判断 |
 | 文案、翻译、多语言、校对 | Gemini，`fleet copy`（批量用 `fleet bulk`） |
 | UI、样式、视觉交互、建站设计、3D、游戏内容 | `fleet sonnet`；要 Browser pane 用 `executor-sonnet` |
 | 方案、架构、方向未明的综合判断 | Claude Code Agent 工具，`subagent_type=executor-fable`；brief 须带“这个代码库是你的，做成什么样你说了算，以后也是你接着维护。” |
@@ -189,7 +189,7 @@ Terra 与 Sol 派单前问两句：brief 能否写清具体文件、入口和完
 - **工具不可用或并发满**：按[工具链](references/fallback-chains.md)换手；编码由 Grok 或 Claude 承接，不派 Gemini。
 - GPT 档顺位与换班条件统一见[路由原则](#路由原则长期)。
 
-派用者决定后，用 `fleet-go relaunch <name> --to <产品> [--tier haiku|sonnet|opus] [--simple|--luna] [--low|--high|--xhigh|--max] [--fast]` 沿用 brief、name 与 report 重派。成功任务不产生失败上报。
+派用者决定后，用 `fleet-go relaunch <name> --to <产品> [--tier haiku|sonnet|opus] [--simple|--sol|--luna] [--low|--high|--xhigh|--max] [--fast]` 沿用 brief、name 与 report 重派。成功任务不产生失败上报。
 
 ## 产品与任务边界
 

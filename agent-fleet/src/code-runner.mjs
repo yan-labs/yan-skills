@@ -82,7 +82,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   if (sol && (simple || luna)) throw new Error('--sol 不能与 --simple 或 --luna 同用。');
   if (luna && (simple || review)) throw new Error('--luna 不能与 --simple 或 --review 同用。');
   const effort = max ? 'max' : xhigh ? 'xhigh' : high ? 'high' : low ? 'low' : process.env.FLEET_CODEX_EFFORT || (luna ? 'xhigh' : 'medium');
-  const model = luna ? 'gpt-6-luna' : (simple || (review && !sol)) ? 'gpt-6.1-terra' : 'gpt-6.1-sol';
+  const model = luna ? 'gpt-6-luna' : sol ? 'gpt-6.1-sol' : 'gpt-6.1-terra';
   const serviceTier = fast ? 'priority' : null;
   const workdir = resolve(cwd);
   reportPath ||= prompt.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim();

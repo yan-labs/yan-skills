@@ -65,7 +65,7 @@ print(json.dumps(sorted(set(roots))))
     return roots
 
 
-def lint(text, to='gpt', simple=False, on='local', extra=True):
+def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False):
     errors = []
     first = text.splitlines()[0] if text else ''
     if not first.startswith('归类：') or '理由：' not in first:
@@ -137,15 +137,15 @@ def lint(text, to='gpt', simple=False, on='local', extra=True):
                 elif not Path(repo_path).is_dir(): errors.append('执行机器上的入口仓库不存在。')
             if actions - {'只读'} and not re.search(r'^[ \t]*可写路径[ \t]*[:：][ \t]*/[^\s（(]*', entry, re.M):
                 errors.append('入口缺少可写路径。')
-        if simple and re.search(r'未知|自己找', entry):
-            errors.append('入口未知或自己找时不能使用 --simple。')
+        if to == 'gpt' and not sol and re.search(r'未知|自己找', entry):
+            errors.append('入口未知或自己找时请加 --sol。')
         if simple:
             writes = re.findall(r'^[ \t]*可写路径[ \t]*[:：][ \t]*(/[^\s，,；;（(]+)', entry, re.M)
             allowed = re.search(r'^## 允许范围\s*\n允许写：\n(.*?)(?=^只读：|^## |\Z)', text, re.M | re.S)
             if allowed:
                 writes.extend(re.findall(r'^- (/[^\n]+)$', allowed.group(1), re.M))
             if len(repository_roots(writes, on)) >= 2:
-                errors.append('--simple 可写路径跨两个或以上仓库，请改用 Sol（移除 --simple）。')
+                errors.append('Terra 可写路径跨两个或以上仓库，请改用 Sol（加 --sol）。')
             goal = re.search(r'^## 目标\s*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
             if goal and re.search(r'打通|接入|跨服务', goal.group(1)):
                 files = re.findall(r'(?:^|[\s:：、,，`])((?:/|\.?\.?/)?[\w@./-]+\.[A-Za-z][A-Za-z0-9]*)(?=$|[\s、,，`）)])', entry, re.M)
@@ -163,16 +163,20 @@ def lint(text, to='gpt', simple=False, on='local', extra=True):
                     outputs = {report.group(1), '/tmp/' + Path(report.group(1)).stem + '/'} if report else set()
                     scoped = [p for p in writes if p not in outputs]
                 if not concrete or any(not any(f == w.rstrip('/') or f.startswith(w.rstrip('/') + '/') for f in concrete) for w in scoped):
-                    errors.append('--simple 的跨服务目标入口未列全具体文件，请改用 Sol（移除 --simple）或补齐入口文件。')
+                    errors.append('Terra 的跨服务目标入口未列全具体文件，请改用 Sol（加 --sol）或补齐入口文件。')
         if errors:
             errors.append('示例（按实际任务和授权修改）：\n动作: 改代码 / 本地提交\n## 入口\n仓库: /tmp\n可写路径: /tmp/example\n## 授权覆盖\n授权块：local-commit')
     return errors
 
 
-def checked(text, to, simple=False, on='local', extra=False):
-    errors = lint(text, to, simple, on, extra)
+def checked(text, to, simple=False, on='local', extra=False, sol=False):
+    errors = lint(text, to, simple, on, extra, sol)
     if errors:
         raise ValueError('\n'.join(errors))
+
+
+def gpt_tier(meta):
+    return meta.get('tier') if meta.get('tier') in ('terra', 'sol', 'luna') else ('luna' if meta.get('luna') else 'terra' if meta.get('simple') else 'sol')
 
 
 def command(meta):
@@ -183,7 +187,9 @@ def command(meta):
     if to == 'jev':
         args.append(meta['questions'])
     args.extend(['--name', meta['name'], '--report', meta['report']])
-    for option in ['review', 'low', 'high', 'xhigh', 'max', 'simple', 'sol', 'luna', 'fast', 'no-fast', 'subagents', 'expect-changes']:
+    if to == 'gpt':
+        args.append({'terra': '--simple', 'sol': '--sol', 'luna': '--luna'}[gpt_tier(meta)])
+    for option in ['review', 'low', 'high', 'xhigh', 'max', 'fast', 'no-fast', 'subagents', 'expect-changes']:
         if meta.get(option):
             args.append('--' + option)
     if meta.get('model'):
@@ -274,7 +280,7 @@ def locate(name):
     return path, meta
 
 
-def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False):
+def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     path, meta = locate(name)
     candidates = [r for r in running(False) if r.get('briefPath') == str(path) or r.get('name') == name]
@@ -296,8 +302,13 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         raise ValueError('--tier 仅用于 --to claude。')
     if simple and target != 'gpt':
         raise ValueError('--simple 仅用于 --to gpt。')
-    selected_luna = luna or (not simple and target == 'gpt' and meta.get('luna'))
-    selected_simple = simple or (not luna and target == 'gpt' and meta.get('simple'))
+    if sum([simple, sol, luna]) > 1:
+        raise ValueError('--sol、--simple 和 --luna 不能同用。')
+    if (sol or luna) and target != 'gpt':
+        raise ValueError('--sol 和 --luna 仅用于 --to gpt。')
+    selected = ('sol' if sol else 'terra' if simple else 'luna' if luna else gpt_tier(meta) if meta['to'] == 'gpt' else 'terra')
+    selected_luna = target == 'gpt' and selected == 'luna'
+    selected_simple = target == 'gpt' and selected == 'terra'
     if selected_luna and target != 'gpt':
         raise ValueError('--luna 仅用于 --to gpt。')
     if selected_luna and meta.get('review'):
@@ -321,8 +332,9 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     declared = [p for p in mini.referenced_paths('\n'.join(line for line in allowed.splitlines() if line.startswith('- ')))
                 if p not in (meta['report'], '/tmp/' + name + '/')]
     meta['paths'] = list(dict.fromkeys([*meta.get('paths', []), *mini.referenced_paths(scope), *mini.referenced_paths(revisions), *declared]))
-    checked(text, target, bool(selected_simple or (target == 'gpt' and meta.get('review') and not meta.get('sol'))), on or meta.get('on') or os.environ.get('FLEET_DEFAULT_ON', 'mini'), True)
+    checked(text, target, bool(selected_simple), on or meta.get('on') or os.environ.get('FLEET_DEFAULT_ON', 'mini'), True, target == 'gpt' and selected == 'sol')
     if target != meta['to']:
+        meta.pop('tier', None)
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
                                  ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('sol', ['gpt']), ('luna', ['gpt']), ('fast', ['gpt']), ('no-fast', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                                  ('bulk', ['gemini'])]:
@@ -336,6 +348,11 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     meta['pull'] = pull
     if tier:
         meta['tier'] = tier
+    if target == 'gpt':
+        meta['tier'] = selected
+        meta['simple'], meta['sol'], meta['luna'] = selected == 'terra', selected == 'sol', selected == 'luna'
+    if sol and not (low or high or xhigh or max):
+        meta['xhigh'] = meta['max'] = False
     if simple:
         meta['simple'], meta['luna'], meta['sol'] = True, False, False
         if not (low or high or xhigh or max):
@@ -435,17 +452,25 @@ def restart(run, path, name):
 def amend(args):
     """保留修订正文，按需插话或停止本次 run 后通过 relaunch 重启。"""
     path, meta = locate(args.name)
-    if args.simple or args.luna or args.low or args.high or args.xhigh or args.max:
-        if (args.simple or args.luna or args.max) and meta['to'] != 'gpt':
-            raise ValueError('--simple、--luna 和 --max 仅用于 --to gpt。')
+    if args.simple or args.sol or args.luna or args.low or args.high or args.xhigh or args.max:
+        if (args.simple or args.sol or args.luna or args.max) and meta['to'] != 'gpt':
+            raise ValueError('--sol、--simple、--luna 和 --max 仅用于 --to gpt。')
         if (args.low or args.high or args.xhigh) and meta['to'] not in ('gpt', 'gemini'):
             raise ValueError('--low、--high 和 --xhigh 仅用于 --to gpt|gemini。')
+        if sum([args.simple, args.sol, args.luna]) > 1:
+            raise ValueError('--sol、--simple 和 --luna 不能同用。')
         if (args.luna and meta.get('review')) or (args.luna and args.simple):
             raise ValueError('--luna 和 --simple 不能同用，也不能与 --review 同用。')
         if sum([args.low, args.high, args.xhigh, args.max]) > 1:
             raise ValueError('--low、--high、--xhigh 和 --max 不能同用。')
-        if meta['to'] == 'gpt' and (args.xhigh or args.max) and not (args.luna or (not args.simple and meta.get('luna'))):
+        if meta['to'] == 'gpt' and (args.xhigh or args.max) and not (args.luna or (not args.simple and not args.sol and gpt_tier(meta) == 'luna')):
             raise ValueError('--xhigh 和 --max 仅用于 --luna。')
+        if meta['to'] == 'gpt':
+            selected = 'sol' if args.sol else 'terra' if args.simple else 'luna' if args.luna else gpt_tier(meta)
+            meta['tier'] = selected
+            meta['simple'], meta['sol'], meta['luna'] = selected == 'terra', selected == 'sol', selected == 'luna'
+            if args.sol and not (args.low or args.high or args.xhigh or args.max):
+                meta['xhigh'] = meta['max'] = False
         if args.simple:
             meta['simple'], meta['luna'], meta['sol'] = True, False, False
             if not (args.low or args.high or args.xhigh or args.max):
@@ -473,6 +498,9 @@ def amend(args):
         path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     if args.on is not None:
         meta['on'] = args.on
+        path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
+    if meta['to'] == 'gpt' and meta.get('tier') not in ('terra', 'sol', 'luna'):
+        meta['tier'] = gpt_tier(meta)
         path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     original = path.read_text()
     latest_revision = re.search(r'^## 【修订 \d+（[^\n]+）】\n', original, re.M)
@@ -704,12 +732,12 @@ def new(args, prepare=False):
     text = '\n\n'.join(parts) + '\n'
     location = args.on or os.environ.get('FLEET_DEFAULT_ON', 'mini')
     if location == 'mini' and not mini.available() and args.on != 'mini': location = 'local'
-    checked(text, args.to, args.simple, location, not args.no_lint)
+    checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna), location, not args.no_lint, args.sol)
     action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', body, re.M)
     actions = args.task_action or (action_match.group(1) if action_match else '')
     meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
             'auth': auth, 'actions': [a.strip() for a in actions.split('/') if a.strip()],
-            'tier': args.tier, 'review': args.review, 'sol': args.sol, 'low': args.low, 'high': args.high,
+            'tier': ('luna' if args.luna else 'sol' if args.sol else 'terra') if args.to == 'gpt' else args.tier, 'review': args.review, 'sol': args.sol, 'low': args.low, 'high': args.high,
             'xhigh': True if (args.to == 'gemini' and not (args.low or args.high)) else args.xhigh,
             'max': args.max, 'simple': args.simple, 'luna': args.luna, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,
             'subagents': args.subagents, 'bulk': args.bulk, 'expect-changes': args.expect_changes,
@@ -722,7 +750,7 @@ def new(args, prepare=False):
         return text, meta
     if args.dry_run:
         print(text, end='')
-        print('\n将执行：' + shlex.join(command(meta)), file=sys.stderr)
+        print('\n将执行：' + shlex.join(command(meta)) + (f"（{gpt_tier(meta).capitalize()}）" if meta['to'] == 'gpt' else ''), file=sys.stderr)
         return
     folder.mkdir(parents=True, exist_ok=True)
     with path.open('x') as file:
@@ -835,6 +863,7 @@ def build_parser():
     p.add_argument('name')
     p.add_argument('message')
     p.add_argument('--on', choices=['mini', 'local'])
+    p.add_argument('--sol', action='store_true', help='后续重派使用 Sol')
     p.add_argument('--simple', action='store_true', help='后续重派使用 Terra')
     p.add_argument('--luna', action='store_true', help='后续重派使用 Luna')
     p.add_argument('--low', action='store_true', help='后续重派使用 low 推理')
@@ -850,6 +879,7 @@ def build_parser():
     p.add_argument('--pull', action='store_true')
     p.add_argument('--to', choices=PRODUCTS)
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
+    p.add_argument('--sol', action='store_true', help='GPT 任务改用 Sol')
     p.add_argument('--simple', action='store_true', help='GPT 任务改用 Terra，默认不开 fast')
     p.add_argument('--luna', action='store_true', help='GPT 任务改用 Luna，默认 xhigh 且不开 fast')
     p.add_argument('--low', action='store_true', help='GPT/Gemini 任务使用 low 推理')
@@ -872,6 +902,7 @@ def build_parser():
     p.add_argument('brief')
     p.add_argument('--no-lint', action='store_true', help='特殊单豁免入口与授权 lint')
     p.add_argument('--simple', action='store_true')
+    p.add_argument('--sol', action='store_true')
     p.add_argument('--on', choices=['mini', 'local'], default=os.environ.get('FLEET_DEFAULT_ON', 'mini'))
     p.add_argument('--to', choices=PRODUCTS, default='gpt')
     sub.add_parser('team')
@@ -896,7 +927,7 @@ def main():
     elif args.action == 'amend':
         amend(args)
     elif args.action == 'relaunch':
-        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull)
+        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull, args.sol)
     elif args.action == 'read':
         rec = mini.find(args.name)
         if not rec or rec.get('local'): raise ValueError('找不到 Mini 任务；最新同名任务可能在本机。')
@@ -906,7 +937,7 @@ def main():
     elif args.action == 'team':
         os.execvp('fleet', ['fleet', 'team'])
     elif args.action == 'lint':
-        checked(Path(args.brief).read_text(), args.to, args.simple, args.on, not args.no_lint)
+        checked(Path(args.brief).read_text(), args.to, args.to == 'gpt' and not args.sol, args.on, not args.no_lint, args.sol)
         print('lint 通过。')
     elif args.action == 'score':
         score(args)

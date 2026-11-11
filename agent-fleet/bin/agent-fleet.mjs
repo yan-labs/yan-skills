@@ -49,7 +49,7 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
 
   fleet copy|grok|bulk|gpt|openai <brief文件或文本> [--low|--high|--xhigh] [--cwd dir] [--verbose]
   fleet grok-cli <brief文件或文本> [--review] [--cwd dir] [--model id] [--name name] [--report path] [--no-subagents|--subagents]
-  fleet code <brief文件或文本> [--low|--high|--xhigh|--max] [--simple|--luna] [--fast] [--review] [--no-continue] [--cwd dir]
+  fleet code <brief文件或文本> [--low|--high|--xhigh|--max] [--simple|--sol|--luna] [--fast] [--review] [--no-continue] [--cwd dir]
   fleet haiku|sonnet|opus <brief.md|文本>   # Claude 官方端点，走每月 API 赠送额度
   fleet judge <state文件> <questions文件> [--json]
   fleet run --model name --prompt "任务" [--cwd dir] [--max-turns N]
@@ -425,7 +425,7 @@ async function cmdResume(argv) {
       '--resume-session', sessionId, '--resumed-from', runId, '--cwd', cwd];
     if ((flags.xhigh || flags.max) && !rec.luna) throw new Error('--xhigh 和 --max 仅用于 --luna。');
     if (rec.simple) args.push('--simple');
-    if (rec.sol) args.push('--sol');
+    if (rec.sol || (rec.model === 'gpt-6.1-sol' && !rec.simple && !rec.luna)) args.push('--sol');
     if (rec.luna) args.push('--luna');
     if (rec.serviceTier === 'priority') args.push('--fast');
     const selectedEffort = flags.low ? 'low' : flags.high ? 'high' : flags.xhigh ? 'xhigh' : flags.max ? 'max' : rec.luna && (rec.max || rec.tier === 'max') ? 'max' : rec.luna && (rec.xhigh || rec.tier === 'xhigh') ? 'xhigh' : rec.low || rec.tier === 'low' ? 'low' : rec.high || rec.tier === 'high' ? 'high' : null;
@@ -640,7 +640,7 @@ async function main() {
       const text = command === 'run-many' ? '' : resolveBrief(brief);
       const args = flagArgs(flags, ['detach', 'attach', 'no-wait', 'name', 'prompt']);
       if (flags.prompt !== undefined) args.push('--prompt', flags.prompt);
-      const selectedModel = command === 'code' ? (flags.luna ? 'gpt-6-luna' : (flags.simple || (flags.review && !flags.sol)) ? 'gpt-6.1-terra' : 'gpt-6.1-sol') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : command === 'judge' ? 'jev' : flags.model ?? shortRunOptions(command, rest).model;
+      const selectedModel = command === 'code' ? (flags.luna ? 'gpt-6-luna' : flags.sol ? 'gpt-6.1-sol' : 'gpt-6.1-terra') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : command === 'judge' ? 'jev' : flags.model ?? shortRunOptions(command, rest).model;
       const launchOptions = {
         cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(),
         model: selectedModel,

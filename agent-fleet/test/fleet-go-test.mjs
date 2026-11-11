@@ -71,9 +71,10 @@ try {
     const r=run(['new','--to','gpt','one','--goal','独有目标']);
     assert.equal(r.status,7,r.stderr);
     assert.equal(history().at(-1).pid,r.pid);
-    assert.deepEqual(history().at(-1).args,['code',path,'--name','one','--report',report]);
+    assert.deepEqual(history().at(-1).args,['code',path,'--name','one','--report',report,'--simple']);
     assert.ok(existsSync(path));
     const metadata=JSON.parse(readFileSync(path.replace(/\.md$/,'.json'),'utf8'));
+    assert.equal(metadata.tier,'terra');
     assert.deepEqual(metadata.auth,['local']);
     assert.deepEqual(metadata.actions,[]);
   });
@@ -215,7 +216,8 @@ try {
       ['只读','## 入口\n仓库：relative',[],/绝对路径/],
       ['只读','## 入口\n仓库：/no-such-fake-repository',[],/仓库不存在/],
       ['改代码',readEntry,[],/可写路径/],
-      ['只读','## 入口\n仓库：/tmp\n未知', ['--simple'],/不能使用 --simple/],
+      ['只读','## 入口\n仓库：/tmp\n未知', [],/请加 --sol/],
+      ['只读','## 入口\n仓库：/tmp\n未知', ['--simple'],/请加 --sol/],
       ['改代码',entry,['--auth','review'],/local 或 local-commit/],
       ['本地提交',entry,[],/local-commit/],
       ['推送',entry,['--auth','deploy-prod'],/local-commit 和 deploy-prod/],
@@ -223,6 +225,7 @@ try {
       ['付费',entry,[],/paid/],
       ['未知动作',entry,[],/未知或空动作/],
     ]) { r=strict(action,body,opts); assert.equal(r.status,1,action); assert.match(r.stderr,expected); assert.match(r.stderr,/示例（按实际任务和授权修改）/); }
+    assert.equal(strict('只读','## 入口\n仓库：/tmp\n未知',['--sol']).status,0);
     r=strict('', ''); assert.equal(r.status,0,r.stderr); assert.match(r.stderr,/缺少动作行/);
     assert.equal(strict('部署','',['--no-lint']).status,0);
     const f=join(temp,'strict.md'); writeFileSync(f,strict('只读',readEntry).stdout);
@@ -301,7 +304,7 @@ try {
   test('simple 两档、组合限制及 relaunch/amend 保留档位', () => {
     const normal = run(['new','normal-mode','--to','gpt','--goal','x','--dry-run']);
     assert.equal(normal.status, 0, normal.stderr);
-    assert(!normal.stderr.includes('--simple'));
+    assert(normal.stderr.includes('--simple'));
     const simple = run(['new','simple-mode','--to','gpt','--simple','--low','--goal','x','--no-launch']);
     assert.equal(simple.status, 0, simple.stderr);
     const simplePath = join(home,'.agent-reports', report.split('/').at(-2), 'simple-mode.brief.md');
@@ -342,6 +345,26 @@ try {
     reset();
     assert.equal(run(['relaunch','simple-mode','--to','claude']).status, 7);
     assert(!history().at(-1).args.includes('--simple'));
+  });
+  test('默认 Terra、显式 Sol、旧任务迁移及互斥', () => {
+    const dir=path.slice(0,path.lastIndexOf('/'));
+    for (const [name,flags,tier] of [['default-tier',[],'terra'],['sol-tier',['--sol'],'sol'],['luna-tier',['--luna'],'luna']]) {
+      const preview=run(['new',name,'--to','gpt',...flags,'--goal','x','--dry-run']);
+      assert.equal(preview.status,0,preview.stderr); assert(preview.stderr.includes(tier==='terra'?'--simple':'--'+tier));
+      assert.equal(run(['new',name,'--to','gpt',...flags,'--goal','x','--no-launch']).status,0);
+      assert.equal(JSON.parse(readFileSync(join(dir,name+'.brief.json'),'utf8')).tier,tier);
+    }
+    const legacy=join(dir,'default-tier.brief.json'); const old=JSON.parse(readFileSync(legacy,'utf8')); delete old.tier; old.simple=false; old.luna=false; writeFileSync(legacy,JSON.stringify(old));
+    assert.equal(run(['amend','default-tier','保留旧档']).status,0); assert.equal(JSON.parse(readFileSync(legacy,'utf8')).tier,'sol');
+    delete old.tier; writeFileSync(legacy,JSON.stringify(old));
+    reset(); assert.equal(run(['relaunch','default-tier']).status,7); assert(history().at(-1).args.includes('--sol')); assert.equal(JSON.parse(readFileSync(legacy,'utf8')).tier,'sol');
+    for (const action of ['relaunch','amend']) {
+      const cmd=action==='relaunch'?[action,'default-tier']:[action,'default-tier','切换'];
+      for (const option of ['--simple','--luna']) assert.equal(run([...cmd,'--sol',option]).status,1);
+      assert.equal(run([...cmd,'--sol']).status,action==='relaunch'?7:0);
+      assert.equal(JSON.parse(readFileSync(legacy,'utf8')).tier,'sol');
+    }
+    for (const option of ['--simple','--luna']) assert.equal(run(['new','bad-tier','--to','gpt','--sol',option,'--goal','x','--dry-run']).status,1);
   });
   test('luna 新建、重派和修订保留模型及冲突限制', () => {
     assert.equal(run(['new','luna-mode','--to','gpt','--luna','--low','--goal','x','--no-launch']).status, 0);
@@ -459,7 +482,7 @@ try {
   test('simple 跨仓库及跨服务路由，清楚的单仓任务不误拦', () => {
     const repos=[join(temp,'repo-a'),join(temp,'repo-b')];
     for(const repo of repos) mkdirSync(join(repo,'.git'),{recursive:true});
-    const invoke=(goal,entry,writes=[],simple=true)=>spawnSync(script,['new','route','--to','gpt','--on','local','--goal',goal,'--action','改代码','--dry-run',...(simple?['--simple']:[]),...(writes.length?['--write',...writes]:[])],{encoding:'utf8',env,input:entry});
+    const invoke=(goal,entry,writes=[],simple=true)=>spawnSync(script,['new','route','--to','gpt','--on','local','--goal',goal,'--action','改代码','--dry-run',...(simple?['--simple']:['--sol']),...(writes.length?['--write',...writes]:[])],{encoding:'utf8',env,input:entry});
     const entry=`## 入口\n仓库: ${repos[0]}\n可写路径: ${repos[0]}/src\n`;
     for(const [goal,body,writes,blocked] of [
       ['修复按钮',entry,[repos[0]+'/src',repos[1]+'/src'],true],
@@ -480,18 +503,18 @@ try {
   test('relaunch 按最终模型重查 simple 可写范围和未知入口', () => {
     writeFileSync(states,'[]');
     const entry=`## 入口\n仓库: ${temp}/repo-a\n可写路径: ${temp}/repo-a/src\n未知入口\n`;
-    const created=spawnSync(script,['new','route-relaunch','--to','gpt','--on','local','--goal','修复按钮','--action','改代码','--no-launch'],{encoding:'utf8',env,input:entry});
+    const created=spawnSync(script,['new','route-relaunch','--to','gpt','--on','local','--goal','修复按钮','--action','改代码','--sol','--no-launch'],{encoding:'utf8',env,input:entry});
     assert.equal(created.status,0,created.stderr);
     reset();
     const blocked=run(['relaunch','route-relaunch','--simple']);
-    assert.equal(blocked.status,1,blocked.stderr);assert.match(blocked.stderr,/不能使用 --simple/);
+    assert.equal(blocked.status,1,blocked.stderr);assert.match(blocked.stderr,/请加 --sol/);
     assert(!history().some(c=>c.args[0]==='code'));
     assert.equal(run(['relaunch','route-relaunch']).status,7);
     const metaPath=join(home,'.agent-reports',report.split('/').at(-2),'route-relaunch.brief.json');
-    const meta=JSON.parse(readFileSync(metaPath,'utf8'));meta.simple=true;writeFileSync(metaPath,JSON.stringify(meta));
+    const meta=JSON.parse(readFileSync(metaPath,'utf8'));meta.simple=true;meta.tier='terra';writeFileSync(metaPath,JSON.stringify(meta));
     assert.equal(run(['relaunch','route-relaunch']).status,1);
-    assert.equal(run(['relaunch','route-relaunch','--luna']).status,7);
-    const cross=spawnSync(script,['new','route-cross','--to','gpt','--on','local','--goal','接入存储','--action','改代码','--write',temp+'/repo-a/other','--no-launch'],{encoding:'utf8',env,input:entry.replace('未知入口','具体文件: src/store.ts')});
+    assert.equal(run(['relaunch','route-relaunch','--luna']).status,1);
+    const cross=spawnSync(script,['new','route-cross','--to','gpt','--on','local','--goal','接入存储','--action','改代码','--write',temp+'/repo-a/other','--sol','--no-launch'],{encoding:'utf8',env,input:entry.replace('未知入口','具体文件: src/store.ts')});
     assert.equal(cross.status,0,cross.stderr);
     const crossBlocked=run(['relaunch','route-cross','--simple']);
     assert.equal(crossBlocked.status,1,crossBlocked.stderr);assert.match(crossBlocked.stderr,/入口未列全具体文件/);

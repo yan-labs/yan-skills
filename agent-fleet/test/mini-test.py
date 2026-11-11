@@ -171,7 +171,7 @@ if [ "$1" = --method ]; then echo direct; else echo '{"missing":["/home/b/missin
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','unready','--to','claude','--on','mini','--read','/home/a/missing','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
     assert proc.returncode != 0
     assert 'Mini 缺少路径：/home/a/missing' in proc.stderr and 'claude 通道不可用' in proc.stderr and '未回退' in proc.stderr
-    proc = subprocess.run([str(root/'bin/fleet-go'),'new','recheck','--to','gpt','--read','/home/a/original','--goal','x','--no-lint','--no-launch'], env=env, text=True, capture_output=True)
+    proc = subprocess.run([str(root/'bin/fleet-go'),'new','recheck','--to','gpt','--sol','--read','/home/a/original','--goal','x','--no-lint','--no-launch'], env=env, text=True, capture_output=True)
     assert proc.returncode == 0, proc.stderr
     # 原 brief 标记 Mini，但最新同名 run 在本机时 amend 不应同步到 Mini。
     metadata_path = next((tmp/'.agent-reports').glob('*/recheck.brief.json'))
@@ -185,7 +185,7 @@ if [ "$1" = --method ]; then echo direct; else echo '{"missing":["/home/b/missin
     assert proc.returncode == 0, proc.stderr
     assert json.loads(next((tmp/'.agent-reports').glob('*/recheck.brief.json')).read_text())['on'] == 'local'
     proc = subprocess.run([str(root/'bin/fleet-go'),'relaunch','recheck','--on','mini'], env=env, text=True, capture_output=True)
-    assert proc.returncode != 0 and '未回退' in proc.stderr
+    assert proc.returncode != 0 and '未回退' in proc.stderr, proc.stderr
     metadata = json.loads(next((tmp/'.agent-reports').glob('*/recheck.brief.json')).read_text())
     assert '/home/a/original' in metadata['paths'] and '/home/a/revised' in metadata['paths']
 print('PASS: path rewrite, mini command assembly, unavailable fallback')

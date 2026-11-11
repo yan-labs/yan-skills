@@ -12,7 +12,7 @@ fleet code brief.md --review --cwd <项目目录>
 
 **分档**：统一见 [路由原则](../SKILL.md#路由原则长期)，含 Sol 首派场景与 Terra 停滞改派条件。**精准修复**：只修复核心流程问题，不增加多余门禁、安全边界、防御校验或附加动作。
 
-`--luna` 使用 Codex 原生 `gpt-6-luna`，`--simple` 使用 `gpt-6.1-terra`，都不能与 `--review` 同用或互相组合。Luna 与 Gemini 默认 xhigh（Luna 可用 `--max`，Gemini 可用 `--low`/`--high`/`--xhigh`）；Terra/Sol 默认 medium。`--low` 可显式选择 low；`--low`、`--high`、`--xhigh` 和 `--max` 互斥，GPT 下 `--xhigh` 和 `--max` 仅用于 Luna。所有 Codex 默认不开 fast，必要时显式 `--fast`。`new`、`relaunch` 和 `amend` 支持 Luna；amend 对运行中的任务须重启或下次重派才切换模型。`relaunch`、`amend` 与 `resume` 沿用已保存档位。默认底层模型为 Sol，sandbox 为 `danger-full-access`；review 使用只读提示。
+默认使用 `gpt-6.1-terra`（`--simple` 兼容别名），`--sol` 使用 Sol，`--luna` 使用 `gpt-6-luna`；三者互斥，Luna 不能与 `--review` 同用。Luna 与 Gemini 默认 xhigh（Luna 可用 `--max`，Gemini 可用 `--low`/`--high`/`--xhigh`）；Terra/Sol 默认 medium。`--low` 可显式选择 low；`--low`、`--high`、`--xhigh` 和 `--max` 互斥，GPT 下 `--xhigh` 和 `--max` 仅用于 Luna。所有 Codex 默认不开 fast，必要时显式 `--fast`。`new`、`relaunch` 和 `amend` 支持 Luna；amend 对运行中的任务须重启或下次重派才切换模型。`relaunch`、`amend` 与 `resume` 沿用已保存档位。默认底层模型为 Terra，`--sol` 显式选 Sol，sandbox 为 `danger-full-access`；review 使用只读提示。
 
 Codex 不可用或并发满时，编码按 [工具链](fallback-chains.md) 改派 Grok 或 Claude；Gemini 只负责文案。失败如实上报执行者、档位、脱敏错误及产物。
 
