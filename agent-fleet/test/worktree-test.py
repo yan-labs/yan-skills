@@ -37,4 +37,33 @@ class WorktreeTest(unittest.TestCase):
             self.assertFalse(target.exists())
             self.assertNotEqual(subprocess.run(['git', '-C', str(repo), 'show-ref', '--verify', '--quiet', 'refs/heads/' + p['branch']]).returncode, 0)
 
+    def test_only_needed_submodule_initialized(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            def run(*args):
+                return subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            for name in ('sub-a', 'sub-b', 'remote'):
+                run('git', 'init', '--bare', str(root/(name + '.git')))
+            for name in ('sub-a', 'sub-b'):
+                run('git', 'clone', str(root/(name + '.git')), str(root/name))
+                run('git', '-C', str(root/name), '-c', 'user.email=t@example.invalid', '-c', 'user.name=t', 'commit', '--allow-empty', '-m', 'init')
+                run('git', '-C', str(root/name), 'push', 'origin', 'HEAD')
+            run('git', 'clone', str(root/'remote.git'), str(root/'repo'))
+            repo = root/'repo'
+            for name in ('sub-a', 'sub-b'):
+                run('git', '-C', str(repo), '-c', 'protocol.file.allow=always', 'submodule', 'add', str(root/(name + '.git')), name)
+            run('git', '-C', str(repo), '-c', 'user.email=t@example.invalid', '-c', 'user.name=t', 'commit', '-m', 'subs')
+            run('git', '-C', str(repo), 'push', '-u', 'origin', 'HEAD')
+            os.environ['GIT_CONFIG_COUNT'] = '1'; os.environ['GIT_CONFIG_KEY_0'] = 'protocol.file.allow'; os.environ['GIT_CONFIG_VALUE_0'] = 'always'
+            try:
+                p = w.execute(dict(action='create', repo=str(repo), path=str(root/'repo-wt'/'t'), branch='yan/t-1', base=None, writes=['sub-b/src/x.py']))
+                p2 = w.execute(dict(action='create', repo=str(repo), path=str(root/'repo-wt'/'u'), branch='yan/u-1', base=None))
+            finally:
+                for key in ('GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0'): os.environ.pop(key, None)
+            target = Path(p['path'])
+            self.assertTrue((target/'sub-b'/'.git').exists())
+            self.assertFalse((target/'sub-a'/'.git').exists())
+            self.assertFalse((Path(p2['path'])/'sub-a'/'.git').exists())
+            self.assertFalse((Path(p2['path'])/'sub-b'/'.git').exists())
+
 if __name__ == '__main__': unittest.main()

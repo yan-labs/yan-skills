@@ -21,6 +21,21 @@ REMOTE_BIN = (os.environ.get('FLEET_MINI_BIN') or CONFIG.get('bin', ''))
 LOCAL_HOME = os.environ.get('FLEET_LOCAL_HOME', CONFIG.get('local_home', str(Path.home()))).rstrip('/')
 REMOTE_HOME = (os.environ.get('FLEET_MINI_HOME') or CONFIG.get('remote_home', '')).rstrip('/')
 STORE = Path.home() / '.agent-fleet/mini-runs'
+# 非交互 ssh 的 PATH 不含 Homebrew；远端脚本一律补上，避免把“PATH 没带上”误判成“Mini 没装”。
+PATH_FIX = "import os as _os; _os.environ['PATH']=':'.join(dict.fromkeys([*_os.environ.get('PATH','').split(':'),'/opt/homebrew/bin','/usr/local/bin']))\n"
+TOOLS_MISSING = 'Mini 缺命令：'
+# brief 正文出现这些命令即视为需要；其余命令写在「需要命令: a, b」行。
+KNOWN_TOOLS = ('kubectl', 'aws', 'gh', 'psql', 'coscli', 'rclone', 'helm', 'terraform')
+
+def required_commands(text):
+    names = []
+    for line in text.splitlines():
+        explicit = re.match(r'^[ \t]*需要命令[ \t]*[:：](.*)$', line)
+        if explicit:
+            names.extend(x.strip('` ') for x in re.split(r'[,，、/\s]+', explicit.group(1)) if x.strip('` '))
+        elif not re.search(r'禁止|不要|不用|不得|不准|别用', line):
+            names.extend(t for t in KNOWN_TOOLS if re.search(r'(?<![\w./-])' + t + r'(?![\w-])', line))
+    return list(dict.fromkeys(names))
 
 def map_path(value, source, target):
     if source and target and (value == source or value.startswith(source + '/')):
@@ -111,40 +126,64 @@ def referenced_paths(text):
         paths.append(path)
     return list(dict.fromkeys(paths))
 
-def sync_reports(meta, missing):
+def sync_reports(meta, paths):
+    """把本机 ~/.agent-reports 下的输入同步到 Mini：缺的补齐；已有文件本机较新且内容不同就覆盖。"""
     root = Path(LOCAL_HOME) / '.agent-reports'
     writes = {expand_path(p) for p in [*meta.get('writes', []), *(meta.get('object') or {}).get('writes', [])]}
-    synced = []
-    script = """import base64,json,pathlib,sys
-p=json.loads(base64.b64decode(sys.argv[1])); path=pathlib.Path(p['path'])
-if p['data'] is None: path.mkdir(parents=True,exist_ok=True)
-else:
- path.parent.mkdir(parents=True,exist_ok=True)
- try:
-  with path.open('xb') as f: f.write(base64.b64decode(p['data']))
- except FileExistsError: pass
-"""
-    for remote in missing:
-        path = Path(local_path(remote))
+    targets = []
+    for value in dict.fromkeys(paths):
+        path = Path(expand_path(value))
         if not path.is_relative_to(root): continue
         if not path.exists():
             if str(path) not in writes: continue
             path.mkdir(parents=True, exist_ok=True)
-        items = [path, *path.rglob('*')] if path.is_dir() else [path]
+        targets.append(path)
+    if not targets: return []
+    stat = """import base64,json,pathlib,sys
+p=json.loads(base64.b64decode(sys.argv[1])); out=[]
+for x in p:
+ f=pathlib.Path(x); out.append(None if not f.exists() else ('dir' if f.is_dir() else f.stat().st_mtime))
+print(json.dumps(out))
+"""
+    result = call(stat, [remote_path(str(p)) for p in targets])
+    if result.returncode: raise OSError('传输失败')
+    states = json.loads(result.stdout)
+    push = """import base64,json,os,pathlib,sys
+p=json.loads(base64.b64decode(sys.argv[1])); path=pathlib.Path(p['path'])
+if p['data'] is None: path.mkdir(parents=True,exist_ok=True)
+else:
+ path.parent.mkdir(parents=True,exist_ok=True); data=base64.b64decode(p['data'])
+ if p['mode']=='create':
+  try:
+   with path.open('xb') as f: f.write(data)
+  except FileExistsError: sys.exit(0)
+ elif path.exists() and path.read_bytes()==data: sys.exit(0)
+ else:
+  tmp=path.with_name(path.name+'.fleet-sync'); tmp.write_bytes(data); os.replace(tmp,path)
+ os.utime(path,(p['mtime'],p['mtime'])); print('written')
+"""
+    synced = []
+    for path, state in zip(targets, states):
+        if state is None:
+            mode, items = 'create', ([path, *path.rglob('*')] if path.is_dir() else [path])
+        elif state != 'dir' and path.is_file() and path.stat().st_mtime > state + 1:
+            mode, items = 'overwrite', [path]
+        else:
+            continue
         for item in items:
             if item.is_symlink(): raise OSError('报告路径包含符号链接')
             data = None if item.is_dir() else base64.b64encode(item.read_bytes()).decode()
-            result = call(script, {'path': remote_path(str(item)), 'data': data})
+            result = call(push, {'path': remote_path(str(item)), 'data': data, 'mode': mode, 'mtime': item.stat().st_mtime})
             if result.returncode: raise OSError('传输失败')
-            if data is not None: synced.append(str(item))
+            if result.stdout.strip() == 'written': synced.append(str(item) + ('（覆盖）' if mode == 'overwrite' else ''))
     return synced
 
 def preflight(meta, paths):
     if not REMOTE_HOME or not REMOTE_BIN: return 'Mini 路径未配置（FLEET_MINI_HOME、FLEET_MINI_BIN）'
-    script = """import base64,json,os,pathlib,subprocess,sys
+    script = PATH_FIX + """import base64,json,os,pathlib,shutil,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1]))
 """ + CANONICAL_SCRIPT + """
-p['paths']=[canonical(x) for x in p['paths']]; missing=[x for x in p['paths'] if not pathlib.Path(x).exists()]
+p['paths']=[canonical(x) for x in p['paths']]; missing=[x for x in p['paths'] if not pathlib.Path(x).exists()]; tools=[t for t in p.get('commands',[]) if not shutil.which(t)]
 kind=p['kind']; binary=pathlib.Path(p['bin']); root=binary.parent if binary.is_dir() else binary.parent.parent; envnames={'claude':'ANTHROPIC_CREDIT_API_KEY','openai':'OPENAI_CREDIT_API_KEY','gemini':'KOLLAB_PROD_API_KEY','jev':'TYPESAFE_API_KEY'}
 if kind in envnames:
  js="import {loadEnvFile} from './src/env.mjs'; loadEnvFile('.env'); process.exit(process.env[process.argv[1]] ? 0 : 1)"
@@ -157,7 +196,7 @@ elif kind in ('gpt','grok'):
  try: ready=subprocess.run(cmd,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20).returncode==0
  except (OSError,subprocess.TimeoutExpired): ready=False
 else: ready=False
-print(json.dumps({'missing':missing,'ready':ready}))
+print(json.dumps({'missing':missing,'ready':ready,'tools':tools}))
 """
     report = os.path.normpath(meta['report']) if meta.get('report') else None
     checkpoint = os.path.splitext(report)[0] + '.checkpoint.md' if report else None
@@ -165,23 +204,23 @@ print(json.dumps({'missing':missing,'ready':ready}))
     def is_input(path):
         path = os.path.normpath(expand_path(path))
         return path not in (report, checkpoint, temp) and not (temp and path.startswith(temp + os.sep))
-    payload = {'paths': [remote_path(expand_path(p)) for p in [os.getcwd(), *paths] if is_input(p)], 'kind': meta['to'], 'bin': REMOTE_BIN, 'home': REMOTE_HOME}
+    inputs = [p for p in [os.getcwd(), *paths] if is_input(p)]
     try:
+        text = Path(meta['brief']).read_text() if meta.get('brief') and Path(meta['brief']).is_file() else ''
+    except OSError:
+        text = ''
+    payload = {'paths': [remote_path(expand_path(p)) for p in inputs], 'kind': meta['to'], 'bin': REMOTE_BIN, 'home': REMOTE_HOME, 'commands': required_commands(text)}
+    try:
+        try:
+            synced = sync_reports(meta, [*([meta['body']] if meta.get('body') else []), *inputs])
+            if synced: print('Mini 已同步报告文件：' + '、'.join(synced), flush=True)
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            return 'Mini 报告同步失败'
         result = call(script, payload, timeout=25)
         if result.returncode: return 'Mini 环境检查失败'
         value = json.loads(result.stdout)
-        report_root = os.path.join(LOCAL_HOME, '.agent-reports')
-        report_missing = [x for x in value['missing'] if local_path(x) == report_root or local_path(x).startswith(report_root + os.sep)]
-        if report_missing:
-            try:
-                synced = sync_reports(meta, report_missing)
-                if synced: print('Mini 已同步报告文件：' + '、'.join(synced), flush=True)
-                result = call(script, payload, timeout=25)
-                if result.returncode: return 'Mini 报告同步失败：重新预检失败'
-                value = json.loads(result.stdout)
-            except (OSError, subprocess.TimeoutExpired, ValueError):
-                return 'Mini 报告同步失败'
         reasons = []
+        if value.get('tools'): reasons.append(TOOLS_MISSING + '、'.join(value['tools']) + '（已按登录 shell 补 /opt/homebrew/bin 仍找不到）')
         if value['missing']: reasons.append('Mini 缺少路径：' + '、'.join(local_path(x) for x in value['missing']))
         if not value['ready']: reasons.append('Mini 的 ' + meta['to'] + ' 通道不可用')
         return '；'.join(reasons) if reasons else None
@@ -212,7 +251,7 @@ def launch(meta, argv):
     args[0] = REMOTE_BIN
     args.append('--no-wait')
     payload = {'files': files, 'args': args, 'cwd': remote_path(os.getcwd()), 'report': remote_path(meta['report']), 'home': REMOTE_HOME}
-    script = '''import base64,json,os,pathlib,subprocess,sys
+    script = PATH_FIX + '''import base64,json,os,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1]));
 ''' + CANONICAL_SCRIPT + '''
 p['args']=[canonical(x) for x in p['args']]; p['cwd']=canonical(p['cwd']); p['report']=canonical(p['report'])
@@ -235,7 +274,7 @@ r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini'
     return wait(rec, meta.get('pull', False))
 
 def query(rec, timeout=20, kill_group=False):
-    script = '''import base64,json,pathlib,subprocess,sys
+    script = PATH_FIX + '''import base64,json,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary; r=subprocess.run([str(binary),'status','--json'],capture_output=True,text=True,check=True); rows=json.loads(r.stdout); row=next((x for x in rows if x.get('runId')==p['id']),None)
 if row is None: row=json.loads((pathlib.Path.home()/'.agent-fleet/runs'/(p['id']+'.json')).read_text())
 print(json.dumps({k:row.get(k) for k in ('runId','status','state','verdict','exitCode','resultPath','startedAt','finishedAt','model','duration','heartbeatAt','launchDetached')}))
@@ -318,7 +357,7 @@ def _wait(rec, pull=False):
             print('Mini 连接中断，等待重连…', file=sys.stderr, flush=True); time.sleep(5)
 
 def forward(args):
-    p = call('''import base64,json,pathlib,subprocess,sys
+    p = call(PATH_FIX + '''import base64,json,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p[0]); p[0]=str(binary/'fleet' if binary.is_dir() else binary); r=subprocess.run(p, text=True); sys.exit(r.returncode)
 ''', [REMOTE_BIN, *args], timeout=90)
     sys.stdout.write(p.stdout); sys.stderr.write(p.stderr)

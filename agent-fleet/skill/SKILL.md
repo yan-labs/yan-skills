@@ -29,7 +29,7 @@ description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV
 ## 巡检与换班
 派出后台任务后，派单主会话必须用 CronCreate 挂会话内巡检，计划为 `7,37 * * * *`，提示词以「【半小时巡检】」开头。已有这条巡检时不重复挂；7 天到期但仍有后台任务时续挂。巡检使用会话内 Cron，不用独立定时任务。
 
-每次触发先检查是否有后台任务在跑：没有就用 CronList 找到这条巡检并 CronDelete；有则在本会话派一个 Luna 巡检子单（`--luna --high`），brief 放在本机文件 `~/.agent-fleet/patrol-brief.md`。巡检检查日志与产物变化，纠正卡住、空转、循环或偏题的任务；判断无望时终止。单个 run 约 2 小时没有新产物，或累计运行约 5 小时时，要求执行者写 checkpoint 并结束本轮，再用 `fleet-go relaunch` 换新 agent，要求读取 checkpoint 接着做。巡检记录追加到当天的 `fleet-patrol.md`。
+每次触发先检查是否有后台任务在跑：没有就用 CronList 找到这条巡检并 CronDelete；有则在本会话派一个 Luna 巡检子单（`--luna --high`），brief 放在本机文件 `~/.agent-fleet/patrol-brief.md`。巡检检查日志与产物变化，纠正卡住、空转、循环或偏题的任务；判断无望时终止。单个 run 约 2 小时没有新产物，或累计运行约 5 小时时（日志、报告或进度文件仍在增长的按正常推进，不按时长换班），要求执行者写 checkpoint 并结束本轮，再用 `fleet-go relaunch` 换新 agent，要求读取 checkpoint 接着做。巡检记录追加到当天的 `fleet-patrol.md`。
 
 **巡检结论交回主会话裁定。** 巡检单用 `run_in_background` 派出，完成通知回到派单主会话。巡检只自行处理上面的纠偏、终止和换班。它最终回复的第一段写「需要主会话处理」，列出自己用 fleet 命令解决不了的事，例如缺授权、需要改派执行者或档位、多单争用同一资源、需要用户配合、已终止的单是否重派；每条写明任务名、现象和建议，没有就写「无」。主会话收到通知后必须读取这一段并逐条处理，包括补授权、改派、调整顺序、找用户或重派，不能只看巡检记录。巡检提示里写明本会话负责的任务名，巡检只看这些任务。
 
@@ -64,7 +64,7 @@ CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有�
 
 ## 执行位置
 
-默认在 Mac Mini 执行；Mini 任务的报告留在 Mini，用 `fleet-go read <名字或 runId>` 按需读取，`--pull` 显式拉回。缺失的 `~/.agent-reports/` 文件和可写目录会先同步到 Mini 并重新检查；其他路径缺失、同步失败或所选通道不可用时，自动在 MacBook 执行并记录原因。需要 Claude 应用工具（Browser pane、MCP、`executor-*`、读取其他会话或 Claude 定时任务）、只有 MacBook 有登录态的网页后台、操作 Mini 自身，以及一两条命令的只读查询，留在 MacBook。浏览器自动化默认在 Mini 使用 opencli 或 agent-desktop；Mini Chrome 尚未登录目标站时退回 MacBook，并在报告列出需在 Mini 登录的站点。
+默认在 Mac Mini 执行；Mini 任务的报告留在 Mini，用 `fleet-go read <名字或 runId>` 按需读取，`--pull` 显式拉回。brief 引用的 `~/.agent-reports/` 文件、`--body` 正文和可写目录先同步到 Mini：缺的补齐，本机较新的覆盖，并打印同步了哪些；其他路径缺失、同步失败或所选通道不可用时，自动在 MacBook 执行并记录原因。Mini 缺 brief 要用的命令（正文出现 kubectl、aws、gh、psql 等，或 `需要命令: a, b` 行列出的）时直接报错，不回退本机。**Mini 缺工具或凭据时派单补 Mini 环境，不改 `--on local`（紧急窗口单除外）**；查 Mini 有没有某命令用 `mm 'command -v X'` 或 `ssh mac-mini 'zsh -lc "command -v X"'`，裸 `ssh mac-mini` 的 PATH 不含 `/opt/homebrew/bin`，查不到不代表没装。需要 Claude 应用工具（Browser pane、MCP、`executor-*`、读取其他会话或 Claude 定时任务）、只有 MacBook 有登录态的网页后台、操作 Mini 自身，以及一两条命令的只读查询，留在 MacBook。浏览器自动化默认在 Mini 使用 opencli 或 agent-desktop；Mini Chrome 尚未登录目标站时退回 MacBook，并在报告列出需在 Mini 登录的站点。
 
 首次使用前，在派单机设置 `FLEET_MINI_HOME`（Mini 家目录）和 `FLEET_MINI_BIN`（Mini 上 fleet 的绝对路径）；可选 `FLEET_LOCAL_HOME` 与 `FLEET_MINI_MM`。也可在本机 `~/.agent-fleet/mini.json` 配置 `remote_home`、`bin`、`local_home`、`mm`；环境变量优先。未配置或工作目录、引用路径在 Mini 不存在时回退本机，不创建空工作目录。显式 `--on local` 或 `FLEET_DEFAULT_ON=local` 沿用本机启动行为。
 
@@ -103,7 +103,7 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 - `--make image` 叠加图片产物样板，沿用所选执行者：绝对输出目录、逐张编号文件名、尺寸比例、共享风格、纯画面（文字、字母、logo 与水印留空）、受阻时报告已完成部分与缺口、逐文件绝对路径/实际像素/字节数/alpha/方法回报。交付实际生成的图片；占位图、ASCII、纯色块或下载图按缺少生成产物报告。GPT 使用 imagegen 的 Codex `image_gen`；Grok 使用内置 `image_gen` / `image_edit`，这些工具没有 model 参数，仅传工具支持的输入，沿用工具自身模型。
 - `--make video` 仅 Grok，用内置 `image_to_video` / `reference_to_video`，这些工具没有 model 参数，仅传工具支持的输入，沿用工具自身模型；ZDR/privacy 错误如实报告原因、处理方法与产物缺口。
 - `--body body.md` 只接受现存文件路径；`--body -` 显式读取 stdin，也可以省略 `--body` 使用 heredoc。不存在的路径会明确报错。
-- 重新拉起已有任务：`fleet-go relaunch <name> [--to <产品>] [--tier <档位>]`，沿用唯一同名 brief、`--name` 和 `--report`，由派用者显式决定执行者；仍有未结束同名任务时拒绝重复派发。
+- 重新拉起已有任务：`fleet-go relaunch <name> [--to <产品>] [--tier <档位>]`，沿用唯一同名 brief、`--name` 和 `--report`，由派用者显式决定执行者；仍有未结束同名任务时拒绝重复派发。改需求就改 `--body` 文件再 relaunch，新正文自动换进 brief、修订块保留；换不进时报错，不会拿旧 brief 空跑。跨日期重名时把名字换成报错给出的 brief 路径。
 - 派单正文写固定字段 `动作: 只读 / 改代码 / 本地提交 / 推送 / 部署 / 付费`（仅列实际动作，可多选）；`fleet-go new --action '改代码 / 本地提交'` 可自动写入。缺动作行过渡期仅警告。动作决定授权：改代码需 local 或 local-commit；本地提交需 local-commit；推送、部署需 local-commit 和 deploy-prod；付费需 paid。
 - 正文另写 `## 入口`，下一行 `仓库: /绝对路径`；只读只需仓库，其他动作还需 `可写路径: /绝对路径`。远程访问方式和凭据文件按任务需要自行写明。入口含“未知/自己找”必须显式加 `--sol`；`--no-lint` 只豁免样板检查，入口、动作和授权仍须匹配；重派沿用该设置。
 - **先预览再派**：`fleet-go new ... --dry-run`（只打印 brief，命令写 stderr）；`--no-launch` 只写 brief 不派发；`fleet-go lint brief.md` 检查样板（归类行、REPORT 行、逐字规则句、允许范围小节、密钥字面量）。
@@ -112,7 +112,7 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 - **改方向**：用 `fleet-go amend <name> "补充要求"`，它给 brief 顶部追加「修订 N」并（`--say`）尽量发给运行中的任务；Codex 优先同轮 steer，失败尝试中断后续会话；任务已结束（常见：部分完成交回）时 `--say` 直接按修订后的 brief relaunch（整条命令放 `run_in_background`），不必再单独 relaunch；运行中且两者都不可用时会提示，此时才考虑 `--restart`（只停止所选 run，按 runId/brief/`--name` 核验残留，最多等 60 秒、每 0.5 秒轮询，再走 `relaunch`，以 run 身份判断。超时已确认 stopped 且无同一 runId 存活时告警并重新拉起，否则保留修订并报错）。`amend --auth` 和 `--action` 可替换保存的授权与动作；路径冲突时可按提示用 `relaunch --after` 排队。调整沿用 `amend` / `relaunch` 保存的 brief 与任务身份。`amend` 和 `relaunch` 显式传 `--sol`、`--simple` 或 `--luna` 会替换并保存旧模型档位；显式传 `--low`、`--high`、`--xhigh` 或 `--max` 会替换保存的推理档位。同一次命令中的互斥选项仍不能同用；切到 Terra 时若未指定推理档位，会清除 Luna 专用的 xhigh/max。`amend` 的档位在重启或下次重派生效，运行中插话不会切换当前模型。
 - 看进度：`fleet-go status`（默认非终态及最近 1 小时，`--all` 查看全部本地历史；脱离启动的任务带 ⚠）；仍可用 `fleet status --running --json`。
 - 账本与打分：每个 run 结束自动往 `~/.agent-fleet/ledger.jsonl` 追加一行元数据；`fleet-go new` 可带 `--level L1-L4`、`--type`、`--for <被复核任务名>`，复核结论末尾写 `LEDGER: blockers=<n> verdict=<pass|fail|partial>`；`fleet-go score [--since 日期]` 按执行者输出计数。字段、配对、回填见[账本与 score](references/ledger.md)。
-- 一个任务一次 Bash 调用；多个独立任务同一条消息里并行发多条 Bash。同一仓库多个写入任务各用 `--worktree`；同一个 worktree 只有一个写入者。合回基础分支并推送后即收尾，清理 worktree 和本地功能分支。合并到环境分支仍在主克隆做。
+- 一个任务一次 Bash 调用；多个独立任务同一条消息里并行发多条 Bash。同一仓库多个写入任务各用 `--worktree`；同一个 worktree 只有一个写入者。worktree 建在入口「仓库:」上（没有才按 `--write` 推断，与 cwd 无关），子模块只初始化可写路径所在的那个，默认不拉。合回基础分支并推送后即收尾，清理 worktree 和本地功能分支。合并到环境分支仍在主克隆做。
 - 已有 Claude Code 的 PreToolUse hook `~/.claude/hooks/check-fleet-launch.py`：命令里带 `fleet`/`fleet-go` 派单子命令又带 `&`、`nohup`、`setsid`、`disown` 会被直接拦下。
 - 标准块在 `skill/templates/blocks/`（规则句由 `rule-sentence.md` 生成新句，校验兼容全局完整旧句；全局 `~/.claude/CLAUDE.md` §4.1a、§4.2 提供规则与报告的上下文），调整样板时在这里统一修改。
 

@@ -9,6 +9,15 @@ def git(cwd, *args):
     return subprocess.run(['git', '-C', str(cwd), *args], check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.strip()
 
 
+def submodules_for(target, writes):
+    """只初始化可写路径落在其中的子模块；默认一个都不拉（大仓全量 init 会卡十几分钟）。"""
+    if not writes or not (Path(target) / '.gitmodules').exists():
+        return []
+    r = subprocess.run(['git', '-C', str(target), 'config', '-f', '.gitmodules', '--get-regexp', r'^submodule\..*\.path$'], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    paths = [line.split(' ', 1)[1] for line in r.stdout.splitlines() if ' ' in line]
+    return [sub for sub in paths if any(w == sub or w.startswith(sub + '/') for w in writes)]
+
+
 def execute(p):
     repo = Path(p['repo']).resolve()
     target = Path(p['path']).resolve()
@@ -41,6 +50,7 @@ def execute(p):
         base = 'origin/' + head.split('\t')[0].removeprefix('ref: refs/heads/')
     target.parent.mkdir(parents=True, exist_ok=True)
     git(repo, 'worktree', 'add', '-b', p['branch'], str(target), base)
-    git(target, 'submodule', 'update', '--init')
+    for sub in submodules_for(target, p.get('writes') or []):
+        git(target, 'submodule', 'update', '--init', '--', sub)
     p['base'] = base
     return p

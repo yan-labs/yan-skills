@@ -1,5 +1,6 @@
 """组装和修订派单 brief，供 fleet-go 命令调用；执行与停止仍交给 fleet。"""
 import argparse
+import base64
 import datetime
 import errno
 import json
@@ -77,22 +78,37 @@ def worktree_call(data, location):
     return json.loads(result.stdout)
 
 
-def prepare_worktree(name, writes, base, location):
-    if not writes:
-        raise ValueError('--worktree 需要 --write。')
-    # Resolve the repository on the execution machine, using the same home mapping as briefs.
-    paths = [mini.remote_path(mini.expand_path(p)) if location == 'mini' else mini.expand_path(p) for p in writes]
-    script = "import base64,json,subprocess,sys,pathlib; p=json.loads(base64.b64decode(sys.argv[1])); dirs=[next(q for q in (pathlib.Path(x),*pathlib.Path(x).parents) if q.is_dir()) for x in p]; print(json.dumps([subprocess.check_output(['git','-C',str(x),'rev-parse','--show-toplevel'],text=True).strip() for x in dirs]))"
+def prepare_worktree(name, writes, base, location, repo=None):
+    """worktree 以入口「仓库:」为准（没有才按 --write 推断），不看 cwd；子模块只初始化可写路径所在的那几个。"""
+    if not writes and not repo:
+        raise ValueError('--worktree 需要入口「仓库: <绝对路径>」或 --write。')
+    convert = lambda p: mini.remote_path(mini.expand_path(p)) if location == 'mini' else mini.expand_path(p)
+    payload = {'repo': convert(repo) if repo else None, 'writes': [convert(p) for p in writes]}
+    script = """import base64,json,subprocess,sys,pathlib
+p=json.loads(base64.b64decode(sys.argv[1]))
+def top(x):
+ d=next((q for q in (pathlib.Path(x),*pathlib.Path(x).parents) if q.is_dir()),None)
+ r=subprocess.run(['git','-C',str(d),'rev-parse','--show-toplevel'],capture_output=True,text=True) if d else None
+ return r.stdout.strip() if r and r.returncode==0 else None
+roots=[top(p['repo'])] if p['repo'] else sorted({t for t in map(top,p['writes']) if t})
+repo=roots[0] if len(roots)==1 else None
+real=lambda x: str(pathlib.Path(x).resolve())
+rel=[] if not repo else [real(w)[len(real(repo))+1:] for w in p['writes'] if real(w).startswith(real(repo)+'/')]
+print(json.dumps({'roots':roots,'writes':rel}))
+"""
     if location == 'mini':
-        result = mini.call(script, paths)
-        if result.returncode: raise ValueError('--write 必须位于 git 仓库中。')
-        roots = json.loads(result.stdout)
+        result = mini.call(script, payload)
+        if result.returncode: raise ValueError('Mini 上无法解析 worktree 仓库。')
+        found = json.loads(result.stdout)
     else:
-        roots = [subprocess.check_output(['git', '-C', str(next(q for q in (Path(p), *Path(p).parents) if q.is_dir())), 'rev-parse', '--show-toplevel'], text=True).strip() for p in paths]
-    if len(set(roots)) != 1: raise ValueError('--worktree 的 --write 必须属于同一个仓库。')
-    repo = roots[0]
-    target = str(Path(repo).parent / (Path(repo).name + '-wt') / name)
-    data = {'action': 'create', 'repo': repo, 'path': target, 'branch': 'yan/' + name + '-' + datetime.date.today().strftime('%Y%m%d'), 'base': base or None}
+        found = json.loads(subprocess.run([sys.executable, '-c', script, base64.b64encode(json.dumps(payload).encode()).decode()], capture_output=True, text=True, check=True).stdout)
+    roots = [r for r in found['roots'] if r]
+    if not roots:
+        raise ValueError('--worktree 找不到 git 仓库：' + (f'入口「仓库: {repo}」不是 git 仓库。' if repo else '--write 都不在 git 仓库里；请在正文入口写「仓库: <绝对路径>」。'))
+    if len(roots) != 1: raise ValueError('--worktree 的 --write 必须属于同一个仓库；或在入口写「仓库: <绝对路径>」指定。')
+    root = roots[0]
+    target = str(Path(root).parent / (Path(root).name + '-wt') / name)
+    data = {'action': 'create', 'repo': root, 'path': target, 'branch': 'yan/' + name + '-' + datetime.date.today().strftime('%Y%m%d'), 'base': base or None, 'writes': found['writes']}
     return worktree_call(data, location)
 
 
@@ -100,7 +116,7 @@ def rewrite_worktree(text, meta, wt, location):
     repo = mini.local_path(wt['repo']) if location == 'mini' else wt['repo']
     target = mini.local_path(wt['path']) if location == 'mini' else wt['path']
     aliases = {repo}
-    for value in meta.get('writes', []):
+    for value in [*meta.get('writes', []), *([meta['object']['repo']] if (meta.get('object') or {}).get('repo') else [])]:
         resolved = os.path.realpath(value)
         if resolved == repo or resolved.startswith(repo + '/'):
             aliases.add(value[:len(value) - len(resolved[len(repo):])] if resolved != repo else value)
@@ -178,21 +194,17 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
             if actions & {'推送', '部署'}: needed.update(a for a, present in [('local-commit', commit), ('deploy-prod', deploy)] if not present)
             if '付费' in actions and not paid: needed.add('paid')
             if needed:
+                why = [msg for want, msg in [('改代码' in actions and not (local or commit), '改代码需要 local 或 local-commit 授权'),
+                                               ('本地提交' in actions and not commit, '本地提交需要 local-commit 授权'),
+                                               (bool(actions & {'推送', '部署'}) and not (commit and deploy), '推送或部署需要 local-commit 和 deploy-prod 授权'),
+                                               ('付费' in actions and not paid, '付费需要 paid 授权')] if want]
                 current = {a for a, present in [('local', local), ('local-commit', commit), ('deploy-prod', deploy), ('paid', paid)] if present}
                 current.update(a for a in ('review', 'readonly-web') if block('auth-' + a, {'REPORT': re.search(r'^REPORT: (.+)$', text, re.M).group(1) if re.search(r'^REPORT: (.+)$', text, re.M) else ''}) in auth_text or re.search(r'^授权块：.*(?<![\w-])' + re.escape(a) + r'(?![\w-])', auth_text, re.M))
                 current.update(needed)
                 if 'local-commit' in current: current.discard('local')
-                errors.append('建议授权：--auth ' + ','.join(a for a in AUTH if a in current))
+                errors.insert(0, '缺授权块 ' + ','.join(a for a in AUTH if a in needed) + '：' + '；'.join(why) + '。改用 --auth ' + ','.join(a for a in AUTH if a in current) + '（已派的单用 fleet-go amend <名字> "<说明>" --auth 同值）')
             if not actions <= valid:
                 errors.append('动作行含未知或空动作。')
-            if '改代码' in actions and not (local or commit):
-                errors.append('改代码需要 local 或 local-commit 授权。')
-            if '本地提交' in actions and not commit:
-                errors.append('本地提交需要 local-commit 授权。')
-            if actions & {'推送', '部署'} and not (commit and deploy):
-                errors.append('推送或部署需要 local-commit 和 deploy-prod 授权。')
-            if '付费' in actions and not paid:
-                errors.append('付费需要 paid 授权。')
             repo = re.search(r'^[ \t]*仓库[ \t]*[:：][ \t]*([^\s，,；;（(]+)', entry, re.M)
             if not repo:
                 errors.append('入口缺少仓库绝对路径。')
@@ -288,6 +300,8 @@ def launch(meta):
             reason = 'Mini 不可达'
         else:
             reason = mini.preflight(meta, meta.get('paths', []))
+    if reason and reason.startswith(mini.TOOLS_MISSING):
+        raise ValueError(reason.split('；')[0] + '。请先派单补 Mini 环境再派，未回退本机（紧急窗口单可显式 --on local）。')
     reachable = location == 'mini' and not reason
     meta['execution'] = 'mini' if reachable else ('failed' if meta.get('on') == 'mini' else 'local')
     Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
@@ -344,19 +358,57 @@ def running(active_only=True, status_timeout=None):
 
 
 def locate(name):
-    matches = list((Path.home() / '.agent-reports').glob('*/' + name + '.brief.md'))
-    if len(matches) != 1:
-        raise ValueError('找不到唯一同名 brief，请换用唯一名称（跨日期重名也会歧义）。')
-    path = matches[0]
+    if name.endswith('.brief.md'):
+        path = Path(name).expanduser()
+        if not path.is_file(): raise ValueError(f'找不到 brief：{name}')
+    else:
+        matches = sorted((Path.home() / '.agent-reports').glob('*/' + name + '.brief.md'), reverse=True)
+        if not matches:
+            raise ValueError(f'找不到 brief：{name}。新派单用 fleet-go new {name} --to <产品> ...')
+        if len(matches) > 1:
+            raise ValueError(f'{name} 有 {len(matches)} 个跨日期同名 brief：' + '、'.join(map(str, matches)) + f'。\n用最新那份重派（amend 同理，名字换成路径）：fleet-go relaunch {shlex.quote(str(matches[0]))}')
+        path = matches[0]
     meta = json.loads(path.with_suffix('.json').read_text())
     if meta.get('to') not in PRODUCTS:
         raise ValueError('brief 元信息缺少有效 --to；请用 fleet-go new --to <产品> 创建新任务。')
     return path, meta
 
 
+def refresh_body(path, meta, text):
+    """--body 文件改过就把新正文换进 brief，修订块和其余样板原样保留。"""
+    legacy = 'body_text' not in meta
+    body_path = Path(meta['body']) if meta.get('body') else (path.with_name(path.name[:-len('.brief.md')] + '.body.md') if legacy else None)
+    if not body_path or not body_path.is_file():
+        return text
+    body = body_path.read_text().strip()
+    old = meta.get('body_text')
+    if legacy and body_path.stat().st_mtime <= path.stat().st_mtime:
+        return text
+    if body == old:
+        return text
+    if not old or text.count(old) != 1:
+        raise ValueError(f'{body_path} 比 brief 新，但无法自动换进 {path}（旧任务没记录正文快照，或 brief 已被 worktree 改写）。\n'
+                         f'要用新正文：fleet-go new <新名字> ... --body {shlex.quote(str(body_path))}\n'
+                         f'确认沿用旧 brief：touch {shlex.quote(str(path))} 后再 relaunch')
+    text = text.replace(old, body, 1)
+    repo = re.search(r'^仓库[ \t]*[:：][ \t]*([^\s，,；;（(]+)', body, re.M)
+    if meta.get('object') or repo:
+        entry_writes = re.findall(r'^可写路径[ \t]*[:：][ \t]*(/[^\s，,；;（(]+)', body, re.M)
+        previous = meta.get('object') or {}
+        meta['object'] = {'repo': repo.group(1).strip('`') if repo else '', 'writes': list(dict.fromkeys([*meta.get('writes', []), *entry_writes])),
+                          'environment': previous.get('environment', ''), 'question': previous.get('question', '')}
+        text = re.sub(r'^对象: .*$', lambda m: '对象: ' + json.dumps(meta['object'], ensure_ascii=False), text, count=1, flags=re.M)
+    meta['paths'] = list(dict.fromkeys([*meta.get('paths', []), *mini.referenced_paths(body)]))
+    meta['body'], meta['body_text'] = str(body_path), body
+    path.write_text(text)
+    print(f'已按 {body_path} 更新 brief 正文（修订块保留）：{path}', flush=True)
+    return text
+
+
 def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None, worktree_base=None):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     path, meta = locate(name)
+    name = meta.get('name') or path.name[:-len('.brief.md')]
     candidates = [r for r in running(False) if r.get('briefPath') == str(path) or r.get('name') == name]
     if any(r.get('status') in ('running', 'queued', 'parked', 'waiting', 'unreachable') for r in candidates):
         raise ValueError('同名任务仍未结束；需要重启请用 amend --restart，未重复派发。')
@@ -399,10 +451,10 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         raise ValueError('--fast 仅用于 --to gpt。')
     if (low or high or xhigh) and target not in ('gpt', 'gemini'):
         raise ValueError('--low、--high 和 --xhigh 仅用于 --to gpt|gemini。')
-    text = path.read_text()
+    text = refresh_body(path, meta, path.read_text())
     if worktree_base is not None:
         location = on or meta.get('on') or os.environ.get('FLEET_DEFAULT_ON', 'mini')
-        wt = meta.get('worktree') or prepare_worktree(name, meta.get('writes', []), worktree_base, location)
+        wt = meta.get('worktree') or prepare_worktree(name, (meta.get('object') or {}).get('writes') or meta.get('writes', []), worktree_base, location, (meta.get('object') or {}).get('repo') or None)
         if meta.get('worktree'):
             worktree_call(wt, meta.get('worktree_location', location))
         else:
@@ -535,6 +587,7 @@ def restart(run, path, name):
 def amend(args):
     """保留修订正文，按需插话或停止本次 run 后通过 relaunch 重启。"""
     path, meta = locate(args.name)
+    args.name = meta.get('name') or path.name[:-len('.brief.md')]
     if args.simple or args.sol or args.luna or args.low or args.high or args.xhigh or args.max:
         if (args.simple or args.sol or args.luna or args.max) and meta['to'] != 'gpt':
             raise ValueError('--sol、--simple、--luna 和 --max 仅用于 --to gpt。')
@@ -774,7 +827,7 @@ def new(args, prepare=False):
     folder = Path.home() / '.agent-reports' / day
     path = folder / (args.name + '.brief.md')
     if path.exists() and not args.dry_run:
-        raise ValueError('同名 brief 已存在，拒绝覆盖；请用 amend 或换名。')
+        raise ValueError(f'同名 brief 已存在，拒绝覆盖：{path}\n改需求后重派：fleet-go amend {args.name} "<修订说明>" --say\n原样重派（--body 文件改过会自动换进 brief）：fleet-go relaunch {args.name}\n另起一单：把名字换成 {args.name}-2 重跑原命令')
     report = str(Path(args.report).expanduser().absolute()) if args.report else str(folder / (args.name + '.md'))
     auth = args.auth.split(',')
     if any(a not in AUTH for a in auth):
@@ -794,7 +847,9 @@ def new(args, prepare=False):
         if not body_path.is_file():
             raise ValueError(f'--body 不是文件路径：{diagnostic_path(body_path)}；--body 需要文件路径，用 - 读取 stdin。')
         body = body_path.read_text()
+        body_file = str(body_path.resolve())
     else:
+        body_file = None
         body = sys.stdin.read() if args.body == '-' or not sys.stdin.isatty() else ''
     if not args.goal and not body.strip():
         raise ValueError('请提供 --goal、--body 或 stdin 正文。')
@@ -844,9 +899,10 @@ def new(args, prepare=False):
             # 账本用：难度档、任务类型、被复核任务名；relaunch/amend 沿用 meta，不另存。
             'paths': list(dict.fromkeys([*(mini.expand_path(p) for p in (args.read or [])), *(mini.expand_path(p) for p in (args.write or [])), *mini.referenced_paths((args.goal or '') + '\n' + body)])),
             'writes': [mini.expand_path(p) for p in (args.write or [])],
+            'body': body_file, 'body_text': body.strip(),
             'on': args.on, 'pull': args.pull, 'object': object_ if object_['repo'] else None, 'after': args.after, 'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
     if args.worktree is not None:
-        wt = prepare_worktree(args.name, args.write or [], args.worktree, location)
+        wt = prepare_worktree(args.name, object_['writes'], args.worktree, location, object_['repo'] or None)
         text = rewrite_worktree(text, meta, wt, location)
     if args.to == 'jev':
         meta['questions'] = str(path.with_suffix('.questions.json'))
@@ -1030,7 +1086,7 @@ def main():
     if any(a == '--kind' or a.startswith('--kind=') for a in sys.argv[1:]):
         raise ValueError('请使用 --to gpt|openai|claude|grok|gemini|jev。')
     args = parser.parse_args()
-    if hasattr(args, 'name') and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.name):
+    if hasattr(args, 'name') and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.name) and not (args.action in ('relaunch', 'amend', 'worktree') and args.name.endswith('.brief.md')):
         raise ValueError('名称只能包含字母、数字、下划线与连字符。')
     if args.action == 'new':
         new(args)
@@ -1042,6 +1098,7 @@ def main():
         relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull, args.sol, args.after, args.worktree)
     elif args.action == 'worktree':
         path, meta = locate(args.name)
+        args.name = meta.get('name') or path.name[:-len('.brief.md')]
         if not meta.get('worktree'): raise ValueError('任务没有登记 worktree。')
         if any(r.get('name') == args.name and r.get('status') in ('running', 'queued', 'parked', 'waiting', 'unreachable') for r in running(False)):
             raise ValueError('任务仍在运行。')

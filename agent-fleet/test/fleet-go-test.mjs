@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 const root = resolve(import.meta.dirname ?? new URL('..', import.meta.url).pathname, import.meta.dirname ? '..' : '.');
@@ -128,6 +128,7 @@ try {
   const original=readFileSync(path,'utf8');
   test('同名拒绝覆盖', () => {
     const r=run(['new','--to','gpt','one','--goal','覆盖']); assert.equal(r.status,1); assert.match(r.stderr,/amend/); assert.equal(readFileSync(path,'utf8'),original);
+    assert.match(r.stderr,/fleet-go relaunch one\n/); assert.match(r.stderr,/one-2/);
   });
   test('amend 递增、不重复、原文保留、归类首行和规则末行保留', () => {
     for(const message of ['第一处要求','第二处要求','第二处要求']) assert.equal(run(['amend','one',message]).status,0);
@@ -228,6 +229,7 @@ try {
     ]) { r=strict(action,body,opts); assert.equal(r.status,1,action); assert.match(r.stderr,expected); assert.match(r.stderr,/示例（按实际任务和授权修改）/); }
     assert.equal(strict('只读','## 入口\n仓库：/tmp\n未知',['--sol']).status,0);
     r=strict('', ''); assert.equal(r.status,0,r.stderr); assert.match(r.stderr,/缺少动作行/);
+    r=strict('推送',entry,['--auth','local-commit']); assert.match(r.stderr.split('\n')[0],/^错误：缺授权块 deploy-prod：.*改用 --auth local-commit,deploy-prod/);
     r=strict('部署',readEntry,['--no-lint']); assert.equal(r.status,1); assert.match(r.stderr,/--auth local-commit,deploy-prod/); assert.match(r.stderr,/可写路径/);
     const f=join(temp,'strict.md'); writeFileSync(f,strict('只读',readEntry).stdout);
     assert.equal(spawnSync(script,['lint',f,'--on','local'],{encoding:'utf8',env}).status,0);
@@ -605,6 +607,46 @@ try {
     assert.equal(meta.object.writes[0],meta.worktree.path);
     const again=run(['relaunch','wt-test','--worktree']); assert.equal(again.status,7,again.stderr);
     assert.equal(JSON.parse(readFileSync(bp.replace(/\.md$/,'.json'),'utf8')).worktree.path,meta.worktree.path);
+  });
+  test('relaunch 按改过的 --body 更新正文并保留修订；旧单不能自动换就大声拒绝', () => {
+    const bodyFile=join(temp,'refresh.body.md'); writeFileSync(bodyFile,'旧正文 A\n');
+    let r=run(['new','refresh','--to','gpt','--auth','local','--goal','g','--body',bodyFile,'--no-launch']); assert.equal(r.status,0,r.stderr);
+    const bp=r.stdout.match(/已生成：(.+)/)[1].trim();
+    assert.equal(run(['amend','refresh','修订甲']).status,0);
+    writeFileSync(bodyFile,'新正文 B\n仓库: /tmp\n');
+    reset(); r=run(['relaunch','refresh']); assert.equal(r.status,7,r.stderr); assert.match(r.stdout,/已按 .*refresh\.body\.md 更新 brief 正文/);
+    const text=readFileSync(bp,'utf8'); assert.match(text,/新正文 B/); assert.doesNotMatch(text,/旧正文 A/); assert.match(text,/修订 1（[^\n]+）】\n修订甲/); assert.match(text,/^对象: \{"repo": "\/tmp"/m);
+    assert.equal(history().at(-1).args[0],'code');
+    r=run(['relaunch','refresh']); assert.equal(r.status,7); assert.doesNotMatch(r.stdout,/更新 brief 正文/);
+    // 旧任务：没有正文快照，同目录 <name>.body.md 比 brief 新时拒绝并给出下一步命令。
+    const meta=JSON.parse(readFileSync(bp.replace(/\.md$/,'.json'),'utf8')); delete meta.body; delete meta.body_text;
+    writeFileSync(bp.replace(/\.md$/,'.json'),JSON.stringify(meta)); const legacyBody=bp.replace(/\.brief\.md$/,'.body.md');
+    writeFileSync(legacyBody,'改过的正文'); const later=new Date(Date.now()+5000); utimesSync(legacyBody,later,later);
+    r=run(['relaunch','refresh']); assert.equal(r.status,1); assert.match(r.stderr,/比 brief 新/); assert.match(r.stderr,/touch /);
+    utimesSync(bp,new Date(Date.now()+10000),new Date(Date.now()+10000)); assert.equal(run(['relaunch','refresh']).status,7);
+    rmSync(legacyBody);
+  });
+  test('跨日期重名给出可复制的路径命令，路径可直接 relaunch', () => {
+    const bp=join(home,'.agent-reports',new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}),'refresh.brief.md');
+    const old=join(home,'.agent-reports','2000-01-01'); mkdirSync(old,{recursive:true});
+    writeFileSync(join(old,'refresh.brief.md'),readFileSync(bp,'utf8')); writeFileSync(join(old,'refresh.brief.json'),readFileSync(bp.replace(/\.md$/,'.json'),'utf8'));
+    let r=run(['relaunch','refresh']); assert.equal(r.status,1); assert.ok(r.stderr.includes('fleet-go relaunch '+bp),r.stderr);
+    reset(); r=run(['relaunch',bp]); assert.equal(r.status,7,r.stderr); assert.ok(history().at(-1).args.includes('refresh'));
+    rmSync(old,{recursive:true,force:true});
+  });
+  test('worktree 以入口仓库为准：cwd 和 --write 不在 git 仓库也能建', () => {
+    const remote=join(temp,'wt2-remote'), repo=join(temp,'wt2-repo'), outside=join(temp,'wt2-out'); mkdirSync(outside);
+    const git=(...args)=>{const r=spawnSync('git',args,{encoding:'utf8'}); assert.equal(r.status,0,r.stderr);};
+    git('init','--bare',remote); git('clone',remote,repo);
+    git('-C',repo,'config','user.email','test@example.invalid'); git('-C',repo,'config','user.name','test');
+    git('-C',repo,'commit','--allow-empty','-m','initial'); git('-C',repo,'push','-u','origin','HEAD');
+    const r=spawnSync(script,['new','wt-entry','--to','gpt','--on','local','--goal','t','--write',outside,'--worktree','--no-launch','--no-lint'],{encoding:'utf8',env,cwd:outside,input:`## 入口\n仓库: ${repo}\n可写路径: ${repo}/src\n`});
+    assert.equal(r.status,0,r.stderr);
+    const bp=join(home,'.agent-reports',new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}),'wt-entry.brief.md');
+    const meta=JSON.parse(readFileSync(bp.replace(/\.md$/,'.json'),'utf8')); const text=readFileSync(bp,'utf8');
+    assert.ok(existsSync(meta.worktree.path)); assert.match(meta.worktree.path,/wt2-repo-wt\/wt-entry$/);
+    assert.ok(text.includes('仓库: '+meta.worktree.path)); assert.ok(text.includes('可写路径: '+meta.worktree.path+'/src'));
+    assert.deepEqual(meta.worktree.writes,['src']);
   });
   console.log(`fleet-go：${checks} 组通过。`);
 } finally { rmSync(temp,{recursive:true,force:true}); }

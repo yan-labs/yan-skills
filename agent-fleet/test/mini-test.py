@@ -7,6 +7,8 @@ import subprocess
 import sys
 import tempfile
 from unittest.mock import patch
+import io
+from contextlib import redirect_stdout
 
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / 'src'))
@@ -129,6 +131,22 @@ echo '[{"runId":"old-run","status":"done"}]'
         assert '缺少路径' in mini.preflight(sync_meta, [str(source_home/'missing-repo')])
         with patch.object(mini, 'sync_reports', side_effect=OSError('failed')):
             assert '同步失败' in mini.preflight(sync_meta, [str(source_reports/'missing')])
+        # 本机改过的输入（含 --body 正文）覆盖 Mini 旧副本；Mini 较新的不动。
+        body = source_reports / 'day' / 'task.body.md'; body.write_text('新正文')
+        remote_body = target_home / '.agent-reports/day/task.body.md'; remote_body.write_text('旧正文')
+        os.utime(remote_body, (1000, 1000))
+        remote_file.write_text('Mini 上更新的内容')
+        os.utime(source_file, (1000, 1000))
+        out = io.StringIO()
+        with redirect_stdout(out):
+            assert mini.preflight({**sync_meta, 'body': str(body)}, [str(source_file)]) is None
+        assert remote_body.read_text() == '新正文' and '（覆盖）' in out.getvalue()
+        assert remote_file.read_text() == 'Mini 上更新的内容'
+        # 需要的命令：显式行 + 已知命令；否定句不算。Mini 缺命令时给出原因。
+        assert mini.required_commands('先 kubectl get pods\n禁止用 aws 写\n需要命令: jq、`fleet-no-such-tool`\nkubectl logs') == ['kubectl', 'jq', 'fleet-no-such-tool']
+        need = tmp / 'need.brief.md'; need.write_text('需要命令: fleet-no-such-tool\n')
+        reason = mini.preflight({**sync_meta, 'brief': str(need)}, [])
+        assert reason.startswith(mini.TOOLS_MISSING + 'fleet-no-such-tool'), reason
     # Remote case-preserving filesystem spelling applies to the whole brief and cwd.
     project = tmp / 'PROJECT'; project.mkdir()
     (project / 'repo').mkdir()
@@ -210,4 +228,15 @@ if [ "$1" = --method ]; then echo direct; else echo '{"missing":["/home/b/missin
     assert proc.returncode != 0 and '未回退' in proc.stderr, proc.stderr
     metadata = json.loads(next((tmp/'.agent-reports').glob('*/recheck.brief.json')).read_text())
     assert '/home/a/original' in metadata['paths'] and '/home/a/revised' in metadata['paths']
+spec = importlib.util.spec_from_file_location('fleet_go_tools', root / 'src/fleet-go.py')
+fg = importlib.util.module_from_spec(spec); spec.loader.exec_module(fg)
+with tempfile.TemporaryDirectory() as d:
+    brief = Path(d) / 'tools.brief.md'; brief.write_text('x')
+    with patch.object(fg.mini, 'available', return_value=True), patch.object(fg.mini, 'preflight', return_value=mini.TOOLS_MISSING + 'kubectl（x）'), patch.object(fg.subprocess, 'run') as fallback, patch.object(fg.os, 'execvp') as local:
+        try:
+            fg.launch({'to': 'gpt', 'name': 'tools', 'brief': str(brief), 'report': str(Path(d) / 'r.md'), 'on': None})
+            raise AssertionError('should refuse')
+        except ValueError as error:
+            assert 'Mini 缺命令：kubectl' in str(error) and '未回退本机' in str(error)
+        assert not fallback.called and not local.called
 print('PASS: path rewrite, mini command assembly, unavailable fallback')
