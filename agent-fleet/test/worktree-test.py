@@ -30,9 +30,11 @@ class WorktreeTest(unittest.TestCase):
             with self.assertRaises(ValueError): w.execute({**p, 'action':'prune'})
             (target/'dirty').unlink()
             run('git', '-C', str(target), 'commit', '--allow-empty', '-m', 'not pushed')
-            with self.assertRaises(subprocess.CalledProcessError): w.execute({**p, 'action':'prune'})
-            run('git', '-C', str(target), 'push', '-u', 'origin', 'HEAD')
+            with self.assertRaises(ValueError): w.execute({**p, 'action':'prune'})
+            run('git', '-C', str(repo), 'merge', '--ff-only', p['branch'])
+            run('git', '-C', str(repo), 'push', 'origin', 'HEAD')
             w.execute({**p, 'action':'prune'})
             self.assertFalse(target.exists())
+            self.assertNotEqual(subprocess.run(['git', '-C', str(repo), 'show-ref', '--verify', '--quiet', 'refs/heads/' + p['branch']]).returncode, 0)
 
 if __name__ == '__main__': unittest.main()

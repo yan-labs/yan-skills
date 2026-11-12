@@ -601,7 +601,7 @@ try {
     assert.equal(r.status,0,r.stderr);
     const bp=join(home,'.agent-reports',new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}),'wt-test.brief.md');
     const body=readFileSync(bp,'utf8'); const meta=JSON.parse(readFileSync(bp.replace(/\.md$/,'.json'),'utf8'));
-    assert.ok(body.includes(meta.worktree.path)); assert.ok(body.includes(meta.worktree.branch)); assert.ok(body.includes('origin/'));
+    assert.ok(body.includes(meta.worktree.path)); assert.ok(body.includes(meta.worktree.branch)); assert.ok(body.includes('origin/')); assert.ok(body.includes('worktree remove')); assert.ok(body.includes('branch -D'));
     assert.equal(meta.object.writes[0],meta.worktree.path);
     const again=run(['relaunch','wt-test','--worktree']); assert.equal(again.status,7,again.stderr);
     assert.equal(JSON.parse(readFileSync(bp.replace(/\.md$/,'.json'),'utf8')).worktree.path,meta.worktree.path);

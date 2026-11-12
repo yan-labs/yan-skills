@@ -18,9 +18,13 @@ def execute(p):
         branch = git(target, 'symbolic-ref', '--short', 'HEAD')
         if branch != p['branch']:
             raise ValueError('worktree 分支已改变')
-        git(target, 'fetch', 'origin', 'refs/heads/' + branch)
-        git(target, 'merge-base', '--is-ancestor', 'HEAD', 'FETCH_HEAD')
+        git(target, 'fetch', 'origin', '--prune')
+        base = p['base'].removeprefix('origin/').removeprefix('refs/heads/')
+        refs = ['origin/' + base, 'origin/' + branch]
+        if not any(subprocess.run(['git', '-C', str(target), 'merge-base', '--is-ancestor', 'HEAD', ref], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0 for ref in refs):
+            raise ValueError('功能分支既未合回基础分支，也未推送同名远端分支')
         git(repo, 'worktree', 'remove', str(target))
+        git(repo, 'branch', '-D', branch)
         return p
     if target.exists():
         if git(target, 'rev-parse', '--show-toplevel') != str(target) or git(target, 'symbolic-ref', '--short', 'HEAD') != p['branch'] or git(target, 'rev-parse', '--path-format=absolute', '--git-common-dir') != git(repo, 'rev-parse', '--path-format=absolute', '--git-common-dir'):
