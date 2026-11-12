@@ -9,6 +9,9 @@ const temp = mkdtempSync(join(tmpdir(), 'fleet-go-test-'));
 const home = join(temp, 'home');
 const bin = join(temp, 'bin');
 mkdirSync(join(home, '.claude'), { recursive: true });
+// 调遣令全部正常的夹具,免得「文件不存在」警告混进被断言的 stderr;调遣令本身的行为见 order-test.mjs。
+mkdirSync(join(home, '.agents'), { recursive: true });
+writeFileSync(join(home, '.agents/dispatch-order.md'), '| 执行者 | 状态 | 有效至 | 原因与用户原话 |\n|---|---|---|---|\n| 全局 | 正常 | 用户另说 | |\n');
 mkdirSync(bin);
 const rule = readFileSync(join(root, 'skill/templates/blocks/rule-sentence.md'), 'utf8').trim();
 writeFileSync(join(home, '.claude/CLAUDE.md'), "禁止单纯转发，允许分发子步骤：不能把整个任务原样甩给另一个 agent 后只回'已启动/等结果'就结束当轮；可以拆出边界清晰的子步骤交给更便宜的 agent 做，但你必须自己掌握全局、消化并验证子任务结果，最终给出真正的结论作为你的最终答案");

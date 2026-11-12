@@ -1,9 +1,19 @@
 ---
 name: agent-fleet
 description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV 任务，或调用 Kollab 图片/视频/音频/多模态能力时使用；包括用户点名 agent-fleet、Nano Banana、nanobanana、香蕉、便宜模型、多模型并行，用户说“让 Codex 或 GPT-6.1 Sol 做某事”的编码、调研与 review 派单，以及按全局 CLAUDE.md §2 路由任务。只做单一模型的直接任务且无需 fleet 时不触发；用户明确要直接操作 Codex CLI 原生命令（自选 sandbox、codex review、apply、resume）时用 codex Skill；普通生成图片也可用 imagegen。
+allowed-tools: Bash(fleet-go order show*) Bash(cat ~/.agents/dispatch-order.md*) Bash(true)
 ---
 
 # agent-fleet
+
+## 当前调遣令（自动注入，优先于下文所有路由与顺位）
+
+!`fleet-go order show || cat ~/.agents/dispatch-order.md || true`
+
+调遣令是用户临时发的全局指令（谁停用、谁省着用、谁优先、谁的额度已重置），全局唯一，存在 `~/.agents/dispatch-order.md`。与下文路由、顺位、换手表冲突时一律以调遣令为准；`fleet-go new` / `relaunch` 会拦下被「停用」的执行者（`--override-order "理由"` 才放行，理由进 brief 偏差和账本），「省着用」只警告。
+- 用户口头新发调遣令，或你/执行者遇到额度类失败、被告知某执行者额度用完或已重置：立即 `fleet-go order set <执行者> <优先|正常|省着用|停用> --until <重置时间> --reason "原话与日期"`（恢复用 `fleet-go order clear <执行者>`），不要只在对话里说，也不写进项目 memory。
+- fleet 的 run 因额度类原因失败结束时会自动记成「停用到重置时间」（原因以「自动：」开头，带「估计」的重置时间是估的，拿到准确时间再手动改）；到点自动视为恢复，不用清。Agent 工具里的 `claude-sub`（executor-*）不经 fleet，额度用完要手动记。
+- 这里看到的若是命令原文而不是令的内容，说明没注入，先自己跑一次 `fleet-go order show`。
 
 任务名额分为轻量池（Luna、Gemini/copy/bulk、Haiku、JEV，默认 10）和编码池（其他模型，默认 4），分别排队；只读任务不占名额。`FLEET_LIGHT_CAPACITY` / `FLEET_CODE_CAPACITY` 可分别调整，`FLEET_SLOT_CAPACITY` 则覆盖为全局总名额。
 
@@ -38,6 +48,23 @@ CronCreate 示例（可直接复制并按本会话支持的字段调用）：
 CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有后台任务在跑；没有则用 CronList 找到这条巡检并 CronDelete；有则在本会话按本机 ~/.agent-fleet/patrol-brief.md 派 Luna 巡检子单（--luna --high --on local，run_in_background），只看本会话负责的任务：<任务名列表>；完成通知回来后，读它的「需要主会话处理」并逐条处理。")
 ```
 全局规则见 `~/.claude/CLAUDE.md` §3.2。
+
+## 主会话接力（逐步交接）
+主会话上下文变长、或活干到一个段落时就交班，不等手上所有单都结束（用户 2026-11-13）：
+1. 写交接文件 `~/.agent-reports/<日期>/session-handoff.md`：在跑/排队的 run 和 runId、会话内定时原文、子代理单和报告路径、待用户拍板的事、新坑。
+2. 删本会话的会话内定时（它们只活在本会话，留着会让本会话一直不结束），停掉纯等待的 `fleet wait` 后台命令；`fleet-go relaunch --after` 排队命令和 caffeinate 这类承载任务的进程不停。
+3. 用 start_session 开新主会话，brief 让它读交接文件、重挂 `fleet wait`、重建定时和巡检，挂好后告诉用户。
+4. 本会话已派出、还没回来的 Agent 子代理留在原处，结果回来后用 SendMessage 把结论转给新会话，由新会话验收和派复核，旧会话转完就停手；新会话不重派这些单。
+5. 新会话确认接住后，旧会话等子代理全部转交完毕即可归档。
+
+**派单与巡检经验（2026-11-12～13）**
+- Agent 子代理也能在 Mac Mini 干活：子代理本身在 MacBook 启动，brief 写明命令用 `~/.claude/skills/macmini/scripts/mm '<命令>'` 在 Mini 执行（mm 不在 PATH，写全路径）。不要以"子代理只能本机跑"为由把任务留在本机。
+- `fleet-go relaunch` 沿用原 run 的执行位置；原单是 `--on local` 的，重派前先判断能否改到 Mini，不要照抄。
+- `relaunch` 读的是保存的 brief.md，不是 body.md；改了 body.md 要同步改 brief.md（或用 `amend`），否则重派仍按旧要求做。
+- 巡检子单只给本会话派出的 run 下指令；已结束的 run 不发指令；有进度文件的长任务以进度文件的更新时间判断是否卡住，不按 2 小时规则强令收尾。
+- Codex 偶发 `workspace routing discovery failed`，巡检单秒失败时主线程自己看 `fleet-go status` 和进度文件 mtime，不反复重派。
+- 会话内定时（CronCreate session-only）随会话消失；交班时把定时原文写进交接文件，由新会话重建。
+- run 结束或交班时，它启动的子进程会被一起停掉（11-13 cf-migrate 交班连带杀了后台复制进程）。要跨棒存活的长进程，从一开始就和 run 脱钩启动，并把 PID 和续传方法写进 checkpoint；批准交班前先确认这一点。
 
 ## 中途插话（沿用现有任务调整方向）
 统一入口：`fleet say <任务> "新指令"` 或 `fleet-go amend <名字> --say "补充要求"`（`--restart` 只作最后兜底）。
@@ -183,7 +210,7 @@ Terra 与 Sol 派单前问两句：brief 能否写清具体文件、入口和完
 - 设计稿由 Claude 出，按稿实施的编码可以交 Terra。
 - 严苛架构或硬性指标多轮达不到时，先派 Fable 出方案再派执行者，不让原执行者空转。
 - 执行者拒绝或不肯改时，改派下一顺位；Gemini 只承接文案、翻译和校对。
-- 工具不可用时按 [工具链](references/fallback-chains.md) 从左往右换手；用户点名优先。
+- 工具不可用时按 [工具链](references/fallback-chains.md) 从左往右换手；用户点名优先。临时的停用、省着用、额度重置只记在顶部[调遣令](#当前调遣令自动注入优先于下文所有路由与顺位)，这里的顺位是长期的。
 
 
 ## 失败上报与派用者顺位参考

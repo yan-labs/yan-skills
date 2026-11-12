@@ -1,5 +1,7 @@
 # 额度用尽时的工具链
 
+本页是长期顺位。某执行者眼下的停用、省着用、额度重置等临时状态只记在调遣令（`fleet-go order show` / `set`，`SKILL.md` 顶部自动注入），与本页冲突时以调遣令为准；fleet 的 run 因额度类原因失败结束时会自动记入调遣令。
+
 常规编码顺位：Codex Terra → OpenAI API Terra → Grok Build → Claude；首派档位与停滞改派统一见 [路由原则](../SKILL.md#路由原则长期)。Gemini 只负责文案、翻译和校对。Claude 的 Haiku、Sonnet、Opus 先用 fleet 档，没额度再用 executor；Fable 只用 Agent 工具的 `executor-fable`；拒绝或不可用按任务行换手，用户点名优先。
 
 ## 顺位表
@@ -22,6 +24,8 @@
 视频、图片、X 热点、成人题材仍走 Grok，不进此表。
 
 ## 什么算不可用
+
+下表的额度类信号（Codex 用量、OpenAI/Claude API 额度、Grok 额度、Gemini 402 预算）同时有机读版：`src/order.py` 的 `QUOTA_RULES`，改规则两处一起改。
 
 | 工具 | 信号 | 处理 |
 |---|---|---|

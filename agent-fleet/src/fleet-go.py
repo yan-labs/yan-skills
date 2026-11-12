@@ -13,6 +13,7 @@ import sys
 import time
 import unicodedata
 import mini
+import order
 import worktree
 import shlex
 
@@ -411,10 +412,19 @@ def refresh_body(path, meta, text):
     return text
 
 
-def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None, worktree_base=None):
+def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None, worktree_base=None, override_order=None):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     path, meta = locate(name)
     name = meta.get('name') or path.name[:-len('.brief.md')]
+    override = override_order or meta.get('order_override')
+    deviation = order.gate(to or meta['to'], override)
+    if deviation:
+        meta['order_override'] = override
+        text = path.read_text()
+        if '调遣令偏差：' not in text:
+            lines = text.splitlines(keepends=True)
+            path.write_text(''.join(lines[:2]) + '\n' + deviation + '\n' + ''.join(lines[2:]))
+        path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     candidates = [r for r in running(False) if r.get('briefPath') == str(path) or r.get('name') == name]
     if any(r.get('status') in ('running', 'queued', 'parked', 'waiting', 'unreachable') for r in candidates):
         raise ValueError('同名任务仍未结束；需要重启请用 amend --restart，未重复派发。')
@@ -810,6 +820,7 @@ def new(args, prepare=False):
     """组装标准 brief；预览不写盘，正文文件与 stdin 使用明确输入规则。"""
     if args.to == 'claude' and args.tier == 'fable':
         raise ValueError('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）')
+    deviation = order.gate(args.to, args.override_order)
     for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
                              ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('sol', ['gpt']), ('luna', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                              ('bulk', ['gemini'])]:
@@ -890,6 +901,8 @@ def new(args, prepare=False):
                'writes': list(dict.fromkeys([*(args.write or []), *entry_writes])),
                'environment': args.environment or '', 'question': args.question or args.goal or ''}
     parts.insert(2, '对象: ' + json.dumps(object_, ensure_ascii=False))
+    if deviation:
+        parts.insert(3, deviation)
     text = '\n\n'.join(parts) + '\n'
     location = args.on or os.environ.get('FLEET_DEFAULT_ON', 'mini')
     if location == 'mini' and not mini.available() and args.on != 'mini': location = 'local'
@@ -905,7 +918,7 @@ def new(args, prepare=False):
             # 账本用：难度档、任务类型、被复核任务名；relaunch/amend 沿用 meta，不另存。
             'paths': list(dict.fromkeys([*(mini.expand_path(p) for p in (args.read or [])), *(mini.expand_path(p) for p in (args.write or [])), *mini.referenced_paths((args.goal or '') + '\n' + body)])),
             'writes': [mini.expand_path(p) for p in (args.write or [])],
-            'body': body_file, 'body_text': body.strip(),
+            'body': body_file, 'body_text': body.strip(), 'order_override': args.override_order if deviation else None,
             'on': args.on, 'pull': args.pull, 'object': object_ if object_['repo'] else None, 'after': args.after, 'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
     if args.worktree is not None:
         wt = prepare_worktree(args.name, object_['writes'], args.worktree, location, object_['repo'] or None)
@@ -1010,6 +1023,7 @@ def build_parser():
         p.add_argument('--' + option, action='store_true')
     for option in ['why', 'goal', 'body', 'budget', 'forbid', 'pitfalls', 'report', 'after', 'environment', 'question']:
         p.add_argument('--' + option)
+    p.add_argument('--override-order', metavar='理由', help='调遣令把目标执行者设为停用时强行放行；理由写进 brief 偏差和账本')
     p.add_argument('--level', type=level_arg, help='难度档 L1–L4，记入账本')
     p.add_argument('--type', type=str.lower, help='任务类型，记入账本：work|review|research|copy|media|orchestrate|judge|ops 等')
     p.add_argument('--for', dest='for_name', help='本单复核的任务名，记入账本做 maker/checker 配对')
@@ -1045,6 +1059,7 @@ def build_parser():
     p = sub.add_parser('relaunch')
     p.add_argument('name')
     p.add_argument('--worktree', nargs='?', const='')
+    p.add_argument('--override-order', metavar='理由', help='调遣令把目标执行者设为停用时强行放行；理由写进 brief 偏差和账本')
     p.add_argument('--after', help='在指定任务结束后运行')
     p.add_argument('--on', choices=['mini', 'local'])
     p.add_argument('--pull', action='store_true')
@@ -1079,6 +1094,7 @@ def build_parser():
     p.add_argument('--sol', action='store_true')
     p.add_argument('--on', choices=['mini', 'local'], default=os.environ.get('FLEET_DEFAULT_ON', 'mini'))
     p.add_argument('--to', choices=PRODUCTS, default='gpt')
+    order.add_parser(sub)
     sub.add_parser('team')
     p = sub.add_parser('status')
     p.add_argument('--all', action='store_true')
@@ -1101,7 +1117,9 @@ def main():
     elif args.action == 'amend':
         amend(args)
     elif args.action == 'relaunch':
-        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull, args.sol, args.after, args.worktree)
+        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull, args.sol, args.after, args.worktree, args.override_order)
+    elif args.action == 'order':
+        order.main(args)
     elif args.action == 'worktree':
         path, meta = locate(args.name)
         args.name = meta.get('name') or path.name[:-len('.brief.md')]

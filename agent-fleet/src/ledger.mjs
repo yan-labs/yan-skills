@@ -7,6 +7,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { timelineFile } from './timeline.mjs';
+import { recordQuotaOrder } from './order-hook.mjs';
 
 export const LEDGER_VERSION = 1;
 const TERMINAL = new Set(['done', 'failed', 'stopped', 'blocked']);
@@ -166,6 +167,7 @@ export function buildRow(rec, index, { useReport = true, backfilled = false } = 
     executor, model: brief.resolvedModel ?? rec.model, route: rec.model,
     effort: rec.tier ?? brief.effort ?? (rec.max || meta.max ? 'max' : rec.xhigh || meta.xhigh ? 'xhigh' : rec.high || meta.high ? 'high' : rec.low || meta.low ? 'low' : executor === 'gemini' ? 'xhigh' : null),
     level: meta.level ?? null,
+    orderOverride: meta.order_override ?? null,
     type: meta.type ?? (isReview ? 'review' : /orchestrat/i.test(name) ? 'orchestrate' : 'work'),
     status: rec.status, verdict, outcome, failure: classifyFailure(rec),
     continues: rec.continueCount ?? 0,
@@ -209,7 +211,9 @@ export function recordRun(rec) {
     if (!path || !isLedgerRun(rec)) return;
     const index = new LedgerIndex(readLedger(path));
     if (index.has(rec.runId)) return;
-    appendRows([buildRow(rec, index)], path);
+    const row = buildRow(rec, index);
+    appendRows([row], path);
+    recordQuotaOrder(rec, row); // 额度类失败自动记进调遣令(内部吞掉所有错误)
   } catch { /* 账本写不了不影响任务本身 */ }
 }
 

@@ -383,6 +383,30 @@ def wait(rec, pull=False):
         return _wait(rec, pull)
 
 
+def record_quota_order(rec, row):
+    """Mini 上的 run 失败结束：读 Mini 端日志/结果尾部和 Codex 用量记录，交给调遣令自动记账（规则见 order.py）。错误一律吞掉。"""
+    try:
+        if row.get('verdict') == 'ok' or row.get('status') == 'stopped': return
+        result = row.get('resultPath') or ''
+        script = PATH_FIX + '''import base64,json,pathlib,sys
+p=json.loads(base64.b64decode(sys.argv[1]))
+def tail(path,n):
+    f=pathlib.Path(path) if path else None
+    return f.read_text(errors='replace')[-n:] if f and f.is_file() else ''
+quota=None
+try: quota=json.loads((pathlib.Path.home()/'.agent-fleet/runs/codex-quota.json').read_text())
+except Exception: pass
+print(json.dumps({'text':tail(p['log'],6000)+'\\n'+tail(p['result'],3000),'codexQuota':quota}))
+'''
+        p = call(script, {'log': result.removesuffix('.result.md') + '.log' if result else '', 'result': result}, timeout=20)
+        if p.returncode: return
+        data = json.loads(p.stdout)
+        import order
+        order.auto_record({'runId': rec['id'], 'name': rec.get('name'), 'route': row.get('model'), 'finishedAt': row.get('finishedAt'),
+                           'text': data.get('text', ''), 'codexQuota': data.get('codexQuota')})
+    except Exception:
+        pass
+
 def _wait(rec, pull=False):
     while True:
         try:
@@ -391,6 +415,7 @@ def _wait(rec, pull=False):
         except (ConnectionError, OSError, subprocess.TimeoutExpired, ValueError):
             print('Mini 连接中断，等待重连…', file=sys.stderr, flush=True)
         time.sleep(5)
+    record_quota_order(rec, row)
     while True:
         try:
             result = row.get('resultPath') or ''

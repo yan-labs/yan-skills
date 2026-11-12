@@ -11,6 +11,7 @@
 | `executor` | 执行者族：`sol` `terra` `luna` `grok` `gemini` `sonnet` `opus` `haiku` `fable` `jev`。官方 API、网关、Codex 通道统一归并（如 `openai-gpt-terra` 记为 `terra`）。 |
 | `model` `route` `effort` | 实际模型、fleet 路由名、推理档位（Codex 的 medium/xhigh 等，读不到为空）。 |
 | `level` | 难度档 `L1`–`L4`，由 `fleet-go new --level` 传入，缺省为空。L1 单文件/小脚本，L2 单模块，L3 跨模块或根因定位，L4 生产高风险或架构级（总管按 L4）。 |
+| `orderOverride` | 派单时用 `--override-order` 放行了被调遣令「停用」的执行者，这里记放行理由；平时为空。 |
 | `type` | `work`（默认）`review` `orchestrate` `media` 等。`--type` 显式传；`--review` / `--for` 自动记 `review`，`--make` 记 `media`，名字含 orchestrat 记 `orchestrate`。 |
 | `status` `verdict` `outcome` | fleet 终态、verdict、折算结果：`complete`（真完成）/ `partial` / `failed` / `stopped`。verdict 为 ok 但报告「结论」自述部分完成、未完成的折成 `partial`。 |
 | `failure` | 失败原因，自动判：`quota`（402、月度额度）、`capacity`（模型容量、429 并发）、`zombie`（死进程）、`stopped`（被主线程停 / 信号终止）、`auth-gateway`（鉴权、网关、网络超时）、`capability`（suspect、空结果、裸 tool-call 等）、`unknown`（判不了）。ok 与 partial 为空。前五项都是非能力因素。 |
