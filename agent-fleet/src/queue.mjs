@@ -122,7 +122,7 @@ export async function registerQueue(rec) {
       if (live.has(other.state) && pathsOverlap(object.writes, other.object.writes) && !follows(rows, row, other)) {
         const pairs = object.writes.flatMap(a => other.object.writes.filter(b => pathsOverlap([a], [b])).map(b => `${a} ↔ ${b}`));
         const quote = s => `'${String(s).replaceAll("'", "'\\''")}'`;
-        throw new Error(`可写路径重叠：${other.name || other.runId}\n${pairs.join('\n')}\nfleet-go relaunch ${quote(row.name)} --after ${quote(other.name || other.runId)}\nfleet say ${quote(other.name || other.runId)} '请处理重叠路径上的任务'`);
+        throw new Error(`可写路径重叠：${other.name || other.runId}\n${pairs.join('\n')}\nfleet-go relaunch ${quote(row.name)} --worktree\nfleet-go relaunch ${quote(row.name)} --after ${quote(other.name || other.runId)}\nfleet say ${quote(other.name || other.runId)} '请处理重叠路径上的任务'`);
       }
       if ((live.has(other.state) || Date.now() - (other.finishedAt || other.createdAt) < 86_400_000) &&
           object.question && object.repo === other.object.repo && object.environment === other.object.environment &&

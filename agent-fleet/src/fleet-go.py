@@ -12,6 +12,7 @@ import sys
 import time
 import unicodedata
 import mini
+import worktree
 
 BLOCKS = Path(__file__).resolve().parents[1] / 'skill/templates/blocks'
 LEGACY_RULE = "禁止单纯转发，允许分发子步骤：不能把整个任务原样甩给另一个 agent 后只回'已启动/等结果'就结束当轮；可以拆出边界清晰的子步骤交给更便宜的 agent 做，但你必须自己掌握全局、消化并验证子任务结果，最终给出真正的结论作为你的最终答案"
@@ -63,6 +64,65 @@ print(json.dumps(sorted(set(roots))))
                 roots.add(str(parent))
                 break
     return roots
+
+
+def worktree_call(data, location):
+    if location != 'mini':
+        return worktree.execute(data)
+    script = Path(worktree.__file__).read_text() + "\nimport base64,sys\np=json.loads(base64.b64decode(sys.argv[1])); print(json.dumps(execute(p)))"
+    result = mini.call(script, data, timeout=600)
+    if result.returncode:
+        raise ValueError('Mini worktree 操作失败：' + result.stderr)
+    return json.loads(result.stdout)
+
+
+def prepare_worktree(name, writes, base, location):
+    if not writes:
+        raise ValueError('--worktree 需要 --write。')
+    # Resolve the repository on the execution machine, using the same home mapping as briefs.
+    paths = [mini.remote_path(mini.expand_path(p)) if location == 'mini' else mini.expand_path(p) for p in writes]
+    script = "import base64,json,subprocess,sys,pathlib; p=json.loads(base64.b64decode(sys.argv[1])); dirs=[next(q for q in (pathlib.Path(x),*pathlib.Path(x).parents) if q.is_dir()) for x in p]; print(json.dumps([subprocess.check_output(['git','-C',str(x),'rev-parse','--show-toplevel'],text=True).strip() for x in dirs]))"
+    if location == 'mini':
+        result = mini.call(script, paths)
+        if result.returncode: raise ValueError('--write 必须位于 git 仓库中。')
+        roots = json.loads(result.stdout)
+    else:
+        roots = [subprocess.check_output(['git', '-C', str(next(q for q in (Path(p), *Path(p).parents) if q.is_dir())), 'rev-parse', '--show-toplevel'], text=True).strip() for p in paths]
+    if len(set(roots)) != 1: raise ValueError('--worktree 的 --write 必须属于同一个仓库。')
+    repo = roots[0]
+    target = str(Path(repo).parent / (Path(repo).name + '-wt') / name)
+    data = {'action': 'create', 'repo': repo, 'path': target, 'branch': 'yan/' + name + '-' + datetime.date.today().strftime('%Y%m%d'), 'base': base or None}
+    return worktree_call(data, location)
+
+
+def rewrite_worktree(text, meta, wt, location):
+    repo = mini.local_path(wt['repo']) if location == 'mini' else wt['repo']
+    target = mini.local_path(wt['path']) if location == 'mini' else wt['path']
+    aliases = {repo}
+    for value in meta.get('writes', []):
+        resolved = os.path.realpath(value)
+        if resolved == repo or resolved.startswith(repo + '/'):
+            aliases.add(value[:len(value) - len(resolved[len(repo):])] if resolved != repo else value)
+    for alias in sorted(aliases, key=len, reverse=True):
+        text = re.sub(re.escape(alias) + r'(?=/|[^\w./-]|$)', lambda m: target, text)
+    marker = '## 目标' if '## 目标' in text else '## 允许范围'
+    text = text.replace(marker, 'worktree：' + target + '；分支：' + wt['branch'] + '；基点：' + str(wt.get('base') or '原有 worktree') + '\n\n' + marker, 1)
+    def mapped(value):
+        for alias in aliases:
+            if value == alias or value.startswith(alias + '/'): return target + value[len(alias):]
+        return value
+    for key in ('paths', 'writes'):
+        meta[key] = [mapped(v) for v in meta.get(key, [])]
+    if not meta.get('object'):
+        meta['object'] = {'repo': target, 'writes': list(meta.get('writes', [])), 'environment': '', 'question': ''}
+    if meta.get('object'):
+        meta['object']['repo'] = mapped(meta['object']['repo'])
+        meta['object']['writes'] = [mapped(v) for v in meta['object']['writes']]
+    # Replace serialized object as well as the human-readable paths.
+    text = re.sub(r'^对象: .*$', lambda m: '对象: ' + json.dumps(meta['object'], ensure_ascii=False), text, count=1, flags=re.M)
+    meta['worktree'] = wt
+    meta['worktree_location'] = location
+    return text
 
 
 def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lint=False):
@@ -291,7 +351,7 @@ def locate(name):
     return path, meta
 
 
-def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None):
+def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None, worktree_base=None):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     path, meta = locate(name)
     candidates = [r for r in running(False) if r.get('briefPath') == str(path) or r.get('name') == name]
@@ -337,6 +397,14 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     if (low or high or xhigh) and target not in ('gpt', 'gemini'):
         raise ValueError('--low、--high 和 --xhigh 仅用于 --to gpt|gemini。')
     text = path.read_text()
+    if worktree_base is not None:
+        location = on or meta.get('on') or os.environ.get('FLEET_DEFAULT_ON', 'mini')
+        wt = meta.get('worktree') or prepare_worktree(name, meta.get('writes', []), worktree_base, location)
+        if meta.get('worktree'):
+            worktree_call(wt, meta.get('worktree_location', location))
+        else:
+            text = rewrite_worktree(text, meta, wt, location)
+            path.write_text(text)
     scope = text.split('## 目标', 1)[-1].split('## 允许范围', 1)[0] if 'paths' not in meta else ''
     revisions = '\n'.join(re.findall(r'^## 【修订 [^\n]+】\n(.*?)(?=\n\n)', text, re.M | re.S))
     allowed = text.split('## 允许范围', 1)[-1].split('## 已知坑', 1)[0]
@@ -774,6 +842,9 @@ def new(args, prepare=False):
             'paths': list(dict.fromkeys([*(mini.expand_path(p) for p in (args.read or [])), *(mini.expand_path(p) for p in (args.write or [])), *mini.referenced_paths((args.goal or '') + '\n' + body)])),
             'writes': [mini.expand_path(p) for p in (args.write or [])],
             'on': args.on, 'pull': args.pull, 'object': object_ if object_['repo'] else None, 'after': args.after, 'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
+    if args.worktree is not None:
+        wt = prepare_worktree(args.name, args.write or [], args.worktree, location)
+        text = rewrite_worktree(text, meta, wt, location)
     if args.to == 'jev':
         meta['questions'] = str(path.with_suffix('.questions.json'))
     if prepare:
@@ -881,6 +952,7 @@ def build_parser():
     p.add_argument('--action', dest='task_action', help='动作，多项用 / 分隔：只读、改代码、本地提交、推送、部署、付费')
     p.add_argument('--auth', default='local')
     p.add_argument('--no-lint', action='store_true', help='仅豁免样板 lint，仍检查入口与授权')
+    p.add_argument('--worktree', nargs='?', const='')
     for option in ['write', 'read']:
         p.add_argument('--' + option, nargs='+', action='extend')
     group = p.add_mutually_exclusive_group()
@@ -907,6 +979,7 @@ def build_parser():
     group.add_argument('--restart', action='store_true')
     p = sub.add_parser('relaunch')
     p.add_argument('name')
+    p.add_argument('--worktree', nargs='?', const='')
     p.add_argument('--after', help='在指定任务结束后运行')
     p.add_argument('--on', choices=['mini', 'local'])
     p.add_argument('--pull', action='store_true')
@@ -921,6 +994,9 @@ def build_parser():
     p.add_argument('--max', action='store_true', help='Luna 使用 max 推理')
     p.add_argument('--fast', action='store_true', help='GPT 任务开启 fast')
     p.add_argument('--no-fast', action='store_true', help='兼容旧用法，无副作用')
+    p = sub.add_parser('worktree')
+    p.add_argument('operation', choices=['prune'])
+    p.add_argument('name')
     p = sub.add_parser('read')
     p.add_argument('name')
     group = p.add_mutually_exclusive_group()
@@ -960,7 +1036,16 @@ def main():
     elif args.action == 'amend':
         amend(args)
     elif args.action == 'relaunch':
-        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull, args.sol, args.after)
+        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull, args.sol, args.after, args.worktree)
+    elif args.action == 'worktree':
+        path, meta = locate(args.name)
+        if not meta.get('worktree'): raise ValueError('任务没有登记 worktree。')
+        if any(r.get('name') == args.name and r.get('status') in ('running', 'queued', 'parked', 'waiting', 'unreachable') for r in running(False)):
+            raise ValueError('任务仍在运行。')
+        worktree_call({**meta['worktree'], 'action': 'prune'}, meta.get('worktree_location', 'local'))
+        meta.pop('worktree')
+        path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
+        print('已删除 worktree。')
     elif args.action == 'read':
         rec = mini.find(args.name)
         if not rec or rec.get('local'): raise ValueError('找不到 Mini 任务；最新同名任务可能在本机。')

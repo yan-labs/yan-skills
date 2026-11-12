@@ -591,5 +591,20 @@ try {
     assert.doesNotMatch(python,/os\.(?:fork|setsid|system)\(/);
     assert.match(python,/os\.execvp\('fleet'/);
   });
+  test('worktree brief 路径和 relaunch 复用', () => {
+    const remote=join(temp,'wt-remote'), repo=join(temp,'wt-repo');
+    const git=(...args)=>{const r=spawnSync('git',args,{encoding:'utf8'}); assert.equal(r.status,0,r.stderr);};
+    git('init','--bare',remote); git('clone',remote,repo);
+    git('-C',repo,'config','user.email','test@example.invalid'); git('-C',repo,'config','user.name','test');
+    git('-C',repo,'commit','--allow-empty','-m','initial'); git('-C',repo,'push','-u','origin','HEAD');
+    const r=run(['new','wt-test','--to','gpt','--on','local','--goal','test','--write',repo,'--worktree','--no-launch']);
+    assert.equal(r.status,0,r.stderr);
+    const bp=join(home,'.agent-reports',new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}),'wt-test.brief.md');
+    const body=readFileSync(bp,'utf8'); const meta=JSON.parse(readFileSync(bp.replace(/\.md$/,'.json'),'utf8'));
+    assert.ok(body.includes(meta.worktree.path)); assert.ok(body.includes(meta.worktree.branch)); assert.ok(body.includes('origin/'));
+    assert.equal(meta.object.writes[0],meta.worktree.path);
+    const again=run(['relaunch','wt-test','--worktree']); assert.equal(again.status,7,again.stderr);
+    assert.equal(JSON.parse(readFileSync(bp.replace(/\.md$/,'.json'),'utf8')).worktree.path,meta.worktree.path);
+  });
   console.log(`fleet-go：${checks} 组通过。`);
 } finally { rmSync(temp,{recursive:true,force:true}); }
