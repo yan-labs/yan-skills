@@ -325,35 +325,41 @@ def launch(meta):
     os.execvp('fleet', command(meta))
 
 
-def running(active_only=True, status_timeout=None):
-    """读取 fleet 控制面，重启核验需包含 stopped，不能把消失当停止成功。"""
+def running(active_only=True, status_timeout=None, recent_seconds=None):
+    """读取 fleet 控制面，重启核验需包含 stopped，不能把消失当停止成功。
+
+    Mini 状态一次 ssh 批量取；status_timeout 给定时失败只提示一行，不补 unreachable 行。
+    recent_seconds 给定时 Mini 端不返回更早结束的终态行。
+    """
     result = subprocess.run(['fleet', 'status', *(['--running'] if active_only else []), '--json'], capture_output=True, text=True)
     if result.returncode:
         raise ValueError(f'子命令 fleet status 失败：exit={result.returncode}。')
     rows = json.loads(result.stdout)
     if not isinstance(rows, list):
         raise ValueError('fleet status 返回格式不是数组。')
-    deadline = time.monotonic() + status_timeout if status_timeout is not None else None
-    for rec in mini.records():
-        try:
-            if deadline is None:
-                row = mini.query(rec)
-            else:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0: raise subprocess.TimeoutExpired('Mini status', status_timeout)
-                row = mini.query(rec, timeout=remaining, kill_group=True)
+    recs = mini.records()
+    if not recs:
+        return rows
+    unreachable = lambda rec: {'runId': rec['id'], 'name': rec['name'], 'briefPath': rec['brief'], 'status': 'unreachable', 'state': 'running', 'location': 'mini'}
+    try:
+        summaries, missing = mini.query_all(recs, since=time.time() - recent_seconds if recent_seconds is not None else None,
+                                            timeout=status_timeout if status_timeout is not None else 30)
+    except mini.StatusError as error:
+        if status_timeout is not None:
+            print(f'Mini 状态未取到：{error.reason}', file=sys.stderr)
+        else:
+            rows.extend(unreachable(rec) for rec in recs)
+        return rows
+    for rec in recs:
+        row = summaries.get(rec['id'])
+        if rec['id'] in missing:
+            rows.append(unreachable(rec))
+        elif row is not None:
             row['briefPath'] = rec['brief']
             row['name'] = rec['name']
             row['state'] = row.get('status')
             row['location'] = 'mini'
             if not active_only or row.get('status') in ('running', 'queued', 'parked', 'waiting', 'abnormal'): rows.append(row)
-        except subprocess.TimeoutExpired:
-            if deadline is not None:
-                print('Mini 状态未取到', file=sys.stderr)
-                break
-            rows.append({'runId': rec['id'], 'name': rec['name'], 'briefPath': rec['brief'], 'status': 'unreachable', 'state': 'running', 'location': 'mini'})
-        except (OSError, subprocess.SubprocessError, ValueError, ConnectionError):
-            rows.append({'runId': rec['id'], 'name': rec['name'], 'briefPath': rec['brief'], 'status': 'unreachable', 'state': 'running', 'location': 'mini'})
     return rows
 
 
@@ -1120,7 +1126,7 @@ def main():
     elif args.action == 'score':
         score(args)
     else:
-        rows = running(False, status_timeout=float(os.environ.get('FLEET_MINI_STATUS_TIMEOUT', '10')))
+        rows = running(False, status_timeout=float(os.environ.get('FLEET_MINI_STATUS_TIMEOUT', '10')), recent_seconds=None if args.all else 3600)
         # fleet status 只返回最近 24 小时；补入本地已结束的历史记录。
         folder = Path(os.environ.get('AGENT_FLEET_RUNS_DIR', Path.home() / '.agent-fleet/runs'))
         known = {r['runId'] for r in rows}

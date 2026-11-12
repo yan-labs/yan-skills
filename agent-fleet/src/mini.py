@@ -273,18 +273,70 @@ r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini'
     print('Mini runId: ' + rec['id'], flush=True)
     return wait(rec, meta.get('pull', False))
 
+STATUS_KEYS = ('runId', 'status', 'state', 'verdict', 'exitCode', 'resultPath', 'startedAt', 'finishedAt', 'model', 'duration', 'heartbeatAt', 'launchDetached')
+
 def query(rec, timeout=20, kill_group=False):
     script = PATH_FIX + '''import base64,json,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary; r=subprocess.run([str(binary),'status','--json'],capture_output=True,text=True,check=True); rows=json.loads(r.stdout); row=next((x for x in rows if x.get('runId')==p['id']),None)
 if row is None: row=json.loads((pathlib.Path.home()/'.agent-fleet/runs'/(p['id']+'.json')).read_text())
-print(json.dumps({k:row.get(k) for k in ('runId','status','state','verdict','exitCode','resultPath','startedAt','finishedAt','model','duration','heartbeatAt','launchDetached')}))
+print(json.dumps({k:row.get(k) for k in p['keys']}))
 '''
     if kill_group:
-        p = call(script, {**rec, 'bin': REMOTE_BIN}, timeout=timeout, kill_group=True)
+        p = call(script, {**rec, 'bin': REMOTE_BIN, 'keys': STATUS_KEYS}, timeout=timeout, kill_group=True)
     else:
-        p = call(script, {**rec, 'bin': REMOTE_BIN}, timeout=timeout)
+        p = call(script, {**rec, 'bin': REMOTE_BIN, 'keys': STATUS_KEYS}, timeout=timeout)
     if p.returncode: raise ConnectionError('Mini 状态暂不可读')
     return json.loads(p.stdout)
+
+class StatusError(ConnectionError):
+    """批量取 Mini 状态失败；reason 只写失败类别，不带远端输出。"""
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
+
+def query_all(recs, since=None, timeout=20):
+    """一次 ssh 取 recs 的 run 摘要（Mini 端只跑一次 fleet status，再补读 24 小时外的 run 文件）。
+
+    since 是 epoch 秒：给定时 Mini 端丢弃更早结束的终态行，不传输。
+    返回 (rows, missing)：rows 为 {runId: 摘要}，missing 是 Mini 上找不到记录的 runId。
+    """
+    script = PATH_FIX + '''import base64,datetime,json,pathlib,subprocess,sys
+p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary
+try: live={x.get('runId'):x for x in json.loads(subprocess.run([str(binary),'status','--json'],capture_output=True,text=True,check=True).stdout)}
+except Exception: sys.exit(3)
+runs=pathlib.Path.home()/'.agent-fleet/runs'; rows={}; missing=[]
+def stamp(row):
+    try: return datetime.datetime.fromisoformat((row.get('finishedAt') or row.get('startedAt')).replace('Z','+00:00')).timestamp()
+    except Exception: return None
+for i in p['ids']:
+    row=live.get(i)
+    if row is None:
+        try: row=json.loads((runs/(i+'.json')).read_text())
+        except (OSError,ValueError): missing.append(i); continue
+    if p['since'] is not None and row.get('status') in ('done','failed','stopped','blocked'):
+        t=stamp(row)
+        if t is not None and t<p['since']: continue
+    rows[i]={k:row.get(k) for k in p['keys']}
+print(json.dumps({'rows':rows,'missing':missing}))
+'''
+    payload = {'ids': [r['id'] for r in recs], 'bin': REMOTE_BIN, 'since': since, 'keys': STATUS_KEYS}
+    try:
+        p = call(script, payload, timeout=timeout, kill_group=True)
+    except subprocess.TimeoutExpired:
+        raise StatusError(f'超时（{timeout:.1f} 秒内无响应）')
+    except OSError:
+        raise StatusError('连接失败（本机 mm 命令不可用）')
+    if p.returncode == 255 or (p.returncode == 1 and '不可达' in p.stderr):
+        raise StatusError(f'连接失败（exit={p.returncode}）')
+    if p.returncode == 3:
+        raise StatusError('Mini 端 fleet status 失败')
+    if p.returncode:
+        raise StatusError(f'Mini 端取数失败（exit={p.returncode}）')
+    try:
+        data = json.loads(p.stdout)
+        return data['rows'], data['missing']
+    except (ValueError, KeyError, TypeError):
+        raise StatusError('返回格式错误')
 
 def read(rec, kind='report', head=None, pull=False, row=None):
     row = row or query(rec)

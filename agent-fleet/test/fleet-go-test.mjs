@@ -566,24 +566,48 @@ try {
   test('status 提醒 launchDetached 与 wait',()=> {
     state(); const r=run(['status']); assert.equal(r.status,0); assert.match(r.stdout,/⚠/); assert.match(r.stdout,/fleet wait fake-run/);
   });
-  test('status 远端超时保留本机结果，正常时合并',()=> {
+  test('status 一次 ssh 批量取 Mini：默认非终态加最近 1 小时，--all 全部，失败说明原因',()=> {
     state();
     const records=join(home,'.agent-fleet/mini-runs'); mkdirSync(records,{recursive:true});
-    writeFileSync(join(records,'remote.json'),JSON.stringify({id:'remote-run',name:'remote',brief:'remote'}));
+    const miniHome=join(temp,'mini-home'), runs=join(miniHome,'.agent-fleet/runs'), miniBin=join(temp,'mini-bin'), counter=join(temp,'mm-count');
+    mkdirSync(runs,{recursive:true}); mkdirSync(miniBin,{recursive:true});
+    const ago=m=>new Date(Date.now()-m*60000).toISOString();
+    const add=(id)=>writeFileSync(join(records,id+'.json'),JSON.stringify({id,name:id,brief:'/b/'+id}));
+    const listed=[{runId:'mini-live',status:'running',startedAt:ago(90)},{runId:'mini-listed-old',status:'done',startedAt:ago(300),finishedAt:ago(200)}];
+    writeFileSync(join(miniHome,'listed.json'),JSON.stringify(listed));
+    writeFileSync(join(miniBin,'fleet'),'#!/bin/sh\ncat "$MINI_LISTED"\n',{mode:0o755});
+    writeFileSync(join(runs,'mini-file-recent.json'),JSON.stringify({runId:'mini-file-recent',status:'failed',startedAt:ago(30),finishedAt:ago(5)}));
+    writeFileSync(join(runs,'mini-file-old.json'),JSON.stringify({runId:'mini-file-old',status:'done',startedAt:ago(900),finishedAt:ago(800)}));
+    for (const id of ['mini-live','mini-listed-old','mini-file-recent','mini-file-old','mini-gone']) add(id);
+    for (let i=0;i<300;i++) add('mini-bulk-'+i);
+    for (let i=0;i<300;i++) writeFileSync(join(runs,`mini-bulk-${i}.json`),JSON.stringify({runId:'mini-bulk-'+i,status:'done',startedAt:ago(2000),finishedAt:ago(1900)}));
     const mm=join(bin,'fake-mm');
-    const opts={FLEET_MINI_MM:mm,FLEET_MINI_STATUS_TIMEOUT:'0.2'};
+    const opts={FLEET_MINI_MM:mm,FLEET_MINI_BIN:miniBin,FLEET_MINI_STATUS_TIMEOUT:'3',MINI_LISTED:join(miniHome,'listed.json'),MM_COUNT:counter};
+    const field=(r,id)=>r.stdout.split('\n').some(l=>l.includes(id));
     try {
+      // 假 mm 在 Mini 家目录里本地执行整条命令，并记录调用次数。
+      writeFileSync(mm,`#!/bin/sh\necho x >> "$MM_COUNT"\nHOME=${miniHome} exec /bin/sh -c "$1"\n`,{mode:0o755});
+      let start=Date.now(), r=run(['status'],opts); assert.equal(r.status,0,r.stderr); assert.ok(Date.now()-start<2000);
+      assert.equal(readFileSync(counter,'utf8').trim().split('\n').length,1);
+      assert.doesNotMatch(r.stderr,/Mini 状态未取到/); assert.match(r.stdout,/fake-run/);
+      assert.ok(field(r,'mini-live')&&field(r,'mini-file-recent')&&field(r,'mini-gone')); // 非终态、最近结束、记录缺失
+      assert.ok(!field(r,'mini-listed-old')&&!field(r,'mini-file-old')&&!field(r,'mini-bulk-1'));
+      assert.match(r.stdout,/mini-live running .* mini$/m);
+      rmSync(counter);
+      r=run(['status','--all'],opts); assert.equal(r.status,0,r.stderr);
+      assert.equal(readFileSync(counter,'utf8').trim().split('\n').length,1);
+      for (const id of ['mini-live','mini-listed-old','mini-file-recent','mini-file-old','mini-bulk-1','mini-bulk-299']) assert.ok(field(r,id),id);
+      // 超时：保留本机结果并说明原因。
       writeFileSync(mm,'#!/bin/sh\nsleep 30 &\nexit 0\n',{mode:0o755});
       for (const args of [['status'],['status','--all']]) {
-        const start=Date.now(), r=spawnSync(script,args,{encoding:'utf8',env:{...env,...opts},timeout:3000});
+        start=Date.now(); r=spawnSync(script,args,{encoding:'utf8',env:{...env,...opts,FLEET_MINI_STATUS_TIMEOUT:'0.5'},timeout:3000});
         assert.equal(r.status,0,r.stderr); assert.ok(Date.now()-start<3000);
-        assert.match(r.stdout,/fake-run/); assert.match(r.stderr,/Mini 状态未取到/);
+        assert.match(r.stdout,/fake-run/); assert.match(r.stderr,/Mini 状态未取到：超时/); assert.ok(!field(r,'mini-gone'));
       }
-      writeFileSync(mm,'#!/bin/sh\nprintf \'%s\\n\' \'{"runId":"remote-run","status":"running"}\'\n',{mode:0o755});
-      for (const args of [['status'],['status','--all']]) {
-        const r=run(args,opts); assert.equal(r.status,0,r.stderr);
-        assert.match(r.stdout,/fake-run/); assert.match(r.stdout,/remote-run/); assert.doesNotMatch(r.stderr,/Mini 状态未取到/);
-      }
+      // 连接失败：说明原因，不打印远端输出。
+      writeFileSync(mm,'#!/bin/sh\necho secret-detail >&2\nexit 255\n',{mode:0o755});
+      r=run(['status'],opts); assert.equal(r.status,0,r.stderr);
+      assert.match(r.stderr,/Mini 状态未取到：连接失败/); assert.doesNotMatch(r.stderr,/secret-detail/); assert.match(r.stdout,/fake-run/);
     } finally { rmSync(records,{recursive:true,force:true}); }
   });
   test('源码不包含真实后台化调用', () => {

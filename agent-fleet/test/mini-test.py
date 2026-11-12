@@ -202,7 +202,12 @@ pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
     assert proc.returncode == 0 and 'Mini 不可达' not in proc.stdout
     mm = tmp/'.claude/skills/macmini/scripts/mm'; mm.parent.mkdir(parents=True)
     mm.write_text('''#!/bin/sh
-if [ "$1" = --method ]; then echo direct; else echo '{"missing":["/home/b/missing"],"ready":false}'; fi
+if [ "$1" = --method ]; then echo direct; else
+  case "$1" in
+    *status*--json*) echo '{"rows":{},"missing":[]}' ;;
+    *) echo '{"missing":["/home/b/missing"],"ready":false}' ;;
+  esac
+fi
 ''')
     mm.chmod(0o755)
     default_env = dict(env); default_env.pop('FLEET_DEFAULT_ON')
@@ -239,4 +244,73 @@ with tempfile.TemporaryDirectory() as d:
         except ValueError as error:
             assert 'Mini 缺命令：kubectl' in str(error) and '未回退本机' in str(error)
         assert not fallback.called and not local.called
+# 批量取 Mini 状态：一次调用、Mini 端过滤、失败原因分类。
+import datetime
+from contextlib import redirect_stderr
+with tempfile.TemporaryDirectory() as d:
+    tmp = Path(d)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    iso = lambda minutes: (now - datetime.timedelta(minutes=minutes)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+    runs = tmp / '.agent-fleet/runs'; runs.mkdir(parents=True)
+    # 24 小时内：fleet status 返回；24 小时外：只在 run 文件里。
+    listed = [{'runId': 'live', 'status': 'running', 'startedAt': iso(120), 'extra': 'x'},
+              {'runId': 'old-listed', 'status': 'done', 'startedAt': iso(300), 'finishedAt': iso(180)}]
+    (runs / 'old-file.json').write_text(json.dumps({'runId': 'old-file', 'status': 'done', 'startedAt': iso(400), 'finishedAt': iso(300)}))
+    (runs / 'recent-file.json').write_text(json.dumps({'runId': 'recent-file', 'status': 'failed', 'startedAt': iso(30), 'finishedAt': iso(5)}))
+    (runs / 'stale-file.json').write_text(json.dumps({'runId': 'stale-file', 'status': 'running', 'startedAt': iso(3000)}))
+    bin_dir = tmp / 'bin'; bin_dir.mkdir()
+    fleet = bin_dir / 'fleet'; fleet.write_text('#!/bin/sh\ncat "$LISTED"\n'); fleet.chmod(0o755)
+    (tmp / 'listed.json').write_text(json.dumps(listed))
+    recs = [{'id': i, 'name': i, 'brief': 'b'} for i in ('live', 'old-listed', 'old-file', 'recent-file', 'stale-file', 'gone')]
+    calls = []
+    def local_run(script, payload, timeout=30, kill_group=False):
+        calls.append(timeout)
+        data = base64.b64encode(json.dumps(payload).encode()).decode()
+        env = dict(os.environ, HOME=str(tmp), LISTED=str(tmp / 'listed.json'))
+        return subprocess.run([sys.executable, '-c', script, data], capture_output=True, text=True, env=env)
+    with patch.object(mini, 'REMOTE_BIN', str(bin_dir)), patch.object(mini, 'call', local_run):
+        rows, missing = mini.query_all(recs, since=now.timestamp() - 3600, timeout=7)
+        assert sorted(rows) == ['live', 'recent-file', 'stale-file'] and missing == ['gone'], (rows, missing)
+        assert set(rows['live']) == set(mini.STATUS_KEYS) and 'extra' not in rows['live']
+        rows, missing = mini.query_all(recs)
+        assert sorted(rows) == ['live', 'old-file', 'old-listed', 'recent-file', 'stale-file'] and missing == ['gone']
+        assert len(calls) == 2 and calls[0] == 7
+        fleet.write_text('#!/bin/sh\nexit 1\n')
+        try:
+            mini.query_all(recs); raise AssertionError('fleet status failure must raise')
+        except mini.StatusError as error:
+            assert error.reason == 'Mini 端 fleet status 失败'
+    # 失败原因：超时 / 连接失败 / 远端异常 / 格式错误，不带远端输出。
+    def failing(result):
+        outcome = (lambda *a, **k: (_ for _ in ()).throw(result)) if isinstance(result, BaseException) else (lambda *a, **k: result)
+        with patch.object(mini, 'call', outcome):
+            try: mini.query_all(recs, timeout=2)
+            except mini.StatusError as error: return error.reason
+        raise AssertionError('should raise')
+    done = lambda code, out='', err='': subprocess.CompletedProcess([], code, out, err)
+    assert failing(subprocess.TimeoutExpired('mm', 2)) == '超时（2.0 秒内无响应）'
+    assert failing(done(255, err='secret-detail')) == '连接失败（exit=255）'
+    assert failing(done(1, err='❌ Mac Mini 不可达（直连和 Tailscale 均失败）')) == '连接失败（exit=1）'
+    assert failing(done(1, err='secret-detail')) == 'Mini 端取数失败（exit=1）'
+    assert failing(done(0, out='not json')) == '返回格式错误'
+    assert failing(OSError('no mm')) == '连接失败（本机 mm 命令不可用）'
+    # fleet-go.running：300 条记录只调一次 mm；status 模式失败只打印一行原因，其余调用保持 unreachable。
+    many = [{'id': f'run-{i}', 'name': f'n{i}', 'brief': f'/b/{i}'} for i in range(300)]
+    count = []
+    def counted(script, payload, timeout=30, kill_group=False):
+        count.append(len(payload['ids']))
+        return done(0, json.dumps({'rows': {'run-7': {'runId': 'run-7', 'status': 'running'}, 'run-8': {'runId': 'run-8', 'status': 'done'}}, 'missing': ['run-9']}))
+    fake_local = subprocess.CompletedProcess([], 0, '[{"runId": "local-1", "status": "running"}]', '')
+    with patch.object(fg.mini, 'records', return_value=many), patch.object(fg.mini, 'call', counted), patch.object(fg.subprocess, 'run', return_value=fake_local):
+        got = fg.running(False, status_timeout=5, recent_seconds=3600)
+        assert count == [300] and [r['runId'] for r in got] == ['local-1', 'run-7', 'run-8', 'run-9']
+        assert got[1]['location'] == 'mini' and got[1]['briefPath'] == '/b/7' and got[1]['state'] == 'running' and got[3]['status'] == 'unreachable'
+        assert [r['runId'] for r in fg.running(True)] == ['local-1', 'run-7', 'run-9']
+    with patch.object(fg.mini, 'records', return_value=many), patch.object(fg.mini, 'call', lambda *a, **k: done(255, err='x')), patch.object(fg.subprocess, 'run', return_value=fake_local):
+        err = io.StringIO()
+        with redirect_stderr(err):
+            got = fg.running(False, status_timeout=5)
+        assert [r['runId'] for r in got] == ['local-1'] and err.getvalue() == 'Mini 状态未取到：连接失败（exit=255）\n', err.getvalue()
+        got = fg.running(False)
+        assert len(got) == 301 and got[1]['status'] == 'unreachable'
 print('PASS: path rewrite, mini command assembly, unavailable fallback')
