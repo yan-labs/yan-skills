@@ -107,6 +107,28 @@ echo '[{"runId":"old-run","status":"done"}]'
         with patch.object(mini, 'REMOTE_BIN', str(configured)), patch.object(mini, 'call', local_call), patch.object(mini, 'wait', return_value=0), patch.object(mini.os, 'getcwd', return_value=str(tmp)):
             assert mini.launch({**meta, 'report': str(tmp/'report.md')}, ['fleet', 'code', str(brief), '--report', str(tmp/'report.md')]) == 0
             assert mini.forward(['status']) == 0
+    # Missing report inputs and writable directories sync before Mini launch.
+    source_home = tmp / 'source-home'; source_home.mkdir()
+    target_home = tmp / 'target-home'; target_home.mkdir()
+    source_reports = source_home / '.agent-reports'
+    source_file = source_reports / 'day' / 'brief-input.md'; source_file.parent.mkdir(parents=True)
+    source_file.write_text('input content')
+    source_dir = source_reports / 'new-output'
+    existing_dir = source_reports / 'existing'; existing_dir.mkdir()
+    (existing_dir / 'nested').mkdir(); (existing_dir / 'nested/data.md').write_text('nested')
+    remote_file = target_home / '.agent-reports/day/brief-input.md'
+    remote_dir = target_home / '.agent-reports/new-output'
+    fake_bin = tmp / 'sync-bin'; fake_bin.mkdir()
+    codex = fake_bin / 'codex'; codex.write_text('#!/bin/sh\nexit 0\n'); codex.chmod(0o755)
+    sync_meta = {'to':'gpt', 'writes':[str(source_dir)], 'brief':str(brief), 'report':str(source_reports/'result.md'), 'name':'sync'}
+    with patch.object(mini, 'LOCAL_HOME', str(source_home)), patch.object(mini, 'REMOTE_HOME', str(target_home)), patch.object(mini, 'call', local_call), patch.object(mini, 'wait', return_value=0), patch.object(mini, 'REMOTE_BIN', str(launch_fleet)), patch.object(mini.os, 'getcwd', return_value=str(tmp)), patch.dict(os.environ, {'PATH':str(fake_bin)+':'+os.environ['PATH']}):
+        assert mini.preflight(sync_meta, [str(source_file), str(source_dir), str(existing_dir)]) is None
+        assert remote_file.read_text() == 'input content' and source_dir.is_dir() and remote_dir.is_dir()
+        assert (target_home / '.agent-reports/existing/nested/data.md').read_text() == 'nested'
+        assert mini.launch(sync_meta, ['fleet','code',str(brief),'--report',sync_meta['report']]) == 0
+        assert '缺少路径' in mini.preflight(sync_meta, [str(source_home/'missing-repo')])
+        with patch.object(mini, 'sync_reports', side_effect=OSError('failed')):
+            assert '同步失败' in mini.preflight(sync_meta, [str(source_reports/'missing')])
     # Remote case-preserving filesystem spelling applies to the whole brief and cwd.
     project = tmp / 'PROJECT'; project.mkdir()
     (project / 'repo').mkdir()

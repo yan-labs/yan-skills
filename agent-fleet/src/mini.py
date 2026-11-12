@@ -111,6 +111,34 @@ def referenced_paths(text):
         paths.append(path)
     return list(dict.fromkeys(paths))
 
+def sync_reports(meta, missing):
+    root = Path(LOCAL_HOME) / '.agent-reports'
+    writes = {expand_path(p) for p in [*meta.get('writes', []), *(meta.get('object') or {}).get('writes', [])]}
+    synced = []
+    script = """import base64,json,pathlib,sys
+p=json.loads(base64.b64decode(sys.argv[1])); path=pathlib.Path(p['path'])
+if p['data'] is None: path.mkdir(parents=True,exist_ok=True)
+else:
+ path.parent.mkdir(parents=True,exist_ok=True)
+ try:
+  with path.open('xb') as f: f.write(base64.b64decode(p['data']))
+ except FileExistsError: pass
+"""
+    for remote in missing:
+        path = Path(local_path(remote))
+        if not path.is_relative_to(root): continue
+        if not path.exists():
+            if str(path) not in writes: continue
+            path.mkdir(parents=True, exist_ok=True)
+        items = [path, *path.rglob('*')] if path.is_dir() else [path]
+        for item in items:
+            if item.is_symlink(): raise OSError('报告路径包含符号链接')
+            data = None if item.is_dir() else base64.b64encode(item.read_bytes()).decode()
+            result = call(script, {'path': remote_path(str(item)), 'data': data})
+            if result.returncode: raise OSError('传输失败')
+            if data is not None: synced.append(str(item))
+    return synced
+
 def preflight(meta, paths):
     if not REMOTE_HOME or not REMOTE_BIN: return 'Mini 路径未配置（FLEET_MINI_HOME、FLEET_MINI_BIN）'
     script = """import base64,json,os,pathlib,subprocess,sys
@@ -142,6 +170,17 @@ print(json.dumps({'missing':missing,'ready':ready}))
         result = call(script, payload, timeout=25)
         if result.returncode: return 'Mini 环境检查失败'
         value = json.loads(result.stdout)
+        report_root = os.path.join(LOCAL_HOME, '.agent-reports')
+        report_missing = [x for x in value['missing'] if local_path(x) == report_root or local_path(x).startswith(report_root + os.sep)]
+        if report_missing:
+            try:
+                synced = sync_reports(meta, report_missing)
+                if synced: print('Mini 已同步报告文件：' + '、'.join(synced), flush=True)
+                result = call(script, payload, timeout=25)
+                if result.returncode: return 'Mini 报告同步失败：重新预检失败'
+                value = json.loads(result.stdout)
+            except (OSError, subprocess.TimeoutExpired, ValueError):
+                return 'Mini 报告同步失败'
         reasons = []
         if value['missing']: reasons.append('Mini 缺少路径：' + '、'.join(local_path(x) for x in value['missing']))
         if not value['ready']: reasons.append('Mini 的 ' + meta['to'] + ' 通道不可用')
