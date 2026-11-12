@@ -166,8 +166,8 @@ if [ "$1" = --method ]; then echo direct; else echo '{"missing":["/home/b/missin
 ''')
     mm.chmod(0o755)
     default_env = dict(env); default_env.pop('FLEET_DEFAULT_ON')
-    proc = subprocess.run([str(root/'bin/fleet-go'),'new','dev-default','--to','gpt','--goal','x','--no-lint'], env=default_env, text=True, capture_output=True)
-    assert proc.returncode == 0 and 'Mini 缺少路径' in proc.stdout
+    proc = subprocess.run([str(root/'bin/fleet-go'),'new','dev-default','--to','gpt','--sol','--goal','x','--no-lint'], env=default_env, text=True, capture_output=True)
+    assert proc.returncode == 0 and 'Mini 缺少路径' in proc.stdout, (proc.stdout, proc.stderr)
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','unready','--to','claude','--on','mini','--read','/home/a/missing','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
     assert proc.returncode != 0
     assert 'Mini 缺少路径：/home/a/missing' in proc.stderr and 'claude 通道不可用' in proc.stderr and '未回退' in proc.stderr

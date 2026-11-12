@@ -65,14 +65,14 @@ print(json.dumps(sorted(set(roots))))
     return roots
 
 
-def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False):
+def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lint=False):
     errors = []
     first = text.splitlines()[0] if text else ''
-    if not first.startswith('归类：') or '理由：' not in first:
+    if not no_lint and (not first.startswith('归类：') or '理由：' not in first):
         errors.append('第一行必须以「归类：」开头并含「理由：」。')
-    if not re.search(r'^REPORT: /[^\n]+$', text, re.M):
+    if not no_lint and not re.search(r'^REPORT: /[^\n]+$', text, re.M):
         errors.append('缺少 REPORT: <绝对路径> 行。')
-    if rule() not in text and LEGACY_RULE not in text and EARLY_RULE not in text:
+    if not no_lint and rule() not in text and LEGACY_RULE not in text and EARLY_RULE not in text:
         errors.append('缺少逐字规则句。')
     secret_rules = [
         ('sk-token', r'(?<![A-Za-z0-9_/.-])sk-[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_/-]|\.[A-Za-z0-9])'),
@@ -109,6 +109,17 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False):
             commit = '允许在本地分支提交' in auth_text or '允许本地提交' in auth_text or bool(re.search(r'^授权块：.*\blocal-commit\b', auth_text, re.M))
             deploy = '发布全流程' in auth_text or bool(re.search(r'^授权块：.*\bdeploy-prod\b', auth_text, re.M))
             paid = '当前目标必要的付费验证' in auth_text or bool(re.search(r'^授权块：.*\bpaid\b', auth_text, re.M))
+            needed = set()
+            if '改代码' in actions and not (local or commit): needed.add('local')
+            if '本地提交' in actions and not commit: needed.add('local-commit')
+            if actions & {'推送', '部署'}: needed.update(a for a, present in [('local-commit', commit), ('deploy-prod', deploy)] if not present)
+            if '付费' in actions and not paid: needed.add('paid')
+            if needed:
+                current = {a for a, present in [('local', local), ('local-commit', commit), ('deploy-prod', deploy), ('paid', paid)] if present}
+                current.update(a for a in ('review', 'readonly-web') if block('auth-' + a, {'REPORT': re.search(r'^REPORT: (.+)$', text, re.M).group(1) if re.search(r'^REPORT: (.+)$', text, re.M) else ''}) in auth_text or re.search(r'^授权块：.*(?<![\w-])' + re.escape(a) + r'(?![\w-])', auth_text, re.M))
+                current.update(needed)
+                if 'local-commit' in current: current.discard('local')
+                errors.append('建议授权：--auth ' + ','.join(a for a in AUTH if a in current))
             if not actions <= valid:
                 errors.append('动作行含未知或空动作。')
             if '改代码' in actions and not (local or commit):
@@ -169,8 +180,8 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False):
     return errors
 
 
-def checked(text, to, simple=False, on='local', extra=False, sol=False):
-    errors = lint(text, to, simple, on, extra, sol)
+def checked(text, to, simple=False, on='local', extra=False, sol=False, no_lint=False):
+    errors = lint(text, to, simple, on, extra, sol, no_lint)
     if errors:
         raise ValueError('\n'.join(errors))
 
@@ -280,7 +291,7 @@ def locate(name):
     return path, meta
 
 
-def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False):
+def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     path, meta = locate(name)
     candidates = [r for r in running(False) if r.get('briefPath') == str(path) or r.get('name') == name]
@@ -332,7 +343,7 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     declared = [p for p in mini.referenced_paths('\n'.join(line for line in allowed.splitlines() if line.startswith('- ')))
                 if p not in (meta['report'], '/tmp/' + name + '/')]
     meta['paths'] = list(dict.fromkeys([*meta.get('paths', []), *mini.referenced_paths(scope), *mini.referenced_paths(revisions), *declared]))
-    checked(text, target, bool(selected_simple), on or meta.get('on') or os.environ.get('FLEET_DEFAULT_ON', 'mini'), True, target == 'gpt' and selected == 'sol')
+    checked(text, target, bool(selected_simple), on or meta.get('on') or os.environ.get('FLEET_DEFAULT_ON', 'mini'), True, target == 'gpt' and selected == 'sol', meta.get('no_lint', False))
     if target != meta['to']:
         meta.pop('tier', None)
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
@@ -345,6 +356,7 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
             meta.pop('max', None)
     meta.update(to=target, name=name, brief=str(path))
     if on is not None: meta['on'] = on
+    if after is not None: meta['after'] = after
     meta['pull'] = pull
     if tier:
         meta['tier'] = tier
@@ -503,6 +515,18 @@ def amend(args):
         meta['tier'] = gpt_tier(meta)
         path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     original = path.read_text()
+    if args.auth is not None:
+        auth = args.auth.split(',')
+        if any(a not in AUTH for a in auth): raise ValueError('未知授权块。可用：' + ','.join(AUTH))
+        if 'local-commit' in auth: auth = [a for a in auth if a != 'local']
+        values = {'NAME': args.name, 'REPORT': meta['report'], 'DATE': datetime.date.today().isoformat()}
+        original = re.sub(r'(?<=## 授权覆盖\n).*?(?=\n动作[ \t]*[:：]|\n## |\Z)', lambda _: '\n\n'.join(block('auth-' + a, values) for a in dict.fromkeys(auth)) + '\n', original, count=1, flags=re.S)
+        meta['auth'] = auth
+    if args.task_action is not None:
+        if re.search(r'^动作[ \t]*[:：]', original, re.M):
+            original = re.sub(r'^动作[ \t]*[:：].*$', lambda _: '动作: ' + args.task_action, original, count=1, flags=re.M)
+        else:
+            original = original.replace('## 授权覆盖', '动作: ' + args.task_action + '\n\n## 授权覆盖', 1)
     latest_revision = re.search(r'^## 【修订 \d+（[^\n]+）】\n', original, re.M)
     if latest_revision and original[latest_revision.end():].startswith(args.message + '\n\n'):
         print('相同修订已存在，未重复插入。')
@@ -511,13 +535,18 @@ def amend(args):
         lines = original.splitlines(keepends=True)
         stamp = datetime.datetime.now().isoformat(timespec='seconds')
         revised = ''.join(lines[:2]) + f'\n## 【修订 {max(numbers, default=0) + 1}（{stamp}）】\n{args.message}\n\n' + ''.join(lines[2:])
-        checked(revised, meta['to'])
-        path.write_text(revised)
+        original = revised
+    if args.auth is not None or args.task_action is not None:
+        checked(original, meta['to'], gpt_tier(meta) == 'terra' and meta['to'] == 'gpt', args.on or meta.get('on') or 'local', True, gpt_tier(meta) == 'sol', meta.get('no_lint', False))
+    else:
+        checked(original, meta['to'], no_lint=meta.get('no_lint', False))
+    path.write_text(original)
+    if not (latest_revision and original[latest_revision.end():].startswith(args.message + '\n\n')):
         print(f'已修订：{path}', flush=True)
     action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', path.read_text(), re.M)
     if action_match:
         meta['actions'] = [a.strip() for a in action_match.group(1).split('/') if a.strip()]
-        path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
+    path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     remote = mini.find(args.name) if meta.get('execution') == 'mini' else None
     if remote and not remote.get('local'):
         remote_brief = mini.remote_path(str(path))
@@ -732,11 +761,11 @@ def new(args, prepare=False):
     text = '\n\n'.join(parts) + '\n'
     location = args.on or os.environ.get('FLEET_DEFAULT_ON', 'mini')
     if location == 'mini' and not mini.available() and args.on != 'mini': location = 'local'
-    checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna), location, not args.no_lint, args.sol)
+    checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna), location, True, args.sol, args.no_lint)
     action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', body, re.M)
     actions = args.task_action or (action_match.group(1) if action_match else '')
     meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
-            'auth': auth, 'actions': [a.strip() for a in actions.split('/') if a.strip()],
+            'auth': auth, 'no_lint': args.no_lint, 'actions': [a.strip() for a in actions.split('/') if a.strip()],
             'tier': ('luna' if args.luna else 'sol' if args.sol else 'terra') if args.to == 'gpt' else args.tier, 'review': args.review, 'sol': args.sol, 'low': args.low, 'high': args.high,
             'xhigh': True if (args.to == 'gemini' and not (args.low or args.high)) else args.xhigh,
             'max': args.max, 'simple': args.simple, 'luna': args.luna, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,
@@ -850,7 +879,7 @@ def build_parser():
     p.add_argument('--deliverables', action='append', help='交付物及篇幅上限，可多次指定')
     p.add_argument('--action', dest='task_action', help='动作，多项用 / 分隔：只读、改代码、本地提交、推送、部署、付费')
     p.add_argument('--auth', default='local')
-    p.add_argument('--no-lint', action='store_true', help='特殊单豁免入口与授权 lint')
+    p.add_argument('--no-lint', action='store_true', help='仅豁免样板 lint，仍检查入口与授权')
     for option in ['write', 'read']:
         p.add_argument('--' + option, nargs='+', action='extend')
     group = p.add_mutually_exclusive_group()
@@ -863,6 +892,8 @@ def build_parser():
     p.add_argument('name')
     p.add_argument('message')
     p.add_argument('--on', choices=['mini', 'local'])
+    p.add_argument('--auth', help='替换授权块，逗号分隔')
+    p.add_argument('--action', dest='task_action', help='替换动作行')
     p.add_argument('--sol', action='store_true', help='后续重派使用 Sol')
     p.add_argument('--simple', action='store_true', help='后续重派使用 Terra')
     p.add_argument('--luna', action='store_true', help='后续重派使用 Luna')
@@ -875,6 +906,7 @@ def build_parser():
     group.add_argument('--restart', action='store_true')
     p = sub.add_parser('relaunch')
     p.add_argument('name')
+    p.add_argument('--after', help='在指定任务结束后运行')
     p.add_argument('--on', choices=['mini', 'local'])
     p.add_argument('--pull', action='store_true')
     p.add_argument('--to', choices=PRODUCTS)
@@ -900,7 +932,7 @@ def build_parser():
         if action == 'say': p.add_argument('message')
     p = sub.add_parser('lint')
     p.add_argument('brief')
-    p.add_argument('--no-lint', action='store_true', help='特殊单豁免入口与授权 lint')
+    p.add_argument('--no-lint', action='store_true', help='仅豁免样板 lint，仍检查入口与授权')
     p.add_argument('--simple', action='store_true')
     p.add_argument('--sol', action='store_true')
     p.add_argument('--on', choices=['mini', 'local'], default=os.environ.get('FLEET_DEFAULT_ON', 'mini'))
@@ -927,7 +959,7 @@ def main():
     elif args.action == 'amend':
         amend(args)
     elif args.action == 'relaunch':
-        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull, args.sol)
+        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull, args.sol, args.after)
     elif args.action == 'read':
         rec = mini.find(args.name)
         if not rec or rec.get('local'): raise ValueError('找不到 Mini 任务；最新同名任务可能在本机。')
@@ -937,7 +969,7 @@ def main():
     elif args.action == 'team':
         os.execvp('fleet', ['fleet', 'team'])
     elif args.action == 'lint':
-        checked(Path(args.brief).read_text(), args.to, args.to == 'gpt' and not args.sol, args.on, not args.no_lint, args.sol)
+        checked(Path(args.brief).read_text(), args.to, args.to == 'gpt' and not args.sol, args.on, True, args.sol, args.no_lint)
         print('lint 通过。')
     elif args.action == 'score':
         score(args)

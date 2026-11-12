@@ -79,7 +79,8 @@ try {
     assert.deepEqual(metadata.actions,[]);
   });
   test('只读授权和动作身份写入元信息，重派可沿用', () => {
-    const r=run(['new','prodwatch-read','--to','gpt','--auth','review','--action','只读','--goal','readonly','--no-launch']);
+    writeFileSync(join(temp,'read-entry.md'), '## 入口\n仓库: /tmp\n');
+    const r=run(['new','prodwatch-read','--to','gpt','--auth','review','--action','只读','--goal','readonly','--body',join(temp,'read-entry.md'),'--no-launch']);
     assert.equal(r.status,0,r.stderr);
     const dir=path.slice(0,path.lastIndexOf('/'));
     const meta=JSON.parse(readFileSync(join(dir,'prodwatch-read.brief.json'),'utf8'));
@@ -169,7 +170,7 @@ try {
   });
   test('lint 缺项失败、合格通过、后台命令和秘密拒绝且不回显', () => {
     const bad=join(temp,'bad.md'); writeFileSync(bad,'没有必需项');
-    let r=run(['lint',bad]); assert.equal(r.status,1); for(const word of ['第一行','REPORT','逐字规则']) assert.ok(r.stderr.includes(word));
+    let r=spawnSync(script,['lint',bad,'--on','local'],{encoding:'utf8',env}); assert.equal(r.status,1); for(const word of ['第一行','REPORT','逐字规则']) assert.ok(r.stderr.includes(word));
     assert.equal(run(['lint',path]).status,0);
     for(const unsafe of ['fleet code task.md &','nohup fleet code task.md','fleet code task.md > /tmp/out 2>&1 &','nohup npm run dev','node server.mjs &','sk-'+'x'.repeat(24),'Bearer '+'x'.repeat(24)]) {
       writeFileSync(bad,original+'\n'+unsafe); r=run(['lint',bad]); assert.equal(r.status,1,unsafe); assert.ok(!r.stderr.includes(unsafe));
@@ -227,12 +228,31 @@ try {
     ]) { r=strict(action,body,opts); assert.equal(r.status,1,action); assert.match(r.stderr,expected); assert.match(r.stderr,/示例（按实际任务和授权修改）/); }
     assert.equal(strict('只读','## 入口\n仓库：/tmp\n未知',['--sol']).status,0);
     r=strict('', ''); assert.equal(r.status,0,r.stderr); assert.match(r.stderr,/缺少动作行/);
-    assert.equal(strict('部署','',['--no-lint']).status,0);
+    r=strict('部署',readEntry,['--no-lint']); assert.equal(r.status,1); assert.match(r.stderr,/--auth local-commit,deploy-prod/); assert.match(r.stderr,/可写路径/);
     const f=join(temp,'strict.md'); writeFileSync(f,strict('只读',readEntry).stdout);
     assert.equal(spawnSync(script,['lint',f,'--on','local'],{encoding:'utf8',env}).status,0);
     writeFileSync(f,readFileSync(f,'utf8').replace('动作: 只读','动作: 本地提交'));
     r=spawnSync(script,['lint',f,'--on','local'],{encoding:'utf8',env}); assert.equal(r.status,1); assert.match(r.stderr,/local-commit/);
-    assert.equal(spawnSync(script,['lint',f,'--no-lint'],{encoding:'utf8',env}).status,0);
+    assert.equal(spawnSync(script,['lint',f,'--no-lint','--on','local'],{encoding:'utf8',env}).status,1);
+  });
+  test('豁免样板的任务重派及修订授权动作', () => {
+    const body=join(temp,'dx-entry.md');
+    writeFileSync(body,`## 入口\n仓库: ${temp}\n可写路径: ${temp}/project\n`);
+    let r=run(['new','dx','--to','gpt','--on','local','--auth','local','--action','改代码','--body',body,'--no-launch']);
+    assert.equal(r.status,0,r.stderr);
+    const file=join(path.slice(0,path.lastIndexOf('/')),'dx.brief.md'), metaFile=file.replace(/\.md$/,'.json');
+    writeFileSync(file,readFileSync(file,'utf8').replace(/^归类：.*$/m,'特殊单'));
+    assert.equal(run(['relaunch','dx']).status,7);
+    assert.equal(run(['amend','dx','继续','--say']).status,7);
+    r=run(['amend','dx','补授权','--action','改代码 / 推送','--auth','local-commit,deploy-prod']);
+    assert.equal(r.status,0,r.stderr);
+    const meta=JSON.parse(readFileSync(metaFile,'utf8'));
+    assert.deepEqual(meta.auth,['local-commit','deploy-prod']); assert.deepEqual(meta.actions,['改代码','推送']); assert.equal(meta.no_lint,true);
+    assert.match(readFileSync(file,'utf8'),/动作: 改代码 \/ 推送/);
+    assert.equal(run(['relaunch','dx','--after','prior']).status,7);
+    assert.equal(JSON.parse(readFileSync(metaFile,'utf8')).after,'prior');
+    r=run(['amend','dx','授权不足','--auth','local']); assert.equal(r.status,1); assert.match(r.stderr,/--auth local-commit,deploy-prod/);
+    assert.deepEqual(JSON.parse(readFileSync(metaFile,'utf8')).auth,['local-commit','deploy-prod']);
   });
   test('密钥诊断仅给行号与规则，摘要、长文件名和路径不误报', () => {
     const normal=[

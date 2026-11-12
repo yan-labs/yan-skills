@@ -506,7 +506,7 @@ with mini.parent_slot_released():
 
     const writer=await start('writer',[join(scratch,'repo')]);
     await until(()=>began(writer),'writer starts');
-    await assert.rejects(start('collision',[join(scratch,'repo','src')]),/可写路径重叠/);
+    await assert.rejects(start('collision',[join(scratch,'repo','src')]), err => { assert.match(err.message,/可写路径重叠/); assert.ok(err.message.includes(join(scratch,'repo','src'))); assert.ok(err.message.includes(join(scratch,'repo'))); assert.match(err.message,/fleet-go relaunch 'collision' --after 'writer'/); assert.match(err.message,/fleet say 'writer'/); return true; });
     const frontCollision=await cliRun(['code',join(queueRuns,'writer.brief.md'),'--cwd',scratch,'--attach'],{AGENT_FLEET_RUNS_DIR:queueRuns,FLEET_SLOT_CAPACITY:'5'});
     assert.equal(frontCollision.code,1);assert.match(frontCollision.stderr,/可写路径重叠/);
     const after=await start('after',[join(scratch,'repo','src')],'writer');

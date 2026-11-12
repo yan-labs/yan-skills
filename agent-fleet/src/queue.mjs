@@ -119,8 +119,11 @@ export async function registerQueue(rec) {
     if (row.after && !dependency(rows, row.after)) throw new Error('--after 找不到任务；请先派发前置单。');
     for (const other of rows) {
       if (!object || !other.object || other.runId === row.runId) continue;
-      if (live.has(other.state) && pathsOverlap(object.writes, other.object.writes) && !follows(rows, row, other))
-        throw new Error(`可写路径重叠：${other.name || other.runId}；请用 --after 串行，或对已有单 say。`);
+      if (live.has(other.state) && pathsOverlap(object.writes, other.object.writes) && !follows(rows, row, other)) {
+        const pairs = object.writes.flatMap(a => other.object.writes.filter(b => pathsOverlap([a], [b])).map(b => `${a} ↔ ${b}`));
+        const quote = s => `'${String(s).replaceAll("'", "'\\''")}'`;
+        throw new Error(`可写路径重叠：${other.name || other.runId}\n${pairs.join('\n')}\nfleet-go relaunch ${quote(row.name)} --after ${quote(other.name || other.runId)}\nfleet say ${quote(other.name || other.runId)} '请处理重叠路径上的任务'`);
+      }
       if ((live.has(other.state) || Date.now() - (other.finishedAt || other.createdAt) < 86_400_000) &&
           object.question && object.repo === other.object.repo && object.environment === other.object.environment &&
           object.question.trim() === other.object.question?.trim() && other.name !== row.name && !follows(rows, row, other))
