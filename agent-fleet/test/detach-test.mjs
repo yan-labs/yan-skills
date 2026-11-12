@@ -5,6 +5,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+const { killGroup } = await import('../src/detach.mjs');
+const realKill = process.kill;
+try { process.kill = () => { throw Object.assign(new Error('denied'), {code:'EPERM'}); }; assert.doesNotThrow(() => killGroup(99999999, 'SIGTERM')); } finally { process.kill = realKill; }
+
 const scratch = mkdtempSync(join(tmpdir(), 'fleet-detach-'));
 const cli = resolve('bin/agent-fleet.mjs');
 const runs = join(scratch, 'runs');
@@ -192,6 +196,8 @@ await sleep(30_500);assert(state(beat).heartbeatAt>before,'30s heartbeat');
 console.log(`heartbeat: ${before} -> ${state(beat).heartbeatAt}; SIGHUP survived`);
 assert.equal((await cliRun(['wait',beat])).code,0);
 const immediate=await launch('code',{FLEET_TEST_SLEEP:'60'},['--name','stop-by-name']);
+process.kill(state(immediate).pid,'SIGTERM'); await sleep(300);
+assert.equal(state(immediate).status,'running'); assert.match(readFileSync(state(immediate).logPath,'utf8'),/忽略外部信号 SIGTERM/);
 assert.equal((await cliRun(['stop','stop-by-name'])).code,0);assert.equal(state(immediate).status,'stopped');
 const stubborn = join(scratch,'stubborn-runner');
 writeFileSync(stubborn, `#!${process.execPath}
@@ -408,6 +414,8 @@ else {
     const sixth=await start('slot-6',[],null,'local','mock','slot-6',5);
     assert.equal(queueRecord(sixth).machine,queueRecord(five[0]).machine);
     assert.equal(queueRecord(sixth).state,'queued');assert(!began(sixth));
+    process.kill(JSON.parse(readFileSync(join(queueRuns,sixth+'.json'),'utf8')).pid,'SIGTERM'); await sleep(350);
+    assert.equal(queueRecord(sixth).state,'queued'); assert.match(readFileSync(join(queueRuns,sixth+'.log'),'utf8'),/忽略外部信号 SIGTERM/);
     assert.equal(collectStatus().find(r=>r.runId===sixth).state,'queued');
     release(five[0]);
     await until(()=>began(sixth),'completion releases slot');

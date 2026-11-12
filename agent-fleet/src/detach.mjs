@@ -9,6 +9,7 @@ import { buildBrief, formatBriefHuman, redactEvidence, snapshotGit, inspectGit }
 import { recordRun } from './ledger.mjs';
 import { registerQueue, acquireSlot, queueRecord, setSlotState, queueEvent, taskIdentity, releaseParentSlot } from './queue.mjs';
 
+const stopPath = (id) => join(runsDir(), `${id}.stop`);
 export const statePath = (id) => join(runsDir(), `${id}.json`);
 export function writeState(rec) {
   const path = statePath(rec.runId);
@@ -99,6 +100,7 @@ export async function launchDetached(cli, args, { cwd, model, briefPath, name, r
   } finally { closeSync(fd); }
   try { await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
+      writeFileSync(stopPath(runId), 'stop');
       child.kill('SIGTERM');
       reject(new Error('detach 监督进程启动超时，未退回前台。'));
     }, 15000);
@@ -115,6 +117,7 @@ export async function launchDetached(cli, args, { cwd, model, briefPath, name, r
     });
   });
   } catch (err) {
+    writeFileSync(stopPath(runId), 'stop');
     child.kill('SIGTERM');
     if (child.connected) child.disconnect();
     child.unref();
@@ -141,11 +144,11 @@ function detachedLaunchWarning(runId) {
   return `[agent-fleet] runId: ${runId} 检测到脱离启动：命令里可能带了 &/nohup，完成不会通知、任务列表看不到；请另开一条 Bash 用 fleet wait ${runId} 且 run_in_background:true 挂上通知，不要杀掉重派。`;
 }
 
-function killGroup(pid, signal) {
+export function killGroup(pid, signal) {
   if (!pid) return;
   // 子孙可能自行建组；先按精确 PID 树收集，再杀执行进程组，不按名字清理。
   if (isPidAlive(pid)) signalProcessTree(pid, signal);
-  try { process.kill(-pid, signal); } catch (err) { if (err.code !== 'ESRCH') throw err; }
+  try { process.kill(-pid, signal); } catch (err) { if (err.code === 'EPERM') console.error(`[agent-fleet] killGroup EPERM ${pid} ${signal}`); else if (err.code !== 'ESRCH') throw err; }
 }
 export async function supervise(cli) {
   process.on('SIGHUP', () => {});
@@ -173,8 +176,10 @@ export async function supervise(cli) {
     killGroup(child.pid, 'SIGTERM');
     killTimer ??= setTimeout(forceStop, 1000);
   };
-  process.on('SIGTERM', stop);
-  process.on('SIGINT', stop);
+  for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => {
+    if (existsSync(stopPath(process.argv[3]))) stop();
+    else console.error(`[agent-fleet] 忽略外部信号 ${signal}`);
+  });
   const payload = await new Promise(resolve => process.once('message', resolve));
   rec = { ...payload.rec, pid: process.pid, command: processCommand(process.pid) };
   process.env.FLEET_SLOT_RUN_ID = rec.runId;
@@ -339,6 +344,7 @@ export async function stopDetached(rec) {
   if (rec.status !== 'running') return { runId: rec.runId, signaled: false, exited: !isPidAlive(rec.pid) };
   const check = assertSafeToSignal(rec);
   if (!check.ok) throw new Error(check.reason);
+  writeFileSync(stopPath(rec.runId), 'stop');
   process.kill(rec.pid, 'SIGTERM');
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline && isPidAlive(rec.pid)) await new Promise(resolve => setTimeout(resolve, 100));
