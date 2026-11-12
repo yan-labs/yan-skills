@@ -47,6 +47,19 @@ mkdir -p /tmp/r && cat /tmp/r/*.json | jq -r '..|.domain? // empty' | sort -u > 
 wc -l /tmp/r/candidates.txt
 ```
 
+#### 补充候选来源：词站批次、新站榜、支付入站与来源时间链（全部只作线索）
+
+下列来源只提供候选词根与候选站，不提供需求量、难度或立项结论；候选一律回 gpts 基线与 [entry.md](../entry.md#3--流水线) 验证，经营数字另行核验。每轮保留来源快照与新增项：存当轮原始页面或批次、日期，下轮与上轮差集，只把新增项当新线索，来源快照放 `.rankup/evidence/demand/`（脚本化快照与对比见 [新品快照与多站同词候选](../../demand-sources/users-and-launches.md#新品快照与多站同词候选)）。
+
+| 来源 | 取什么 | 注意 | 证据等级与出处 |
+|---|---|---|---|
+| 新词服务的关键词页与批次 | 批次列表、整批词、单词详情（趋势、SERP、关联词）；每批存快照 | 站方倍数不当真实搜索量；整批不分页，搜索每页 30 条，速率另有上限；批次端点尚未接入本 Skill 脚本，官方工具清单与扣费口径以 [seo-webcafe.md](../../seo-webcafe.md) 为准，单词页字段见 [P2 找词还原现场](p2-keyword-root.md#阶段-05--词根从哪来没给词根时必跑) | 【实测，2026-11-12，文档】[关键词数据服务](https://seo.web.cafe/api/#keyword-data-service) |
+| 新站发现页 `/launches` | Show HN 与 X 热推汇总，区分作者明说与推测 | 热推不必然是新上线；上线日期未确认 | 【实测，2026-11-12，页面】[launches](https://new.web.cafe/launches) |
+| 托管站发现页 `/hosted` | vercel.app、github.io、pages.dev 站的自然点击估计、月度与近 28 天历史 | Similarweb 估计值；新近月份可能收费，未解锁就标缺；先核流量与需求再谈做 | 【实测，2026-11-12，页面】[hosted](https://new.web.cafe/hosted) |
+| 支付网关入站反查 | 从网关入站网站反查候选站，再回看其关键词；做法见 [二·五](../../demand-sources/revenue-and-ads.md#二五长尾支付网关反查) | 收银台访问不等于成功订单或利润 | 【经验，2026-11-10】[出海找词方法论（2）](https://new.web.cafe/topic/4xjg9nytkd) |
+| Agent 工具调用名 | 公开的工具调用名当候选词根 | 作者推测调用失败暴露名字后有人搜索，未证明规模或付费需求；先核搜索量、意图、SERP 与可解决的需求，不批量生成薄页 | 【猜测，2026-10-29】[工具名也是新词](https://new.web.cafe/tutorial/detail/nn4ayjnxjn) |
+| 来源时间链 | 同一新词在源头、社媒、趋势、工具各处首次出现的日期，以及新旧词组合 | 监控频率、领先时间与难度说法未经验证，不按其 KD 判断立项 | 【经验，2026-11-10】[出海找词方法论（1）](https://new.web.cafe/topic/1zmxtfndwu) |
+
 #### 第二小时起：候选池 → 域名画像 → 主词移交
 
 | 阶段 | 并行/串行 | 跑什么 | 拿到什么 | 卡住了怎么办 |
