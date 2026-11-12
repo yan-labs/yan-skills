@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "rankup",
-  "version": "3.42.1",
+  "version": "3.42.2",
   "releasedAt": "2026-11-13T00:00:00Z",
   "source": "yan-labs/yan-skills",
   "manifestUrl": "https://raw.githubusercontent.com/yan-labs/yan-skills/main/rankup/skill.json"
