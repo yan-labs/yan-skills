@@ -8,6 +8,7 @@ import { runsDir } from './progress.mjs';
 import { writePidRecord, processCommand, signalProcessTree } from './pid.mjs';
 import { watchInbox } from './inbox.mjs';
 import { SCOPE_LOCK } from './scope.mjs';
+import { grokTimelineEvent } from './timeline.mjs';
 
 const execute = promisify(execFile);
 
@@ -28,6 +29,8 @@ export async function runGrok({ prompt, cwd = process.cwd(), model, review = fal
   let metadata = { sessionId: resume || null, review, subagents, maxTurns, reasoningEffort,
     stopReason: null, numTurns: null, totalCostUsd: null, usage: null, modelUsage: null, costSource: 'grok 自报' };
   let suspectNote = null;
+  const timeline = event => appendFileSync(logPath, `\n${JSON.stringify(event)}\n`);
+  timeline({ method: 'grok/start', emittedAtMs: startedAt });
   const record = finished => {
     writePidRecord(runId, { pid: process.pid, command: processCommand(process.pid),
       model: `grok-cli:${selectedModel || 'default'}`, cwd: workdir,
@@ -59,7 +62,8 @@ export async function runGrok({ prompt, cwd = process.cwd(), model, review = fal
         }, 1000);
       }
     });
-    let finalText = '';
+    let finalText = '', toolSequence = 0;
+    const toolIds = new Map();
     try {
       do {
         writeFileSync(promptPath, nextPrompt);
@@ -84,7 +88,14 @@ export async function runGrok({ prompt, cwd = process.cwd(), model, review = fal
           if (!event || typeof event !== 'object' || Array.isArray(event)) {
             parseError = 'Grok streaming-json 事件必须是对象'; return;
           }
-          // 不落盘 thought/signature，日志只保留正文和结束状态。
+          if (event.type === 'tool_call' && event.toolCallId != null) toolIds.set(event.toolCallId, ++toolSequence);
+          const toolId = toolIds.get(event.toolCallId);
+          const timing = toolId && grokTimelineEvent(event, Date.now(), toolId);
+          if (timing) {
+            timeline(timing);
+            if (event.type === 'tool_call_update') toolIds.delete(event.toolCallId);
+          }
+          // 不落盘 thought/signature 和工具参数，日志只保留正文、计时和结束状态。
           if (event.type === 'text') {
             if (typeof event.data !== 'string') { parseError = 'Grok text 事件缺少 data 正文'; return; }
             result += event.data;
@@ -117,6 +128,8 @@ export async function runGrok({ prompt, cwd = process.cwd(), model, review = fal
           child.once('close', (code, signal) => done({ code, signal }));
         });
         parseLine(buffer);
+        timeline({ method: 'grok/segment/end', emittedAtMs: Date.now() });
+        toolIds.clear();
         activeChild = null;
         clearTimeout(killTimer); killTimer = null;
         inbox.pump();
@@ -160,6 +173,7 @@ export async function runGrok({ prompt, cwd = process.cwd(), model, review = fal
     if (error) appendFileSync(logPath, `\n[grok-cli] ${redactEvidence(error)}\n`);
     writeFileSync(resultPath, result);
     appendFileSync(logPath, `[grok-cli] done ${error || suspectNote ? 'error' : 'ok'}${suspectNote ? ' verdict=suspect' : ''}\n`);
+    timeline({ method: 'grok/end', emittedAtMs: Date.now() });
     record(true);
   }
   return attachArtifacts({ ...metadata, suspectNote, resumedFrom, ok: !error && Boolean(result), result, error, progress: { phase }, tier: selectedModel || 'default', stderr: stderrEvidence.split(/\r?\n/).slice(-20).join('\n'), errorObject, httpStatus, signal, durationMs: Date.now() - startedAt,

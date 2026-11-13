@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { buildRow, LedgerIndex } from '../src/ledger.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'fleet-grok-runner-'));
 const cli = resolve('bin/agent-fleet.mjs');
@@ -19,6 +20,14 @@ fs.writeFileSync(process.env.ARGS_PATH, JSON.stringify({args,proxy:Object.fromEn
 if (['write', 'cancelled-nonzero'].includes(process.env.SCENARIO)) fs.writeFileSync('changed.txt','changed');
 const text = process.env.SCENARIO === 'no-conclusion' ? '先写规则回执，再继续' : '结论：完成。';
 process.stdout.write(JSON.stringify({type:'thought',data:'do not include this'})+'\\n');
+if (process.env.SCENARIO === 'timing') {
+ for (const event of [
+  {type:'tool_call',toolCallId:'one',rawInput:{command:'echo fixture-secret'}},
+  {type:'tool_call_update',toolCallId:'one',status:'completed'},
+  {type:'tool_call',toolCallId:'two',rawInput:{command:'sleep 1'}},
+  {type:'tool_call_update',toolCallId:'two',status:'failed'}
+ ]) process.stdout.write(JSON.stringify(event)+'\\n');
+}
 const line = JSON.stringify({type:'text',data:text});
 process.stdout.write(line.slice(0,9));
 setTimeout(()=>{
@@ -68,6 +77,13 @@ syncBuiltinESMExports();
   const metadata = JSON.parse(readFileSync(normal.brief.logPath.replace(/\.log$/, '.grok.json'), 'utf8'));
   assert.equal(metadata.sessionId, 'fixture-session'); assert.equal(metadata.numTurns, 2);
   assert.equal(metadata.totalCostUsd, 0.0123); assert.deepEqual(metadata.usage, { input_tokens: 10, output_tokens: 3 });
+  const timing = run('timing');
+  const log = readFileSync(timing.brief.logPath, 'utf8');
+  assert.doesNotMatch(log, /fixture-secret|toolCallId|rawInput/);
+  const row = buildRow({ runId: 'timing', name: 'timing', model: 'grok-cli', status: 'done', verdict: 'ok',
+    startedAt: new Date().toISOString(), logPath: timing.brief.logPath }, new LedgerIndex());
+  assert.equal(row.pollCount, 1); assert.match(row.timeSource, /Grok streaming-json/);
+  assert.ok(row.activeMs > 0); assert.equal(row.activeMs, row.cmdMs + row.waitMs + row.modelMs + row.disconnectMs);
   const invocation = JSON.parse(readFileSync(join(normal.dir, 'args.json'), 'utf8'));
   assert.equal(invocation.args[invocation.args.indexOf('--output-format') + 1], 'streaming-json');
   assert.ok(invocation.args.includes('--always-approve')); assert.ok(!invocation.args.includes('--sandbox'));
