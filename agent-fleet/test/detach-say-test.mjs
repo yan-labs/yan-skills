@@ -1,6 +1,6 @@
 // 真实 detach 监督器配假 app-server：验证插话送到当前 turn，嵌套启动不覆盖外层身份。
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -91,7 +91,12 @@ try {
   run(['code','park fixture','--cwd',scratch,'--name','parked','--no-wait'],local);
   const parked = states().find(s => s.name === 'parked');
   await waitFor(() => existsSync(join(scratch,`${parked.runId}.queue.json`)) && JSON.parse(readFileSync(join(scratch,`${parked.runId}.queue.json`),'utf8')).state === 'parked');
-  assert.throws(() => run(['wait',parked.runId],local), error => error.status === 3 && /需要答复/.test(error.stdout));
+  const waiter = spawn(process.execPath,[cli,'wait',parked.runId],{cwd:scratch,env:{...env,...local},stdio:['ignore','pipe','pipe']});
+  let waitOutput = '';
+  waiter.stdout.on('data',chunk=>{waitOutput += chunk;});
+  const waitResult = new Promise(resolve=>waiter.once('close',resolve));
+  await waitFor(()=>waitOutput.includes('【待答复 ask】') && waitOutput.includes('需要答复'));
+  assert.equal(waiter.exitCode,null,'ask leaves fleet wait running');
   const silent = readFileSync(env.TRACE,'utf8');
   await delay(350);
   assert.equal(readFileSync(env.TRACE,'utf8'),silent,'监督器挂起期零模型请求');
@@ -101,7 +106,8 @@ try {
   run(['say',parked.runId,'收到，按原方案继续'],local);
   run(['say',behind.runId,'排队任务完成'],local);
   run(['wait',behind.runId],local);
-  run(['wait',parked.runId],local);
+  assert.equal(await waitResult,0,'wait returns success only after say and terminal completion');
+  assert.equal((waitOutput.match(/【待答复 ask】/g)||[]).length,1,'ask printed once');
   const wakeTrace = readFileSync(env.TRACE,'utf8').trim().split('\n').map(JSON.parse);
   assert(wakeTrace.some(q => q.method === 'turn/start' && q.params.threadId === 'thread-test' && /答复.*收到/.test(q.params.input[0].text)));
   assert(!wakeTrace.some(q => q.method === 'turn/steer' && /收到，按原方案继续/.test(q.params.input[0].text)),'park 答复不可 steer 已完成的 turn');
@@ -125,7 +131,6 @@ try {
   const method = parkedParent ? 'turn/start' : 'turn/steer';
   await waitFor(() => requests().some(q => q.method === method && q.params.input[0].text.includes('父子回归问题')));
   run(['wait',parent.runId],family);
-  assert.throws(() => run(['wait',child.runId],family), error => error.status === 3);
   run(['wait',child.runId],family);
   const familyTrace = requests();
   const delivery = familyTrace.find(q => q.method === method && q.params.input[0].text.includes('父子回归问题'));

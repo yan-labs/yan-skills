@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync, spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { writeYield, readYield, ask, takeAsk, localCondition, startBackground, alignStage } from '../src/yield.mjs';
+import { writeYield, readYield, ask, takeAsk, localCondition, startBackground } from '../src/yield.mjs';
 import { registerQueue, acquireSlot, queueRecord, setSlotState } from '../src/queue.mjs';
 import { waitDetached } from '../src/detach.mjs';
 import { appendInbox } from '../src/inbox.mjs';
@@ -22,6 +22,23 @@ const fs = require('node:fs');
 let count = 0, threads = 0;
 const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n');
 process.on('SIGINT', () => process.exit(0));
+if (process.argv[2] === 'exec') {
+ let prompt = '';
+ process.stdin.on('data',chunk=>{prompt += chunk;});
+ process.stdin.on('end',()=>{
+  const counter = process.env.TRACE+'.count';
+  const n = fs.existsSync(counter) ? Number(fs.readFileSync(counter))+1 : 1;
+  fs.writeFileSync(counter,String(n));
+  const args = process.argv.slice(2);
+  fs.appendFileSync(process.env.TRACE,JSON.stringify({args,prompt})+'\\n');
+  send({type:'thread.started',thread_id:'exec-thread-'+n});
+  if (n === 1 || (process.env.MODE === 'handoff-stuck' && n < 6)) fs.writeFileSync(process.env.YIELD_FILE,JSON.stringify(process.env.MODE === 'plan'
+   ? {type:'plan',text:'实现：完成',at:Date.now()}
+   : {type:'handoff',text:'已完成及证据；决定及理由；未决外部事项；坑勿重做；下一步',next:'继续',at:Date.now()}));
+  fs.writeFileSync(args[args.indexOf('-o')+1],'完成');
+ });
+ return;
+}
 require('node:readline').createInterface({input: process.stdin}).on('line', line => {
  const req = JSON.parse(line);
  fs.appendFileSync(process.env.TRACE, line + '\\n');
@@ -34,7 +51,7 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
   setTimeout(() => {
    const mode = process.env.MODE;
    if ((mode === 'plan' && count === 1) || (mode === 'replan' && count === 2)) fs.writeFileSync(process.env.YIELD_FILE,JSON.stringify({type:'plan',text:'实现：假测试通过\\n验收点：报告完成',at:Date.now()}));
-   if ((mode === 'handoff' && count === 1) || (mode === 'replan' && (count === 1 || count === 3)))
+   if ((mode === 'handoff' && count === 1) || (mode === 'handoff-stuck' && count < 6) || (mode === 'replan' && (count === 1 || count === 3)))
      fs.writeFileSync(process.env.YIELD_FILE, JSON.stringify({type:'handoff',text:'已完成及证据；决定及理由；未决外部事项；坑勿重做；下一步',next:'继续',at:Date.now()}));
 
    if (count === 1 && (mode === 'yield-park' || mode === 'yield-blocked')) {
@@ -63,122 +80,91 @@ try {
   delete process.env.FLEET_CODEX_BACKEND;
   delete process.env.FLEET_NO_CONTINUE;
   assert.equal(splitShortArgs(['--no-continue', 'brief.md']).flags['no-continue'], true);
-  // Handoff uses a new thread, full anchor, latest card and a separate restatement judgment.
-  process.env.FLEET_DETACHED_RUN_ID = 'handoff-check';
-  process.env.MODE = 'handoff';
-  process.env.TRACE = join(scratch, 'handoff.trace');
-  process.env.REPORT_FILE = join(scratch, 'handoff-report.md');
-  process.env.YIELD_FILE = join(scratch, 'handoff-check.yield');
+  // Plans and handoffs continue without replies, including drift and exhausted old baton limits.
   const anchor = '原始 brief 全文\n阶段：实现，完成条件：假测试通过\n阶段：验证，完成条件：报告\n## 【修订 1】\n按序修订全文';
-  const judgments = [];
-  await runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,
-    continuationJudge:async payload => { judgments.push(payload); return {ok:true,answers:{aligned:{choice:'pass',confidence:0.9}}}; }});
-  const trace = readFileSync(process.env.TRACE,'utf8').trim().split('\n').map(JSON.parse);
-  const turns = trace.filter(e=>e.method==='turn/start');
-  assert.equal(turns.length,3);
-  assert.equal(turns[1].params.threadId,'next-thread');
-  assert(turns[1].params.input[0].text.startsWith(anchor));
-  assert.match(turns[1].params.input[0].text,/最新交接单/);
-  assert.deepEqual(judgments.map(p=>p.state.kind),['handoff','restatement']);
-  assert.equal(await alignStage({anchor,stages:[],stage:0},'写偏','handoff',
-    async()=>({ok:true,answers:{aligned:{choice:'reject',confidence:0.99}}})),false);
-  process.env.FLEET_DETACHED_RUN_ID = 'rejected-handoff';
-  process.env.YIELD_FILE = join(scratch,'rejected-handoff.yield');
-  process.env.TRACE = join(scratch,'reject.trace');
-  let rejectOnce = true;
-  const rejecting = runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,
-    continuationJudge:async()=>({ok:true,answers:{aligned:{choice:rejectOnce ? (rejectOnce=false,'reject') : 'pass',confidence:0.9}}})});
-  for (let n=0;n<500 && !existsSync(join(scratch,'rejected-handoff.asks'));n++) await delay(10);
-  assert(existsSync(join(scratch,'rejected-handoff.asks')));
-  assert.equal(readYield('rejected-handoff').until,'reply');
-  assert.equal(readFileSync(process.env.TRACE,'utf8').split('"method":"thread/start"').length-1,1);
-  appendInbox('rejected-handoff',{type:'say',text:'{"approved":true,"instruction":"按原锚继续"}',at:new Date().toISOString()});
-  await rejecting;
-  process.env.FLEET_DETACHED_RUN_ID = 'baton-limit';
-  process.env.YIELD_FILE = join(scratch,'baton-limit.yield');
-  process.env.TRACE = join(scratch,'baton-limit.trace');
-  writeFileSync(join(scratch,'baton-limit.stages.json'),JSON.stringify({anchor,stages:['阶段：完成'],stage:0,baton:3}));
-  const limited = runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,
-    continuationJudge:async()=>({ok:true,answers:{aligned:{choice:'pass',confidence:0.9}}})});
-  for(let n=0;n<500 && !existsSync(join(scratch,'baton-limit.asks'));n++) await delay(10);
-  appendInbox('baton-limit',{type:'say',text:'放行'});
-  await limited;
-  assert.equal(readFileSync(process.env.TRACE,'utf8').split('"method":"thread/start"').length-1,1);
-  for (const [index, reply] of ['批准','同意','放行','{"approved":true}'].entries()) {
-    const id = `stage-plan-${index}`;
-    process.env.FLEET_DETACHED_RUN_ID = id;
-    process.env.MODE = 'plan';
-    process.env.YIELD_FILE = join(scratch,`${id}.yield`);
-    process.env.TRACE = join(scratch,`${id}.trace`);
-    const planning = runCode({prompt:'原始锚',cwd:scratch,codexBin:mock,noContinue:true});
-    for(let n=0;n<500 && !existsSync(join(scratch,`${id}.asks`));n++) await delay(10);
-    assert.equal(readYield(id).until,'reply');
-    assert.match(readFileSync(join(scratch,`${id}.asks`),'utf8'),/approved/);
-    appendInbox(id,{type:'say',text:reply});
-    await planning;
-    assert.equal(JSON.parse(readFileSync(join(scratch,`${id}.stages.json`),'utf8')).stages.length,2);
-  }
-  // Approval gates never permit a work turn after refusal or timeout.
-  for (const mode of ['plan', 'handoff']) for (const [decision, reply] of Object.entries({reject:'不予批准', disagree:'不同意', unapproved:'未批准', wrapped:'不能说“批准”', ambiguous:'请考虑批准', structuredFalse:'{"approved":false}', stringTrue:'{"approved":"true"}', timeout:null})) {
-    const id = `${mode}-${decision}`;
+  process.env.REPORT_FILE = join(scratch, 'stage-report.md');
+  for (const mode of ['plan','handoff','replan']) for (const verdict of ['pass','reject','unavailable']) {
+    const id = `${mode}-${verdict}`;
     process.env.FLEET_DETACHED_RUN_ID = id;
     process.env.MODE = mode;
-    process.env.YIELD_FILE = join(scratch, `${id}.yield`);
-    process.env.TRACE = join(scratch, `${id}.trace`);
-    const pending = runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,
-      continuationJudge:async()=>({ok:true,answers:{aligned:{choice:'reject',confidence:0.9}}})});
-    for(let n=0;n<500 && !existsSync(join(scratch, `${id}.asks`));n++) await delay(10);
-    assert(existsSync(join(scratch, `${id}.asks`)));
-    const clock = Date.now;
-    if (reply !== null) appendInbox(id,{type:'say',text:reply});
-    else {
-      Date.now = () => clock() + 1800001;
-    }
-    const stopped = await pending.finally(() => { Date.now = clock; });
-    assert.equal(stopped.numTurns,1,`${id}: zero subsequent work turns`);
-    assert.match(stopped.continueStop,/未获批准/);
-    assert.equal(stopped.reportConclusion,'部分完成');
-    assert.equal(JSON.parse(readFileSync(join(scratch, `${id}.stages.json`))).stage,0);
-  }
-  // Incomplete handoffs keep the same stage; evidence-confirmed completion advances it.
-  for (const complete of [false,true]) {
-    const id = `stage-complete-${complete}`;
-    process.env.FLEET_DETACHED_RUN_ID = id;
-    process.env.MODE = 'handoff';
-    process.env.YIELD_FILE = join(scratch, `${id}.yield`);
-    process.env.TRACE = join(scratch, `${id}.trace`);
+    process.env.YIELD_FILE = join(scratch,`${id}.yield`);
+    process.env.TRACE = join(scratch,`${id}.trace`);
+    writeFileSync(join(scratch,`${id}.stages.json`),JSON.stringify({anchor,stages:['验收点：旧阶段'],stage:0,baton:9}));
     const checks = [];
-    await runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,
-      continuationJudge:async payload => { checks.push(payload); return {ok:true,answers:{
-        aligned:{choice:'pass',confidence:0.9},completed:{choice:complete?'pass':'reject',confidence:0.9}}}; }});
-    const state = JSON.parse(readFileSync(join(scratch, `${id}.stages.json`)));
-    assert.equal(state.stage,complete?1:0);
-    assert.equal(state.baton,2);
-    assert.equal(checks[1].state.stage,anchor.match(/^阶段：.+$/gm)[complete?1:0]);
+    const result = await runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,
+      continuationJudge:async payload => {
+        checks.push(payload);
+        if (verdict === 'unavailable') throw new Error('judge unavailable');
+        return {ok:true,answers:{aligned:{choice:verdict,confidence:0.9},completed:{choice:verdict,confidence:0.9}}};
+      }});
+    assert(result.ok);
+    assert(!existsSync(join(scratch,`${id}.asks`)),'no approval ask');
+    assert.equal(readYield(id).result.status,'accepted');
+    assert(!result.continueStop);
+    const trace = readFileSync(process.env.TRACE,'utf8').trim().split('\n').map(JSON.parse);
+    const turns = trace.filter(e=>e.method==='turn/start');
+    assert.equal(turns.length, mode === 'replan' ? 4 : 2);
+    assert.equal(trace.filter(e=>e.method==='thread/start').length, mode === 'replan' ? 3 : mode === 'handoff' ? 2 : 1);
+    if (mode !== 'plan') {
+      assert.equal(turns[1].params.threadId,'next-thread');
+      assert(turns[1].params.input[0].text.startsWith(anchor));
+      assert.match(turns[1].params.input[0].text,/最新交接单/);
+      assert(checks.every(p=>p.state.kind === 'handoff'),'no restatement approval turn');
+    }
+    const stage = JSON.parse(readFileSync(join(scratch,`${id}.stages.json`),'utf8'));
+    if (mode === 'plan') { assert.equal(stage.stage,0); assert.equal(stage.baton,1); assert.equal(stage.stages.length,2); }
+    if (mode === 'handoff') { assert.equal(stage.stage,verdict === 'pass' ? 1 : 0); assert.equal(stage.baton,10); }
+    assert.match(readFileSync(join(scratch,`${id}.log`),'utf8'),/自动放行|自动接力/);
   }
-  // Reordering with the same stage count resets position and the exhausted baton budget.
-  process.env.FLEET_DETACHED_RUN_ID = 'replan';
-  process.env.MODE = 'replan';
-  process.env.YIELD_FILE = join(scratch,'replan.yield');
-  process.env.TRACE = join(scratch,'replan.trace');
-  writeFileSync(join(scratch,'replan.stages.json'),JSON.stringify({anchor,stages:['旧阶段一','旧阶段二'],stage:1,baton:4}));
-  const replan = runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,
-    continuationJudge:async()=>({ok:true,answers:{aligned:{choice:'pass',confidence:0.9}}})});
-  for(let n=0;n<500 && !existsSync(join(scratch,'replan.asks'));n++) await delay(10);
-  appendInbox('replan',{type:'say',text:'{"approved":true,"instruction":"重排，请提交新计划"}'});
-  for(let n=0;n<500;n++) {
-    if (existsSync(join(scratch,'replan.asks')) && readFileSync(join(scratch,'replan.asks'),'utf8').trim().split('\n').length===2) break;
-    await delay(10);
+  process.env.FLEET_DETACHED_RUN_ID = 'no-plan';
+  process.env.MODE = 'handoff';
+  process.env.YIELD_FILE = join(scratch,'no-plan.yield');
+  process.env.TRACE = join(scratch,'no-plan.trace');
+  await runCode({prompt:'无阶段的目标',cwd:scratch,codexBin:mock,noContinue:true,continuationJudge:async()=>({ok:false})});
+  assert.equal(readFileSync(process.env.TRACE,'utf8').split('"method":"thread/start"').length-1,2);
+  assert(!existsSync(join(scratch,'no-plan.asks')));
+  console.log('PASS - plans auto-continue; handoffs auto-start fresh threads without approval gates');
+  for (const mode of ['plan','handoff']) {
+    const id = 'exec-'+mode;
+    process.env.FLEET_CODEX_BACKEND = 'exec';
+    process.env.FLEET_DETACHED_RUN_ID = id;
+    process.env.MODE = mode;
+    process.env.TRACE = join(scratch,id+'.trace');
+    process.env.YIELD_FILE = join(scratch,id+'.yield');
+    const result = await runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,continuationJudge:async()=>({ok:false})});
+    assert(result.ok);
+    const execs = readFileSync(process.env.TRACE,'utf8').trim().split('\n').map(JSON.parse).filter(e=>e.args);
+    assert.equal(execs.length,2);
+    assert.equal(execs[1].args.includes('resume'),mode === 'plan','exec handoff starts a fresh thread');
+    if (mode === 'handoff') assert(execs[1].prompt.startsWith(anchor));
+    assert(!existsSync(join(scratch,id+'.asks')));
   }
-  assert.equal(readFileSync(join(scratch,'replan.asks'),'utf8').trim().split('\n').length,2);
-  appendInbox('replan',{type:'say',text:'同意'});
-  await replan;
-  const replanned = JSON.parse(readFileSync(join(scratch,'replan.stages.json')));
-  assert.equal(replanned.stages.length,2);
-  assert.equal(replanned.stage,0);
-  assert.equal(replanned.baton,2);
-  assert.equal(readFileSync(join(scratch,'replan.trace'),'utf8').split('"method":"thread/start"').length-1,2);
-  console.log('PASS - refusal/timeout stop; stage completion gate; approved replan resets baton and stage');
+  for (const backend of ['app', 'exec']) {
+    if (backend === 'exec') process.env.FLEET_CODEX_BACKEND = 'exec';
+    else delete process.env.FLEET_CODEX_BACKEND;
+    const id = 'handoff-stuck-' + backend;
+    process.env.FLEET_DETACHED_RUN_ID = id;
+    process.env.MODE = 'handoff-stuck';
+    process.env.TRACE = join(scratch, id + '.trace');
+    process.env.YIELD_FILE = join(scratch, id + '.yield');
+    const result = await runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,continuationJudge:async()=>({ok:false})});
+    const trace = readFileSync(process.env.TRACE,'utf8').trim().split('\n').map(JSON.parse);
+    assert.equal(trace.filter(e => backend === 'exec' ? e.args : e.method === 'turn/start').length, 3);
+    assert.match(result.continueStop, /连续两次续做无进展/);
+  }
+  process.env.FLEET_CODEX_BACKEND = 'exec';
+  process.env.FLEET_DETACHED_RUN_ID = 'handoff-stop';
+  process.env.MODE = 'handoff';
+  process.env.TRACE = join(scratch, 'handoff-stop.trace');
+  process.env.YIELD_FILE = join(scratch, 'handoff-stop.yield');
+  await runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,continuationJudge:async()=>{
+    appendInbox('handoff-stop', {type:'stop',text:''});
+    await delay(50);
+    return {ok:false};
+  }});
+  assert.equal(readFileSync(process.env.TRACE,'utf8').trim().split('\n').map(JSON.parse).filter(e=>e.args).length, 1);
+  console.log('PASS - repeated handoffs stop and exec stop during handoff prevents restart');
+  delete process.env.FLEET_CODEX_BACKEND;
   // Recreate a dead runner's durable park: resume must wait before any model turn.
   process.env.FLEET_DETACHED_RUN_ID = 'recovered-park';
   process.env.MODE = 'complete';
@@ -207,7 +193,7 @@ try {
   const resumedTrace = readFileSync(process.env.TRACE,'utf8').trim().split('\n').map(JSON.parse);
   assert(resumedTrace.some(e=>e.method==='thread/resume' && e.params.threadId==='old-thread'));
   assert.match(resumedTrace.find(e=>e.method==='turn/start').params.input[0].text,/醒来执行指定动作/);
-  console.log('PASS - handoff full anchor/new thread/restatement and durable park resume');
+  console.log('PASS - handoff full anchor/new thread and durable park resume');
   process.env.FLEET_DETACHED_RUN_ID = 'remote-recovered';
   process.env.TRACE = join(scratch,'remote-resume.trace');
   const remotePark = writeYield('remote-dead',{type:'park',until:'gh-run:fixture',say:'远程状态恢复',timeout:'1s'});
@@ -296,14 +282,14 @@ try {
   const askId = 'ask-child';
   writeFileSync(join(scratch, `${askId}.json`), JSON.stringify({detach:true,runId:askId,status:'done',cwd:scratch,exitCode:0}));
   ask(askId, {kind:'decision',text:'选哪种办法？'});
-  assert.equal(await waitDetached(askId), 3, 'ask 优先于完成通知，wait 码3');
+  assert.equal(await waitDetached(askId), 1, '终态退出码取决于结果，不因 ask 返回3');
   assert.equal(takeAsk(askId), null, '重新 wait 不重复消费 ask');
   const yieldCli = new URL('../bin/agent-fleet.mjs', import.meta.url).pathname;
   const cliEnv = {...process.env};
   for(const key of ['FLEET_SLOT_RUN_ID','FLEET_DETACHED_RUN_ID','FLEET_PARENT_RUN_ID']) delete cliEnv[key];
   assert.equal(spawnSync(process.execPath,[yieldCli,'ask','--run',askId,'--kind','shared','共享事实'],{env:cliEnv}).status,0);
   const waited = spawnSync(process.execPath,[yieldCli,'wait',askId],{env:cliEnv,encoding:'utf8'});
-  assert.equal(waited.status,3,'CLI wait 真正退出码3');
+  assert.equal(waited.status,1,'CLI wait 保留真实终态退出码');
   assert.match(waited.stdout,/共享事实/);
   writeFileSync(join(scratch,'upstream-child.json'),JSON.stringify({parentRunId:'upstream-parent'}));
   ask('upstream-child',{text:'上行问题'});
@@ -345,7 +331,7 @@ try {
   }
   assert.equal(jobResult.status, 'done');
   assert.match(readFileSync(bg.logPath,'utf8'), /job output/);
-  console.log('PASS - yield 同线程唤醒、零挂起请求、释放/重拿槽、blocked 跳闸门、ask wait=3、本地条件与 bg');
+  console.log('PASS - yield 同线程唤醒、零挂起请求、释放/重拿槽、blocked 跳闸门、ask 不提前返回、本地条件与 bg');
   for (const [mode, options, expected] of [
     ['finish', {}, 1], ['complete', {}, 0], ['fail', {}, 0],
     ['missing-sections', {}, 2], ['judge-done', {}, 0], ['judge-missing', {}, 2], ['judge-low', {}, 0], ['judge-fail', {}, 0], ['judge-throw', {}, 0],
