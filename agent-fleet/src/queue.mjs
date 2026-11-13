@@ -149,7 +149,7 @@ export async function acquireSlot(id) {
     if (dep && live.has(dep.state)) return false;
     if (row.readonly) { row.state = 'running'; row.startedAt ??= Date.now(); write(row); return true; }
     const quota = read(join(runsDir(), 'codex-quota.json'));
-    if (/^gpt-/.test(row.model) && quota?.usedPercent > 80 && (!quota.resetsAt || quota.resetsAt * 1000 > Date.now())) return false;
+    if (/^gpt-/.test(row.model) && quota?.usedPercent > Number(process.env.FLEET_CODEX_QUOTA_LIMIT || 90) && (!quota.resetsAt || quota.resetsAt * 1000 > Date.now())) return false;
     const pool = slotPool(row.model);
     const totalOverride = process.env.FLEET_SLOT_CAPACITY;
     const samePool = r => totalOverride || slotPool(r.model) === pool;
@@ -169,7 +169,7 @@ export async function acquireSlot(id) {
     const earlier = rows.some(r => r.state === 'queued' && !r.readonly && slotPool(r.model) === pool &&
       (r.createdAt < row.createdAt || (r.createdAt === row.createdAt && r.runId < row.runId)) &&
       (!r.after || !live.has(dependency(rows, r.after)?.state)) &&
-      !(/^gpt-/.test(r.model) && quota?.usedPercent > 80 && (!quota.resetsAt || quota.resetsAt * 1000 > Date.now())));
+      !(/^gpt-/.test(r.model) && quota?.usedPercent > Number(process.env.FLEET_CODEX_QUOTA_LIMIT || 90) && (!quota.resetsAt || quota.resetsAt * 1000 > Date.now())));
     if (earlier) return false;
     row.state = 'running'; row.startedAt = Date.now(); write(row); return true;
   });
