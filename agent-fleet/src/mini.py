@@ -188,9 +188,6 @@ kind=p['kind']; binary=pathlib.Path(p['bin']); root=binary.parent if binary.is_d
 if kind in envnames:
  js="import {loadEnvFile} from './src/env.mjs'; loadEnvFile('.env'); process.exit(process.env[process.argv[1]] ? 0 : 1)"
  r=subprocess.run(['node','--input-type=module','-e',js,envnames[kind]],cwd=root,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10); ready=r.returncode==0
- if kind=='claude' and ready:
-  try: ready=subprocess.run(['claude','auth','status'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10).returncode==0
-  except (OSError,subprocess.TimeoutExpired): ready=False
 elif kind in ('gpt','grok'):
  cmd=['codex','login','status'] if kind=='gpt' else ['grok','models']
  try: ready=subprocess.run(cmd,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20).returncode==0
