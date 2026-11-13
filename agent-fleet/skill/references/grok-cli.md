@@ -37,6 +37,7 @@ runner 逐行解析 `streaming-json`，text 拼接为原格式 `.result.md`；en
 
 ## 登录与常见坑
 
+- 额度：订阅额度按周重置、无充值；只能在交互 TUI 里输入 `/usage` 查看（`grok usage <SESSION_ID>` 只给单会话用量），需要查就开终端面板请用户输入。用完返回 402 `Grok Build usage balance exhausted`，只能等重置，编码按工具链换下一顺位；在跑的任务不换手，产物另找执行者复核。
 - OAuth：`grok login --oauth`，使用已有 SuperGrok/X Premium+ 订阅登录。`grok models` 出现 `You are not authenticated` 表示未登录；fleet 在执行任务前明确报错，不等待批准；失败只上报事实，由派用者判断是否重派。
 - 备用为环境变量 `XAI_API_KEY`，走按量计费；只在已授权按量费用时使用，key 仅经受控存储与进程通道传递。`GROK_HOME` 可指定 CLI 状态目录；登录检查只通过 `grok models` 看状态；`auth.json` 保持未读取。
 - 失败只记录执行者/档位、脱敏原始错误、已完成步骤、产物与 dirty 状态，错误分类、后续建议与执行者选择由派用者负责。派用者顺位参考见 [失败上报](../SKILL.md#失败上报与派用者顺位参考)，由派用者自行判断并用 `fleet-go relaunch <name> --to <产品>` 重派；Gemini 仅文本。`grok usage` 可查看 CLI 会话 token 与费用。

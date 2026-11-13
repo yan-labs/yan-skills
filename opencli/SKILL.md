@@ -27,6 +27,8 @@ node <opencli-skill-dir>/scripts/accept.mjs --url http://localhost:3000/ --url /
 
 **验收三铁律**：①只用 OpenCLI 驱动真实 Chrome，不用 Playwright、Firefox/Nightly 或沙箱浏览器；②固定验收做成脚本，只输出摘要，截图落盘；③能力缺口必须明说：新扩展支持真实 console/pageerror 捕获与持续 viewport set/reset，模板探测能力并验证读数；旧扩展 console 空返回不能当无错误，viewport 回退同源 iframe 并记录原因；外域只能检测记录，暂不能阻断。详见 [`references/browser-driving.md`](references/browser-driving.md#验收三铁律)。
 
+外站瞬时失败：同 URL 约隔 5 秒重试，最多 5 次；仍失败标「无法验证」，继续其他项。用户在远程控制时少让他动手：他要做的步骤（如登录）先打开页面、填好非敏感字段、放大到看得清，只留最后一下；密码和验证码由用户本人输入。
+
 OpenCLI 负责用户真实 Chrome 中的页面操作和数据获取；调研主题先进 `agent-reach`，SEO / 外链决策先进 `rankup` / `backlink`。公开文本先用 `curl` 或公开 API；需要登录态、截图、E2E、填表或浏览器实测时用本 Skill。提交决策归业务 Skill。浏览器只用用户本机已登录的 Chrome；沙箱浏览器（Playwright / agent-browser / headless）在本机不作为选项，含测试自己的站、E2E、截图，只有用户明确点名时才用。
 
 按顺序找：现成项目或 Skill 脚本 → HTTP API → `opencli <site> <command>` adapter → `opencli browser <session>` → 确需复用时写 adapter。先用 `opencli list`、`opencli <site> --help` 查现有能力；不要重走已经有脚本的链路。配额站先读第三节并运行 `scripts/pressure.mjs`。
