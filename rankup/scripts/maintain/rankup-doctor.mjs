@@ -121,7 +121,7 @@ export async function diagnose({ rankupDir, portfolioRoot, staleDays = 30, now =
 
   const backups = [];
   const mdFiles = await walkMd(rankupDir, backups);
-  for (const file of backups) add("C", "备份副本", path.relative(rankupDir, file), "只列不动；由用户决定是否移至 $RANKUP_HOME/trash/ 等可恢复位置");
+  for (const file of backups) add("C", "备份副本", path.relative(rankupDir, file), "待确认；按 rankup-clean 清单核查并取得用户同意后显式纳入");
 
   // 1 & 2 目录外文件、备份
   for (const e of top) {
@@ -206,7 +206,7 @@ export async function diagnose({ rankupDir, portfolioRoot, staleDays = 30, now =
       "A",
       "过程数据残留",
       ".rankup/",
-      `可清理过程数据 ${cleanPlan.cleanFilesCount} 个文件（${formatBytes(cleanPlan.cleanBytes)}：${breakdown}）：运行 node scripts/maintain/rankup-clean.mjs --project-root <项目目录> --apply 移入 $RANKUP_HOME/trash/ 并重写 md 断链`,
+      `可清理过程数据 ${cleanPlan.cleanFilesCount} 个文件（${formatBytes(cleanPlan.cleanBytes)}：${breakdown}）：运行 node scripts/maintain/rankup-clean.mjs --project-root <项目目录> --apply 直接删除并重写 md 断链`,
     );
   }
 

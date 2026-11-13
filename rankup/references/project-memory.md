@@ -63,7 +63,7 @@
 ├── releases.md
 ├── experience.md
 ├── scripts/
-├── evidence/           # 脚本临时落盘目录；原始数据不常驻，结论进文档（收尾与提交由 rankup-clean.mjs 移入 $RANKUP_HOME/trash/）
+├── evidence/           # 脚本临时落盘目录；原始数据不常驻，结论进文档（收尾与提交由 rankup-clean.mjs 列待确认）
 ├── agentic/            # is-agentic 基线（scripts/review.mjs 检查）
 ├── tasks/              # 定时任务参数；一次性任务 brief 放 tasks/briefs/，收口后压缩
 ├── review-state.json   # sessions.mjs 的水位线，可选
@@ -198,14 +198,14 @@ Claude Code 的 prompt cache 最长 1 小时（超额后降到 5 分钟），会
 | `baseline.md`、`integrations.md`、`infrastructure.md`、`architecture.md`、`audit.md` | 当前状态，每个会变的数字带观察日期 | 排障过程（→ `journal/`） | 各 300 行 / 24 KB |
 | `iterations.md`、`experiments.md`、`releases.md` | 每轮 / 每个实验 / 每次发布一段 | 逐步操作 | 各 300 行 / 24 KB，超了把最早的轮次压成一行一轮 |
 | `experience.md`、`topics/` | 本项目可复用的结论（`- **[日期] 标题**` 格式），按[四层归属](maintenance.md#七经验分层与回流四层归属唯一判定表)只留 ①② 层 | 一次性细节；跨项目或属于别处的经验（→ ③ ④ ⑤） | 300 行 / 24 KB |
-| `research/` | 一次调研一份报告（`<词根>-<YYYY-MM-DD>.md`、`feature-<名>-<日期>.md`），原文不改；原始数据不常驻，结论进文档 | 未定论的想法（→ `journal/`）、过程原始数据（→ `rankup-clean.mjs --apply` 移入 `$RANKUP_HOME/trash/`） | 单篇不限，超 600 行拆附录 |
+| `research/` | 一次调研一份报告（`<词根>-<YYYY-MM-DD>.md`、`feature-<名>-<日期>.md`），原文不改；原始数据不常驻，结论进文档 | 未定论的想法（→ `journal/`）、过程原始数据（→ `rankup-clean.mjs --apply` 直接删除） | 单篇不限，超 600 行拆附录 |
 | `journal/` | `YYYY-MM-DD.md`，当天的观察、判断与依据；同日归档命名见维护「四」第 7 条 | 命令输出、一次性 brief（压成结论） | 单篇 200 行 / 16 KB |
 | `scripts/` | 项目专属脚本（`<动词-对象>.mjs`），登记在 `INDEX.md` | 数据产出 | — |
-| `reports/` | 需长期保留的分析报告与执行结果文档（成本审计、基础设施评估、迁移方案等），从临时目录迁入；原始数据不常驻，结论进文档 | 过程文件（brief、body、截图、日志、trace/har、测试输出、压缩包、未被常驻文件引用的 raw data）、已过期且不再被引用的报告 | 单篇不限，总量超 10 篇时压缩最早的 |
-| `evidence/`、`agentic/` | 原始数据不常驻，结论进文档（仅保留 `.keep-data` 白名单或常驻文件直接引用的小体积结构化数据） | 过程原始数据（截图、日志、trace/har、压缩包、大体积或未引用 JSON/JSONL，收尾与提交时由 `rankup-clean.mjs` 移至 `$RANKUP_HOME/trash/`） | 收尾跑 `rankup-clean.mjs --apply` 清空过程数据 |
+| `reports/` | 分析报告与执行结果文档（成本审计、基础设施评估、迁移方案等），未跟踪/被忽略的报告按时间默认删除；Git已跟踪的列待确认且不删，需额外长期保留的列 `.keep-data`；原始数据不常驻，结论进文档 | 过程文件（brief、body、截图、日志、trace/har、测试输出、压缩包、未被常驻文件引用的 raw data）、已过期且不再被引用的报告 | 单篇不限，总量超 10 篇时压缩最早的 |
+| `evidence/`、`agentic/` | 原始数据不常驻，结论进文档（仅保留 `.keep-data` 白名单或常驻文件直接引用的小体积结构化数据） | 过程原始数据（截图、日志、trace/har、压缩包、大体积或未引用 JSON/JSONL，收尾与提交时由 `rankup-clean.mjs` 按待确认规则处理） | 收尾跑 `rankup-clean.mjs --apply` 清可默认删除的过程数据，证据待确认 |
 | 脚本产物：`demand/`、`selection/`、`leading-indicator/`、`provider-audit/`、`state/`、`data/`、`indexnow-last.json`、`backlink-targets.json` | 由 rankup / backlink 脚本写入的运行结果与断点状态 | 手写内容（→ 对应专题文件） | 旧运行按 `evidence/` 同一规则清；断点状态文件不删 |
 
-**命名**：小写加连字符；日期一律 `YYYY-MM-DD`，放文件名末尾。**顶层允许上表与目录结构里的文件，以及 `INDEX.md` 文件状态表明确登记职责的项目专属文件或目录**（如设计、上线、文案与非敏感配置；未登记的只列 C 类）；带日期的一次性文件（`launch-queue-<日期>.md` 这类）归入 `research/` 或 `journal/`；`*.bak`、`*backup*` 等副本统一按维护「三」的 C 类口径处理；同一职责出现两个文件（例如 `log.md` 与 `journal/`）时合并到规范里的那个。
+**命名**：小写加连字符；日期一律 `YYYY-MM-DD`，放文件名末尾。**顶层允许上表与目录结构里的文件，以及 `INDEX.md` 文件状态表明确登记职责的项目专属文件或目录**（如设计、上线、文案与非敏感配置；未登记的只列 C 类）；带日期的一次性文件（`launch-queue-<日期>.md` 这类）归入 `research/` 或 `journal/`；证据与备份统一按 [Skill 清理用法](../SKILL.md) 的待确认流程处理；同一职责出现两个文件（例如 `log.md` 与 `journal/`）时合并到规范里的那个。
 
 **`~/.agent-reports` 是临时目录（CRITICAL）**：`~/.agent-reports/` 随时可能被清空，不是持久存储。任务产出的分析报告、执行结果等需要跨会话复用的文档，必须在任务收尾时迁移到项目 `.rankup/reports/`（或 `research/`），并更新引用指针；brief、body、raw data 等过程文件可以留在原处自然清理。`cost-optimization-plan.md` 等汇总文件里引用 `~/.agent-reports` 路径的，一律改为 `.rankup/` 内的相对路径。
 

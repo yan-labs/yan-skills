@@ -30,7 +30,7 @@
 |---|---|---|
 | ① 全量扫描 | 列出本轮动过的术语、脚本名、路径、阈值、结论关键词，跑 `node <rankup>/scripts/maintain/ref-scan.mjs <词或路径…> --rankup <项目>/.rankup`（工作区有根层记录再加 `--rankup <工作区根>/.rankup`；改 Skill 源码时不加也会扫 Skill 全目录与仓库 README），逐处判定改、删或保留；改完**再跑一次**，确认旧说法无残留。不凭回忆找引用 | 第二次扫描只剩有意保留的命中，并能说出每处为什么留 |
 | ② 结论原地修订 | 按下文「四」更新决策类文档：推翻的原地改写（删旧写新，不注释旧文、不写“旧的作废”，Agent 记忆同理，见 [`agent-memory.md`](agent-memory.md)），否决写理由与复活条件，重复的收成一处；本轮新经验按「七」判归属（项目 / 用户全局 / Skill） | 同一结论只有一处全文，其余是指针 |
-| ③ 清理任务型内容与过程数据 | 按下文「三」的判据清：已完成任务只留一行结论加报告路径，已收回的后台任务、过期接力删掉；跑 `node <rankup>/scripts/maintain/rankup-clean.mjs --project-root <项目> --apply` 将截图/图片、日志、trace/har、测试输出、压缩包与超阈值或未引用原始数据移入 `$RANKUP_HOME/trash/<项目名>/<时间戳>/` 并写清单，同时把 `.rankup/` 内 md 指向被清文件的相对链接改为行内文字「（原始数据已清理 <日期>）」 | `rankup-clean.mjs` 待清为 0，`doc-lint.mjs` 断链为 0，`rankup-doctor.mjs` 无「接力超长」「任务型残留」「过程数据残留」告警 |
+| ③ 清理任务型内容与过程数据 | 按下文「三」的判据清（证据与备份按 Skill 待确认流程处理）：已完成任务只留一行结论加报告路径，已收回的后台任务、过期接力删掉；跑 `node <rankup>/scripts/maintain/rankup-clean.mjs --project-root <项目> --apply` 将截图/图片、日志、trace/har、测试输出、压缩包与超阈值或未引用原始数据直接删除（不回收、不备份），同时把 `.rankup/` 内 md 指向被清文件的相对链接改为行内文字「（原始数据已清理 <日期>）」 | `rankup-clean.mjs` 待清为 0，`doc-lint.mjs` 断链为 0，`rankup-doctor.mjs` 无「接力超长」「任务型残留」「过程数据残留」告警 |
 | ④ 脚本沉淀 | 满足「五」第 1 条的操作存成参数化脚本并用真实参数跑一次（细则见下文「五·1」） | 报告有「## 沉淀的脚本」一节（没有写「无，理由：…」） |
 | ⑤ 最后写接力 | 覆盖 `INDEX.md`「接力」为当前状态；同步 `plan.md` 与根层 `portfolio.md`、`projects.json`（按「四」的校验规则）；回复里用一行说明清了什么 | `grep -n "下一条要执行的动作" .rankup/INDEX.md` 有结果 |
 
@@ -45,8 +45,8 @@
 | 常驻文件大小 | 按[目录规范](project-memory.md#目录规范常驻文件保留什么去哪里多大)逐文件的上限（例如 `decisions.md` 150 行 / 16 KB，其余文件与 `journal/` 以目录规范表为准） | `rankup-doctor.mjs` |
 | 断链 | `.rankup/` 与 Skill references 里相对链接、锚点断链为 0 | `doc-lint.mjs --root <项目>/.rankup`；Skill 用 `doc-lint.mjs` |
 | 过期日期 | 时效契约覆盖的文件（`INDEX.md`、`plan.md`、`keywords.md`、`baseline.md`、`integrations.md`、`infrastructure.md`）最新日期超过 30 天：重新核实，或标「待核实」 | `rankup-doctor.mjs --stale-days 30` |
-| 过程数据残留 | `.rankup/` 内截图和图片、日志、trace/har、测试输出（如 surefire xml）、压缩包、超阈值或未被常驻文件（`INDEX.md`、`plan.md`、`decisions.md`、`leftovers.md` 等）直接引用的原始 `json`/`jsonl` 等过程数据为 0；保留 md、脚本和代码（`mjs`/`js`/`cjs`/`ts`/`py`/`sh`/`sql`）、配置和状态文件（`skill-state.json`、`review-state.json`、`projects.json`、断点状态等）、`.rankup/.keep-data` 白名单及常驻文件直接引用的小体积结构化数据 | `rankup-clean.mjs --project-root <项目>`（默认只列计划，`--apply` 移至 `$RANKUP_HOME/trash/<项目名>/<时间戳>/` 并改写 md 链接；`--staged` 供 pre-commit 移出暂存）；`rankup-doctor.mjs` 归入 A 类 |
-| 备份与临时文件 | 备份副本（`*.bak*` / `*backup*` / `*.orig` / `*~`）仍一律按 C 类，只列不动；经用户决定后移至 `$RANKUP_HOME/trash/` 等可恢复位置 | `rankup-doctor.mjs` |
+| 过程数据残留 | `.rankup/` 内截图和图片、日志、trace/har、测试输出（如 surefire xml）、压缩包、超阈值或未被常驻文件（`INDEX.md`、`plan.md`、`decisions.md`、`leftovers.md` 等）直接引用的原始 `json`/`jsonl` 等可默认清理的过程数据为 0（证据与备份待确认除外）；默认时限7d；Git已跟踪文件不删并列待确认；常驻文档与非过程目录的脚本和代码保留（`mjs`/`js`/`cjs`/`ts`/`py`/`sh`/`sql`）、配置和状态文件（`skill-state.json`、`review-state.json`、`projects.json`、断点状态等）、`.rankup/.keep-data` 白名单及常驻文件直接引用的小体积结构化数据 | `rankup-clean.mjs --project-root <项目>`（默认只列计划，`--apply` 直接删除并改写 md 链接；`--staged` 供pre-commit限定候选，已跟踪/已暂存文件仍保留）；`rankup-doctor.mjs` 归入 A 类 |
+| 备份与临时文件 | 证据与备份的待确认核查、用户确认及显式删除参数统一见 [SKILL.md 清理用法](../SKILL.md) | `rankup-doctor.mjs` |
 | 目录外文件 | 顶层文件（含合法根层与已登记项目专属文件）都在[目录规范](project-memory.md#目录规范常驻文件保留什么去哪里多大)里；带日期的一次性文件归入 `research/` 或 `journal/` | `rankup-doctor.mjs` |
 | Skill 文档体积 | references 单文件 > 600 行或 > 80 KB 就拆，主文件留入口与判据 | `doc-lint.mjs`；拆用 `split-doc.mjs` |
 
@@ -67,6 +67,8 @@
 7. **`journal/`**：已记录的判断原文不改写（被推翻时从推翻它的地方反向链接）；但逐步操作、命令输出、一次性 brief 这类流水按「三」压缩成结论加依据，不无限堆积。归档按原观察日期命名 `journal/YYYY-MM-DD-archive-<主题>.md`，超标拆成同日多篇，不改日期凑上限。
 8. **根层 `portfolio.md` / `projects.json`**：阶段、线上状态、下一步与项目内 `INDEX.md` 一致。回写 `projects.json` 前把原文件复制到 `.rankup/` 之外（或确认已在 git 里），用 `jq '… |= …'` 就地更新，改后比对条目数：`jq '.projects | length'`（按实际结构取数组或对象键数）前后必须相等，不等立即恢复。历史上一次 `select` 管道把 17 条塌成 1 条。备份统一按「三」的 C 类口径处理；没有根层登记时此项标 N/A，不创建登记表。doctor 只报当前条目数，执行者须把整理前后计数写进报告。
 
+按时间清理多个项目：`node <rankup>/scripts/maintain/rankup-clean.mjs --workspace <工作区> --older-than 7d --apply`；不指定 `--older-than` 默认7d，历史trash同样按mtime；不指定 `--apply` 只预览。时间筛选额外覆盖 research/journal/reports/evidence 的报告和临时脚本；常驻文件、白名单、state 保留；证据与备份走 [SKILL.md 清理用法](../SKILL.md) 的待确认流程，历史 trash 也遵守同一规则。
+
 ## 五、维护 Skill 源码（rankup 本身）
 
 1. **可复用操作落成脚本**：在授权修改范围内，把确定会重复的链路本轮参数化并跑通，省掉下轮重写；只读或禁止改脚本的任务仅列候选。具体判定：会再做一次、换个站或词或日期就要重跑、驱动登录态浏览器超过约 5 步、同一串命令本轮手敲 2 次以上，满足任一条就在本轮存成脚本。动手前先查本 Skill `scripts/`、backlink `scripts/`、opencli adapter 与跨项目登记表（`registry.mjs list`），有就用，不好用就修；没有就把第一次跑通的链路当场写成参数化脚本：通用的放本 Skill `scripts/<动词-对象>.mjs`，头部注释写用途、参数、登录态依赖、已知坑、验证日期；只属于某个项目的放 `<project>/.rankup/scripts/` 并登记进 `INDEX.md`。写完用真实参数跑一次，没跑通不算沉淀。登录态、property ID、账号配置只作参数或项目侧配置。
@@ -75,7 +77,7 @@
 4. **拆分或移动文档**：写计划 JSON，跑 `node scripts/maintain/split-doc.mjs <plan.json>`（自动修相对链接与入站锚点），再跑 `node scripts/maintain/doc-lint.mjs` 到断链为 0；validate 断言与测试引用随内容迁移，不删断言。
 5. **一处一份**：判据只在 [`checklists.md`](checklists.md)，操作只在各自文档；缺 check 先补进 `checklists.md` 再去做。
 6. **发版**：`node scripts/validate-rankup.mjs` 与相关 `node --test` 通过；版本号 patch 文字与小经验、minor 向后兼容的新工作流、major 目录协议或核心行为破坏性变化；同时改 `SKILL.md` 的 `metadata.version`、`skill.json`、validate 预期与仓库 README。
-7. **Skill 自己的 `.rankup/`**（git 忽略）只放脚本试跑证据与 `skill-state.json`，`INDEX.md` 只写当前状态；`evidence/` 每个脚本只留最新一次试跑，其余先确认报告与 references 里没有目录名引用，再移到废纸篓（可恢复）；`node --test` 也会往这里写试跑证据，跑完测试顺手清。
+7. **Skill 自己的 `.rankup/`**（git 忽略）只放脚本试跑证据与 `skill-state.json`，`INDEX.md` 只写当前状态；`evidence/` 每个脚本只留最新一次试跑，其余先确认报告与 references 里没有目录名引用，再按Skill的待确认规则取得用户同意后显式纳入按时间删除；`node --test` 也会往这里写试跑证据，跑完测试顺手清。
 
 `evals/trigger-evals.json` 与 `evals/evals.json` 分别定义触发与行为评测；需要时按 `skill-creator` 的 `run_loop` / 行为对比流程运行。当前两套评测均未运行过，静态校验不代表行为效果已验证。
 
@@ -98,14 +100,14 @@
 1. **只读诊断**：`node <rankup>/scripts/maintain/rankup-doctor.mjs --project-root . [--portfolio-root <工作区根>]`，再通读 `INDEX.md`、`plan.md`、`decisions.md`、`rejected.md`、`keywords.md` 与最近的 `journal/`；对要动的关键词跑 `ref-scan.mjs`。
 2. **经验分拣与回流**（整理里最重要的一步）：遍历 `topics/`、`experience.md`、`checks.md`、项目专属常驻文件、`tasks/briefs/`、`research/` 与非归档 `journal/` 里的坑与推翻记录、`rejected.md` 的复活条件、失败记录（脚本的「经验分拣候选」只列起点，关键词漏报不等于没有经验；归档内容不作新候选），逐条按下文「七」的判定问题序列判归属，输出分拣表：条目｜建议去向（① / ② / ③ / ④ / ⑤ / 待观察）｜理由｜证据等级。③ 直接写入用户全局层；④ 按「七」的回流方式处理（允许改动的源码检出直接改现有文件，禁止改源码或安装副本只写 `upstream-candidates.md`）；回流过的原条目改成一行指针或删除；待观察的不动。
 3. **出整理计划**，每条分进三类之一：
-   - **A 安全直接改**：断链、过期接力、已完成任务型条目压成一行、重复事实收成指针、`revived` 行按新口径迁移、过程数据残留（运行 `node <rankup>/scripts/maintain/rankup-clean.mjs --project-root . --apply` 移入 `$RANKUP_HOME/trash/<项目名>/<时间戳>/` 并改写 md 相对链接）；
+   - **A 安全直接改**：断链、过期接力、已完成任务型条目压成一行、重复事实收成指针、`revived` 行按新口径迁移、过程数据残留（运行 `node <rankup>/scripts/maintain/rankup-clean.mjs --project-root . --apply` 直接删除并改写 md 相对链接）；
    - **B 下沉并保留证据**：超长常驻文件拆分或把过程移进 `journal/` / `research/`，带日期的一次性文件归位，引用同步更新；
    - **C 需要用户决定，只列不动**：备份与临时副本（备份类仍按 C 类，只列不动）、整理后仍超标的文件、删整份文件、改决策或否决的结论、合并或废弃项目、动根层登记表里别的项目、任何拿不准的删除。
 4. **执行 A 与 B**：一次改一类；过程数据跑 `node <rankup>/scripts/maintain/rankup-clean.mjs --project-root . --apply`；移动 Markdown 用 `scripts/maintain/split-doc.mjs` 同步出站相对链接与入站链接，归档摘录也要按新位置核对链接；移动文件后立刻 `ref-scan` 同步所有引用；拿不准的不删，只标「待确认」。
 5. **回读校验**：再跑 `rankup-doctor.mjs` 与 `doc-lint.mjs --root .rankup`，已处理的 A、B 不再出现，仍超标等拿不准项在报告列为待用户决定，不强行为零；有根层登记时 `projects.json` 条目数与整理前相同，没有则标 N/A；`INDEX.md` 四个导航字段与「接力」仍然完整。
 6. **收尾**：`journal/<日期>.md` 写一行（整理了什么、报告在哪）；输出整理报告：改了什么、删了什么（每项能从哪找回）、留了什么、经验分拣表、需要用户决定什么。
 
-**不能丢的东西**（整理时逐项确认仍在）：仍有效的决策及理由、否决行的理由与复活条件、`secrets.md` 元数据、`integrations.md` 接入看板状态、证据路径指向的原始证据、`research/` 报告原文、`experience.md` 条目（已被 Skill 覆盖的可压成写明 Skill 文件与节号的指针）、`scripts/` 及其登记、未完成的接力与在跑的后台任务、用户明确要求保留的内容。
+**不能丢的东西**（doctor 整理时逐项确认仍在；用户明确按时间清理旧报告时，按 Skill 清理用法执行，需长期保留的报告先列 `.keep-data`）：仍有效的决策及理由、否决行的理由与复活条件、`secrets.md` 元数据、`integrations.md` 接入看板状态、证据路径指向的原始证据、`research/` 报告原文、`experience.md` 条目（已被 Skill 覆盖的可压成写明 Skill 文件与节号的指针）、`scripts/` 及其登记、未完成的接力与在跑的后台任务、用户明确要求保留的内容。
 
 证据路径悬空时，在 `INDEX.md` 标明「原始证据缺失」并保留旧引用原文，不擅自删；由用户决定恢复还是接受缺失。
 

@@ -1,10 +1,12 @@
 ---
 name: agent-fleet
-description: 使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV 任务，或调用 Kollab 图片/视频/音频/多模态能力时使用；包括用户点名 agent-fleet、Nano Banana、nanobanana、香蕉、便宜模型、多模型并行，用户说“让 Codex 或 GPT-6.1 Sol 做某事”的编码、调研与 review 派单，以及按全局 CLAUDE.md §2 路由任务。只做单一模型的直接任务且无需 fleet 时不触发；用户明确要直接操作 Codex CLI 原生命令（自选 sandbox、codex review、apply、resume）时用 codex Skill；普通生成图片也可用 imagegen。
+description: 包括“清理一下”“清理 N 天/一周之前”“清理日志/报告/截图”。使用本机 fleet 分派 Codex GPT-6.1 Sol、Gemini、Grok 或 JEV 任务，或调用 Kollab 图片/视频/音频/多模态能力时使用；包括用户点名 agent-fleet、Nano Banana、nanobanana、香蕉、便宜模型、多模型并行，用户说“让 Codex 或 GPT-6.1 Sol 做某事”的编码、调研与 review 派单，以及按全局 CLAUDE.md §2 路由任务。只做单一模型的直接任务且无需 fleet 时不触发；用户明确要直接操作 Codex CLI 原生命令（自选 sandbox、codex review、apply、resume）时用 codex Skill；普通生成图片也可用 imagegen。
 allowed-tools: Bash(fleet-go order show*) Bash(cat ~/.agents/dispatch-order.md*) Bash(true)
 ---
 
 # agent-fleet
+
+`fleet-go clean --older-than 7d`（一周也可写 `1w`，默认7d且直接执行删除，预览必须加 `--dry-run`，明细用 `--json`）按修改时间直接删除本机与已配置 Mini 的旧 runs、报告、巡检记录和已合并且无改动的 fleet worktree；保留运行/排队任务、账本、调遣令、配置/状态类文件（YAML/TOML、config/settings/state/checkpoint/cursor等JSON）、.env*、.keep-data白名单、patrol-brief.md。不回收、不备份。用户只说“清理一下”默认 7 天，直接执行普通清理不先问。报告按时限默认直接删除；证据和备份（路径含 backup/evidence/snapshot/dump，或 SQL、bak、数据库副本等）只列“待确认”，默认按目录/任务聚合到两机合计不超过约50行（路径前缀、文件数、总大小、最新时间、是否被引用）；`--json`仍保留每项的大小、修改时间、任务/项目、文档引用与能否判断无用；未发现引用不等于无用。主线程逐项核实后问用户，同意后才加 `--include-backups <路径…>` 纳入删除，仍遵守时限及常驻/状态/运行中保护。普通路径仅作用于本机；Mini 的每项同意路径明确写 `mini:/绝对路径`，不自动映射两机。
 
 ## 当前调遣令（自动注入，优先于下文所有路由与顺位）
 
