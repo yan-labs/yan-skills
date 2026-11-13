@@ -204,7 +204,7 @@ print(json.dumps({'missing':missing,'ready':ready,'tools':tools}))
     def is_input(path):
         path = os.path.normpath(expand_path(path))
         return path not in (report, checkpoint, temp) and not (temp and path.startswith(temp + os.sep))
-    inputs = [p for p in [os.getcwd(), *paths] if is_input(p)]
+    inputs = [p for p in paths if is_input(p)]
     try:
         text = Path(meta['brief']).read_text() if meta.get('brief') and Path(meta['brief']).is_file() else ''
     except OSError:
@@ -250,11 +250,16 @@ def launch(meta, argv):
             args[i] = remote_path(expand_path(value))
     args[0] = REMOTE_BIN
     args.append('--no-wait')
-    payload = {'files': files, 'args': args, 'cwd': remote_path(os.getcwd()), 'report': remote_path(meta['report']), 'home': REMOTE_HOME}
+    match = re.search(r'^\s*仓库\s*[:：]\s*(/[^\s`]+)', Path(meta['brief']).read_text(), re.M)
+    repo = remote_path(match.group(1)) if match else ''
+    payload = {'files': files, 'args': args, 'cwd': remote_path(os.getcwd()), 'repo': repo, 'report': remote_path(meta['report']), 'home': REMOTE_HOME}
     script = PATH_FIX + '''import base64,json,os,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1]));
 ''' + CANONICAL_SCRIPT + '''
-p['args']=[canonical(x) for x in p['args']]; p['cwd']=canonical(p['cwd']); p['report']=canonical(p['report'])
+p['args']=[canonical(x) for x in p['args']]; p['cwd']=canonical(p['cwd']); p['repo']=canonical(p['repo']); p['report']=canonical(p['report'])
+if not pathlib.Path(p['cwd']).is_dir():
+ p['cwd']=p['repo'] if p['repo'] and pathlib.Path(p['repo']).is_dir() else p['home']
+ print('Mini 工作目录不存在，改用：' + p['cwd'], flush=True)
 p['files']={canonical(k):canonical(v) for k,v in p['files'].items()}
 binary=pathlib.Path(p['args'][0]); p['args'][0]=str(binary/'fleet' if binary.is_dir() else binary)
 for name,text in p['files'].items():
@@ -264,7 +269,7 @@ r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini'
 '''
     p = call(script, payload)
     if p.returncode: raise ValueError('Mini 启动失败；请检查 Mini 端任务状态，避免重复启动。\n' + ((p.stderr or '') + (p.stdout or ''))[-600:])
-    import re
+    if p.stdout.startswith('Mini 工作目录不存在'): print(p.stdout.splitlines()[0], flush=True)
     m = re.search(r'^runId: (\S+)', p.stdout, re.M)
     if not m: raise ValueError('Mini 启动回执缺少 runId；请先检查 Mini 端状态。')
     rec = {'id': m.group(1), 'name': meta['name'], 'report': meta['report'], 'brief': meta['brief']}

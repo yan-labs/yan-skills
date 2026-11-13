@@ -109,6 +109,13 @@ echo '[{"runId":"old-run","status":"done"}]'
         with patch.object(mini, 'REMOTE_BIN', str(configured)), patch.object(mini, 'call', local_call), patch.object(mini, 'wait', return_value=0), patch.object(mini.os, 'getcwd', return_value=str(tmp)):
             assert mini.launch({**meta, 'report': str(tmp/'report.md')}, ['fleet', 'code', str(brief), '--report', str(tmp/'report.md')]) == 0
             assert mini.forward(['status']) == 0
+    # A dispatcher-only cwd must not prevent Mini launch; use the brief repository.
+    fallback_brief = tmp/'fallback.md'; fallback_brief.write_text(f'仓库: {tmp}\n')
+    with patch.object(mini, 'REMOTE_HOME', str(tmp)), patch.object(mini, 'REMOTE_BIN', str(launch_fleet)), patch.object(mini, 'call', local_call), patch.object(mini, 'wait', return_value=0), patch.object(mini.os, 'getcwd', return_value=str(tmp/'absent')):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            assert mini.launch({'brief':str(fallback_brief), 'report':str(tmp/'report.md'), 'name':'fallback'}, ['fleet','code',str(fallback_brief),'--report',str(tmp/'report.md')]) == 0
+        assert 'Mini 工作目录不存在，改用：' + str(tmp) in output.getvalue()
     # Missing report inputs and writable directories sync before Mini launch.
     source_home = tmp / 'source-home'; source_home.mkdir()
     target_home = tmp / 'target-home'; target_home.mkdir()

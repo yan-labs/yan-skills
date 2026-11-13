@@ -105,7 +105,7 @@ CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有�
 
 默认在 Mac Mini 执行；Mini 任务的报告留在 Mini，用 `fleet-go read <名字或 runId>` 按需读取，`--pull` 显式拉回。brief 引用的 `~/.agent-reports/` 文件、`--body` 正文和可写目录先同步到 Mini：缺的补齐，本机较新的覆盖，并打印同步了哪些；其他路径缺失、同步失败或所选通道不可用时，自动在 MacBook 执行并记录原因。Mini 缺 brief 要用的命令（正文出现 kubectl、aws、gh、psql 等，或 `需要命令: a, b` 行列出的）时直接报错，不回退本机。**Mini 缺工具或凭据时派单补 Mini 环境，不改 `--on local`（紧急窗口单除外）**；查 Mini 有没有某命令用 `mm 'command -v X'` 或 `ssh mac-mini 'zsh -lc "command -v X"'`，裸 `ssh mac-mini` 的 PATH 不含 `/opt/homebrew/bin`，查不到不代表没装。需要 Claude 应用工具（Browser pane、MCP、`executor-*`、读取其他会话或 Claude 定时任务）、只有 MacBook 有登录态的网页后台、操作 Mini 自身，以及一两条命令的只读查询，留在 MacBook。浏览器自动化默认在 Mini 使用 opencli 或 agent-desktop；Mini Chrome 尚未登录目标站时退回 MacBook，并在报告列出需在 Mini 登录的站点。
 
-首次使用前，在派单机设置 `FLEET_MINI_HOME`（Mini 家目录）和 `FLEET_MINI_BIN`（Mini 上 fleet 的绝对路径）；可选 `FLEET_LOCAL_HOME` 与 `FLEET_MINI_MM`。也可在本机 `~/.agent-fleet/mini.json` 配置 `remote_home`、`bin`、`local_home`、`mm`；环境变量优先。未配置或工作目录、引用路径在 Mini 不存在时回退本机，不创建空工作目录。显式 `--on local` 或 `FLEET_DEFAULT_ON=local` 沿用本机启动行为。
+首次使用前，在派单机设置 `FLEET_MINI_HOME`（Mini 家目录）和 `FLEET_MINI_BIN`（Mini 上 fleet 的绝对路径）；可选 `FLEET_LOCAL_HOME` 与 `FLEET_MINI_MM`。也可在本机 `~/.agent-fleet/mini.json` 配置 `remote_home`、`bin`、`local_home`、`mm`；环境变量优先。未配置或引用路径在 Mini 不存在时回退本机；工作目录不存在时改用 brief 入口仓库，仓库不存在则用 Mini 家目录并说明。显式 `--on local` 或 `FLEET_DEFAULT_ON=local` 沿用本机启动行为。
 
 brief 引用的文件请写绝对路径；预检只检查绝对文件路径，相对路径和 API 路由不受影响，显式指定 `--on mini` 时不会回退。
 
