@@ -243,6 +243,10 @@ def clean_local(older_than='7d', dry_run=False, home=None, runs=None, location='
             git(target, 'merge-base', '--is-ancestor', 'HEAD', base)
             worktree_skipped = []
             children = files(target, worktree_skipped)
+            worktree_rules = keep_rules + keep_data_rules(children)
+            preserved = [c for c in children if config_or_state(c) or whitelisted(c, worktree_rules) or c.name.startswith('.queue-lock')]
+            if preserved:
+                raise ValueError('preserved: ' + ', '.join(str(c) for c in preserved))
             protected_children = [c for c in children if sensitive(c) and not included(c)]
             protected_children += [Path(r['path']) for r in worktree_skipped if r['reason'].startswith('待确认') and not included(Path(r['path']))]
             if (sensitive(target) and not included(target)) or protected_children:

@@ -95,6 +95,34 @@ class CleanTest(unittest.TestCase):
             for name in ['dirty', 'unmerged', 'with-proof', 'active']:
                 self.assertTrue((home / name).exists())
 
+    def test_ignored_worktree_config_and_whitelist_are_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            repo, runs = home / 'repo', home / '.agent-fleet/runs'
+            repo.mkdir()
+            runs.mkdir(parents=True)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(repo), *args], stderr=subprocess.DEVNULL, text=True)
+            git('init', '-b', 'main')
+            git('config', 'user.name', 'Test')
+            git('config', 'user.email', 'test@example.com')
+            (repo / '.gitignore').write_text('settings.yaml\n.keep-data\nprivate.bin\n')
+            git('add', '.')
+            git('commit', '-m', 'base')
+            wt = home / 'merged'
+            git('worktree', 'add', '-b', 'merged', str(wt))
+            for name, content in [('settings.yaml', 'fixture'), ('.keep-data', 'private.bin\n'), ('private.bin', 'fixture')]:
+                (wt / name).write_text(content)
+            (runs / 'merged.json').write_text(json.dumps({'name': 'merged', 'status': 'done', 'worktree': {'repo': str(repo), 'path': str(wt), 'branch': 'merged', 'base': 'main'}}))
+            old = time.time() - 15 * 86400
+            for p in home.rglob('*'):
+                os.utime(p, (old, old))
+            result = clean.clean_local('7d', False, home, runs)
+            self.assertTrue(all((wt / name).exists() for name in ['settings.yaml', '.keep-data', 'private.bin']))
+            reason = next(r['reason'] for r in result['skipped'] if r['path'] == str(wt))
+            self.assertTrue(all(name in reason for name in ['settings.yaml', '.keep-data', 'private.bin']))
+            self.assertEqual(result['worktrees'], [])
+
     def test_pending_and_explicit_approval(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
