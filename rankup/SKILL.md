@@ -2,7 +2,7 @@
 name: rankup
 description: 独立开发者的项目全生命周期管理：需求验证、选词选品、建站或做原生 App、上线接入、SEO/GEO 获客、支付变现、监控迭代与跨会话接力。以下情况使用：用户提到 rankup 或 /rankup（check、review、init；doctor 仅指整理项目 .rankup 记录）；当前目录或工作区有 .rankup/，或要读取、续做、整理项目计划、路线图、待办、PRD、交接或进度文档；在这些项目记录上下文里说「继续」「接着做」「上次做到哪」「下一步做什么」；精简、压缩 Agent 记忆文件（memory 太大、清理记忆）；以及项目规划、需求验证、关键词调研与 SERP、独立 Google Trends 热度查询或对比、AI 搜索推荐（GEO）、网站体检、sitemap/IndexNow/Search Console、流量、建站、上线、支付（Stripe、Anyway、PayPal）、变现与增长。SEO/GEO 是主要手段，不是适用边界，非 SEO 的项目计划与 macOS、iOS、iPad 原生 App 同样适用。纯文案（含 SEO 趋势博客等主题写作）、纯视觉设计、与项目管理无关的通用开发及基础设施排错（含 Cloudflare 部署报错、普通 CLI doctor）不触发；目录内有 .rankup/ 时仅叠加项目记录维护义务；外链执行交 backlink，浏览器驱动交 opencli，配图生成交 imagegen，多模型派单交 agent-fleet。
 metadata:
-  version: "3.42.5"
+  version: "3.42.6"
 ---
 
 # Rankup
