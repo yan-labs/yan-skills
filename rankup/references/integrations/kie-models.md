@@ -22,7 +22,7 @@
 | `gemini-omni-video` | ≤7图像单位，视频占2；4/6/8/10s；720p/1080p/4K | 720/1080为126；4K210；带视频另计 | 【未实测】未暴露独立画幅参数，prompt控制 |
 | Veo 3.1 reference-to-video | 专用 API；1–3参考图；8s；720p/1080p/4K | Lite30/35/150，Fast60/65/180（8s） | 【未实测】Quality不支持R2V，普通I2V两张仍是首尾 |
 
-带参考视频的积分估算（2026-11，未复核）：Seedance 2 Mini + `reference_video` 480p/5s 约 24、720p/10s 约 100；Kling 2.6 motion-control 约 110；Wan 2.2 Animate Replace（原片换人）720p 约 125、480p 约 60。参考视频类按「参考秒数+成片秒数」计费；测试一律 480p、参考片段 ≤5 秒，只有最终上线样片用 720p。
+带参考视频的估算与换人选型：Kie 侧（2026-11，未复核）Seedance 2 Mini + `reference_video` 480p/5s 约 24、720p/10s 约 100；Kling 2.6 motion-control 约 110；Wan 2.2 Animate Replace（原片换人）720p 约 125、480p 约 60，按「参考秒数+成片秒数」计费。Replicate 侧视频换人 `prunaai/p-video-2-pro-replace`（2026-11-13 【实测】）：768p 每输出秒 $0.05，10 秒实测扣费 $0.50；单次最多传 2 张照片，参数 `save_audio=true`、`ignore_audio=false`；远景换人成立，特写正脸换脸从本次实测无法确认；比 Kie 稳定。Kie 更便宜或非换人效果时继续用 Kie。【实测/用户定，2026-11-13】模板型视频玩法页不做上线前付费测试，上线后看生成日志迭代；获准做付费测试时每个测试点最多跑一次、禁测 60s 长片，Kie 侧测试用 480p、参考片段 ≤5 秒，只有最终上线样片用 720p。
 
 图片（每张），均【文档摘要，未在本分支实测】：
 

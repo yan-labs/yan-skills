@@ -154,3 +154,4 @@
   - **导航完全翻译**：不只是正文,菜单栏（ストア / Mac / iPad / iPhone / Watch）也是本地语言。
 
   与 [seo-workflow.md](seo-workflow.md)「落地映射」中「多语言不是翻译而是本地化」一致。
+- **[2026-11-13] SEO 审计三项实测（sitemap 去分页/列表、首页 H1 品类词、首屏大视频压缩与 unused JS）**【实测】：① **sitemap 只放可索引的规范页**：排掉分页和无独立搜索意图的分类列表页后，条目从 261 条压到 81 条（方法已并入 [段 3 D10](lifecycle/stage-3-build.md)）；② **首页 H1 用通用大品类词**：承接整站品类定位，不跟单个内页的具体词抢排名（方法已并入 [段 4 B6](lifecycle/stage-4-prelaunch.md)）；③ **压缩首屏大视频不等于提升移动端 Lighthouse 分**：首屏视频从 13.2MB 压到 2.4MB 后，移动端 Lighthouse 性能分未变，因为真正卡点在 unused JS——压缩大媒体能省真实带宽与起播等待，但跑分卡点要按 TBT / 网络依赖树归因到 JS 减重（方法已并入 [段 3 D5](lifecycle/stage-3-build.md)）。

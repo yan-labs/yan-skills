@@ -16,6 +16,7 @@ Anyway 官方将 Business 定义为 Merchant of Record（MoR）：对其覆盖�
 - **不要凭记忆或照 stg 改域名拼链接**：Merchant API 的 `paymentLinkUrl` 恒为空，也没有现成完整 URL 字段。用 `node scripts/anyway/anyway.mjs --env prod products links <productId>`，它按环境拼出 `payUrl` 并实际请求，`check` 列必须是 `OK 200`，出现 `FAIL` 就不许写进项目。商品和链接 ID 以该命令输出为准，不手抄。
 - **生产切换前必须逐条实测每个生产链接**：对项目里写死的每一条生产支付链接，带上 `?merchant_reference=<任意值>` 请求，要求 HTTP 200 且页面标题不是 `Page not found`。不是只看商品 PUBLISHED / 链接 isActive。
 - **项目侧验收必须从用户视角点一次**：线上页面点"支付"按钮，确认跳到的是 Stripe 托管结账页，而不是 Anyway 的 404。只测 stg 预览、只看 API 里链接存在、只看构建通过，都不算支付可用。
+- **改价与标价规则（2026-11-13 【用户定+实测】）**：Anyway 后台不能改已有商品价格，改价必须建新商品，旧商品保留给历史订单验单和订阅续费（不删除/不切断兑现路径）；价格尾数不用 9，改成不整齐的精确数字（如 6.83、19.87、189.46），新价不高于原价且不跨整数档；改价后必须逐个打开结账页校验实际显示金额。
 
 ## 接入顺序
 
