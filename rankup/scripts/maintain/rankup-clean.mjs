@@ -2,14 +2,14 @@
 // rankup-clean.mjs —— 清理 .rankup/ 中的过程数据，只保留结论文档、代码脚本、规范状态文件与被常驻文件引用的小体积结构化数据。
 //
 // 用法：
-//   node scripts/maintain/rankup-clean.mjs --project-root <含 .rankup 的目录> [--apply] [--staged] [--install-hook] [--write-gitignore] [--json]
+//   node scripts/maintain/rankup-clean.mjs --project-root <含 .rankup 的目录> [--older-than <N>d|<N>w] [--workspace <目录>] [--include-backups <路径…>] [--dry-run] [--apply] [--staged] [--install-hook] [--write-gitignore] [--json]
 //
 // 结构化数据保留体积阈值（写死在本头注与导出常量 MAX_RETAINED_DATA_BYTES）：
 //   MAX_RETAINED_DATA_BYTES = 100 * 1024（100 KB）
 //   - <= 100 KB 且被常驻文件（INDEX.md、plan.md、decisions.md、leftovers.md、PROJECT.md、roadmap.md、
 //     tasks/*.md、topics/**/*.md、architecture/**/*.md、infra/**/*.md 等）直接引用的结构化数据（json/jsonl/csv/tsv/psv/txt/yaml/toml）予以保留；
 //   - 只被其他报告（reports/**、research/**、journal/**、evidence/**、agentic/**、tasks/briefs/**）引用的过程数据不计入常驻引用，按规则清理；
-//   - 超出 100 KB 的原始数据（即使被引用）除非列入 .rankup/.keep-data 白名单，一律视为过程数据移入回收目录。
+//   - 超出 100 KB 的原始数据（即使被引用）除非列入 .rankup/.keep-data 白名单，一律视为过程数据直接删除。
 //
 // 清理与保留边界：
 //   1. 清理（过程数据）：截图与图片（png/jpg/jpeg/webp/gif/svg/bmp/ico/avif/tiff）、日志与补丁（log/out/err/patch/diff 及未引用 txt）、
@@ -17,9 +17,9 @@
 //      压缩包（gz/tgz/tar/zip/bz2/xz/zst/7z）、超阈值或未被常驻文件引用的原始数据（json/jsonl/csv/tsv/psv）及失效数据符号链接。
 //   2. 保留：Markdown（.md）、脚本与代码（mjs/js/cjs/ts/mts/cts/tsx/jsx/py/sh/sql）、规范状态与配置文件
 //      （skill-state.json、review-state.json、projects.json、indexnow-last.json、backlink-targets.json、config.json、
-//      state/** 及 <=100KB 的 *state*.json / *checkpoint*.json / *watermark*.json / *cursor*.json）、
+//      state/** 及 *state*.json / *checkpoint*.json / *watermark*.json / *cursor*.json）、
 //      .rankup/.keep-data 列出的相对路径或 glob（支持行尾注释或原因说明）、<=100KB 且被常驻文件直接引用的结构化数据。
-//   3. 非破坏性清理（--apply）：被清文件移动到 $RANKUP_HOME/trash/<项目名>/<时间戳>/ 并保持相对路径，同时写入 manifest.json 清单；
+//   3. --apply 直接删除，不建回收目录或清单，并清空历史 trash 中的普通内容；证据与备份默认列待确认，用户同意后 --include-backups 显式纳入；
 //      并将 .rankup/**/*.md 中指向被清文件的相对链接替换为行内文字“（原始数据已清理 <YYYY-MM-DD>）”，保证 doc-lint 0 断链。
 //   4. 提交时自动化：--staged 仅处理 Git 已暂存与工作区中可清的 .rankup 文件并移出暂存；
 //      --install-hook 安装/追加幂等带标记的 pre-commit hook（兼容已有 hook 与 core.hooksPath 如 husky）；
@@ -27,7 +27,7 @@
 
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { chmod, copyFile, lstat, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, readFile, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -100,6 +100,7 @@ export function formatBytes(bytes) {
 export function parseArgs(argv) {
   const opts = {
     projectRoot: process.cwd(),
+    includeBackups: [],
     rankupDir: null,
     apply: false,
     staged: false,
@@ -113,6 +114,14 @@ export function parseArgs(argv) {
     const a = argv[i];
     if (a === "--project-root") opts.projectRoot = path.resolve(argv[++i] ?? "");
     else if (a === "--rankup-dir") opts.rankupDir = path.resolve(argv[++i] ?? "");
+    else if (a === "--older-than") opts.olderThan = argv[++i];
+    else if (a === "--include-backups") {
+      const start = i;
+      while (argv[i + 1] && !argv[i + 1].startsWith("--")) opts.includeBackups.push(path.resolve(argv[++i]));
+      if (i === start) throw new Error("--include-backups 需要显式路径");
+    }
+    else if (a === "--workspace") opts.workspace = path.resolve(argv[++i]);
+    else if (a === "--dry-run") opts.dryRun = true;
     else if (a === "--apply") opts.apply = true;
     else if (a === "--staged") opts.staged = true;
     else if (a === "--install-hook") opts.installHook = true;
@@ -122,6 +131,8 @@ export function parseArgs(argv) {
     else if (a === "-h" || a === "--help") opts.help = true;
     else throw new Error(`未知参数：${a}`);
   }
+  if (opts.dryRun) opts.apply = false;
+  if (argv.includes("--older-than")) parseAge(opts.olderThan);
   if (opts.rankupDir) {
     opts.projectRoot = path.basename(opts.rankupDir) === ".rankup"
       ? path.dirname(opts.rankupDir)
@@ -133,6 +144,24 @@ export function parseArgs(argv) {
     opts.rankupDir = path.join(opts.projectRoot, ".rankup");
   }
   return opts;
+}
+
+export function parseAge(value) {
+  if (!/^[1-9]\d*[dw]$/.test(value ?? "")) throw new Error("--older-than 需要正整数 Nd 或 Nw");
+  return Number(value.slice(0, -1)) * (value.endsWith("w") ? 7 : 1) * 86400000;
+}
+
+export async function workspaceProjects(root) {
+  const projects = [];
+  async function visit(dir) {
+    for (const e of await readdir(dir, { withFileTypes: true })) {
+      if (!e.isDirectory() || e.isSymbolicLink() || [".git", "node_modules"].includes(e.name)) continue;
+      if (e.name === ".rankup") projects.push(dir);
+      else await visit(path.join(dir, e.name));
+    }
+  }
+  await visit(root);
+  return projects;
 }
 
 export function resolveRankupHome() {
@@ -296,6 +325,12 @@ export async function collectResidentReferences(rankupDir, allRelPathsSet) {
 
 async function walkRankupFiles(rankupDir) {
   const results = [];
+  try {
+    const root = await lstat(rankupDir);
+    if (root.isSymbolicLink()) {
+      return [{ rel: ".", fullPath: rankupDir, size: 0, mtimeMs: root.mtimeMs, targetExists: true, protectedRoot: true }];
+    }
+  } catch (e) { if (e.code === "ENOENT") return []; throw e; }
   async function walk(currentDir) {
     let entries;
     try {
@@ -313,7 +348,9 @@ async function walkRankupFiles(rankupDir) {
         continue;
       }
       if (lst.isDirectory() && !lst.isSymbolicLink()) {
+        const before = results.length;
         await walk(fullPath);
+        if (before === results.length && isSensitive(fullPath)) results.push({ rel: toPosix(path.relative(rankupDir, fullPath)), fullPath, size: 0, mtimeMs: lst.mtimeMs, targetExists: true, isDirectory: true });
         continue;
       }
       let targetStat = null;
@@ -328,12 +365,12 @@ async function walkRankupFiles(rankupDir) {
         targetStat = lst;
       }
       if (targetStat && targetStat.isDirectory()) continue;
-      const size = targetStat ? targetStat.size : lst.size;
       const rel = toPosix(path.relative(rankupDir, fullPath));
       results.push({
         rel,
         fullPath,
-        size,
+        size: lst.size,
+        mtimeMs: lst.mtimeMs,
         isSymbolicLink: lst.isSymbolicLink(),
         targetExists,
       });
@@ -347,7 +384,7 @@ async function walkRankupFiles(rankupDir) {
 function isStateOrCheckpointJson(rel, base, ext, size, targetExists) {
   if (!targetExists) return false;
   if (PROTOCOL_STATE_BASENAMES.has(base)) return true;
-  if (ext !== ".json" || size > MAX_RETAINED_DATA_BYTES) return false;
+  if (ext !== ".json") return false;
   if (rel.startsWith("state/")) return true;
   if (/(?:^|[-_.])(state|checkpoint|watermark|cursor)s?(?:[-_.]|\.json$)/i.test(base)) return true;
   return false;
@@ -358,6 +395,7 @@ export function classifyEntry(entry, { keepRules, residentRefs }) {
   const base = path.basename(rel);
   const ext = path.extname(base).toLowerCase();
 
+  if (entry.protectedRoot) return { action: "keep", kind: "backup", category: "root", reason: "符号链接根目录跳过" };
   // 1. Markdown 文档常驻保留
   if (ext === ".md") {
     return { action: "keep", kind: "doc", category: "markdown", reason: "Markdown 文档" };
@@ -396,7 +434,7 @@ export function classifyEntry(entry, { keepRules, residentRefs }) {
       action: "keep",
       kind: "data",
       category: "state",
-      reason: isProtocol ? "规范保留状态/配置文件" : "断点与运行状态文件（<= 100 KB）",
+      reason: isProtocol ? "规范保留状态/配置文件" : "断点与运行状态文件",
     };
   }
 
@@ -593,7 +631,7 @@ function getGitCandidates(projectRoot, rankupDir) {
   return { gitRoot, rankupRelToGit, stagedRelSet, candidateRelSet };
 }
 
-export async function planClean({ projectRoot, rankupDir, staged = false }) {
+export async function planClean({ projectRoot, rankupDir, staged = false, olderThan = null, includeBackups = [] }) {
   const resolvedRoot = path.resolve(projectRoot);
   const resolvedRankup = rankupDir ? path.resolve(rankupDir) : path.join(resolvedRoot, ".rankup");
   const allEntries = await walkRankupFiles(resolvedRankup);
@@ -605,8 +643,12 @@ export async function planClean({ projectRoot, rankupDir, staged = false }) {
     ? getGitCandidates(resolvedRoot, resolvedRankup)
     : { gitRoot: null, rankupRelToGit: "", stagedRelSet: new Set(), candidateRelSet: new Set() };
 
+  const residentNames = new Set(["INDEX.md", "plan.md", "decisions.md", "leftovers.md", "PROJECT.md", "roadmap.md"]);
+  const cutoff = olderThan ? Date.now() - parseAge(olderThan) : null;
   const toClean = [];
   const toKeep = [];
+  const pendingConfirmation = [];
+  let pendingDocs;
   const retainedDataFiles = [];
 
   let totalBytesBefore = 0;
@@ -614,7 +656,31 @@ export async function planClean({ projectRoot, rankupDir, staged = false }) {
 
   for (const entry of allEntries) {
     totalBytesBefore += entry.size;
-    const decision = classifyEntry(entry, { keepRules, residentRefs });
+    let decision = classifyEntry(entry, { keepRules, residentRefs });
+    const base = path.basename(entry.rel);
+    if (cutoff !== null && /^(research|journal|reports|evidence)\//.test(entry.rel)
+        && !residentNames.has(base)
+        && !/\.(?:bak|orig)(?:\.[^/]+)?$|~$/i.test(base)
+        && !matchKeepData(entry.rel, keepRules)
+        && (path.extname(base) === ".md" || CODE_EXTENSIONS.has(path.extname(base)))) {
+      decision = { action: "clean", kind: "process-data", category: "old-report-code", reason: "超时报告与临时脚本" };
+    }
+    const hardProtected = entry.protectedRoot || entry.rel.startsWith("state/") || residentNames.has(base)
+      || isResidentDoc(entry.rel) || CONFIG_BASENAMES.has(base)
+      || matchKeepData(entry.rel, keepRules) || isStateOrCheckpointJson(entry.rel, base, path.extname(base), entry.size, entry.targetExists);
+    if (isSensitive(entry.fullPath)) {
+      if (!isIncluded(entry.fullPath, includeBackups)) {
+        decision = { action: "keep", kind: "pending", category: "pending-confirmation", reason: "待确认：证据/备份" };
+        pendingConfirmation.push(await pendingInfo(entry, pendingDocs ??= await readDocs(allEntries), resolvedRoot, hardProtected));
+      } else if (!hardProtected && !entry.isDirectory) {
+        decision = { action: "clean", kind: "process-data", category: "approved-backup", reason: "显式纳入的证据/备份" };
+      }
+    }
+    if (entry.isDirectory) decision = { action: "keep", kind: "pending", category: "pending-confirmation", reason: "空证据/备份目录保留" };
+    if (entry.rel.startsWith("state/")) decision = { action: "keep", kind: "data", category: "state", reason: "状态目录" };
+    if (cutoff !== null && entry.mtimeMs >= cutoff && decision.action === "clean") {
+      decision = { action: "keep", kind: "recent", category: "recent", reason: "未超过时限" };
+    }
     const record = {
       rel: entry.rel,
       size: entry.size,
@@ -658,6 +724,8 @@ export async function planClean({ projectRoot, rankupDir, staged = false }) {
     projectName: path.basename(resolvedRoot),
     thresholdBytes: MAX_RETAINED_DATA_BYTES,
     staged,
+    includeBackups,
+    pendingConfirmation,
     gitInfo,
     totalFilesBefore: allEntries.length,
     totalBytesBefore,
@@ -676,7 +744,7 @@ export async function planClean({ projectRoot, rankupDir, staged = false }) {
 // 将 .rankup/**/*.md 中指向被清理文件（或已移除的过程数据文件）的相对链接替换为「（原始数据已清理 <YYYY-MM-DD>）」。
 export async function rewriteCleanedLinksInMarkdown(rankupDir, cleanedRelSet, dateStr) {
   const allEntries = await walkRankupFiles(rankupDir);
-  const mdEntries = allEntries.filter((e) => e.rel.endsWith(".md") && e.targetExists);
+  const mdEntries = allEntries.filter((e) => e.rel.endsWith(".md") && e.targetExists && !e.isSymbolicLink && !isSensitive(e.fullPath));
   const replacementText = `（原始数据已清理 ${dateStr}）`;
   const modifiedMdFiles = [];
   let replacedLinksCount = 0;
@@ -754,22 +822,9 @@ export async function rewriteCleanedLinksInMarkdown(rankupDir, cleanedRelSet, da
   return { modifiedMdFiles, replacedLinksCount };
 }
 
-async function moveFilePreservingLink(srcPath, destPath) {
-  await mkdir(path.dirname(destPath), { recursive: true });
-  try {
-    await rename(srcPath, destPath);
-  } catch (err) {
-    if (err && err.code === "EXDEV") {
-      await copyFile(srcPath, destPath);
-      await unlink(srcPath);
-    } else {
-      throw err;
-    }
-  }
-}
-
-async function pruneEmptyDirs(rankupDir) {
+async function pruneEmptyDirs(rankupDir, includeBackups = []) {
   async function walk(dir) {
+    try { if ((await lstat(dir)).isSymbolicLink()) return; } catch { return; }
     let entries;
     try {
       entries = await readdir(dir, { withFileTypes: true });
@@ -777,6 +832,7 @@ async function pruneEmptyDirs(rankupDir) {
       return;
     }
     for (const e of entries) {
+      if ((isSensitive(path.join(dir, e.name)) && !isIncluded(path.join(dir, e.name), includeBackups)) || [".git", "node_modules", "state"].includes(e.name)) continue;
       if (e.isDirectory() && !e.isSymbolicLink()) {
         await walk(path.join(dir, e.name));
       }
@@ -784,7 +840,7 @@ async function pruneEmptyDirs(rankupDir) {
     if (dir === rankupDir) return;
     try {
       const remaining = await readdir(dir);
-      if (remaining.length === 0) await rm(dir, { recursive: false });
+      if (remaining.length === 0) await rmdir(dir);
     } catch {}
   }
   await walk(rankupDir);
@@ -793,28 +849,21 @@ async function pruneEmptyDirs(rankupDir) {
 export async function applyClean(plan, { date = null } = {}) {
   const now = new Date();
   const dateStr = date || now.toISOString().slice(0, 10);
-  const timestamp = now.toISOString().replace(/[:.]/g, "-");
-  const rankupHome = resolveRankupHome();
-  const trashDir = path.join(rankupHome, "trash", plan.projectName, timestamp);
-  const cleanedRelSet = new Set(plan.toClean.map((item) => item.rel));
-
-  let movedCount = 0;
-  if (plan.toClean.length > 0) {
-    await mkdir(trashDir, { recursive: true });
-    for (const item of plan.toClean) {
-      const srcPath = path.join(plan.rankupDir, item.rel);
-      const destPath = path.join(trashDir, item.rel);
-      try {
-        await moveFilePreservingLink(srcPath, destPath);
-        movedCount += 1;
-      } catch (err) {
-        if (err && err.code !== "ENOENT") throw err;
-      }
-    }
+  const cleanedRelSet = new Set();
+  let deletedCount = 0;
+  for (const item of plan.toClean) {
+    await rm(path.join(plan.rankupDir, item.rel), { force: true });
+    cleanedRelSet.add(item.rel);
+    deletedCount += 1;
   }
+  const trash = await planTrash(plan.includeBackups);
+  for (const item of trash.toClean) await rm(item.fullPath, { force: true });
+  await pruneEmptyDirs(path.join(resolveRankupHome(), "trash"), plan.includeBackups);
+  const trashRoot = path.join(resolveRankupHome(), "trash");
+  try { if ((await readdir(trashRoot)).length === 0) await rmdir(trashRoot); } catch (e) { if (e.code !== "ENOENT") throw e; }
 
   const linkRewrite = await rewriteCleanedLinksInMarkdown(plan.rankupDir, cleanedRelSet, dateStr);
-  await pruneEmptyDirs(plan.rankupDir);
+  await pruneEmptyDirs(plan.rankupDir, plan.includeBackups);
 
   const unstagedFiles = [];
   if (plan.staged && plan.gitInfo?.gitRoot) {
@@ -848,42 +897,13 @@ export async function applyClean(plan, { date = null } = {}) {
     }
   }
 
-  let manifestPath = null;
-  if (plan.toClean.length > 0) {
-    manifestPath = path.join(trashDir, "manifest.json");
-    const manifest = {
-      projectName: plan.projectName,
-      projectRoot: plan.projectRoot,
-      rankupDir: plan.rankupDir,
-      trashDir,
-      cleanedAt: now.toISOString(),
-      date: dateStr,
-      thresholdBytes: plan.thresholdBytes,
-      staged: plan.staged,
-      summary: {
-        totalFilesBefore: plan.totalFilesBefore,
-        totalBytesBefore: plan.totalBytesBefore,
-        cleanedFilesCount: movedCount,
-        cleanedBytes: plan.cleanBytes,
-        totalFilesAfter: plan.totalFilesAfter,
-        totalBytesAfter: plan.totalBytesAfter,
-        byCategory: plan.byCategory,
-        byExtension: plan.byExtension,
-        replacedLinksCount: linkRewrite.replacedLinksCount,
-        modifiedMdFiles: linkRewrite.modifiedMdFiles,
-        unstagedFiles,
-      },
-      files: plan.toClean,
-    };
-    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-  }
-
   return {
     applied: true,
     date: dateStr,
-    trashDir: plan.toClean.length > 0 ? trashDir : null,
-    manifestPath,
-    movedCount,
+    deletedCount,
+    trashDeletedCount: trash.cleanFilesCount,
+    trashDeletedBytes: trash.cleanBytes,
+    pendingConfirmation: trash.pendingConfirmation,
     replacedLinksCount: linkRewrite.replacedLinksCount,
     modifiedMdFiles: linkRewrite.modifiedMdFiles,
     unstagedFiles,
@@ -1061,7 +1081,7 @@ function renderReport(plan, applyResult, hookResult, gitignoreResult) {
   const lines = [];
   lines.push(`# rankup-clean（${plan.projectName}）`);
   lines.push(`目录：${plan.rankupDir}`);
-  lines.push(`模式：${applyResult ? "apply（已移入回收目录并重写断链）" : "dry-run（仅列计划，加 --apply 执行）"}${plan.staged ? " [staged]" : ""}`);
+  lines.push(`模式：${applyResult ? "apply（已直接删除并重写断链）" : "dry-run（仅列计划，加 --apply 执行）"}${plan.staged ? " [staged]" : ""}`);
   lines.push(`结构化数据保留体积阈值：${formatBytes(plan.thresholdBytes)}`);
   lines.push(
     `总览：清理前 ${plan.totalFilesBefore} 个文件（${formatBytes(plan.totalBytesBefore)}） → `
@@ -1076,6 +1096,10 @@ function renderReport(plan, applyResult, hookResult, gitignoreResult) {
     }
   }
 
+  if (plan.trash) {
+    lines.push(`历史 trash：${plan.trash.cleanFilesCount} 个文件（${formatBytes(plan.trash.cleanBytes)}），apply 时直接删除`);
+    for (const e of plan.trash.skipped) lines.push(`- 跳过：${e.fullPath}（backup 或符号链接根目录）`);
+  }
   if (plan.retainedDataFiles.length > 0) {
     lines.push("\n## 保留的最大数据文件（Top 10）");
     for (const item of plan.retainedDataFiles.slice(0, 10)) {
@@ -1083,10 +1107,12 @@ function renderReport(plan, applyResult, hookResult, gitignoreResult) {
     }
   }
 
+  for (const item of [...plan.pendingConfirmation, ...(plan.trash?.pendingConfirmation ?? [])]) {
+    lines.push(`- 待确认：${item.path}；${formatBytes(item.bytes)}；修改 ${item.modifiedAt}；项目 ${item.taskOrProject}；文档引用 ${item.referencedBy.join(", ") || "扫描范围内未发现"}；${item.usefulness}`);
+  }
   if (applyResult) {
     lines.push("\n## 执行结果");
-    lines.push(`- 回收目录：${applyResult.trashDir ?? "（无文件需要移动）"}`);
-    if (applyResult.manifestPath) lines.push(`- 清单文件：${applyResult.manifestPath}`);
+    lines.push(`- 直接删除：${applyResult.deletedCount} 个文件；历史 trash：${applyResult.trashDeletedCount} 个文件`);
     lines.push(`- 替换 Markdown 相对链接：${applyResult.replacedLinksCount} 处（涉及 ${applyResult.modifiedMdFiles.length} 个 .md 文件）`);
     if (plan.staged) lines.push(`- 移出 Git 暂存区：${applyResult.unstagedFiles.length} 个文件`);
   }
@@ -1099,6 +1125,51 @@ function renderReport(plan, applyResult, hookResult, gitignoreResult) {
   }
 
   return lines.join("\n");
+}
+
+export function isSensitive(p) {
+  return /backup|evidence|snapshot|dump|\.(?:bak|orig|sql|rdb|sqlite3?|db)(?:\.|$)|~$/i.test(p);
+}
+
+function isIncluded(p, approved) {
+  return approved.some(a => path.resolve(p) === path.resolve(a) || path.resolve(p).startsWith(path.resolve(a) + path.sep));
+}
+
+async function readDocs(entries) {
+  return Promise.all(entries.filter(e => e.rel.endsWith(".md") && !e.isSymbolicLink && !e.isDirectory).map(async e => [e, await readFile(e.fullPath, "utf8")]));
+}
+
+async function pendingInfo(entry, docs, projectRoot, hardProtected = false) {
+  const referencedBy = [];
+  for (const [doc, text] of docs) {
+    if (doc.fullPath === entry.fullPath) continue;
+    let found = text.includes(entry.fullPath) || text.includes(entry.rel);
+    for (const m of text.matchAll(/\]\(([^)\s]+)/g)) {
+      let target = m[1].split("#")[0];
+      try { target = decodeURIComponent(target); } catch {}
+      if (path.resolve(path.dirname(doc.fullPath), target) === entry.fullPath) found = true;
+    }
+    if (found) referencedBy.push(doc.fullPath);
+  }
+  return { path: entry.fullPath, bytes: entry.size, modifiedAt: new Date(entry.mtimeMs).toISOString(), taskOrProject: projectRoot,
+    referencedBy, referenceScope: "本清理目录内 Markdown；未发现引用不代表无用", hardProtected: Boolean(hardProtected),
+    usefulness: hardProtected ? "常驻/白名单/状态文件，显式纳入仍保留" : "无法自动判断无用，需主线程核实并取得用户同意" };
+}
+
+export async function planTrash(includeBackups = []) {
+  const trashDir = path.join(resolveRankupHome(), "trash");
+  const entries = await walkRankupFiles(trashDir);
+  const pendingConfirmation = [];
+  let docs;
+  const toClean = [];
+  const skipped = [];
+  for (const e of entries) {
+    if (e.protectedRoot || e.isDirectory) skipped.push(e);
+    if (isSensitive(e.fullPath) && !isIncluded(e.fullPath, includeBackups)) {
+      pendingConfirmation.push(await pendingInfo(e, docs ??= await readDocs(entries), path.join(trashDir, e.rel.split("/")[0])));
+    } else if (!e.protectedRoot && !e.isDirectory) toClean.push(e);
+  }
+  return { toClean, cleanFilesCount: toClean.length, cleanBytes: toClean.reduce((n, e) => n + e.size, 0), skipped, pendingConfirmation };
 }
 
 const isMain = process.argv[1] && (
@@ -1117,8 +1188,27 @@ if (isMain) {
 
   if (opts.help) {
     console.log(
-      "用法：node scripts/maintain/rankup-clean.mjs --project-root <含 .rankup 的目录> [--apply] [--staged] [--install-hook] [--write-gitignore] [--json]",
+      "用法：node scripts/maintain/rankup-clean.mjs --project-root <含 .rankup 的目录> [--older-than <N>d|<N>w] [--workspace <目录>] [--include-backups <路径…>] [--dry-run] [--apply] [--staged] [--install-hook] [--write-gitignore] [--json]",
     );
+    process.exit(0);
+  }
+
+  if (opts.workspace) {
+    if (opts.staged || opts.installHook || opts.writeGitignore) throw new Error("--workspace 不支持 hook/staged 操作");
+    const results = [];
+    const trash = await planTrash(opts.includeBackups);
+    for (const projectRoot of await workspaceProjects(opts.workspace)) {
+      const plan = await planClean({ projectRoot, olderThan: opts.olderThan, includeBackups: opts.includeBackups });
+      const applied = opts.apply ? await applyClean(plan, { date: opts.date }) : null;
+      results.push({ projectRoot, cleanFilesCount: plan.cleanFilesCount, cleanBytes: plan.cleanBytes, skipped: plan.toKeep, pendingConfirmation: plan.pendingConfirmation, applyResult: applied });
+    }
+    if (opts.apply && results.length === 0) {
+      for (const item of trash.toClean) await rm(item.fullPath, { force: true });
+      const trashRoot = path.join(resolveRankupHome(), "trash");
+      await pruneEmptyDirs(trashRoot, opts.includeBackups);
+      if ((await readdir(trashRoot).catch(() => ["missing"])).length === 0) await rmdir(trashRoot);
+    }
+    await new Promise(resolve => process.stdout.write(JSON.stringify({ projects: results, trash }, null, 2) + "\n", resolve));
     process.exit(0);
   }
 
@@ -1144,7 +1234,10 @@ if (isMain) {
       projectRoot: opts.projectRoot,
       rankupDir: opts.rankupDir,
       staged: opts.staged,
+      olderThan: opts.olderThan,
+      includeBackups: opts.includeBackups,
     });
+    plan.trash = await planTrash(opts.includeBackups);
     if (opts.apply) {
       applyResult = await applyClean(plan, { date: opts.date });
     }
@@ -1174,6 +1267,9 @@ if (isMain) {
                 byExtension: plan.byExtension,
                 retainedDataTop10: plan.retainedDataFiles.slice(0, 10),
                 toClean: plan.toClean,
+                skipped: plan.toKeep,
+                pendingConfirmation: plan.pendingConfirmation,
+                trash: plan.trash,
               }
             : {}),
           applyResult,

@@ -591,3 +591,5 @@ agent-fleet 会把 `CLAUDE_CONFIG_DIR` 指向自己专属的 `~/.agent-fleet/cla
 额度须先在 ChatGPT/API Billing 激活并发到 Key 所属组织；API 请求成功不能证明赠送额度到账。官方 grant 优先抵扣，但赠送用尽时已有购买余额仍可能继续使用。以平台 Credit grants/Usage 为准；本工具不自动购买、充值或改套餐。参考：[官方说明](https://help.openai.com/zh-hans-cn/articles/20001626-api-credits-benefit-for-eligible-chatgpt-subscriptions)。
 
 GPT 适配当前已验证普通文本、Bash/Read 工具往返和 SDK 原会话 resume。未知内容块、延迟工具注册、原生 web_search 或未支持选项会明确失败；不承诺所有 Claude 特殊工具完全等价。当前先等待 OpenAI 完整响应再转 SDK SSE，无实时首 token；报告保留 OpenAI 实际 token 用量，不用 SDK 的 Claude 估价冒充 GPT 实际账单。
+
+按时间清理：`fleet-go clean --older-than 7d [--dry-run]`，清理规则与默认行为见 [Skill](skill/SKILL.md)。

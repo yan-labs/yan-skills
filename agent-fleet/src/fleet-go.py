@@ -15,6 +15,7 @@ import unicodedata
 import mini
 import order
 import worktree
+import clean
 import shlex
 
 BLOCKS = Path(__file__).resolve().parents[1] / 'skill/templates/blocks'
@@ -1074,6 +1075,10 @@ def build_parser():
     p.add_argument('--max', action='store_true', help='Luna 使用 max 推理')
     p.add_argument('--fast', action='store_true', help='GPT 任务开启 fast')
     p.add_argument('--no-fast', action='store_true', help='兼容旧用法，无副作用')
+    p = sub.add_parser('clean', help='按修改时间直接删除旧日志、报告与已合并 worktree（本机与 Mini）')
+    p.add_argument('--older-than', default='7d')
+    p.add_argument('--include-backups', nargs='+', default=[], metavar='PATH', help='用户逐项同意后，显式指定待确认的证据/备份路径')
+    p.add_argument('--dry-run', action='store_true')
     p = sub.add_parser('worktree')
     p.add_argument('operation', choices=['prune'])
     p.add_argument('name')
@@ -1120,6 +1125,8 @@ def main():
         relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull, args.sol, args.after, args.worktree, args.override_order)
     elif args.action == 'order':
         order.main(args)
+    elif args.action == 'clean':
+        clean.command(args)
     elif args.action == 'worktree':
         path, meta = locate(args.name)
         args.name = meta.get('name') or path.name[:-len('.brief.md')]

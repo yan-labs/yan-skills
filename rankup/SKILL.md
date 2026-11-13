@@ -1,8 +1,8 @@
 ---
 name: rankup
-description: 独立开发者的项目全生命周期管理：需求验证、选词选品、建站或做原生 App、上线接入、SEO/GEO 获客、支付变现、监控迭代与跨会话接力。以下情况使用：用户提到 rankup 或 /rankup（check、review、init；doctor 仅指整理项目 .rankup 记录）；当前目录或工作区有 .rankup/，或要读取、续做、整理项目计划、路线图、待办、PRD、交接或进度文档；在这些项目记录上下文里说「继续」「接着做」「上次做到哪」「下一步做什么」；精简、压缩 Agent 记忆文件（memory 太大、清理记忆）；以及项目规划、需求验证、关键词调研与 SERP、独立 Google Trends 热度查询或对比、AI 搜索推荐（GEO）、网站体检、sitemap/IndexNow/Search Console、流量、建站、上线、支付（Stripe、Anyway、PayPal）、变现与增长。SEO/GEO 是主要手段，不是适用边界，非 SEO 的项目计划与 macOS、iOS、iPad 原生 App 同样适用。纯文案（含 SEO 趋势博客等主题写作）、纯视觉设计、与项目管理无关的通用开发及基础设施排错（含 Cloudflare 部署报错、普通 CLI doctor）不触发；目录内有 .rankup/ 时仅叠加项目记录维护义务；外链执行交 backlink，浏览器驱动交 opencli，配图生成交 imagegen，多模型派单交 agent-fleet。
+description: 包括“清理一下”“清理 N 天/一周之前”“清理日志/报告/截图”。独立开发者的项目全生命周期管理：需求验证、选词选品、建站或做原生 App、上线接入、SEO/GEO 获客、支付变现、监控迭代与跨会话接力。以下情况使用：用户提到 rankup 或 /rankup（check、review、init；doctor 仅指整理项目 .rankup 记录）；当前目录或工作区有 .rankup/，或要读取、续做、整理项目计划、路线图、待办、PRD、交接或进度文档；在这些项目记录上下文里说「继续」「接着做」「上次做到哪」「下一步做什么」；精简、压缩 Agent 记忆文件（memory 太大、清理记忆）；以及项目规划、需求验证、关键词调研与 SERP、独立 Google Trends 热度查询或对比、AI 搜索推荐（GEO）、网站体检、sitemap/IndexNow/Search Console、流量、建站、上线、支付（Stripe、Anyway、PayPal）、变现与增长。SEO/GEO 是主要手段，不是适用边界，非 SEO 的项目计划与 macOS、iOS、iPad 原生 App 同样适用。纯文案（含 SEO 趋势博客等主题写作）、纯视觉设计、与项目管理无关的通用开发及基础设施排错（含 Cloudflare 部署报错、普通 CLI doctor）不触发；目录内有 .rankup/ 时仅叠加项目记录维护义务；外链执行交 backlink，浏览器驱动交 opencli，配图生成交 imagegen，多模型派单交 agent-fleet。
 metadata:
-  version: "3.42.7"
+  version: "4.0.0"
 ---
 
 # Rankup
@@ -11,6 +11,8 @@ metadata:
 SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项目计划、交接文档、功能迭代、上线运维、项目记录整理都归这里。
 每个项目的 `.rankup/` 记录长远规划与当前进展，负责跨会话接力；本文件只做入口与路由，细节在 `references/`，一次任务只读需要的那部分。
 取不到的数据写「未知 / 不可用」，不写 0；区分「官方要求」「工具建议」「项目经验」；阶段性汇报不等于完成。
+
+`node "<rankup-skill-dir>/scripts/maintain/rankup-clean.mjs" --workspace <工作区> --older-than 7d --apply`（单项目用 `--project-root <项目>`，一周可写 `1w`，预览去掉 `--apply` 或加 `--dry-run`）按修改时间直接删除过程数据与 research/journal/reports/evidence 里的旧报告、临时脚本，并清空历史 trash；常驻文件、白名单、状态保留，删除链接改行内文字。不回收、不备份。用户只说“清理一下”默认 7 天，直接执行普通清理不先问。报告按时限默认直接删除；证据和备份（路径含 backup/evidence/snapshot/dump，或 SQL、bak、数据库副本等）只列“待确认”，逐项给大小、修改时间、任务/项目、文档引用与能否判断无用；未发现引用不等于无用。主线程逐项核实后问用户，同意后才加 `--include-backups <路径…>` 纳入删除，仍遵守时限及常驻/状态/运行中保护。
 
 ## 强制流程（先读这张表，再做任何事）
 
