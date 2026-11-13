@@ -201,7 +201,7 @@ Claude Code 的 prompt cache 最长 1 小时（超额后降到 5 分钟），会
 | `research/` | 一次调研一份报告（`<词根>-<YYYY-MM-DD>.md`、`feature-<名>-<日期>.md`），原文不改；原始数据不常驻，结论进文档 | 未定论的想法（→ `journal/`）、过程原始数据（→ `rankup-clean.mjs --apply` 直接删除） | 单篇不限，超 600 行拆附录 |
 | `journal/` | `YYYY-MM-DD.md`，当天的观察、判断与依据；同日归档命名见维护「四」第 7 条 | 命令输出、一次性 brief（压成结论） | 单篇 200 行 / 16 KB |
 | `scripts/` | 项目专属脚本（`<动词-对象>.mjs`），登记在 `INDEX.md` | 数据产出 | — |
-| `reports/` | 分析报告与执行结果文档（成本审计、基础设施评估、迁移方案等），按时间清理时默认删除，需长期保留的列 `.keep-data`；原始数据不常驻，结论进文档 | 过程文件（brief、body、截图、日志、trace/har、测试输出、压缩包、未被常驻文件引用的 raw data）、已过期且不再被引用的报告 | 单篇不限，总量超 10 篇时压缩最早的 |
+| `reports/` | 分析报告与执行结果文档（成本审计、基础设施评估、迁移方案等），未跟踪/被忽略的报告按时间默认删除；Git已跟踪的列待确认且不删，需额外长期保留的列 `.keep-data`；原始数据不常驻，结论进文档 | 过程文件（brief、body、截图、日志、trace/har、测试输出、压缩包、未被常驻文件引用的 raw data）、已过期且不再被引用的报告 | 单篇不限，总量超 10 篇时压缩最早的 |
 | `evidence/`、`agentic/` | 原始数据不常驻，结论进文档（仅保留 `.keep-data` 白名单或常驻文件直接引用的小体积结构化数据） | 过程原始数据（截图、日志、trace/har、压缩包、大体积或未引用 JSON/JSONL，收尾与提交时由 `rankup-clean.mjs` 按待确认规则处理） | 收尾跑 `rankup-clean.mjs --apply` 清可默认删除的过程数据，证据待确认 |
 | 脚本产物：`demand/`、`selection/`、`leading-indicator/`、`provider-audit/`、`state/`、`data/`、`indexnow-last.json`、`backlink-targets.json` | 由 rankup / backlink 脚本写入的运行结果与断点状态 | 手写内容（→ 对应专题文件） | 旧运行按 `evidence/` 同一规则清；断点状态文件不删 |
 

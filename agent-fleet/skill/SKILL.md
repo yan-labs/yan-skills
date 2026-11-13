@@ -6,7 +6,7 @@ allowed-tools: Bash(fleet-go order show*) Bash(cat ~/.agents/dispatch-order.md*)
 
 # agent-fleet
 
-`fleet-go clean --older-than 7d`（一周也可写 `1w`，预览加 `--dry-run`）按修改时间直接删除本机与已配置 Mini 的旧 runs、报告、巡检记录和已合并且无改动的 fleet worktree；保留运行/排队任务、账本、调遣令、配置、.env、patrol-brief.md。不回收、不备份。用户只说“清理一下”默认 7 天，直接执行普通清理不先问。报告按时限默认直接删除；证据和备份（路径含 backup/evidence/snapshot/dump，或 SQL、bak、数据库副本等）只列“待确认”，逐项给大小、修改时间、任务/项目、文档引用与能否判断无用；未发现引用不等于无用。主线程逐项核实后问用户，同意后才加 `--include-backups <路径…>` 纳入删除，仍遵守时限及常驻/状态/运行中保护。普通路径仅作用于本机；Mini 的每项同意路径明确写 `mini:/绝对路径`，不自动映射两机。
+`fleet-go clean --older-than 7d`（一周也可写 `1w`，默认7d且直接执行删除，预览必须加 `--dry-run`，明细用 `--json`）按修改时间直接删除本机与已配置 Mini 的旧 runs、报告、巡检记录和已合并且无改动的 fleet worktree；保留运行/排队任务、账本、调遣令、配置/状态类文件（YAML/TOML、config/settings/state/checkpoint/cursor等JSON）、.env*、.keep-data白名单、patrol-brief.md。不回收、不备份。用户只说“清理一下”默认 7 天，直接执行普通清理不先问。报告按时限默认直接删除；证据和备份（路径含 backup/evidence/snapshot/dump，或 SQL、bak、数据库副本等）只列“待确认”，默认按目录/任务聚合到两机合计不超过约50行（路径前缀、文件数、总大小、最新时间、是否被引用）；`--json`仍保留每项的大小、修改时间、任务/项目、文档引用与能否判断无用；未发现引用不等于无用。主线程逐项核实后问用户，同意后才加 `--include-backups <路径…>` 纳入删除，仍遵守时限及常驻/状态/运行中保护。普通路径仅作用于本机；Mini 的每项同意路径明确写 `mini:/绝对路径`，不自动映射两机。
 
 ## 当前调遣令（自动注入，优先于下文所有路由与顺位）
 

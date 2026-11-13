@@ -64,17 +64,19 @@ class CleanTest(unittest.TestCase):
             git('config', 'user.name', 'Test')
             git('config', 'user.email', 'test@example.com')
             (repo / 'base').write_text('base')
+            (repo / '.gitignore').write_text('DBBackup/\n')
             git('add', '.')
             git('commit', '-m', 'base')
-            for name in ['merged', 'dirty', 'unmerged', 'backup', 'active']:
+            for name in ['merged', 'dirty', 'unmerged', 'with-proof', 'active']:
                 wt = home / name
                 git('worktree', 'add', '-b', name, str(wt))
                 if name == 'dirty':
                     (wt / 'base').write_text('dirty')
                 if name == 'unmerged':
                     subprocess.check_call(['git', '-C', str(wt), 'commit', '--allow-empty', '-m', 'unmerged'], stdout=subprocess.DEVNULL)
-                if name == 'backup':
+                if name == 'with-proof':
                     (wt / 'DBBackup').mkdir()
+                    (wt / 'DBBackup/proof.bin').write_text('fixture')
                 row = {'name': name, 'worktree': {'repo': str(repo), 'path': str(wt), 'branch': name, 'base': 'main'}}
                 metadata = home / '.agent-reports/2020-01-01' / (name + '.brief.json')
                 metadata.parent.mkdir(parents=True, exist_ok=True)
@@ -86,9 +88,11 @@ class CleanTest(unittest.TestCase):
                 os.utime(p, (old, old))
             plan = clean.clean_local('7d', True, home, runs)
             self.assertEqual([r['path'] for r in plan['worktrees']], [str(home / 'merged')])
+            self.assertEqual(sum(g['bytes'] for g in plan['pendingGroups']), 7)
+            self.assertEqual(sum(g['fileCount'] for g in plan['pendingGroups']), 1)
             clean.clean_local('7d', False, home, runs)
             self.assertFalse((home / 'merged').exists())
-            for name in ['dirty', 'unmerged', 'backup', 'active']:
+            for name in ['dirty', 'unmerged', 'with-proof', 'active']:
                 self.assertTrue((home / name).exists())
 
     def test_pending_and_explicit_approval(self):
@@ -125,6 +129,40 @@ class CleanTest(unittest.TestCase):
             self.assertTrue(recent.exists())
             self.assertFalse(selected[0].exists())
 
+    def test_config_state_and_whitelist_survive_apply(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            runs, reports = home / '.agent-fleet/runs', home / '.agent-reports'
+            runs.mkdir(parents=True)
+            reports.mkdir()
+            old = time.time() - 20 * 86400
+            retained = []
+            for name in ['settings.yaml', 'state.json', 'task-checkpoint.json', 'cursor.toml', 'config.yml', '.env.local', 'keep.log', 'nested/golden.csv']:
+                p = runs / name
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text('{}')
+                os.utime(p, (old, old))
+                retained.append(p)
+            (runs / '.keep-data').write_text('keep.log # retain\nnested/*.csv samples\n')
+            doomed = runs / 'old.log'
+            doomed.write_text('old')
+            os.utime(doomed, (old, old))
+            result = clean.clean_local('7d', False, home, runs)
+            self.assertFalse(doomed.exists())
+            self.assertTrue(all(p.exists() for p in retained))
+            self.assertTrue((runs / '.keep-data').exists())
+            self.assertEqual(result['files'], 1)
+
+    def test_pending_groups_are_bounded_and_keep_details(self):
+        items = [{'path': '/reports/task-' + str(i) + '/evidence/shot.png', 'bytes': i, 'modifiedAt': '2026-01-01T00:00:00Z', 'referencedBy': ['report.md'] if i == 0 else []} for i in range(120)]
+        items.append({'path': '/reports/snapshot.json', 'bytes': 0, 'modifiedAt': '2026-01-01T00:00:00Z', 'referencedBy': []})
+        groups = clean.group_pending(items, [Path('/reports')])
+        self.assertLessEqual(len(groups), 50)
+        self.assertEqual(sum(g['fileCount'] for g in groups), len(items))
+        self.assertTrue(all(not (Path(a['prefix']) != Path(b['prefix']) and Path(a['prefix']).is_relative_to(Path(b['prefix']))) for a in groups for b in groups))
+        self.assertEqual(sum(g['bytes'] for g in groups), sum(i['bytes'] for i in items))
+        self.assertTrue(any(g['referenced'] for g in groups))
+
     def test_remote_transport(self):
         import mini
         from types import SimpleNamespace
@@ -137,7 +175,7 @@ class CleanTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             return result
         with tempfile.TemporaryDirectory() as home, patch.object(mini, 'REMOTE_HOME', home), patch.object(mini, 'REMOTE_BIN', '/bin/fleet'), patch.object(mini, 'call', call), patch.object(clean, 'clean_local', return_value={'activeNames': []}) as local:
-            clean.command(SimpleNamespace(older_than='7d', dry_run=True, include_backups=['/local/approved', 'mini:/remote/approved']))
+            clean.command(SimpleNamespace(older_than='7d', dry_run=True, include_backups=['/local/approved', 'mini:/remote/approved'], json=True))
             self.assertEqual(local.call_args.kwargs['include_backups'], ['/local/approved'])
         self.assertEqual(len(scripts), 1)
         self.assertEqual(payloads[0]['include_backups'], ['/remote/approved'])

@@ -12,6 +12,9 @@ import {
   applyClean,
   installPreCommitHook,
   planClean,
+  planTrash,
+  parseArgs,
+  groupPending,
   writeRankupGitignore,
 } from "../scripts/maintain/rankup-clean.mjs";
 
@@ -102,6 +105,8 @@ test("rankup-clean classifies process data vs retained files and rewrites broken
       Buffer.alloc(MAX_RETAINED_DATA_BYTES + 2048, 0x61),
     );
 
+    const old = new Date(Date.now() - 20 * 86400000);
+    for (const rel of ["artifacts/run.log", "artifacts/shot.png", "reports/TEST-unit.xml", "reports/capture.har", "reports/capture.tar.gz", "reports/report-only.json", "reports/resident-huge.json"]) await utimes(path.join(rankupDir, rel), old, old);
     // 1. Dry-run plan
     const plan = await planClean({ projectRoot });
     const cleanedRels = plan.toClean.map((item) => item.rel).sort();
@@ -154,7 +159,7 @@ test("rankup-clean classifies process data vs retained files and rewrites broken
   }
 });
 
-test("rankup-clean --install-hook and --write-gitignore are idempotent and pre-commit unstages process data", async () => {
+test("rankup-clean --install-hook and --write-gitignore are idempotent and pre-commit preserves tracked process data", async () => {
   const tempRoot = await mkdtemp(path.join(tmpdir(), "rankup-clean-git-"));
   const repoRoot = path.join(tempRoot, "repo");
   const rankupDir = path.join(repoRoot, ".rankup");
@@ -203,13 +208,13 @@ test("rankup-clean --install-hook and --write-gitignore are idempotent and pre-c
       .trim()
       .split("\n")
       .filter(Boolean);
-    assert.deepEqual(committedFiles, [".rankup/note.md"]);
+    assert.deepEqual(committedFiles, [".rankup/note.md", ".rankup/shot.png"]);
 
     const committedMd = execFileSync("git", ["-C", repoRoot, "show", "HEAD:.rankup/note.md"], {
       encoding: "utf8",
     });
-    assert.match(committedMd, /（原始数据已清理 \d{4}-\d{2}-\d{2}）/);
-    assert.equal(await exists(path.join(rankupDir, "shot.png")), false);
+    assert.match(committedMd, /!\[截图\]\(shot.png\)/);
+    assert.equal(await exists(path.join(rankupDir, "shot.png")), true);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -236,6 +241,8 @@ test("rankup-doctor reports process data as bucket A while keeping backups as bu
     await writeFile(path.join(rankupDir, "plan.md.bak"), "backup content\n");
     await writeFile(path.join(rankupDir, "artifacts/shot.png"), Buffer.alloc(256, 1));
 
+    const old = new Date(Date.now() - 20 * 86400000);
+    await utimes(path.join(rankupDir, "artifacts/shot.png"), old, old);
     const result = await diagnose({ rankupDir });
     const processDataFinding = result.findings.find((f) => f.check === "过程数据残留");
     assert.ok(processDataFinding, "expected rankup-doctor to report 过程数据残留");
@@ -277,7 +284,7 @@ test("rankup-clean works when .rankup is its own git repo and the project root i
       env: { ...process.env, RANKUP_HOME: path.join(projectRoot, "home") },
       stdio: "pipe",
     });
-    assert.equal(git("show", "--name-only", "--format=", "HEAD").trim(), "note.md");
+    assert.equal(git("show", "--name-only", "--format=", "HEAD").trim(), "note.md\nshot.png");
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
   }
@@ -303,10 +310,11 @@ test("age cutoff, workspace, permanent deletion and backup/state/whitelist reten
     await writeFile(path.join(dir, ".keep-data"), "reports/keep.md\n");
     await mkdir(path.join(home, "trash", "demo"), { recursive: true });
     await writeFile(path.join(home, "trash", "demo", "old.log"), "trash");
+    await utimes(path.join(home, "trash", "demo", "old.log"), old, old);
     const plan = await planClean({ projectRoot: project, olderThan: "1w" });
     assert.deepEqual(plan.toClean.map(e => e.rel).sort(), ["artifacts/old.png", "journal/old.md", "reports/old.md", "research/temp.py"]);
     assert.ok(plan.pendingConfirmation.some(e => e.path.endsWith("myBackup.md")));
-    const cli = spawnSync(process.execPath, [cleanScript, "--workspace", root, "--older-than", "7d", "--dry-run"], { encoding: "utf8" });
+    const cli = spawnSync(process.execPath, [cleanScript, "--workspace", root, "--older-than", "7d", "--dry-run", "--json"], { encoding: "utf8" });
     assert.equal(cli.status, 0, cli.stderr);
     assert.equal(JSON.parse(cli.stdout).projects.length, 1);
     assert.equal(await exists(path.join(dir, "reports/old.md")), true);
@@ -363,6 +371,7 @@ test("evidence/backups are pending with metadata; explicit paths keep age and re
     await mkdir(path.join(home, "trash", "Backup"), { recursive: true });
     const trashBackup = path.join(home, "trash", "Backup", "db.sql");
     await writeFile(trashBackup, "backup");
+    await utimes(trashBackup, old, old);
     const approved = await planClean({ projectRoot, olderThan: "7d", includeBackups: [dir, trashBackup] });
     assert.deepEqual(approved.toClean.map(e => e.rel).sort(), rels.filter(e => !["evidence/keep.png", "evidence/new.png", "state/backup.json"].includes(e)).sort());
     await applyClean(approved);
@@ -371,6 +380,61 @@ test("evidence/backups are pending with metadata; explicit paths keep age and re
     assert.equal(await exists(path.join(dir, "evidence/keep.png")), true);
     assert.equal(await exists(path.join(dir, "state/backup.json")), true);
     assert.match(await readFile(path.join(dir, "INDEX.md"), "utf8"), /原始数据已清理/);
+  } finally {
+    if (previous === undefined) delete process.env.RANKUP_HOME; else process.env.RANKUP_HOME = previous;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test("revision: default 7d, tracked files pending, old trash only, bounded groups", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "rankup-revision-"));
+  const projectRoot = path.join(root, "project");
+  const dir = path.join(projectRoot, ".rankup");
+  const previous = process.env.RANKUP_HOME;
+  process.env.RANKUP_HOME = path.join(root, "home");
+  try {
+    await mkdir(path.join(dir, "reports"), { recursive: true });
+    execFileSync("git", ["init", projectRoot], { stdio: "ignore" });
+    const old = new Date(Date.now() - 20 * 86400000);
+    for (const rel of ["reports/tracked.md", "old.log", "fresh.log"]) {
+      const f = path.join(dir, rel);
+      await writeFile(f, "fixture");
+      if (rel !== "fresh.log") await utimes(f, old, old);
+    }
+    execFileSync("git", ["-C", projectRoot, "add", ".rankup/reports/tracked.md"]);
+    assert.equal(parseArgs([]).olderThan, "7d");
+    assert.equal(parseArgs([]).apply, false);
+    const plan = await planClean({ projectRoot, includeBackups: [dir] });
+    assert.deepEqual(plan.toClean.map(e => e.rel), ["old.log"]);
+    assert.ok(plan.pendingConfirmation.some(e => e.path.endsWith("tracked.md") && e.hardProtected));
+    const trash = path.join(process.env.RANKUP_HOME, "trash");
+    await mkdir(trash, { recursive: true });
+    await writeFile(path.join(trash, "fresh.log"), "fresh");
+    await writeFile(path.join(trash, "old.log"), "old");
+    await utimes(path.join(trash, "old.log"), old, old);
+    const trashPlan = await planTrash([], "7d");
+    assert.deepEqual(trashPlan.toClean.map(e => e.rel), ["old.log"]);
+    await applyClean(plan);
+    assert.equal(await exists(path.join(trash, "fresh.log")), true);
+    assert.equal(await exists(path.join(trash, "old.log")), false);
+    assert.equal(await exists(path.join(dir, "reports/tracked.md")), true);
+    assert.equal(await exists(path.join(dir, "fresh.log")), true);
+    const broken = path.join(root, "broken");
+    await mkdir(path.join(broken, ".rankup"), { recursive: true });
+    await writeFile(path.join(broken, ".git"), "gitdir: /missing-cleanup-fixture\n");
+    await writeFile(path.join(broken, ".rankup", "old.log"), "old");
+    await utimes(path.join(broken, ".rankup", "old.log"), old, old);
+    const uncertain = await planClean({ projectRoot: broken });
+    assert.equal(uncertain.gitTrackingUnavailable, true);
+    assert.equal(uncertain.toClean.length, 0);
+    assert.ok(uncertain.pendingConfirmation.every(e => e.hardProtected));
+    const items = Array.from({ length: 120 }, (_, i) => ({ path: `/workspace/project-${i}/.rankup/evidence/file.png`, bytes: i, modifiedAt: "2026-01-01T00:00:00Z", referencedBy: i === 0 ? ["INDEX.md"] : [] }));
+    const groups = groupPending(items, "/workspace");
+    assert.ok(groups.length <= 50);
+    assert.equal(groups.reduce((n, g) => n + g.fileCount, 0), 120);
+    assert.equal(groups.reduce((n, g) => n + g.bytes, 0), items.reduce((n, e) => n + e.bytes, 0));
+    assert.ok(groups.some(g => g.referenced));
   } finally {
     if (previous === undefined) delete process.env.RANKUP_HOME; else process.env.RANKUP_HOME = previous;
     await rm(root, { recursive: true, force: true });

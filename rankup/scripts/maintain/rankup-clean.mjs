@@ -19,14 +19,15 @@
 //      （skill-state.json、review-state.json、projects.json、indexnow-last.json、backlink-targets.json、config.json、
 //      state/** 及 *state*.json / *checkpoint*.json / *watermark*.json / *cursor*.json）、
 //      .rankup/.keep-data 列出的相对路径或 glob（支持行尾注释或原因说明）、<=100KB 且被常驻文件直接引用的结构化数据。
+//   默认 --older-than 7d，仅预览；历史 trash 同时限。
 //   3. --apply 直接删除，不建回收目录或清单，并清空历史 trash 中的普通内容；证据与备份默认列待确认，用户同意后 --include-backups 显式纳入；
 //      并将 .rankup/**/*.md 中指向被清文件的相对链接替换为行内文字“（原始数据已清理 <YYYY-MM-DD>）”，保证 doc-lint 0 断链。
-//   4. 提交时自动化：--staged 仅处理 Git 已暂存与工作区中可清的 .rankup 文件并移出暂存；
+//   4. 提交时自动化：--staged 仅检查本轮候选；Git 已跟踪/已暂存文件一律不删除，列待确认。
 //      --install-hook 安装/追加幂等带标记的 pre-commit hook（兼容已有 hook 与 core.hooksPath 如 husky）；
 //      --write-gitignore 写入/更新 .rankup/.gitignore 模板。
 
 import { execFileSync } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { chmod, lstat, mkdir, readdir, readFile, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -101,6 +102,7 @@ export function parseArgs(argv) {
   const opts = {
     projectRoot: process.cwd(),
     includeBackups: [],
+    olderThan: "7d",
     rankupDir: null,
     apply: false,
     staged: false,
@@ -631,7 +633,7 @@ function getGitCandidates(projectRoot, rankupDir) {
   return { gitRoot, rankupRelToGit, stagedRelSet, candidateRelSet };
 }
 
-export async function planClean({ projectRoot, rankupDir, staged = false, olderThan = null, includeBackups = [] }) {
+export async function planClean({ projectRoot, rankupDir, staged = false, olderThan = "7d", includeBackups = [] }) {
   const resolvedRoot = path.resolve(projectRoot);
   const resolvedRankup = rankupDir ? path.resolve(rankupDir) : path.join(resolvedRoot, ".rankup");
   const allEntries = await walkRankupFiles(resolvedRankup);
@@ -643,6 +645,7 @@ export async function planClean({ projectRoot, rankupDir, staged = false, olderT
     ? getGitCandidates(resolvedRoot, resolvedRankup)
     : { gitRoot: null, rankupRelToGit: "", stagedRelSet: new Set(), candidateRelSet: new Set() };
 
+  const tracked = trackedFiles(resolvedRankup);
   const residentNames = new Set(["INDEX.md", "plan.md", "decisions.md", "leftovers.md", "PROJECT.md", "roadmap.md"]);
   const cutoff = olderThan ? Date.now() - parseAge(olderThan) : null;
   const toClean = [];
@@ -680,6 +683,12 @@ export async function planClean({ projectRoot, rankupDir, staged = false, olderT
     if (entry.rel.startsWith("state/")) decision = { action: "keep", kind: "data", category: "state", reason: "状态目录" };
     if (cutoff !== null && entry.mtimeMs >= cutoff && decision.action === "clean") {
       decision = { action: "keep", kind: "recent", category: "recent", reason: "未超过时限" };
+    }
+    if (tracked === null || tracked.has(entry.rel)) {
+      decision = { action: "keep", kind: "pending", category: "tracked", reason: tracked === null ? "Git 状态无法核实，禁止删除，待确认" : "Git 已跟踪，禁止删除，待确认" };
+      const existing = pendingConfirmation.find(e => e.path === entry.fullPath);
+      if (existing) { existing.hardProtected = true; existing.usefulness = tracked === null ? "Git 状态无法核实，禁止删除" : "Git 已跟踪，显式纳入仍保留"; }
+      else pendingConfirmation.push({ ...await pendingInfo(entry, pendingDocs ??= await readDocs(allEntries), resolvedRoot, true), usefulness: tracked === null ? "Git 状态无法核实，禁止删除" : "Git 已跟踪，显式纳入仍保留" });
     }
     const record = {
       rel: entry.rel,
@@ -726,6 +735,9 @@ export async function planClean({ projectRoot, rankupDir, staged = false, olderT
     staged,
     includeBackups,
     pendingConfirmation,
+    pendingGroups: groupPending(pendingConfirmation, resolvedRankup),
+    olderThan,
+    gitTrackingUnavailable: tracked === null,
     gitInfo,
     totalFilesBefore: allEntries.length,
     totalBytesBefore,
@@ -851,12 +863,14 @@ export async function applyClean(plan, { date = null } = {}) {
   const dateStr = date || now.toISOString().slice(0, 10);
   const cleanedRelSet = new Set();
   let deletedCount = 0;
+  const tracked = trackedFiles(plan.rankupDir);
   for (const item of plan.toClean) {
+    if (tracked === null || tracked.has(item.rel)) continue;
     await rm(path.join(plan.rankupDir, item.rel), { force: true });
     cleanedRelSet.add(item.rel);
     deletedCount += 1;
   }
-  const trash = await planTrash(plan.includeBackups);
+  const trash = await planTrash(plan.includeBackups, plan.olderThan);
   for (const item of trash.toClean) await rm(item.fullPath, { force: true });
   await pruneEmptyDirs(path.join(resolveRankupHome(), "trash"), plan.includeBackups);
   const trashRoot = path.join(resolveRankupHome(), "trash");
@@ -1107,8 +1121,8 @@ function renderReport(plan, applyResult, hookResult, gitignoreResult) {
     }
   }
 
-  for (const item of [...plan.pendingConfirmation, ...(plan.trash?.pendingConfirmation ?? [])]) {
-    lines.push(`- 待确认：${item.path}；${formatBytes(item.bytes)}；修改 ${item.modifiedAt}；项目 ${item.taskOrProject}；文档引用 ${item.referencedBy.join(", ") || "扫描范围内未发现"}；${item.usefulness}`);
+  for (const item of groupPending([...plan.pendingConfirmation, ...(plan.trash?.pendingConfirmation ?? [])], [plan.rankupDir, path.join(resolveRankupHome(), "trash")])) {
+    lines.push(`- 待确认组：${item.prefix}；${item.fileCount} 文件；${formatBytes(item.bytes)}；最新修改 ${item.newestModifiedAt}；文档引用 ${item.referenced ? "有" : "扫描范围内未发现"}；保护项 ${item.protectedCount}。逐项核查后才可确认，明细用 --json 查看。`);
   }
   if (applyResult) {
     lines.push("\n## 执行结果");
@@ -1125,6 +1139,62 @@ function renderReport(plan, applyResult, hookResult, gitignoreResult) {
   }
 
   return lines.join("\n");
+}
+
+function trackedFiles(rankupDir) {
+  try {
+    return new Set(execFileSync("git", ["-C", rankupDir, "ls-files", "-z", "--cached", "--", "."], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).split("\0").filter(Boolean));
+  } catch (e) {
+    let current = path.resolve(rankupDir);
+    while (true) {
+      if (existsSync(path.join(current, ".git"))) return null;
+      if (current === path.dirname(current)) break;
+      current = path.dirname(current);
+    }
+    if (e.status === 128) return new Set();
+    return null;
+  }
+}
+
+export function groupPending(items, root) {
+  const roots = Array.isArray(root) ? root : [root];
+  const groups = new Map();
+  const within = (p, parent) => p === parent || p.startsWith(parent + path.sep);
+  for (const item of [...items].sort((a, b) => a.path.length - b.path.length)) {
+    const boundary = roots.filter(r => within(item.path, r)).sort((a, b) => b.length - a.length)[0] ?? path.dirname(item.path);
+    const prefix = item.path === boundary || path.dirname(item.path) === boundary ? item.path : path.dirname(item.path);
+    const ancestor = [...groups.keys()].find(p => within(prefix, p));
+    if (ancestor) groups.get(ancestor).items.push(item);
+    else {
+      const children = [...groups.keys()].filter(p => within(p, prefix));
+      const merged = children.flatMap(p => groups.get(p).items);
+      for (const p of children) groups.delete(p);
+      groups.set(prefix, { boundary, items: [...merged, item] });
+    }
+  }
+  while (groups.size > 50) {
+    const candidates = new Set();
+    for (const [prefix, g] of groups) {
+      for (let p = path.dirname(prefix); within(p, g.boundary); p = path.dirname(p)) {
+        candidates.add(p);
+        if (p === g.boundary) break;
+      }
+    }
+    const parent = [...candidates].sort((a, b) => b.length - a.length || a.localeCompare(b)).find(p => [...groups.keys()].filter(k => within(k, p)).length > 1);
+    if (!parent) break;
+    const keys = [...groups.keys()].filter(p => within(p, parent));
+    const merged = keys.flatMap(p => groups.get(p).items);
+    const boundary = groups.get(keys[0]).boundary;
+    for (const p of keys) groups.delete(p);
+    groups.set(parent, { boundary, items: merged });
+  }
+  return [...groups].map(([prefix, g]) => ({ prefix,
+    fileCount: g.items.filter(i => !i.isDirectory).length,
+    bytes: g.items.reduce((n, i) => n + i.bytes, 0),
+    newestModifiedAt: g.items.map(i => i.modifiedAt).sort().at(-1),
+    referenced: g.items.some(i => i.referencedBy.length),
+    protectedCount: g.items.filter(i => i.hardProtected).length,
+  })).sort((a, b) => a.prefix.localeCompare(b.prefix));
 }
 
 export function isSensitive(p) {
@@ -1152,24 +1222,29 @@ async function pendingInfo(entry, docs, projectRoot, hardProtected = false) {
     if (found) referencedBy.push(doc.fullPath);
   }
   return { path: entry.fullPath, bytes: entry.size, modifiedAt: new Date(entry.mtimeMs).toISOString(), taskOrProject: projectRoot,
-    referencedBy, referenceScope: "本清理目录内 Markdown；未发现引用不代表无用", hardProtected: Boolean(hardProtected),
+    isDirectory: Boolean(entry.isDirectory), referencedBy, referenceScope: "本清理目录内 Markdown；未发现引用不代表无用", hardProtected: Boolean(hardProtected),
     usefulness: hardProtected ? "常驻/白名单/状态文件，显式纳入仍保留" : "无法自动判断无用，需主线程核实并取得用户同意" };
 }
 
-export async function planTrash(includeBackups = []) {
+export async function planTrash(includeBackups = [], olderThan = "7d") {
   const trashDir = path.join(resolveRankupHome(), "trash");
   const entries = await walkRankupFiles(trashDir);
+  const cutoff = Date.now() - parseAge(olderThan);
+  const tracked = trackedFiles(trashDir);
   const pendingConfirmation = [];
   let docs;
   const toClean = [];
   const skipped = [];
   for (const e of entries) {
     if (e.protectedRoot || e.isDirectory) skipped.push(e);
-    if (isSensitive(e.fullPath) && !isIncluded(e.fullPath, includeBackups)) {
+    if (tracked === null || tracked.has(e.rel)) {
+      pendingConfirmation.push({ ...await pendingInfo(e, docs ??= await readDocs(entries), trashDir, true), usefulness: tracked === null ? "Git 状态无法核实，禁止删除" : "Git 已跟踪，显式纳入仍保留" });
+    } else if (isSensitive(e.fullPath) && !isIncluded(e.fullPath, includeBackups)) {
       pendingConfirmation.push(await pendingInfo(e, docs ??= await readDocs(entries), path.join(trashDir, e.rel.split("/")[0])));
-    } else if (!e.protectedRoot && !e.isDirectory) toClean.push(e);
+    } else if (!e.protectedRoot && !e.isDirectory && e.mtimeMs < cutoff) toClean.push(e);
+    else if (e.mtimeMs >= cutoff) skipped.push({ ...e, reason: "未超过时限" });
   }
-  return { toClean, cleanFilesCount: toClean.length, cleanBytes: toClean.reduce((n, e) => n + e.size, 0), skipped, pendingConfirmation };
+  return { toClean, cleanFilesCount: toClean.length, cleanBytes: toClean.reduce((n, e) => n + e.size, 0), skipped, pendingConfirmation, pendingGroups: groupPending(pendingConfirmation, trashDir) };
 }
 
 const isMain = process.argv[1] && (
@@ -1196,11 +1271,11 @@ if (isMain) {
   if (opts.workspace) {
     if (opts.staged || opts.installHook || opts.writeGitignore) throw new Error("--workspace 不支持 hook/staged 操作");
     const results = [];
-    const trash = await planTrash(opts.includeBackups);
+    const trash = await planTrash(opts.includeBackups, opts.olderThan);
     for (const projectRoot of await workspaceProjects(opts.workspace)) {
       const plan = await planClean({ projectRoot, olderThan: opts.olderThan, includeBackups: opts.includeBackups });
       const applied = opts.apply ? await applyClean(plan, { date: opts.date }) : null;
-      results.push({ projectRoot, cleanFilesCount: plan.cleanFilesCount, cleanBytes: plan.cleanBytes, skipped: plan.toKeep, pendingConfirmation: plan.pendingConfirmation, applyResult: applied });
+      results.push({ projectRoot, cleanFilesCount: plan.cleanFilesCount, cleanBytes: plan.cleanBytes, skipped: plan.toKeep, pendingConfirmation: plan.pendingConfirmation, gitTrackingUnavailable: plan.gitTrackingUnavailable, applyResult: applied });
     }
     if (opts.apply && results.length === 0) {
       for (const item of trash.toClean) await rm(item.fullPath, { force: true });
@@ -1208,7 +1283,14 @@ if (isMain) {
       await pruneEmptyDirs(trashRoot, opts.includeBackups);
       if ((await readdir(trashRoot).catch(() => ["missing"])).length === 0) await rmdir(trashRoot);
     }
-    await new Promise(resolve => process.stdout.write(JSON.stringify({ projects: results, trash }, null, 2) + "\n", resolve));
+    const pendingGroups = groupPending([...results.flatMap(r => r.pendingConfirmation), ...trash.pendingConfirmation], [opts.workspace, path.join(resolveRankupHome(), "trash")]);
+    if (opts.json) await new Promise(resolve => process.stdout.write(JSON.stringify({ projects: results, trash, pendingGroups }, null, 2) + "\n", resolve));
+    else {
+      const lines = results.map(r => `${r.projectRoot}：待清 ${r.cleanFilesCount} 文件，${formatBytes(r.cleanBytes)}`);
+      lines.push(`trash：待清 ${trash.cleanFilesCount} 文件，${formatBytes(trash.cleanBytes)}`);
+      for (const g of pendingGroups) lines.push(`待确认组：${g.prefix}；${g.fileCount} 文件；${formatBytes(g.bytes)}；最新 ${g.newestModifiedAt}；文档引用 ${g.referenced ? "有" : "未发现"}；保护项 ${g.protectedCount}`);
+      await new Promise(resolve => process.stdout.write(lines.join("\n") + "\n", resolve));
+    }
     process.exit(0);
   }
 
@@ -1237,7 +1319,7 @@ if (isMain) {
       olderThan: opts.olderThan,
       includeBackups: opts.includeBackups,
     });
-    plan.trash = await planTrash(opts.includeBackups);
+    plan.trash = await planTrash(opts.includeBackups, opts.olderThan);
     if (opts.apply) {
       applyResult = await applyClean(plan, { date: opts.date });
     }
@@ -1269,6 +1351,8 @@ if (isMain) {
                 toClean: plan.toClean,
                 skipped: plan.toKeep,
                 pendingConfirmation: plan.pendingConfirmation,
+                pendingGroups: plan.pendingGroups,
+                gitTrackingUnavailable: plan.gitTrackingUnavailable,
                 trash: plan.trash,
               }
             : {}),

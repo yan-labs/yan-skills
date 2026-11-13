@@ -1,6 +1,7 @@
 """Time-based permanent cleanup; evidence/backups need explicit path approval; no symlink traversal."""
 import json
 import datetime
+import fnmatch
 import os
 from pathlib import Path
 import re
@@ -84,6 +85,68 @@ def git(repo, *args):
     return subprocess.run(['git', '-C', str(repo), *args], text=True, capture_output=True, check=True).stdout.strip()
 
 
+def config_or_state(p):
+    return (p.name in PRESERVE or p.name == '.keep-data' or p.name.startswith('.env') or p.name.endswith('.env')
+            or p.suffix.lower() in ('.yaml', '.yml', '.toml')
+            or (p.suffix.lower() == '.json' and re.search(r'config|settings?|state|checkpoint|cursor|watermark|preferences?|options?', p.stem, re.I)))
+
+
+def keep_data_rules(paths):
+    rules = []
+    for p in paths:
+        if p.name != '.keep-data' or p.is_symlink() or not p.is_file():
+            continue
+        for line in p.read_text().splitlines():
+            pattern = line.split('#', 1)[0].strip().split()
+            if pattern:
+                rules.append((p.parent, pattern[0].removeprefix('./').rstrip('/')))
+    return rules
+
+
+def whitelisted(p, rules):
+    for root, pattern in rules:
+        if not p.is_relative_to(root):
+            continue
+        rel = p.relative_to(root).as_posix()
+        if rel == pattern or rel.startswith(pattern + '/') or fnmatch.fnmatchcase(rel, pattern):
+            return True
+    return False
+
+
+def group_pending(items, roots):
+    groups = {}
+    for item in sorted(items, key=lambda r: len(r['path'])):
+        p = Path(item['path'])
+        root = next((r for r in sorted(roots, key=lambda r: len(r.parts), reverse=True) if p.is_relative_to(r)), p.parent)
+        prefix = p if p == root or p.parent == root else p.parent
+        ancestor = next((q for q in groups if prefix.is_relative_to(q)), None)
+        if ancestor is not None:
+            groups[ancestor][1].append(item)
+        else:
+            children = [q for q in groups if q.is_relative_to(prefix)]
+            merged = [i for q in children for i in groups[q][1]]
+            for q in children:
+                del groups[q]
+            groups[prefix] = (root, merged + [item])
+    while len(groups) > 25:
+        candidates = set()
+        for prefix, (root, _) in groups.items():
+            candidates.update(q for q in prefix.parents if q.is_relative_to(root))
+        parent = next((p for p in sorted(candidates, key=lambda q: (-len(q.parts), str(q))) if sum(q.is_relative_to(p) for q in groups) > 1), None)
+        if parent is None:
+            break
+        keys = [q for q in groups if q.is_relative_to(parent)]
+        merged = [i for q in keys for i in groups[q][1]]
+        root = groups[keys[0]][0]
+        for q in keys:
+            del groups[q]
+        groups[parent] = (root, merged)
+    return [{'prefix': str(p), 'fileCount': sum(not i.get('isDirectory', False) for i in rows),
+             'bytes': sum(i['bytes'] for i in rows), 'newestModifiedAt': max(i['modifiedAt'] for i in rows),
+             'referenced': any(i['referencedBy'] for i in rows), 'protectedCount': sum(bool(i.get('hardProtected')) for i in rows)}
+            for p, (_, rows) in sorted(groups.items())]
+
+
 def clean_local(older_than='7d', dry_run=False, home=None, runs=None, location='local', peer_active_names=None, include_backups=None):
     home = Path(home or Path.home())
     fleet = home / '.agent-fleet'
@@ -127,6 +190,7 @@ def clean_local(older_than='7d', dry_run=False, home=None, runs=None, location='
     approved = [Path(p).absolute() for p in (include_backups or [])]
     def included(p):
         return any(p.absolute() == a or a in p.absolute().parents for a in approved)
+    keep_rules = keep_data_rules([fleet / '.keep-data', *run_files, *report_files])
     docs = document_references(run_files + report_files)
     pending = []
     for p in run_files + report_files:
@@ -138,14 +202,14 @@ def clean_local(older_than='7d', dry_run=False, home=None, runs=None, location='
     for item in skipped:
         if item['reason'].startswith('待确认') and not included(Path(item['path'])):
             p = Path(item['path'])
-            pending.append({'path': str(p), 'bytes': 0, 'modifiedAt': datetime.datetime.fromtimestamp(p.lstat().st_mtime, datetime.timezone.utc).isoformat(), 'taskOrProject': '未知（空目录）', 'referencedBy': referenced_by(p, docs), 'referenceScope': 'runs 与报告目录内 Markdown', 'usefulness': '空证据/备份目录，需主线程核实并取得用户同意'})
+            pending.append({'path': str(p), 'bytes': 0, 'modifiedAt': datetime.datetime.fromtimestamp(p.lstat().st_mtime, datetime.timezone.utc).isoformat(), 'isDirectory': True, 'taskOrProject': '未知（空目录）', 'referencedBy': referenced_by(p, docs), 'referenceScope': 'runs 与报告目录内 Markdown', 'usefulness': '空证据/备份目录，需主线程核实并取得用户同意'})
     def active(p):
         return any(p == q or q in p.parents for q in protected) or any(part == i or part.startswith(i + '.') for i in active_ids for part in p.parts)
     def eligible(p):
-        if sensitive(p) and not included(p):
-            return False
-        if p.name in PRESERVE or p.name.startswith('.env') or p.name.endswith('.env') or p.name.startswith('.queue-lock'):
+        if config_or_state(p) or whitelisted(p, keep_rules) or p.name.startswith('.queue-lock'):
             skipped.append({'path': str(p), 'reason': 'preserved'})
+            return False
+        if sensitive(p) and not included(p):
             return False
         if active(p) or any(q.name == '.queue-lock' for q in p.parents):
             skipped.append({'path': str(p), 'reason': 'active run'})
@@ -177,12 +241,14 @@ def clean_local(older_than='7d', dry_run=False, home=None, runs=None, location='
             if not base or git(target, 'rev-parse', '--path-format=absolute', '--git-common-dir') != git(wt['repo'], 'rev-parse', '--path-format=absolute', '--git-common-dir'):
                 raise ValueError('unknown base/repository')
             git(target, 'merge-base', '--is-ancestor', 'HEAD', base)
-            children = files(target, [])
-            protected_children = [c for c in target.rglob('*') if sensitive(c) and not included(c)]
+            worktree_skipped = []
+            children = files(target, worktree_skipped)
+            protected_children = [c for c in children if sensitive(c) and not included(c)]
+            protected_children += [Path(r['path']) for r in worktree_skipped if r['reason'].startswith('待确认') and not included(Path(r['path']))]
             if (sensitive(target) and not included(target)) or protected_children:
                 for c in protected_children or [target]:
                     st = c.lstat()
-                    pending.append({'path': str(c), 'bytes': st.st_size if not c.is_dir() else sum(f.lstat().st_size for f in children if c in f.parents), 'modifiedAt': datetime.datetime.fromtimestamp(st.st_mtime, datetime.timezone.utc).isoformat(), 'taskOrProject': row.get('name') or str(target), 'referencedBy': referenced_by(c, docs), 'referenceScope': 'runs 与报告目录内 Markdown；未发现引用不代表无用', 'usefulness': '无法自动判断无用，需主线程核实并取得用户同意'})
+                    pending.append({'path': str(c), 'bytes': st.st_size if not c.is_dir() else 0, 'isDirectory': c.is_dir() and not c.is_symlink(), 'modifiedAt': datetime.datetime.fromtimestamp(st.st_mtime, datetime.timezone.utc).isoformat(), 'taskOrProject': row.get('name') or str(target), 'referencedBy': referenced_by(c, docs), 'referenceScope': 'runs 与报告目录内 Markdown；未发现引用不代表无用', 'usefulness': '无法自动判断无用，需主线程核实并取得用户同意'})
                 raise ValueError('待确认：证据/备份')
             if any(c.lstat().st_mtime >= cutoff for c in children):
                 raise ValueError('recent worktree files')
@@ -218,7 +284,18 @@ def clean_local(older_than='7d', dry_run=False, home=None, runs=None, location='
         locations.append({'path': str(root), 'files': count, 'bytes': size})
     return {'dryRun': dry_run, 'olderThan': older_than, 'locations': locations, 'worktrees': worktrees,
             'files': sum(r['files'] for r in locations + worktrees), 'bytes': sum(r['bytes'] for r in locations + worktrees),
-            'pendingConfirmation': pending, 'skipped': skipped, 'activeNames': sorted(active_names)}
+            'pendingGroups': group_pending(pending, [runs, reports, *[Path(row['worktree']['path']) for _, row in rows if isinstance(row.get('worktree'), dict) and row['worktree'].get('path')]]), 'pendingConfirmation': pending, 'skipped': skipped, 'activeNames': sorted(active_names)}
+
+
+def print_result(row, detailed):
+    if detailed:
+        print(json.dumps(row, ensure_ascii=False))
+        return
+    print(f"{row['location']}：{'dry-run 待删' if row['dryRun'] else '已删除'} {row['files']} 文件，{row['bytes']} 字节")
+    for g in row['pendingGroups']:
+        print(f"待确认组 {row['location']}:{g['prefix']}；{g['fileCount']} 文件；{g['bytes']} 字节；最新 {g['newestModifiedAt']}；文档引用 {'有' if g['referenced'] else '未发现'}；保护项 {g['protectedCount']}")
+    from collections import Counter
+    print('跳过：' + json.dumps(dict(Counter(r['reason'] for r in row['skipped'])), ensure_ascii=False))
 
 
 def command(args):
@@ -240,9 +317,9 @@ def command(args):
             peer_names = remote['activeNames']
         except (OSError, ValueError, subprocess.TimeoutExpired) as e:
             error = type(e).__name__ + '：Mini 未完成，保留本机的 Mini 任务关联文件'
-    print(json.dumps({'location': 'local', **clean_local(args.older_than, args.dry_run, peer_active_names=peer_names, include_backups=local_approved)}, ensure_ascii=False))
+    print_result({'location': 'local', **clean_local(args.older_than, args.dry_run, peer_active_names=peer_names, include_backups=local_approved)}, getattr(args, 'json', False))
     if remote is not None:
-        print(json.dumps({'location': 'mini', **remote}, ensure_ascii=False))
+        print_result({'location': 'mini', **remote}, getattr(args, 'json', False))
     else:
         print(json.dumps({'location': 'mini', 'skipped': error or 'Mini 未配置 remote_home/bin'}, ensure_ascii=False))
     if error:

@@ -1077,6 +1077,7 @@ def build_parser():
     p.add_argument('--no-fast', action='store_true', help='兼容旧用法，无副作用')
     p = sub.add_parser('clean', help='按修改时间直接删除旧日志、报告与已合并 worktree（本机与 Mini）')
     p.add_argument('--older-than', default='7d')
+    p.add_argument('--json', action='store_true', help='输出逐文件明细JSON；默认只输出摘要与聚合待确认清单')
     p.add_argument('--include-backups', nargs='+', default=[], metavar='PATH', help='用户逐项同意后，显式指定待确认的证据/备份路径')
     p.add_argument('--dry-run', action='store_true')
     p = sub.add_parser('worktree')
