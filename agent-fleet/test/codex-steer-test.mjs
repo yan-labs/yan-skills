@@ -47,6 +47,13 @@ if (args[0] === 'app-server') {
       send({ id: req.id, result: { turn: { id: 'turn-one' } } });
       send({ method: 'turn/started', params: { turn: { id: 'turn-one' } } });
       if (mode === 'normal' || mode === 'archive-fail') setTimeout(complete, 25);
+      if (mode === 'child-completes') {
+        send({method:'turn/started',params:{threadId:'child-thread',turn:{id:'child-turn'}}});
+        send({method:'thread/tokenUsage/updated',params:{threadId:'child-thread',tokenUsage:{total:{totalTokens:999999}}}});
+        send({method:'item/completed',params:{threadId:'child-thread',item:{type:'agentMessage',phase:'final_answer',text:'子任务结论'}}});
+        send({method:'turn/completed',params:{threadId:'child-thread',turn:{id:'child-turn',status:'completed'}}});
+        setTimeout(complete,100);
+      }
       if (mode === 'failed') setTimeout(() => send({ method: 'turn/completed', params: { turn: { id: 'turn-one', status: 'failed', error: { message: 'mock turn failed' } } } }), 25);
       if (mode === 'reject' || mode === 'crash') {
         const orphan = require('node:child_process').spawn(process.execPath, ['-e', '/* codex-orphan-fixture */ setInterval(() => {}, 1000)'], { stdio: 'ignore' });
@@ -109,6 +116,11 @@ try {
   inbox.pump(); inbox.pump(); inbox.stop();
   assert.deepEqual(deliveries.map(entry => entry.text), ['新指令']);
 
+  const childCompletes = await scenario('child-completes');
+  assert.equal(childCompletes.result.result,'任务完成','child final cannot replace root result');
+  assert.equal(childCompletes.result.numTurns,1,'child turn is not counted as our turn');
+  assert.equal(childCompletes.result.usage.total.totalTokens,17,'child tokens cannot trigger our handoff');
+  assert.equal(childCompletes.result.ok,true);
   const normal = await scenario('normal', { low: true });
   assert.equal(normal.result.ok, true);
   assert.equal(normal.result.backend, 'codex-app-server');

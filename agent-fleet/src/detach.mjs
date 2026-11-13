@@ -285,13 +285,18 @@ export async function waitDetached(spec, { cwd, timeout, originalOutput = false 
   try {
   const id = resolveDetached(spec, cwd);
   const started = Date.now();
+  let warnedAbnormal = false;
   for (;;) {
     const rec = reconcileDetached(readState(id));
     if (!rec) throw new Error(`找不到 detach 任务 ${id}`);
     const state = detachedState(rec);
-    const question = takeAsk(id);
-    if (question) { process.stdout.write(JSON.stringify(question) + '\n'); return 3; }
-    if (!['running', 'queued', 'parked', 'waiting'].includes(state)) {
+    let question;
+    while ((question = takeAsk(id))) process.stdout.write(`[agent-fleet] 【待答复 ask】runId=${id} kind=${question.kind}：${redactEvidence(question.text)}\n用 fleet say ${id} \"<答复>\" 回复；wait 继续等待任务终态。\n`);
+    if (state === 'abnormal' && !warnedAbnormal) {
+      process.stdout.write(`[agent-fleet] 【心跳异常】${id} 仍有存活进程；wait 继续等待终态，可用 fleet status / fleet stop 检查处理。\n`);
+      warnedAbnormal = true;
+    }
+    if (!['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(state)) {
       const brief = state === 'abnormal' ? buildBrief({ ...failureFacts(rec), ok: false,
         error: `异常终止；最后心跳 ${rec.heartbeatAt}`, resultPath: rec.resultPath, logPath: rec.logPath })
         : rec.brief ?? buildBrief({ ...failureFacts(rec), ok: false, stopped: state === 'stopped', error: rec.error,

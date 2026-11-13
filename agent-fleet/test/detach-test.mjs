@@ -225,7 +225,8 @@ console.log('stop: '+psReceipt([state(stopped).pid,state(stopped).childPid,...pi
 const abnormal=await launch('code',{FLEET_TEST_SLEEP:'60',FLEET_TEST_PIDS:join(scratch,'abnormal-pids')});
 await sleep(500);const abnormalRec=state(abnormal);process.kill(abnormalRec.pid,'SIGKILL');await sleep(200);
 const status=await cliRun(['status']);assert.match(status.stdout,/最后心跳=.*异常终止/);
-assert.equal((await cliRun(['wait',abnormal])).code,1);
+const orphanWait=await cliRun(['wait',abnormal,'--timeout','0']);
+assert.equal(orphanWait.code,1);assert.match(orphanWait.stdout,/心跳异常/);assert.match(orphanWait.stderr,/超时.*任务继续运行/);
 // 仅清理本测试主动杀监督器后留下的测试执行组。
 assert.equal((await cliRun(['stop',abnormal])).code,0);
 assert.equal(state(abnormal).status,'stopped');assert(!alive(abnormalRec.childPid));

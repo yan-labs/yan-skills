@@ -69,7 +69,7 @@ Claude 通道（haiku/sonnet/opus）的 key 是用户级 `sk-ant-usr-…` 时，
 
 状态保存在 `~/.agent-fleet/runs/<runId>.json`，原子更新监督/执行 PID、每30秒心跳、结果/日志路径及简报。PID死亡（或 pid 已被别的进程复用：记录里存了启动时的命令行，当前命令行不同即视为已死）或心跳超过90秒判为 abnormal；若最后心跳早于启动+10分钟，提示可能重启/强制休眠中断及 `fleet resume <id>`。监督进程与执行进程都已不在的记录，`status`/`wait`/`stop` 读到时会自动补写失败终态（`status: failed`、`abnormalExit: true`，结束时间取最后心跳；对已死任务执行 stop 则记为 stopped），之后按普通终态 24 小时退出列表，不再长期停在 abnormal；进程还活着只是心跳过期、或监督进程已死但执行进程仍在跑，保持 abnormal，交人处理（`fleet stop`）。读不到进程命令行或无权发信号（EPERM）时按存活处理，不会因此误判已死。监督进程忽略未带停止请求的 SIGTERM/SIGINT；使用 `fleet stop` 停止任务。`wait` 每两秒只读状态与 PID，终态立即返回简报；超时只结束等待，任务继续。`wait` / `tail` 支持短名、唯一runId前缀，`latest` 指当前目录最近任务（包括终态）；stop/say/resume 的 latest 保持当前目录最近存活任务规则。
 
-Codex app-server 默认使用两层续做闸门：部分完成、报告七节缺失或 brief 要求的提交哈希/读回结果缺失，直接同线程继续；写完成且规则放行后，用现有 JEV 判断验收证据、授权内剩余步骤和中途自查，并将具体缺项带回。置信度低于 0.55 只额外继续一次；JEV 不可用按规则结果走。最多续做 3 次，连续两次没有新提交、文件内容或报告变化时停止；结果记录每次进展及裁判结论/置信度，最终仍有缺项则 verdict 为 partial。`--no-continue` 或 `FLEET_NO_CONTINUE=1` 可关闭，review、exec 兜底与其他产品不适用；用户 amend/steer/relaunch 行为不变。脱离启动的运行中任务按监督器对应的执行进程和收件箱插话，嵌套 fleet 不继承外层任务身份；送不进会报告具体缺口。
+Codex app-server 和 exec 会在报告必需节或 brief 明确要求的文件、已授权提交哈希、读回结果缺失时续做；app-server 还会用 JEV 核对硬性产物。低置信度或 JEV 不可用时按规则结果走；没有固定续做次数上限，连续两次没有新提交或产物内容变化时停止，单独改报告不算进展。仍有缺项时 verdict 为 partial。`--no-continue` / `FLEET_NO_CONTINUE=1` 可关闭，review 和文档任务不自动续做。阶段计划、交接自动放行，`fleet wait` 提示 ask 后继续等终态，详情见 [Codex 阶段接力与等待](skill/references/codex-coding.md#阶段接力与等待)。脱离启动的任务按监督器对应的执行进程和收件箱插话，嵌套 fleet 不继承外层任务身份；送不进会报告具体缺口。
 
 Codex app-server 任务运行中仍显示在 Codex APP，结束后自动归档本任务线程；归档失败只记降级。历史保留，fleet 续跑前取消归档，结束后再归档。
 

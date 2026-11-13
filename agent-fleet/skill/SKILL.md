@@ -74,9 +74,10 @@ CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有�
 - `fleet-go relaunch` 沿用原 run 的执行位置；原单是 `--on local` 的，重派前先判断能否改到 Mini，不要照抄。
 - `relaunch` 读的是保存的 brief.md，不是 body.md；改了 body.md 要同步改 brief.md（或用 `amend`），否则重派仍按旧要求做。
 - 巡检子单只给本会话派出的 run 下指令；已结束的 run 不发指令；有进度文件的长任务以进度文件的更新时间判断是否卡住，不按 2 小时规则强令收尾。
+- 阶段计划和交接自动继续，不发审批 ask；`fleet wait` 遇到 ask 只提示并继续等终态。Codex 子线程完成不能当作主任务完成；见 [阶段接力与等待](references/codex-coding.md#阶段接力与等待)。
 - Codex 偶发 `workspace routing discovery failed`，巡检单秒失败时主线程自己看 `fleet-go status` 和进度文件 mtime，不反复重派。
 - 会话内定时（CronCreate session-only）随会话消失；交班时把定时原文写进交接文件，由新会话重建。
-- run 结束或交班时，它启动的子进程会被一起停掉（11-13 cf-migrate 交班连带杀了后台复制进程）。要跨棒存活的长进程，从一开始就和 run 脱钩启动，并把 PID 和续传方法写进 checkpoint；批准交班前先确认这一点。
+- run 结束或交班时，它启动的子进程会被一起停掉（11-13 cf-migrate 交班连带杀了后台复制进程）。要跨棒存活的长进程，从一开始就和 run 脱钩启动，并把 PID 和续传方法写进 checkpoint；交班前先确认这一点。
 
 ## 中途插话（沿用现有任务调整方向）
 统一入口：`fleet say <任务> "新指令"` 或 `fleet-go amend <名字> --say "补充要求"`（`--restart` 只作最后兜底）。
