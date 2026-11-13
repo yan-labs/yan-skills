@@ -32,7 +32,7 @@ if (process.argv[2] === 'exec') {
   const args = process.argv.slice(2);
   fs.appendFileSync(process.env.TRACE,JSON.stringify({args,prompt})+'\\n');
   send({type:'thread.started',thread_id:'exec-thread-'+n});
-  if (n === 1) fs.writeFileSync(process.env.YIELD_FILE,JSON.stringify(process.env.MODE === 'plan'
+  if (n === 1 || (process.env.MODE === 'handoff-stuck' && n < 6)) fs.writeFileSync(process.env.YIELD_FILE,JSON.stringify(process.env.MODE === 'plan'
    ? {type:'plan',text:'实现：完成',at:Date.now()}
    : {type:'handoff',text:'已完成及证据；决定及理由；未决外部事项；坑勿重做；下一步',next:'继续',at:Date.now()}));
   fs.writeFileSync(args[args.indexOf('-o')+1],'完成');
@@ -51,7 +51,7 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
   setTimeout(() => {
    const mode = process.env.MODE;
    if ((mode === 'plan' && count === 1) || (mode === 'replan' && count === 2)) fs.writeFileSync(process.env.YIELD_FILE,JSON.stringify({type:'plan',text:'实现：假测试通过\\n验收点：报告完成',at:Date.now()}));
-   if ((mode === 'handoff' && count === 1) || (mode === 'replan' && (count === 1 || count === 3)))
+   if ((mode === 'handoff' && count === 1) || (mode === 'handoff-stuck' && count < 6) || (mode === 'replan' && (count === 1 || count === 3)))
      fs.writeFileSync(process.env.YIELD_FILE, JSON.stringify({type:'handoff',text:'已完成及证据；决定及理由；未决外部事项；坑勿重做；下一步',next:'继续',at:Date.now()}));
 
    if (count === 1 && (mode === 'yield-park' || mode === 'yield-blocked')) {
@@ -139,6 +139,31 @@ try {
     if (mode === 'handoff') assert(execs[1].prompt.startsWith(anchor));
     assert(!existsSync(join(scratch,id+'.asks')));
   }
+  for (const backend of ['app', 'exec']) {
+    if (backend === 'exec') process.env.FLEET_CODEX_BACKEND = 'exec';
+    else delete process.env.FLEET_CODEX_BACKEND;
+    const id = 'handoff-stuck-' + backend;
+    process.env.FLEET_DETACHED_RUN_ID = id;
+    process.env.MODE = 'handoff-stuck';
+    process.env.TRACE = join(scratch, id + '.trace');
+    process.env.YIELD_FILE = join(scratch, id + '.yield');
+    const result = await runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,continuationJudge:async()=>({ok:false})});
+    const trace = readFileSync(process.env.TRACE,'utf8').trim().split('\n').map(JSON.parse);
+    assert.equal(trace.filter(e => backend === 'exec' ? e.args : e.method === 'turn/start').length, 3);
+    assert.match(result.continueStop, /连续两次续做无进展/);
+  }
+  process.env.FLEET_CODEX_BACKEND = 'exec';
+  process.env.FLEET_DETACHED_RUN_ID = 'handoff-stop';
+  process.env.MODE = 'handoff';
+  process.env.TRACE = join(scratch, 'handoff-stop.trace');
+  process.env.YIELD_FILE = join(scratch, 'handoff-stop.yield');
+  await runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true,continuationJudge:async()=>{
+    appendInbox('handoff-stop', {type:'stop',text:''});
+    await delay(50);
+    return {ok:false};
+  }});
+  assert.equal(readFileSync(process.env.TRACE,'utf8').trim().split('\n').map(JSON.parse).filter(e=>e.args).length, 1);
+  console.log('PASS - repeated handoffs stop and exec stop during handoff prevents restart');
   delete process.env.FLEET_CODEX_BACKEND;
   // Recreate a dead runner's durable park: resume must wait before any model turn.
   process.env.FLEET_DETACHED_RUN_ID = 'recovered-park';

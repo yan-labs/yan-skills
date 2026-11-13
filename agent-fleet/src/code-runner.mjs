@@ -318,6 +318,25 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     activeSince = Date.now();
     return { prompt: `${entry.say}\n条件：${entry.until}\n终态：${JSON.stringify(result)}${replies.length ? '\n答复：' + replies.join('\n\n') : ''}` };
   };
+  let previous, previousHandoff, stagnant = 0;
+  const checkProgress = (state, handoff) => {
+    if (previous) {
+      const progress = continuationProgress(previous, state);
+      if (handoff !== undefined && previousHandoff !== undefined && handoff !== previousHandoff) progress.progress = true;
+      metadata.continuation.push({ attempt: metadata.continueCount, ...progress });
+      stagnant = progress.progress ? 0 : stagnant + 1;
+    }
+    previous = state;
+    previousHandoff = handoff;
+  };
+  const checkHandoff = yielded => {
+    checkProgress(readContinuationState(workdir, reportPath, prompt), stages.latest);
+    metadata.continueRequired = true;
+    if (stagnant >= 2) metadata.continueStop = '连续两次续做无进展';
+    else metadata.continueCount++;
+    record();
+    return Boolean(metadata.continueStop);
+  };
   let outcome;
   try {
     if (!stopping && process.env.FLEET_CODEX_BACKEND !== 'exec') {
@@ -372,7 +391,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         child.stdin.write('{"method":"initialized"}\n');
         const response = await rpc(resume ? 'thread/resume' : 'thread/start', { ...(resume ? { threadId: resume } : {}), cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
         metadata.threadId = metadata.sessionId = response.thread.id; ownsAppThread = true; record();
-        let nextPrompt = resume ? stages.anchor : fullPrompt, previous, stagnant = 0;
+        let nextPrompt = resume ? stages.anchor : fullPrompt;
         if (resumedFrom) {
           const pendingYield = readYield(resumedFrom);
           if (pendingYield && !pendingYield.resolvedAt) {
@@ -405,7 +424,10 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
           inbox.pump(); await drain;
           if (completed?.status !== 'completed' || stopping) break;
           const yielded = await handleYield();
+          inbox.pump(); await drain;
+          if (stopping) break;
           if (yielded?.handoff) {
+            if (checkHandoff(yielded)) break;
             await rpc('thread/archive', { threadId: metadata.threadId });
             const fresh = await rpc('thread/start', { cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
             metadata.threadId = metadata.sessionId = fresh.thread.id;
@@ -417,11 +439,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
           const state = readContinuationState(workdir, reportPath, prompt);
           metadata.reportConclusion = state.conclusion;
           if (/^(?:阻塞|受阻)/.test(state.conclusion)) log(fleetEvent(FLEET_EVENTS.BLOCKED));
-          if (previous) {
-            const progress = continuationProgress(previous, state);
-            metadata.continuation.push({ attempt: metadata.continueCount, ...progress });
-            stagnant = progress.progress ? 0 : stagnant + 1;
-          }
+          checkProgress(state);
           let missing = [], judgment;
           if (continueEnabled && reportPath && !state.conclusion.startsWith('失败')) {
             missing = continuationRules(state, prompt, workdir, initial);
@@ -436,7 +454,6 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
           if (metadata.continueRequired && stagnant >= 2) metadata.continueStop = '连续两次续做无进展';
           record();
           if (!metadata.continueRequired || metadata.continueStop) break;
-          previous = state;
           metadata.continueCount++;
           nextPrompt = `继续完成本任务，具体缺项：\n${missing.map(item => `- ${item}`).join('\n')}\n只做 brief 已授权范围；做完更新报告七节及要求的交付凭据，中途自查不是最终交付。`;
           log(`[codex] 续做 ${metadata.continueCount} 次`);
@@ -452,7 +469,6 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     if (!stopping && !metadata.yield && !metadata.resumeBlocked && (!outcome || offsetQueue.length)) {
       metadata.backend = 'codex-exec';
       let session = metadata.threadId;
-      let previous, stagnant = 0;
       let nextPrompt = session ? offsetQueue.splice(0).join('\n\n') || fullPrompt : fullPrompt;
       do {
         writeFileSync(resultPath, '');
@@ -488,9 +504,16 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         activeChild = null;
         if (stopping || outcome.code !== 0) break;
         const yielded = await handleYield();
-        if (yielded?.blocked) break;
+        inbox.pump(); await drain;
+        if (stopping || yielded?.blocked) break;
         if (yielded?.prompt) {
-          if (yielded.handoff) { await archive(); session = null; }
+          if (yielded.handoff) {
+            if (checkHandoff(yielded)) break;
+            await archive();
+            inbox.pump(); await drain;
+            if (stopping) break;
+            session = null;
+          }
           else session = metadata.threadId;
           nextPrompt = yielded.prompt; continue;
         }
@@ -503,18 +526,13 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         }
         const state = readContinuationState(workdir, reportPath, prompt);
         metadata.reportConclusion = state.conclusion;
-        if (previous) {
-          const progress = continuationProgress(previous, state);
-          metadata.continuation.push({ attempt: metadata.continueCount, ...progress });
-          stagnant = progress.progress ? 0 : stagnant + 1;
-        }
+        checkProgress(state);
         const missing = continueEnabled && reportPath ? continuationRules(state, prompt, workdir, initial) : [];
         metadata.continueRequired = missing.length > 0;
         metadata.continuationChecks.push({ turn: metadata.numTurns, rules: missing, judge: null });
         if (metadata.continueRequired && stagnant >= 2) metadata.continueStop = '连续两次续做无进展';
         if (!metadata.continueRequired || metadata.continueStop) break;
         if (!metadata.threadId) { metadata.continueStop = '缺少 threadId，无法续做'; break; }
-        previous = state;
         metadata.continueCount++;
         session = metadata.threadId;
         nextPrompt = `继续完成本任务，具体缺项：\n${missing.map(item => `- ${item}`).join('\n')}\n只做 brief 已授权范围；做完更新报告七节及要求的交付凭据，中途自查不是最终交付。`;
