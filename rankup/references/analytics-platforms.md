@@ -163,6 +163,8 @@ node <rankup-skill-dir>/scripts/analytics-beacon-check.mjs <url> --both \
 `--wait-slot <秒>` 可调（`0` 表示不等待）；超时会报清楚的 dedicated-pool 错误，而不是
 `open` 立刻失败。
 
+来源归因另跑 `node <rankup-skill-dir>/scripts/ga4-attribution-probe.mjs --url '<落地页>?utm_source=chatgpt.com'`：首个 GA4 命中的 `dl` 要带 utm、`dr` 要是来源页；两者都空 GA4 就记 direct（2026-11-13 模板站 `page_referrer: ''` 加剥 query 导致约 95% direct）。每次运行算目标站一次真实访问。
+
 必须在同一会话首次交互或超时后检查各 SDK 份数，再自然点击完成 SPA 导航重查；共享加载器
 按 provider 在排程时去重，首次触发前后的 head 回放都不能重复注册。脚本 URL 存在、
 资源请求发生、成功加载、真实发送与响应状态是不同事实，未知不能填通过。
