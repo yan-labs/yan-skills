@@ -116,8 +116,10 @@ export function continuationRules(state, brief, cwd = process.cwd(), initial = n
     .flatMap(line => line.split(/[。；;]|[，,](?=(?:不|无需|无须|禁止))/))
     .filter(clause => /要求|必须|需要|给出|给|列出|提供|包含|附上|记录|补齐|验收[：:]/.test(clause));
   const needsCommit = commitRequired(brief);
+  const action = brief.match(/^动作[ \t]*[:：][ \t]*(.*)$/m)?.[1];
+  const needsImplementation = action === undefined || action.split('/').some(item => item.replace(/[（(].*?[）)]/g, '').trim() === '改代码');
   const needsReadback = requirements.some(clause => /读回结果|回读结果/.test(clause) && !/不(?:要|用|需|必)?(?:读回|回读)|无需(?:读回|回读)|无须(?:读回|回读)|禁止(?:读回|回读)/.test(clause));
-  if (needsCommit && initial && /^(?:部分完成|未完成)/.test(state.conclusion) && state.head === initial.head && !hasCarriedCommit(brief, state.report, cwd) && !hasReportedRemoteCommit(brief, state.report)) missing.push('缺少实现改动和提交');
+  if (needsCommit && needsImplementation && initial && /^(?:部分完成|未完成)/.test(state.conclusion) && state.head === initial.head && !hasCarriedCommit(brief, state.report, cwd) && !hasReportedRemoteCommit(brief, state.report)) missing.push('缺少实现改动和提交');
   if (needsCommit && !/\b[0-9a-f]{7,40}\b/i.test(state.report)) missing.push('补齐 brief 要求的提交哈希');
   if (needsReadback && !/(?:读回|回读)[^\n]*(?:通过|成功|一致|正常|published|HTTP\s*200|结果[：:]\s*\S)/i.test(state.report)) missing.push('补齐 brief 要求的实际读回结果');
   return missing;

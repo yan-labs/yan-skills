@@ -8,7 +8,7 @@ function spawnSync(cmd, args, opts) {
   }
   return rawSpawnSync(cmd, args, opts);
 }
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 const root = resolve(import.meta.dirname ?? new URL('..', import.meta.url).pathname, import.meta.dirname ? '..' : '.');
@@ -88,6 +88,20 @@ try {
     assert.equal(metadata.tier,'terra');
     assert.deepEqual(metadata.auth,['local']);
     assert.deepEqual(metadata.actions,[]);
+  });
+  test('项目派单经验在 new 和 relaunch 中按优先级注入', () => {
+    const project=join(temp,'lessons-project'), repo=join(project,'nested');
+    mkdirSync(join(project,'.rankup/infra'),{recursive:true}); mkdirSync(repo,{recursive:true});
+    const primary=join(realpathSync(project),'.rankup/infra/13-dispatch-kit.md'), fallback=join(realpathSync(project),'.rankup/dispatch.md');
+    writeFileSync(primary,'经验'); writeFileSync(fallback,'备用');
+    const body=join(temp,'lessons-body.md'); writeFileSync(body,`## 入口\n仓库: ${repo}\n`);
+    let r=run(['new','lessons','--to','gpt','--action','只读','--body',body,'--no-launch']);
+    assert.equal(r.status,0,r.stderr); assert.ok(r.stdout.includes(primary));
+    const file=join(path.slice(0,path.lastIndexOf('/')),'lessons.brief.md');
+    assert.ok(readFileSync(file,'utf8').includes(`## 已知坑\n项目派单经验：${primary}（派单前先读）`));
+    rmSync(primary); r=run(['relaunch','lessons']); assert.equal(r.status,7,r.stderr); assert.ok(r.stdout.includes(fallback));
+    const updated=readFileSync(file,'utf8'); assert.ok(updated.includes(fallback)); assert.ok(!updated.includes(primary));
+    rmSync(fallback); r=run(['relaunch','lessons']); assert.equal(r.status,7,r.stderr); assert.doesNotMatch(r.stdout,/项目派单经验：/); assert.doesNotMatch(readFileSync(file,'utf8'),/项目派单经验：/);
   });
   test('只读授权和动作身份写入元信息，重派可沿用', () => {
     writeFileSync(join(temp,'read-entry.md'), '## 入口\n仓库: /tmp\n');
@@ -238,6 +252,8 @@ try {
       ['付费',entry,[],/paid/],
       ['未知动作',entry,[],/未知或空动作/],
     ]) { r=strict(action,body,opts); assert.equal(r.status,1,action); assert.match(r.stderr,expected); assert.match(r.stderr,/示例（按实际任务和授权修改）/); }
+    r=strict('错误动作',entry); assert.match(r.stderr,/合法集合：只读、改代码、本地提交、推送、部署、付费/);
+    r=strict('只读','## 入口\n仓库：/tmp\n自己找 token=abcdefghijklmnopqrstuv'); assert.match(r.stderr,/命中原文：自己找/); assert.doesNotMatch(r.stderr,/abcdefghijklmnopqrstuv/);
     assert.equal(strict('只读','## 入口\n仓库：/tmp\n未知',['--sol']).status,0);
     r=strict('', ''); assert.equal(r.status,0,r.stderr); assert.match(r.stderr,/缺少动作行/);
     r=strict('推送',entry,['--auth','local-commit']); assert.match(r.stderr.split('\n')[0],/^错误：缺授权块 deploy-prod：.*改用 --auth local-commit,deploy-prod/);

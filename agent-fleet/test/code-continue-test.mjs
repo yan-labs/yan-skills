@@ -584,6 +584,13 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   const commitBrief = '## 授权覆盖\n允许在本地分支提交。\n## 目标\n实现代码并提交，给出提交哈希。';
   const initial = { head: 'abc', files: 'unchanged' };
   assert(continuationRules({ ...completeReport, ...initial, files: 'other-change', conclusion: '未完成', report: completeReport.report + '\n基线 abcdef123' }, commitBrief, scratch, initial).some(x => x.includes('实现改动')));
+  for (const action of ['推送 / 部署 / 本地提交', '本地提交']) {
+    const releaseBrief = `${commitBrief}\n动作: ${action}`;
+    const missing = continuationRules({ ...completeReport, ...initial, conclusion: '部分完成' }, releaseBrief, scratch, initial);
+    assert(!missing.some(x => x.includes('实现改动')));
+    assert(missing.some(x => x.includes('提交哈希')));
+  }
+  assert(continuationRules({ ...completeReport, ...initial, conclusion: '部分完成' }, `${commitBrief}\n动作: 改代码 / 推送`, scratch, initial).some(x => x.includes('实现改动')));
   assert.equal(buildBrief({ok:true, result:'未完成', reportConclusion:'未完成'}).verdict, 'partial');
   assert(!continuationRules({ ...completeReport, ...initial, head: 'def', conclusion: '部分完成', report: completeReport.report + '\nabcdef123' }, commitBrief, scratch, initial).some(x => x.includes('实现改动')));
   assert(continuationRules(completeReport, '产物清单：\n- 报告：missing.md（上限 2 KB）\n', scratch).some(item => item.includes('missing.md')));
