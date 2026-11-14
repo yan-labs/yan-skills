@@ -12,7 +12,11 @@ const live = new Set(['queued', 'running', 'parked', 'waiting']);
 const pathFor = id => join(runsDir(), `${id}.queue.json`);
 function read(path) {
   try { return JSON.parse(readFileSync(path, 'utf8')); }
-  catch (err) { if (err.code === 'ENOENT') return null; throw err; }
+  catch (err) {
+    if (err.code === 'ENOENT') return null;
+    if (err instanceof SyntaxError) throw new Error(`槽位状态 JSON 损坏：${path}；请检查该记录后重试`, { cause: err });
+    throw err;
+  }
 }
 function write(row) {
   const path = pathFor(row.runId), tmp = `${path}.${process.pid}.tmp`;

@@ -185,15 +185,18 @@ p=json.loads(base64.b64decode(sys.argv[1]))
 """ + CANONICAL_SCRIPT + """
 p['paths']=[canonical(x) for x in p['paths']]; missing=[x for x in p['paths'] if not pathlib.Path(x).exists()]; tools=[t for t in p.get('commands',[]) if not shutil.which(t)]
 kind=p['kind']; binary=pathlib.Path(p['bin']); root=binary.parent if binary.is_dir() else binary.parent.parent; envnames={'claude':'ANTHROPIC_CREDIT_API_KEY','openai':'OPENAI_CREDIT_API_KEY','gemini':'KOLLAB_PROD_API_KEY','jev':'TYPESAFE_API_KEY'}
-if kind in envnames:
- js="import {loadEnvFile} from './src/env.mjs'; loadEnvFile('.env'); process.exit(process.env[process.argv[1]] ? 0 : 1)"
- r=subprocess.run(['node','--input-type=module','-e',js,envnames[kind]],cwd=root,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10); ready=r.returncode==0
-elif kind in ('gpt','grok'):
- cmd=['codex','login','status'] if kind=='gpt' else ['grok','models']
- try: ready=subprocess.run(cmd,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20).returncode==0
- except (OSError,subprocess.TimeoutExpired): ready=False
-else: ready=False
-print(json.dumps({'missing':missing,'ready':ready,'tools':tools}))
+timed_out=False
+try:
+ if kind in envnames:
+  js="import {loadEnvFile} from './src/env.mjs'; loadEnvFile('.env'); process.exit(process.env[process.argv[1]] ? 0 : 1)"
+  cmd=['node','--input-type=module','-e',js,envnames[kind]]
+ elif kind in ('gpt','grok'):
+  cmd=['codex','login','status'] if kind=='gpt' else ['grok','models']
+ else: cmd=None
+ ready=bool(cmd) and subprocess.run(cmd,cwd=root,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=60).returncode==0
+except subprocess.TimeoutExpired: ready=False; timed_out=True
+except OSError: ready=False
+print(json.dumps({'missing':missing,'ready':ready,'tools':tools,'timed_out':timed_out}))
 """
     report = os.path.normpath(meta['report']) if meta.get('report') else None
     checkpoint = os.path.splitext(report)[0] + '.checkpoint.md' if report else None
@@ -213,9 +216,17 @@ print(json.dumps({'missing':missing,'ready':ready,'tools':tools}))
             if synced: print('Mini 已同步报告文件：' + '、'.join(synced), flush=True)
         except (OSError, subprocess.TimeoutExpired, ValueError):
             return 'Mini 报告同步失败'
-        result = call(script, payload, timeout=25)
-        if result.returncode: return 'Mini 环境检查失败'
-        value = json.loads(result.stdout)
+        for attempt in range(2):
+            try:
+                result = call(script, payload, timeout=75)
+                if result.returncode: return 'Mini 环境检查失败'
+                value = json.loads(result.stdout)
+                if not value.get('timed_out'): break
+            except subprocess.TimeoutExpired:
+                value = {'timed_out': True}
+            if attempt == 0:
+                print('Mini 环境检查超时（负载高），自动重试一次', file=sys.stderr, flush=True)
+        if value.get('timed_out'): return 'Mini 环境检查超时（负载高）'
         reasons = []
         if value.get('tools'): reasons.append(TOOLS_MISSING + '、'.join(value['tools']) + '（已按登录 shell 补 /opt/homebrew/bin 仍找不到）')
         if value['missing']: reasons.append('Mini 缺少路径：' + '、'.join(local_path(x) for x in value['missing']))

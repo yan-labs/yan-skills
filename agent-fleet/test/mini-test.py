@@ -49,6 +49,15 @@ with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, 
     assert mini.preflight({'to':'gpt', 'name':'unit', 'report':'/tmp/report.md'}, ['/tmp/unit/', '/tmp/report.md', '/tmp/report.checkpoint.md', '/tmp/input']) is None
     assert remote.call_args.args[1]['paths'][-1:] == ['/tmp/input']
 
+for first in (subprocess.TimeoutExpired('mm', 75), subprocess.CompletedProcess([], 0, '{"timed_out":true}', '')):
+    good = subprocess.CompletedProcess([], 0, '{"missing":[],"ready":true}', '')
+    with patch.object(mini, 'call', side_effect=[first, good]) as remote:
+        assert mini.preflight({'to':'gpt'}, []) is None
+        assert remote.call_count == 2 and remote.call_args.kwargs['timeout'] == 75
+with patch.object(mini, 'call', side_effect=subprocess.TimeoutExpired('mm', 75)) as remote:
+    assert mini.preflight({'to':'gpt'}, []) == 'Mini 环境检查超时（负载高）'
+    assert remote.call_count == 2
+
 with tempfile.TemporaryDirectory() as d:
     root_fixture = Path(d)
     (root_fixture / 'src').mkdir()

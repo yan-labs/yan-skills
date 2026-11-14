@@ -3,7 +3,7 @@
 // 只按 pid 树杀,绝不按名字批量杀。
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve as resolvePath } from 'node:path';
 
 import { runsDir } from './progress.mjs';
@@ -31,7 +31,9 @@ export function readPidRecord(runId) {
 
 export function writePidRecord(runId, rec) {
   if (process.env.FLEET_SLOT_RUN_ID) rec = { ...rec, slotRunId: process.env.FLEET_SLOT_RUN_ID };
-  writeFileSync(pidPath(runId), `${JSON.stringify(rec, null, 2)}\n`);
+  const path = pidPath(runId), tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(rec, null, 2)}\n`);
+  renameSync(tmp, path);
   return rec;
 }
 
