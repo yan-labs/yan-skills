@@ -372,9 +372,11 @@ console.log(`PASS detach integration; artifacts: ${scratch}`);
   const { queueRecord, setSlotState, saveCodexQuota, pathsOverlap, canonicalPath, slotPool, registerQueue, taskIdentity, releaseParentSlot, acquireSlot } = await import('../src/queue.mjs');
   // 模拟旧 PID writer 截断文件时槽位扫描的可读错误。
   const broken = join(queueRuns, 'truncated.pid.json');
+  await registerQueue({runId:'json-check', model:'claude-haiku'});
   writeFileSync(broken, '');
-  await assert.rejects(registerQueue({runId:'json-check', model:'claude-haiku'}), /槽位状态 JSON 损坏：.*truncated.pid.json/);
+  await assert.rejects(acquireSlot('json-check'), /槽位状态 JSON 损坏：.*truncated.pid.json/);
   (await import('node:fs')).unlinkSync(broken);
+  await setSlotState('json-check', 'done');
   const { writePidRecord } = await import('../src/pid.mjs');
   writePidRecord('atomic-check', {pid:0, finished:true});
   assert.equal(JSON.parse(readFileSync(join(queueRuns, 'atomic-check.pid.json'))).finished, true);
