@@ -61,10 +61,10 @@ CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有�
 **交班步骤：**
 1. 写交接文件 `~/.agent-reports/<日期>/session-handoff.md`：用户方针与授权原话、在跑/排队的 run 和 runId、会话内定时原文、子代理单和报告路径、已决定不做的事、待拍板的事、新坑。
 2. 会话内定时（巡检、交班检查、一次性定时）原文写进交接文件，先不删，等第 6 步新会话确认后再删；停掉纯等待的 `fleet wait` 后台命令；`fleet-go relaunch --after` 排队命令和 caffeinate 这类承载任务的进程不停。
-3. **自动接班（无人值守，不开卡片）：** 定时、巡检、别的会话消息触发的轮次里 app 不许 start_session 直接开会话（只能出卡片等人点），所以交班一律走 App 持久定时：每条主线一条常驻手动任务和一个指针，同项目多条主线不共用（nextspace：运维线 `nextspace-main-takeover` + `handoff/nextspace.md`；编辑器线 `nextspace-editor-takeover` + `handoff/nextspace-editor.md`；11-14 编辑器线因共用的那条写死运维线，交班只能出卡片，空等约 9 小时）；提示词让新会话读交接指针、重建定时、SendMessage 通知旧会话；没有就用 `mcp__scheduled-tasks__create_scheduled_task` 照此建一条（不设 schedule）。交班时写本线指针 `~/.agent-reports/handoff/<项目>[-<线>].md`（本次交接文件路径 + 本会话 local_ id），再 `update_scheduled_task` 把该任务 `fireAt` 设为 2 分钟后——非人工轮次也能重设，到点自动起新会话、不用点（2026-11-13 实测）。不要用 `clear_session self` 原地接班：clear 会把会话内定时一并清掉，没人再唤醒（同日实测）。持久任务要在用户手打的轮次里建或由用户在 App 里把权限模式设成 bypass，否则以默认模式跑、可能卡在权限确认。任务默认无人值守，用户不会回复：交班不等用户发消息、永远不出卡片，一律走上面的持久定时（用户 2026-11-14：“我任务都是无人值守的，所以我不可能回复”）。
+3. **接班开普通会话，不用定时器（用户 2026-11-14：“就正常用正常对话吧……让他自己自动去开一个，然后自己归档就好了，就不走这个定时器了”）：** 定时器起的会话只挂在侧边栏「定时任务」栏、不能置顶，也不能订阅持久任务完成通知，所以不再用 `<项目>-main-takeover` 这类持久定时接班。交班时：有 `start_session` 就直接开一个普通会话，提示词写「接 <项目> 运维主线程：读交接文件 <路径>，重建会话内定时、改绑持久任务通知、置顶自己并改名「<项目> 运维主线程（第 N 棒）」，再 SendMessage 通知旧会话 <local_ id> 删定时并归档」；没有（定时、巡检等非人工轮次）就用 `spawn_task` 出一张同样提示词的接班卡片，等用户点开，旧会话期间照常值守。用户说“交接/交班”时立即这样做。
 4. **处理本会话还没回来的 Agent 子代理（executor-*）：** 正在写代码、发布等有实际产出的，让它做完，结论用 SendMessage 转给新会话。只在等的（等定时点、等迁移或复制、等 CI），立刻 SendMessage 让它收尾：停掉自己的后台等待；确认真正干活的进程已脱钩（Mini 上父进程为 1、集群或服务端在跑），否则先改成脱钩；在报告末尾写「交接 checkpoint」（做到哪、怎么查状态、下一步命令与判据、回滚）；worklist 标“由新主会话接续”；然后结束。旧会话把 checkpoint 路径转给新会话，由新会话挂定时到点派执行者。
-5. **持久任务通知改绑（接班必做）：** App 持久定时（scheduled-tasks）跑完只通知「最后一次设 notifyOnCompletion 的会话」，旧主会话归档后结果就没人收（2026-11-14 R2b 夜跑即如此）。新主会话接班后 `list_scheduled_tasks`，对本项目所有 enabled 的、以及今天刚跑过的任务逐个 `update_scheduled_task(notifyOnCompletion: true)` 改绑到自己；新建持久任务的提示词必须要求把结果写进报告和 `.rankup/worklist.md` 对应行，通知漏了也能从记录读回。接班任务没存 bypass 权限时，无人值守轮次里 `update_scheduled_task` 要人工批准、改绑会失败（2026-11-14 实测）：要求用户把 `<项目>-main-takeover` 设成 bypass；失败时新会话写进交接文件，等用户在场再改绑。
-6. 新会话不重派已转交的单。**旧会话自动归档，不等用户提醒（用户 2026-11-13：“你应该自动归档啊”）**：收到新会话“定时已重建”的确认后（约 2 分钟后没收到就 `list_task_runs` 看接班 run 是否失败或卡在权限，失败就修好重设 fireAt；旧会话在确认前照常值守、定时不删），旧会话删掉自己全部定时，确认没有未转交的子代理、没有挂在本会话的承载进程，就用 `mcp__ccd_session_mgmt__archive_session` 归档自己（先 ToolSearch 加载），只在最后回复一行说明已归档；不要为了等某个凌晨定时点把旧会话留着，也不问用户要不要归档。
+5. **持久任务通知改绑（接班必做）：** App 持久任务跑完只通知最后一次设 `notifyOnCompletion` 的会话；新主会话（普通会话）接班后 `list_scheduled_tasks`，对本项目所有 enabled 的和今天跑过的任务逐个 `update_scheduled_task(notifyOnCompletion: true)`；新建持久任务的提示词要求结果写进报告和 `.rankup/worklist.md` 对应行，通知漏了也能读回。
+6. 新会话不重派已转交的单。**旧会话自动归档，不等用户提醒（用户 2026-11-13：“你应该自动归档啊”）**：收到新会话“定时已重建”的确认后（确认前旧会话照常值守、定时不删），旧会话删掉自己全部定时，确认没有未转交的子代理、没有挂在本会话的承载进程，就用 `mcp__ccd_session_mgmt__archive_session` 归档自己（先 ToolSearch 加载），只在最后回复一行说明已归档；不要为了等某个凌晨定时点把旧会话留着，也不问用户要不要归档。
 
 **交班坑（2026-11-13）：**
 - 子代理在等的时候会开很多「Wait until …」后台进程，它们挂在本会话，会话归档就跟着停；这些等待一律改成 checkpoint 加新会话定时，不能一直挂在旧会话。
@@ -78,6 +78,8 @@ CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有�
 - `relaunch` 读的是保存的 brief.md，不是 body.md；改了 body.md 要同步改 brief.md（或用 `amend`），否则重派仍按旧要求做。
 - 巡检子单只给本会话派出的 run 下指令；已结束的 run 不发指令；有进度文件的长任务以进度文件的更新时间判断是否卡住，不按 2 小时规则强令收尾。
 - 阶段计划和交接自动继续，不发审批 ask；`fleet wait` 遇到 ask 只提示并继续等终态。Codex 子线程完成不能当作主任务完成；见 [阶段接力与等待](references/codex-coding.md#阶段接力与等待)。
+- gpt 单一直 queued 无原因：多半是 Codex 用量闸门（`~/.agent-fleet/runs/codex-quota.json` 的 usedPercent 超过 `FLEET_CODEX_QUOTA_LIMIT`，默认 90）。用户说额度够用时，把 `FLEET_CODEX_QUOTA_LIMIT` 写进两机 agent-fleet `.env`；闸门在每个排队进程启动时读入，已在排队的单要 stop 后 relaunch 才生效，而且旧进程会挡住同池后面的单（2026-11-14）。
+- 可写路径被别的会话的单占用时，`relaunch --worktree` 不够：先在 brief.md 与 brief.json 的 `writes` 里都改成自己的 worktree 路径再重派（2026-11-14）。
 - Codex 偶发 `workspace routing discovery failed`，巡检单秒失败时主线程自己看 `fleet-go status` 和进度文件 mtime，不反复重派。
 - 会话内定时（CronCreate session-only）随会话消失；交班时把定时原文写进交接文件，由新会话重建。
 - run 结束或交班时，它启动的子进程会被一起停掉（11-13 cf-migrate 交班连带杀了后台复制进程）。要跨棒存活的长进程，从一开始就和 run 脱钩启动，并把 PID 和续传方法写进 checkpoint；交班前先确认这一点。
@@ -154,7 +156,7 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 
 - **改方向**：用 `fleet-go amend <name> "补充要求"`，它给 brief 顶部追加「修订 N」并（`--say`）尽量发给运行中的任务；Codex 优先同轮 steer，失败尝试中断后续会话；任务已结束（常见：部分完成交回）时 `--say` 直接按修订后的 brief relaunch（整条命令放 `run_in_background`），不必再单独 relaunch；运行中且两者都不可用时会提示，此时才考虑 `--restart`（只停止所选 run，按 runId/brief/`--name` 核验残留，最多等 60 秒、每 0.5 秒轮询，再走 `relaunch`，以 run 身份判断。超时已确认 stopped 且无同一 runId 存活时告警并重新拉起，否则保留修订并报错）。`amend --auth` 和 `--action` 可替换保存的授权与动作；路径冲突时可按提示用 `relaunch --after` 排队。调整沿用 `amend` / `relaunch` 保存的 brief 与任务身份。`amend` 和 `relaunch` 显式传 `--sol`、`--simple` 或 `--luna` 会替换并保存旧模型档位；显式传 `--low`、`--high`、`--xhigh` 或 `--max` 会替换保存的推理档位。同一次命令中的互斥选项仍不能同用；切到 Terra 时若未指定推理档位，会清除 Luna 专用的 xhigh/max。`amend` 的档位在重启或下次重派生效，运行中插话不会切换当前模型。
 - 看进度：`fleet-go status`（默认非终态及最近 1 小时，`--all` 查看全部本地历史；脱离启动的任务带 ⚠；Mini 的单一次 ssh 批量取，取不到时 stderr 提示「Mini 状态未取到：超时/连接失败…」，此时只列本机）；仍可用 `fleet status --running --json`。
-- 账本与打分：每个 run 结束自动往 `~/.agent-fleet/ledger.jsonl` 追加一行元数据；`fleet-go new` 可带 `--level L1-L4`、`--type`、`--for <被复核任务名>`，复核结论末尾写 `LEDGER: blockers=<n> verdict=<pass|fail|partial>`；`fleet-go score [--since 日期]` 按执行者输出计数。字段、配对、回填见[账本与 score](references/ledger.md)。
+- 账本与打分：每个 run 结束自动往 `~/.agent-fleet/ledger.jsonl` 追加一行元数据，Claude 子代理（Agent 工具拉起的，`route=claude-sub`）由 SubagentStop 钩子同样记账；`fleet-go new` 可带 `--level L1-L4`、`--type`、`--for <被复核任务名>`，复核结论末尾写 `LEDGER: blockers=<n> verdict=<pass|fail|partial>`；`fleet-go score [--since 日期]` 按执行者输出计数。字段、配对、回填见[账本与 score](references/ledger.md)。
 - 一个任务一次 Bash 调用；多个独立任务同一条消息里并行发多条 Bash。同一仓库多个写入任务各用 `--worktree`；同一个 worktree 只有一个写入者。worktree 建在入口「仓库:」上（没有才按 `--write` 推断，与 cwd 无关），子模块只初始化可写路径所在的那个，默认不拉。合回基础分支并推送后即收尾，清理 worktree 和本地功能分支。合并到环境分支仍在主克隆做。
 - 已有 Claude Code 的 PreToolUse hook `~/.claude/hooks/check-fleet-launch.py`：命令里带 `fleet`/`fleet-go` 派单子命令又带 `&`、`nohup`、`setsid`、`disown` 会被直接拦下。
 - 标准块在 `skill/templates/blocks/`（规则句由 `rule-sentence.md` 生成新句，校验兼容全局完整旧句；全局 `~/.claude/CLAUDE.md` §4.1a、§4.2 提供规则与报告的上下文），调整样板时在这里统一修改。
