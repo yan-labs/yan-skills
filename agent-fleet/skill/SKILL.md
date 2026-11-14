@@ -60,10 +60,11 @@ CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有�
 
 **交班步骤：**
 1. 写交接文件 `~/.agent-reports/<日期>/session-handoff.md`：用户方针与授权原话、在跑/排队的 run 和 runId、会话内定时原文、子代理单和报告路径、已决定不做的事、待拍板的事、新坑。
-2. 删本会话的会话内定时（巡检、交班检查、一次性定时，原文已在交接文件），停掉纯等待的 `fleet wait` 后台命令；`fleet-go relaunch --after` 排队命令和 caffeinate 这类承载任务的进程不停。
-3. 用 start_session 开新主会话，brief 让它读交接文件、重挂 `fleet wait`、重建定时和巡检、重建后用 SendMessage 通知旧会话，挂好后告诉用户。由定时、巡检或别的会话消息触发的轮次里 app 不许直接开会话，改用 `initiation: "own_initiative"` 出接班卡片，等用户点开；点开前旧会话照常值守、定时不删。
+2. 会话内定时（巡检、交班检查、一次性定时）原文写进交接文件，先不删，等第 6 步新会话确认后再删；停掉纯等待的 `fleet wait` 后台命令；`fleet-go relaunch --after` 排队命令和 caffeinate 这类承载任务的进程不停。
+3. **自动接班（无人值守，不开卡片）：** 定时、巡检、别的会话消息触发的轮次里 app 不许 start_session 直接开会话（只能出卡片等人点），所以交班一律走 App 持久定时：每条主线一条常驻手动任务和一个指针，同项目多条主线不共用（nextspace：运维线 `nextspace-main-takeover` + `handoff/nextspace.md`；编辑器线 `nextspace-editor-takeover` + `handoff/nextspace-editor.md`；11-14 编辑器线因共用的那条写死运维线，交班只能出卡片，空等约 9 小时）；提示词让新会话读交接指针、重建定时、SendMessage 通知旧会话；没有就用 `mcp__scheduled-tasks__create_scheduled_task` 照此建一条（不设 schedule）。交班时写本线指针 `~/.agent-reports/handoff/<项目>[-<线>].md`（本次交接文件路径 + 本会话 local_ id），再 `update_scheduled_task` 把该任务 `fireAt` 设为 2 分钟后——非人工轮次也能重设，到点自动起新会话、不用点（2026-11-13 实测）。不要用 `clear_session self` 原地接班：clear 会把会话内定时一并清掉，没人再唤醒（同日实测）。持久任务要在用户手打的轮次里建或由用户在 App 里把权限模式设成 bypass，否则以默认模式跑、可能卡在权限确认。任务默认无人值守，用户不会回复：交班不等用户发消息、永远不出卡片，一律走上面的持久定时（用户 2026-11-14：“我任务都是无人值守的，所以我不可能回复”）。
 4. **处理本会话还没回来的 Agent 子代理（executor-*）：** 正在写代码、发布等有实际产出的，让它做完，结论用 SendMessage 转给新会话。只在等的（等定时点、等迁移或复制、等 CI），立刻 SendMessage 让它收尾：停掉自己的后台等待；确认真正干活的进程已脱钩（Mini 上父进程为 1、集群或服务端在跑），否则先改成脱钩；在报告末尾写「交接 checkpoint」（做到哪、怎么查状态、下一步命令与判据、回滚）；worklist 标“由新主会话接续”；然后结束。旧会话把 checkpoint 路径转给新会话，由新会话挂定时到点派执行者。
-5. 新会话不重派已转交的单。**旧会话自动归档，不等用户提醒（用户 2026-11-13：“你应该自动归档啊”）**：收到新会话“定时已重建”的确认后，旧会话删掉自己全部定时，确认没有未转交的子代理、没有挂在本会话的承载进程，就用 `mcp__ccd_session_mgmt__archive_session` 归档自己（先 ToolSearch 加载），只在最后回复一行说明已归档；不要为了等某个凌晨定时点把旧会话留着，也不问用户要不要归档。
+5. **持久任务通知改绑（接班必做）：** App 持久定时（scheduled-tasks）跑完只通知「最后一次设 notifyOnCompletion 的会话」，旧主会话归档后结果就没人收（2026-11-14 R2b 夜跑即如此）。新主会话接班后 `list_scheduled_tasks`，对本项目所有 enabled 的、以及今天刚跑过的任务逐个 `update_scheduled_task(notifyOnCompletion: true)` 改绑到自己；新建持久任务的提示词必须要求把结果写进报告和 `.rankup/worklist.md` 对应行，通知漏了也能从记录读回。接班任务没存 bypass 权限时，无人值守轮次里 `update_scheduled_task` 要人工批准、改绑会失败（2026-11-14 实测）：要求用户把 `<项目>-main-takeover` 设成 bypass；失败时新会话写进交接文件，等用户在场再改绑。
+6. 新会话不重派已转交的单。**旧会话自动归档，不等用户提醒（用户 2026-11-13：“你应该自动归档啊”）**：收到新会话“定时已重建”的确认后（约 2 分钟后没收到就 `list_task_runs` 看接班 run 是否失败或卡在权限，失败就修好重设 fireAt；旧会话在确认前照常值守、定时不删），旧会话删掉自己全部定时，确认没有未转交的子代理、没有挂在本会话的承载进程，就用 `mcp__ccd_session_mgmt__archive_session` 归档自己（先 ToolSearch 加载），只在最后回复一行说明已归档；不要为了等某个凌晨定时点把旧会话留着，也不问用户要不要归档。
 
 **交班坑（2026-11-13）：**
 - 子代理在等的时候会开很多「Wait until …」后台进程，它们挂在本会话，会话归档就跟着停；这些等待一律改成 checkpoint 加新会话定时，不能一直挂在旧会话。
