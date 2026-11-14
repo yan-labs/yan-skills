@@ -10,7 +10,7 @@
     "fleet-go": "bin/fleet-go"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.14.0"
   },
   "scripts": {
     "smoke-test": "node test/assert-helper.mjs --isolated sh -c \"node test/smoke-test.mjs\"",
@@ -20,7 +20,7 @@
     "check-sdk": "node -e \"const {execSync}=require('child_process');const pkg=require('./package.json');const cur=pkg.dependencies['@anthropic-ai/claude-agent-sdk'];const latest=execSync('npm view @anthropic-ai/claude-agent-sdk version').toString().trim();console.log('package.json 当前: '+cur+'  |  npm 最新: '+latest);\""
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.303"
+    "@anthropic-ai/claude-agent-sdk": "^0.3.325"
   },
   "license": "MIT"
 }
