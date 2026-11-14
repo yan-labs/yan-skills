@@ -207,7 +207,7 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
                 if 'local-commit' in current: current.discard('local')
                 errors.insert(0, '缺授权块 ' + ','.join(a for a in AUTH if a in needed) + '：' + '；'.join(why) + '。改用 --auth ' + ','.join(a for a in AUTH if a in current) + '（已派的单用 fleet-go amend <名字> "<说明>" --auth 同值）')
             if not actions <= valid:
-                errors.append('动作行含未知或空动作。')
+                errors.append('动作行含未知或空动作，合法集合：只读、改代码、本地提交、推送、部署、付费。')
             repo = re.search(r'^[ \t]*仓库[ \t]*[:：][ \t]*([^\s，,；;（(]+)', entry, re.M)
             if not repo:
                 errors.append('入口缺少仓库绝对路径。')
@@ -227,7 +227,9 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
             if actions - {'只读'} and not re.search(r'^[ \t]*可写路径[ \t]*[:：][ \t]*/[^\s（(]*', entry, re.M):
                 errors.append('入口缺少可写路径。')
         if to == 'gpt' and not sol and re.search(r'未知|自己找', entry):
-            errors.append('入口未知或自己找时请加 --sol。')
+            hit = re.search(r'未知|自己找', entry)
+            number = text.count('\n', 0, entry_match.start(1) + hit.start()) + 1
+            errors.append(f'入口未知或自己找时请加 --sol。第 {number} 行命中原文：{hit.group()}。')
         if simple:
             writes = re.findall(r'^[ \t]*可写路径[ \t]*[:：][ \t]*(/[^\s，,；;（(]+)', entry, re.M)
             allowed = re.search(r'^## 允许范围\s*\n允许写：\n(.*?)(?=^只读：|^## |\Z)', text, re.M | re.S)
@@ -389,6 +391,26 @@ def refresh_body(path, meta, text):
     return text
 
 
+def dispatch_lessons(text):
+    entry_match = re.search(r'^##?\s*入口\s*[:：]?\s*\n(.*?)(?=^##?\s|\Z)', text, re.M | re.S)
+    entry = entry_match.group(1) if entry_match else ''
+    match = re.search(r'^仓库[ \t]*[:：][ \t]*([^\s，,；;（(]+)', entry, re.M)
+    if not match:
+        return text
+    text = re.sub(r'^项目派单经验：.*（派单前先读）\n?', '', text, flags=re.M)
+    repo = Path(match.group(1).strip('`')).expanduser().resolve()
+    for root in (repo, *repo.parents):
+        if (root / '.rankup').is_dir():
+            for name in ('infra/13-dispatch-kit.md', 'dispatch.md'):
+                lesson = root / '.rankup' / name
+                if lesson.is_file():
+                    line = f'项目派单经验：{lesson}（派单前先读）'
+                    print(line, flush=True)
+                    return text.replace('## 已知坑', '## 已知坑\n' + line, 1) if '## 已知坑' in text else text + '\n## 已知坑\n' + line + '\n'
+            break
+    return text
+
+
 def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None, worktree_base=None, override_order=None, local_reason=None):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     if on == 'local' and not (local_reason or '').strip(): raise ValueError('--on local 必须同时提供 --local-reason 理由。')
@@ -451,7 +473,8 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         raise ValueError('--fast 仅用于 --to gpt。')
     if (low or high or xhigh) and target not in ('gpt', 'gemini'):
         raise ValueError('--low、--high 和 --xhigh 仅用于 --to gpt|gemini。')
-    text = refresh_body(path, meta, path.read_text())
+    text = dispatch_lessons(refresh_body(path, meta, path.read_text()))
+    path.write_text(text)
     if on != 'local' and not mini.available():
         raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
     if worktree_base is not None:
@@ -906,7 +929,7 @@ def new(args, prepare=False):
     if deviation:
         parts.insert(3, deviation)
     if args.on == 'local': parts.insert(3, '本机执行偏差：' + args.local_reason.strip())
-    text = '\n\n'.join(parts) + '\n'
+    text = dispatch_lessons('\n\n'.join(parts) + '\n')
     location = args.on or 'mini'
     if location == 'mini' and not (args.dry_run or args.no_launch or prepare) and not mini.available():
         raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
