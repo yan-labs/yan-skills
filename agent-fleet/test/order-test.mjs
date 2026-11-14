@@ -35,7 +35,7 @@ const seed = `# 调遣令
 const env = { ...process.env, HOME: home, PATH: bin + ':' + process.env.PATH, CALLS: calls, FLEET_DEFAULT_ON: 'local', AGENT_FLEET_ORDER_FILE: orderFile,
   GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.invalid', GIT_CONFIG_GLOBAL: '/dev/null' };
 const sh = (cmd, args, extra = {}) => spawnSync(cmd, args, { encoding: 'utf8', env: { ...env, ...extra }, input: '' });
-const go = (args, extra = {}) => spawnSync(script, args, { encoding: 'utf8', env: { ...env, ...extra }, input: 't' });
+const go = (args, extra = {}) => spawnSync(script, ['new', 'relaunch'].includes(args[0]) ? [...args, '--on', 'local', '--local-reason', 'test fixture'] : args, { encoding: 'utf8', env: { ...env, ...extra }, input: 't' });
 const git = (...args) => sh('git', ['-C', repo, ...args]);
 const reset = () => writeFileSync(orderFile, seed);
 const resetCodexFree = () => writeFileSync(orderFile, seed.replace('| codex | 停用 | 用户另说 |', '| codex | 正常 | 用户另说 |'));

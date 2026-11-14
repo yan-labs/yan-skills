@@ -168,6 +168,7 @@ export function buildRow(rec, index, { useReport = true, backfilled = false } = 
     effort: rec.tier ?? brief.effort ?? (rec.max || meta.max ? 'max' : rec.xhigh || meta.xhigh ? 'xhigh' : rec.high || meta.high ? 'high' : rec.low || meta.low ? 'low' : executor === 'gemini' ? 'xhigh' : null),
     level: meta.level ?? null,
     orderOverride: meta.order_override ?? null,
+    localReason: meta.local_reason ?? null,
     type: meta.type ?? (isReview ? 'review' : /orchestrat/i.test(name) ? 'orchestrate' : 'work'),
     status: rec.status, verdict, outcome, failure: classifyFailure(rec),
     continues: rec.continueCount ?? 0,

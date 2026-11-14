@@ -47,7 +47,7 @@ allowed-tools: Bash(fleet-go order show*) Bash(cat ~/.agents/dispatch-order.md*)
 
 CronCreate 示例（可直接复制并按本会话支持的字段调用）：
 ```text
-CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有后台任务在跑；没有则用 CronList 找到这条巡检并 CronDelete；有则在本会话按本机 ~/.agent-fleet/patrol-brief.md 派 Luna 巡检子单（--luna --high --on local，run_in_background），只看本会话负责的任务：<任务名列表>；完成通知回来后，读它的「需要主会话处理」并逐条处理。")
+CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有后台任务在跑；没有则用 CronList 找到这条巡检并 CronDelete；有则在本会话按本机 ~/.agent-fleet/patrol-brief.md 派 Luna 巡检子单（--luna --high --on mini，run_in_background），只看本会话负责的任务：<任务名列表>；完成通知回来后，读它的「需要主会话处理」并逐条处理。")
 ```
 全局规则见 `~/.claude/CLAUDE.md` §3.2。
 
@@ -74,7 +74,7 @@ CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有�
 
 **派单与巡检经验（2026-11-12～13）**
 - Agent 子代理也能在 Mac Mini 干活：子代理本身在 MacBook 启动，brief 写明命令用 `~/.claude/skills/macmini/scripts/mm '<命令>'` 在 Mini 执行（mm 不在 PATH，写全路径）。不要以"子代理只能本机跑"为由把任务留在本机。
-- `fleet-go relaunch` 沿用原 run 的执行位置；原单是 `--on local` 的，重派前先判断能否改到 Mini，不要照抄。
+- `fleet-go relaunch` 默认在 Mini 执行；明确指定 `--on local --local-reason "理由"` 才在本机执行。
 - `relaunch` 读的是保存的 brief.md，不是 body.md；改了 body.md 要同步改 brief.md（或用 `amend`），否则重派仍按旧要求做。
 - 巡检子单只给本会话派出的 run 下指令；已结束的 run 不发指令；有进度文件的长任务以进度文件的更新时间判断是否卡住，不按 2 小时规则强令收尾。
 - 阶段计划和交接自动继续，不发审批 ask；`fleet wait` 遇到 ask 只提示并继续等终态。Codex 子线程完成不能当作主任务完成；见 [阶段接力与等待](references/codex-coding.md#阶段接力与等待)。
@@ -109,9 +109,9 @@ CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有�
 
 ## 执行位置
 
-默认在 Mac Mini 执行；Mini 任务的报告留在 Mini，用 `fleet-go read <名字或 runId>` 按需读取，`--pull` 显式拉回。brief 引用的 `~/.agent-reports/` 文件、`--body` 正文和可写目录先同步到 Mini：缺的补齐，本机较新的覆盖，并打印同步了哪些；其他路径缺失、同步失败或所选通道不可用时，自动在 MacBook 执行并记录原因。Mini 缺 brief 要用的命令（正文出现 kubectl、aws、gh、psql 等，或 `需要命令: a, b` 行列出的）时直接报错，不回退本机。**Mini 缺工具或凭据时派单补 Mini 环境，不改 `--on local`（紧急窗口单除外）**；查 Mini 有没有某命令用 `mm 'command -v X'` 或 `ssh mac-mini 'zsh -lc "command -v X"'`，裸 `ssh mac-mini` 的 PATH 不含 `/opt/homebrew/bin`，查不到不代表没装。需要 Claude 应用工具（Browser pane、MCP、`executor-*`、读取其他会话或 Claude 定时任务）、只有 MacBook 有登录态的网页后台、操作 Mini 自身，以及一两条命令的只读查询，留在 MacBook。浏览器自动化默认在 Mini 使用 opencli 或 agent-desktop；Mini Chrome 尚未登录目标站时退回 MacBook，并在报告列出需在 Mini 登录的站点。
+默认在 Mac Mini 执行，路径缺失、同步失败、通道不可用或工具缺失时直接报错，在 Mini 补齐（建 worktree、同步目录）后重派，不自动回退。仅显式 `--on local --local-reason "理由"` 可在本机执行，理由记录在 brief 偏差和账本；relaunch 同样默认 Mini。Mini 报告用 `fleet-go read` 查看，`--pull` 显式拉回。brief 引用的报告输入和正文按现有同步方式传到 Mini。`new` 和 `relaunch --worktree` 按 `FLEET_MINI_HOME` 映射在 Mini 对应仓库创建 worktree。
 
-首次使用前，在派单机设置 `FLEET_MINI_HOME`（Mini 家目录）和 `FLEET_MINI_BIN`（Mini 上 fleet 的绝对路径）；可选 `FLEET_LOCAL_HOME` 与 `FLEET_MINI_MM`。也可在本机 `~/.agent-fleet/mini.json` 配置 `remote_home`、`bin`、`local_home`、`mm`；环境变量优先。未配置或引用路径在 Mini 不存在时回退本机；工作目录不存在时改用 brief 入口仓库，仓库不存在则用 Mini 家目录并说明。显式 `--on local` 或 `FLEET_DEFAULT_ON=local` 沿用本机启动行为。
+首次使用前，在派单机设置 `FLEET_MINI_HOME`（Mini 家目录）和 `FLEET_MINI_BIN`（Mini 上 fleet 的绝对路径）；可选 `FLEET_LOCAL_HOME` 与 `FLEET_MINI_MM`。也可在本机 `~/.agent-fleet/mini.json` 配置 `remote_home`、`bin`、`local_home`、`mm`；环境变量优先。未配置或引用路径在 Mini 不存在时直接报错；工作目录不存在时改用 brief 入口仓库，仓库不存在则用 Mini 家目录并说明。显式 `--on local --local-reason "理由"` 才在本机启动。
 
 brief 引用的文件请写绝对路径；预检只检查绝对文件路径，相对路径和 API 路由不受影响，显式指定 `--on mini` 时不会回退。
 

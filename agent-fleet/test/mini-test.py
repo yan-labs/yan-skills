@@ -32,6 +32,7 @@ assert mini.remote_path('/home/a-archive') == '/home/a-archive'
 assert mini.rewrite_brief('正文 /home/a/keep\n- 文本 /home/a/keep\n- /home/a/file\n') == '正文 /home/b/keep\n- 文本 /home/b/keep\n- /home/b/file\n'
 assert not mini.referenced_paths('A/C P50/P95 fu/Bin Redis/DB Java/前端代码里找 private/input.txt')
 assert mini.referenced_paths('~/.agent-reports/2026-11-0*/x.md') == [str(Path.home() / '.agent-reports')]
+assert mini.referenced_paths('/tmp/2026-11-1{4,5}/x') == ['/tmp/2026-11-14/x', '/tmp/2026-11-15/x']
 assert mini.referenced_paths('/tmp/report[0-9].md /tmp/report?.md /tmp/*/x.md') == ['/tmp']
 assert mini.referenced_paths('--read private/input.txt --write ./out* --cwd ../project') == []
 assert mini.rewrite_brief('REPORT: /home/a/r\n普通内容 /home/a-archive') == 'REPORT: /home/b/r\n普通内容 /home/a-archive'
@@ -48,6 +49,12 @@ with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, 
 with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, json.dumps({'missing':[], 'ready':True}), '')) as remote:
     assert mini.preflight({'to':'gpt', 'name':'unit', 'report':'/tmp/report.md'}, ['/tmp/unit/', '/tmp/report.md', '/tmp/report.checkpoint.md', '/tmp/input']) is None
     assert remote.call_args.args[1]['paths'][-1:] == ['/tmp/input']
+with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, json.dumps({'missing':[], 'ready':True}), '')) as remote:
+    assert mini.preflight({'to':'gpt', 'object': {'writes':['/home/a/one,/home/a/two']}}, []) is None
+    assert remote.call_args.args[1]['paths'] == ['/home/b/one', '/home/b/two']
+with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, json.dumps({'missing':[], 'ready':True}), '')) as remote:
+    assert mini.preflight({'to':'gpt', 'object': {'writes':['/home/a/2026-11-1{4,5}']}}, []) is None
+    assert remote.call_args.args[1]['paths'] == ['/home/b/2026-11-14', '/home/b/2026-11-15']
 
 for first in (subprocess.TimeoutExpired('mm', 75), subprocess.CompletedProcess([], 0, '{"timed_out":true}', '')):
     good = subprocess.CompletedProcess([], 0, '{"missing":[],"ready":true}', '')
@@ -224,13 +231,17 @@ pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
     fleet.chmod(0o755)
     env = dict(os.environ, HOME=str(tmp), PATH=str(bin)+':'+os.environ['PATH'], FLEET_DEFAULT_ON='mini', FLEET_LOCAL_HOME='/home/a', FLEET_MINI_HOME='/home/b', FLEET_MINI_BIN='/home/b/fleet')
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','fallback','--to','gpt','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
-    assert proc.returncode == 0, proc.stderr
-    report = next((tmp/'.agent-reports').glob('*/fallback.md'))
-    brief = next((tmp/'.agent-reports').glob('*/fallback.brief.md'))
-    assert 'Mini 不可达，已在 MacBook 执行' in report.read_text()
-    assert 'Mini 不可达，已在 MacBook 执行' in brief.read_text()
-    proc = subprocess.run([str(root/'bin/fleet-go'),'new','local-only','--to','gpt','--on','local','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
+    assert proc.returncode != 0 and 'Mini 不可达' in proc.stderr and '补齐' in proc.stderr
+    assert not next((tmp/'.agent-reports').glob('*/fallback.md'), None)
+    proc = subprocess.run([str(root/'bin/fleet-go'),'new','missing-reason','--to','gpt','--on','local','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
+    assert proc.returncode != 0 and '--local-reason' in proc.stderr
+    proc = subprocess.run([str(root/'bin/fleet-go'),'new','local-only','--to','gpt','--on','local','--local-reason','测试','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
     assert proc.returncode == 0 and 'Mini 不可达' not in proc.stdout
+    local_meta = next((tmp/'.agent-reports').glob('*/local-only.brief.json'))
+    assert json.loads(local_meta.read_text())['local_reason'] == '测试'
+    assert '本机执行偏差：测试' in local_meta.with_suffix('.md').read_text()
+    proc = subprocess.run([str(root/'bin/fleet-go'),'relaunch','local-only'], env=env, text=True, capture_output=True)
+    assert proc.returncode != 0 and 'Mini 不可达' in proc.stderr
     mm = tmp/'.claude/skills/macmini/scripts/mm'; mm.parent.mkdir(parents=True)
     mm.write_text('''#!/bin/sh
 if [ "$1" = --method ]; then echo direct; else
@@ -243,10 +254,10 @@ fi
     mm.chmod(0o755)
     default_env = dict(env); default_env.pop('FLEET_DEFAULT_ON')
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','dev-default','--to','gpt','--sol','--goal','x','--no-lint'], env=default_env, text=True, capture_output=True)
-    assert proc.returncode == 0 and 'Mini 缺少路径' in proc.stdout, (proc.stdout, proc.stderr)
+    assert proc.returncode != 0 and 'Mini 缺少路径' in proc.stderr, (proc.stdout, proc.stderr)
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','unready','--to','claude','--on','mini','--read','/home/a/missing','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
     assert proc.returncode != 0
-    assert 'Mini 缺少路径：/home/a/missing' in proc.stderr and 'claude 通道不可用' in proc.stderr and '未回退' in proc.stderr
+    assert 'Mini 缺少路径：/home/a/missing' in proc.stderr and 'claude 通道不可用' in proc.stderr and '补齐' in proc.stderr
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','recheck','--to','gpt','--sol','--read','/home/a/original','--goal','x','--no-lint','--no-launch'], env=env, text=True, capture_output=True)
     assert proc.returncode == 0, proc.stderr
     # 原 brief 标记 Mini，但最新同名 run 在本机时 amend 不应同步到 Mini。
@@ -261,11 +272,17 @@ fi
     assert proc.returncode == 0, proc.stderr
     assert json.loads(next((tmp/'.agent-reports').glob('*/recheck.brief.json')).read_text())['on'] == 'local'
     proc = subprocess.run([str(root/'bin/fleet-go'),'relaunch','recheck','--on','mini'], env=env, text=True, capture_output=True)
-    assert proc.returncode != 0 and '未回退' in proc.stderr, proc.stderr
+    assert proc.returncode != 0 and '补齐' in proc.stderr, proc.stderr
     metadata = json.loads(next((tmp/'.agent-reports').glob('*/recheck.brief.json')).read_text())
     assert '/home/a/original' in metadata['paths'] and '/home/a/revised' in metadata['paths']
 spec = importlib.util.spec_from_file_location('fleet_go_tools', root / 'src/fleet-go.py')
 fg = importlib.util.module_from_spec(spec); spec.loader.exec_module(fg)
+with patch.object(fg.mini, 'LOCAL_HOME', '/home/a'), patch.object(fg.mini, 'REMOTE_HOME', '/home/b'), patch.object(fg.mini, 'call') as remote, patch.object(fg.worktree, 'execute', side_effect=AssertionError('local worktree')):
+    remote.side_effect = [subprocess.CompletedProcess([], 0, json.dumps({'roots':['/home/b/repo'], 'writes':['src']}), ''), subprocess.CompletedProcess([], 0, json.dumps({'repo':'/home/b/repo','path':'/home/b/repo-wt/task'}), '')]
+    result = fg.prepare_worktree('task', ['/home/a/repo/src'], '', 'mini', '/home/a/repo')
+    assert result['path'] == '/home/b/repo-wt/task'
+    assert remote.call_args_list[0].args[1]['repo'] == '/home/b/repo'
+    assert remote.call_args_list[1].args[1]['path'] == '/home/b/repo-wt/task'
 with tempfile.TemporaryDirectory() as d:
     brief = Path(d) / 'tools.brief.md'; brief.write_text('x')
     with patch.object(fg.mini, 'available', return_value=True), patch.object(fg.mini, 'preflight', return_value=mini.TOOLS_MISSING + 'kubectl（x）'), patch.object(fg.subprocess, 'run') as fallback, patch.object(fg.os, 'execvp') as local:
@@ -273,7 +290,7 @@ with tempfile.TemporaryDirectory() as d:
             fg.launch({'to': 'gpt', 'name': 'tools', 'brief': str(brief), 'report': str(Path(d) / 'r.md'), 'on': None})
             raise AssertionError('should refuse')
         except ValueError as error:
-            assert 'Mini 缺命令：kubectl' in str(error) and '未回退本机' in str(error)
+            assert 'Mini 缺命令：kubectl' in str(error) and '补齐' in str(error)
         assert not fallback.called and not local.called
 # 批量取 Mini 状态：一次调用、Mini 端过滤、失败原因分类。
 import datetime

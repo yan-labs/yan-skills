@@ -48,7 +48,7 @@ def remote_path(value):
 def local_path(value):
     return map_path(value, REMOTE_HOME, LOCAL_HOME)
 
-PATH_PATTERN = r"(?<![\w:/.$~-])(?:\$HOME/|~/|\.\.?/|/)(?:\[[^\]\s「」『』（）【】，。、；：！？“”‘’]+\]|[^\s\"'`<>「」『』（）【】，。、；：！？“”‘’(),;:\[\]{}])+"
+PATH_PATTERN = r"(?<![\w:/.$~-])(?:\$HOME/|~/|\.\.?/|/)(?:\{[^{}\s]+\}|\[[^\]\s「」『』（）【】，。、；：！？“”‘’]+\]|[^\s\"'`<>「」『』（）【】，。、；：！？“”‘’(),;:\[\]{}])+"
 
 def expand_path(value):
     return os.path.abspath(os.path.expanduser(os.path.expandvars(value)))
@@ -112,6 +112,19 @@ def find(spec):
     return None
 
 
+def expand_braces(token):
+    expanded = [token]
+    while any(re.search(r'\{([^{}]+)\}', value) for value in expanded):
+        next_values = []
+        for value in expanded:
+            brace = re.search(r'\{([^{}]+)\}', value)
+            if brace:
+                next_values.extend(value[:brace.start()] + part + value[brace.end():] for part in brace.group(1).split(','))
+            else: next_values.append(value)
+        expanded = next_values
+    return expanded
+
+
 def referenced_paths(text):
     paths = []
     # Only filesystem roots, never relative paths or routes such as /api/foo.
@@ -120,16 +133,17 @@ def referenced_paths(text):
         token = match.group(0).rstrip('.。')
         if not (token.startswith('~/') or token.startswith('$HOME/') or any(token == root or token.startswith(root + '/') for root in roots if root)):
             continue
-        path = expand_path(token)
-        if any(c in path for c in '*?['):
-            path = os.path.dirname(path[:min(path.index(c) for c in '*?[' if c in path)])
-        paths.append(path)
+        for value in expand_braces(token):
+            path = expand_path(value)
+            if any(c in path for c in '*?['):
+                path = os.path.dirname(path[:min(path.index(c) for c in '*?[' if c in path)])
+            paths.append(path)
     return list(dict.fromkeys(paths))
 
 def sync_reports(meta, paths):
     """把本机 ~/.agent-reports 下的输入同步到 Mini：缺的补齐；已有文件本机较新且内容不同就覆盖。"""
     root = Path(LOCAL_HOME) / '.agent-reports'
-    writes = {expand_path(p) for p in [*meta.get('writes', []), *(meta.get('object') or {}).get('writes', [])]}
+    writes = {expand_path(p.strip()) for value in [*meta.get('writes', []), *(meta.get('object') or {}).get('writes', [])] for part in re.split(r',(?=\s*(?:/|~/|\$HOME/))', value) for p in expand_braces(part)}
     targets = []
     for value in dict.fromkeys(paths):
         path = Path(expand_path(value))
@@ -204,7 +218,9 @@ print(json.dumps({'missing':missing,'ready':ready,'tools':tools,'timed_out':time
     def is_input(path):
         path = os.path.normpath(expand_path(path))
         return path not in (report, checkpoint, temp) and not (temp and path.startswith(temp + os.sep))
-    inputs = [p for p in paths if is_input(p)]
+    declared = [part.strip() for value in [*meta.get('writes', []), *(meta.get('object') or {}).get('writes', [])] for part in re.split(r',(?=\s*(?:/|~/|\$HOME/))', value)]
+    inputs = list(dict.fromkeys(p for value in [*paths, *declared] for part in re.split(r',(?=\s*(?:/|~/|\$HOME/))', value) for p in expand_braces(part) if is_input(p.strip())))
+    inputs = [p.strip() for p in inputs]
     try:
         text = Path(meta['brief']).read_text() if meta.get('brief') and Path(meta['brief']).is_file() else ''
     except OSError:
@@ -215,7 +231,7 @@ print(json.dumps({'missing':missing,'ready':ready,'tools':tools,'timed_out':time
             synced = sync_reports(meta, [*([meta['body']] if meta.get('body') else []), *inputs])
             if synced: print('Mini 已同步报告文件：' + '、'.join(synced), flush=True)
         except (OSError, subprocess.TimeoutExpired, ValueError):
-            return 'Mini 报告同步失败'
+            return 'Mini 报告同步失败：' + '、'.join([*([meta['body']] if meta.get('body') else []), *inputs])
         for attempt in range(2):
             try:
                 result = call(script, payload, timeout=75)

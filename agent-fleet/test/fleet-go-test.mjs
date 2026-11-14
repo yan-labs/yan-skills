@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawnSync as rawSpawnSync } from 'node:child_process';
+function spawnSync(cmd, args, opts) {
+  if (cmd === script && ['new', 'relaunch', 'amend'].includes(args[0])) {
+    args = [...args];
+    if (!args.includes('--on')) args.push('--on', 'local');
+    if (args[args.indexOf('--on') + 1] === 'local' && !args.includes('--local-reason')) args.push('--local-reason', 'test fixture');
+  }
+  return rawSpawnSync(cmd, args, opts);
+}
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -550,7 +558,7 @@ try {
     const body=join(temp,'batch-body.md');
     writeFileSync(body,`## 入口\n仓库: ${temp}\n`);
     const manifest=join(temp,'batch.json');
-    const job=(name,path,after)=>[name,'--to','gpt','--on','local','--goal',name,'--body',body,'--write',path,'--no-lint',...(after?['--after',after]:[])];
+    const job=(name,path,after)=>[name,'--to','gpt','--on','local','--local-reason','test fixture','--goal',name,'--body',body,'--write',path,'--no-lint',...(after?['--after',after]:[])];
     writeFileSync(manifest,JSON.stringify([job('batch-a',temp+'/a'),job('batch-b',temp+'/a/src')]));
     reset(); let r=run(['batch',manifest,'--dry-run']);
     assert.equal(r.status,1,r.stderr);assert.match(r.stdout,/重叠矩阵/);assert.match(r.stdout,/batch-a - X/);assert.equal(history().length,0);

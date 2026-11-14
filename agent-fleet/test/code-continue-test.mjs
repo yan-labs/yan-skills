@@ -475,7 +475,7 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
     assert.equal(decision.decision, 'done');
   }
   const generatedCommitBrief = execFileSync('python3', [new URL('../src/fleet-go.py', import.meta.url).pathname,
-    'new', 'continue-commit-test', '--to', 'gpt', '--on', 'local', '--auth', 'local-commit',
+    'new', 'continue-commit-test', '--to', 'gpt', '--on', 'local', '--local-reason', 'test fixture', '--auth', 'local-commit',
     '--goal', '修复并本地提交', '--body', '-', '--pitfalls', '', '--dry-run', '--no-lint'], { encoding: 'utf8', input: '' });
   assert.match(generatedCommitBrief, /授权含提交才写哈希，否则写“本单不提交”/);
   for (const brief of [generatedCommitBrief, `${authorizedCommit}\n模板引用：授权含提交才写哈希，否则写“本单不提交”`]) {
@@ -486,7 +486,7 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
     assert.equal(decision.decision, 'continue');
   }
   const generatedPatrolBrief = execFileSync('python3', [new URL('../src/fleet-go.py', import.meta.url).pathname,
-    'new', 'continue-local-patrol-test', '--to', 'gpt', '--on', 'local', '--auth', 'local',
+    'new', 'continue-local-patrol-test', '--to', 'gpt', '--on', 'local', '--local-reason', 'test fixture', '--auth', 'local',
     '--goal', '本地巡检并记录报告', '--body', '-', '--pitfalls', '', '--dry-run', '--no-lint'], { encoding: 'utf8', input: '' });
   assert.match(generatedPatrolBrief, /本单不做 git 提交，报告不需要提交哈希/);
   // 同一张表核对规则层与 JEV；包含实际生成模板和原 local 巡检授权形态。

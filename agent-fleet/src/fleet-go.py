@@ -84,6 +84,7 @@ def prepare_worktree(name, writes, base, location, repo=None):
     """worktree 以入口「仓库:」为准（没有才按 --write 推断），不看 cwd；子模块只初始化可写路径所在的那几个。"""
     if not writes and not repo:
         raise ValueError('--worktree 需要入口「仓库: <绝对路径>」或 --write。')
+    writes = [path.strip() for value in writes for part in re.split(r',(?=\s*(?:/|~/|\$HOME/))', value) for path in mini.expand_braces(part)]
     convert = lambda p: mini.remote_path(mini.expand_path(p)) if location == 'mini' else mini.expand_path(p)
     payload = {'repo': convert(repo) if repo else None, 'writes': [convert(p) for p in writes]}
     script = """import base64,json,subprocess,sys,pathlib
@@ -287,44 +288,19 @@ def command(meta):
 
 def launch(meta):
     """由 new/relaunch 前台替换为 fleet，保留完成通知和退出码。"""
-    location = meta.get('on') or os.environ.get('FLEET_DEFAULT_ON', 'mini')
+    location = meta.get('on') or 'mini'
     if location == 'local':
+        if not meta.get('local_reason', '').strip():
+            raise ValueError('--on local 必须同时提供 --local-reason 理由。')
+        meta['execution'] = 'local'
+        Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
         os.execvp('fleet', command(meta))
-    brief = Path(meta['brief'])
-    previous = brief.read_text()
-    cleaned = re.sub(r'^(?:警告：)?Mini .+，已在 MacBook 执行\n', '', previous, flags=re.M)
-    if cleaned != previous: brief.write_text(cleaned)
-    if location not in ('mini', 'local'):
-        raise ValueError('FLEET_DEFAULT_ON 只能是 mini 或 local。')
-    reason = None
-    if location == 'mini':
-        if not mini.available():
-            reason = 'Mini 不可达'
-        else:
-            reason = mini.preflight(meta, meta.get('paths', []))
-    if reason and reason.startswith(mini.TOOLS_MISSING):
-        raise ValueError(reason.split('；')[0] + '。请先派单补 Mini 环境再派，未回退本机（紧急窗口单可显式 --on local）。')
-    reachable = location == 'mini' and not reason
-    meta['execution'] = 'mini' if reachable else ('failed' if meta.get('on') == 'mini' else 'local')
+    reason = 'Mini 不可达' if not mini.available() else mini.preflight(meta, meta.get('paths', []))
+    meta['execution'] = 'failed' if reason else 'mini'
     Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
-    if reachable:
-        sys.exit(mini.launch(meta, command(meta)))
-    if location == 'mini' and meta.get('on') == 'mini':
-        raise ValueError(reason + '；显式指定 --on mini，未回退。')
-    if location == 'mini':
-        marker = '警告：' + reason + '，已在 MacBook 执行'
-        path = Path(meta['brief'])
-        text = path.read_text()
-        if marker not in text:
-            lines = text.splitlines(keepends=True)
-            path.write_text(''.join(lines[:2]) + '\n' + marker + '\n' + ''.join(lines[2:]))
-        print(marker, flush=True)
-        code = subprocess.run(command(meta), env={**os.environ, 'FLEET_FALLBACK_WARNING': marker}).returncode
-        report = Path(meta['report'])
-        if report.exists():
-            with report.open('a') as f: f.write('\n' + marker + '\n')
-        sys.exit(code)
-    os.execvp('fleet', command(meta))
+    if reason:
+        raise ValueError(reason + '；请在 Mini 补齐（建 worktree、同步目录）后重派。')
+    sys.exit(mini.launch(meta, command(meta)))
 
 
 def running(active_only=True, status_timeout=None, recent_seconds=None):
@@ -413,8 +389,10 @@ def refresh_body(path, meta, text):
     return text
 
 
-def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None, worktree_base=None, override_order=None):
+def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None, worktree_base=None, override_order=None, local_reason=None):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
+    if on == 'local' and not (local_reason or '').strip(): raise ValueError('--on local 必须同时提供 --local-reason 理由。')
+    if local_reason and on != 'local': raise ValueError('--local-reason 仅用于 --on local。')
     path, meta = locate(name)
     name = meta.get('name') or path.name[:-len('.brief.md')]
     override = override_order or meta.get('order_override')
@@ -429,7 +407,7 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     candidates = [r for r in running(False) if r.get('briefPath') == str(path) or r.get('name') == name]
     if any(r.get('status') in ('running', 'queued', 'parked', 'waiting', 'unreachable') for r in candidates):
         raise ValueError('同名任务仍未结束；需要重启请用 amend --restart，未重复派发。')
-    if (to or meta['to']) == 'gpt':
+    if on == 'local' and (to or meta['to']) == 'gpt':
         for previous in sorted(candidates, key=lambda r: r.get('startedAt') or r.get('runId') or '', reverse=True)[:1]:
             run_id = previous.get('runId')
             runs_root = Path(os.environ.get('AGENT_FLEET_RUNS_DIR', str(Path.home() / '.agent-fleet/runs')))
@@ -437,6 +415,11 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
             if yielded.exists():
                 state = json.loads(yielded.read_text())
                 if state.get('type') == 'park' and not state.get('resolvedAt'):
+                    meta['on'], meta['local_reason'] = 'local', local_reason
+                    lines = path.read_text().splitlines(keepends=True)
+                    if '本机执行偏差：' + local_reason.strip() not in ''.join(lines):
+                        path.write_text(''.join(lines[:2]) + '\n本机执行偏差：' + local_reason.strip() + '\n' + ''.join(lines[2:]))
+                    path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
                     os.execvp('fleet', ['fleet', 'resume', run_id])
     target = to or meta['to']
     if target == 'claude' and (tier or (meta.get('tier') if meta['to'] == 'claude' else None)) == 'fable':
@@ -469,8 +452,20 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     if (low or high or xhigh) and target not in ('gpt', 'gemini'):
         raise ValueError('--low、--high 和 --xhigh 仅用于 --to gpt|gemini。')
     text = refresh_body(path, meta, path.read_text())
+    if on != 'local' and not mini.available():
+        raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
     if worktree_base is not None:
-        location = on or meta.get('on') or os.environ.get('FLEET_DEFAULT_ON', 'mini')
+        location = on or 'mini'
+        existing = meta.get('worktree')
+        if existing and meta.get('worktree_location', 'local') != location:
+            old = mini.local_path(existing['path']) if meta.get('worktree_location') == 'mini' else existing['path']
+            repo = mini.local_path(existing['repo']) if meta.get('worktree_location') == 'mini' else existing['repo']
+            text = text.replace(old, repo)
+            for key in ('paths', 'writes'):
+                meta[key] = [repo + v[len(old):] if v == old or v.startswith(old + '/') else v for v in meta.get(key, [])]
+            meta['object']['repo'] = repo
+            meta['object']['writes'] = [repo + v[len(old):] if v == old or v.startswith(old + '/') else v for v in meta['object']['writes']]
+            meta.pop('worktree')
         wt = meta.get('worktree') or prepare_worktree(name, (meta.get('object') or {}).get('writes') or meta.get('writes', []), worktree_base, location, (meta.get('object') or {}).get('repo') or None)
         if meta.get('worktree'):
             worktree_call(wt, meta.get('worktree_location', location))
@@ -483,7 +478,7 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     declared = [p for p in mini.referenced_paths('\n'.join(line for line in allowed.splitlines() if line.startswith('- ')))
                 if p not in (meta['report'], '/tmp/' + name + '/')]
     meta['paths'] = list(dict.fromkeys([*meta.get('paths', []), *mini.referenced_paths(scope), *mini.referenced_paths(revisions), *declared]))
-    checked(text, target, bool(selected_simple), on or meta.get('on') or os.environ.get('FLEET_DEFAULT_ON', 'mini'), True, target == 'gpt' and selected == 'sol', meta.get('no_lint', False))
+    checked(text, target, bool(selected_simple), on or 'mini', True, target == 'gpt' and selected == 'sol', meta.get('no_lint', False))
     if target != meta['to']:
         meta.pop('tier', None)
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
@@ -495,7 +490,11 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
             meta.pop('xhigh', None)
             meta.pop('max', None)
     meta.update(to=target, name=name, brief=str(path))
-    if on is not None: meta['on'] = on
+    meta['on'] = on or 'mini'
+    meta['local_reason'] = local_reason if on == 'local' else None
+    if on == 'local' and '本机执行偏差：' + local_reason.strip() not in path.read_text():
+        lines = path.read_text().splitlines(keepends=True)
+        path.write_text(''.join(lines[:2]) + '\n本机执行偏差：' + local_reason.strip() + '\n' + ''.join(lines[2:]))
     if after is not None: meta['after'] = after
     meta['pull'] = pull
     if tier:
@@ -578,7 +577,7 @@ def residuals(run, path, name):
     return found
 
 
-def restart(run, path, name):
+def restart(run, path, name, on=None, local_reason=None):
     """amend 调用：等待本次停止；非 runId 明确归属的残留只告警，不误挡邻居。"""
     subprocess.run(['fleet', 'stop', run['runId']], check=True, capture_output=True, text=True)
     deadline = time.monotonic() + 60
@@ -598,7 +597,7 @@ def restart(run, path, name):
             print('已确认 stopped，残留无法归属同一 runId，继续重新拉起。', file=sys.stderr)
             break
         time.sleep(0.5)
-    relaunch(name)
+    relaunch(name, on=on, local_reason=local_reason)
 
 
 def amend(args):
@@ -701,11 +700,11 @@ pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
         if args.say:
             if mini.query(remote).get('status') not in ('running', 'waiting', 'abnormal'):
                 print('没有运行中的 run：按修订后的 brief 直接 relaunch。', flush=True)
-                relaunch(args.name, on=args.on or meta.get('on'))
+                relaunch(args.name, on=args.on, local_reason=args.local_reason)
             sys.exit(mini.forward(['say', remote['id'], args.message]))
         if args.restart:
             if mini.forward(['stop', remote['id']]): raise ValueError('Mini 停止失败。')
-            relaunch(args.name, on=args.on or meta.get('on'))
+            relaunch(args.name, on=args.on, local_reason=args.local_reason)
         return
     if not args.say and not args.restart:
         return
@@ -714,7 +713,7 @@ pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
     if not matches and args.say:
         # 上一轮已结束（常见：部分完成后交回）：修订已写入 brief，直接按修订后的 brief 续派，省掉单独 relaunch
         print('没有运行中的 run：按修订后的 brief 直接 relaunch。', flush=True)
-        relaunch(args.name)
+        relaunch(args.name, on=args.on, local_reason=args.local_reason)
         return
     if len(matches) != 1:
         raise ValueError('找不到唯一运行中的 run；修订已保留，未发送或重启。')
@@ -726,7 +725,7 @@ pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
         if result.stdout.strip():
             print(result.stdout.strip())
         return
-    restart(run, path, args.name)
+    restart(run, path, args.name, args.on, args.local_reason)
 
 
 def level_arg(value):
@@ -819,6 +818,8 @@ def score(args):
 
 def new(args, prepare=False):
     """组装标准 brief；预览不写盘，正文文件与 stdin 使用明确输入规则。"""
+    if args.on == 'local' and not (args.local_reason or '').strip(): raise ValueError('--on local 必须同时提供 --local-reason 理由。')
+    if args.local_reason and args.on != 'local': raise ValueError('--local-reason 仅用于 --on local。')
     if args.to == 'claude' and args.tier == 'fable':
         raise ValueError('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）')
     deviation = order.gate(args.to, args.override_order)
@@ -904,9 +905,11 @@ def new(args, prepare=False):
     parts.insert(2, '对象: ' + json.dumps(object_, ensure_ascii=False))
     if deviation:
         parts.insert(3, deviation)
+    if args.on == 'local': parts.insert(3, '本机执行偏差：' + args.local_reason.strip())
     text = '\n\n'.join(parts) + '\n'
-    location = args.on or os.environ.get('FLEET_DEFAULT_ON', 'mini')
-    if location == 'mini' and not mini.available() and args.on != 'mini': location = 'local'
+    location = args.on or 'mini'
+    if location == 'mini' and not (args.dry_run or args.no_launch or prepare) and not mini.available():
+        raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
     checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna), location, True, args.sol, args.no_lint)
     action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', body, re.M)
     actions = args.task_action or (action_match.group(1) if action_match else '')
@@ -920,7 +923,7 @@ def new(args, prepare=False):
             'paths': list(dict.fromkeys([*(mini.expand_path(p) for p in (args.read or [])), *(mini.expand_path(p) for p in (args.write or [])), *mini.referenced_paths((args.goal or '') + '\n' + body)])),
             'writes': [mini.expand_path(p) for p in (args.write or [])],
             'body': body_file, 'body_text': body.strip(), 'order_override': args.override_order if deviation else None,
-            'on': args.on, 'pull': args.pull, 'object': object_ if object_['repo'] else None, 'after': args.after, 'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
+            'on': args.on or 'mini', 'local_reason': args.local_reason, 'pull': args.pull, 'object': object_ if object_['repo'] else None, 'after': args.after, 'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
     if args.worktree is not None:
         wt = prepare_worktree(args.name, object_['writes'], args.worktree, location, object_['repo'] or None)
         text = rewrite_worktree(text, meta, wt, location)
@@ -997,7 +1000,7 @@ def batch(args, parser):
             meta = job[2]
             after = meta.get('after')
             if after in active or any(j[2]['name'] == after for j in pending): continue
-            active[meta['name']] = subprocess.Popen([sys.executable, __file__, 'relaunch', meta['name']])
+            active[meta['name']] = subprocess.Popen([sys.executable, __file__, 'relaunch', meta['name'], *(['--on', 'local', '--local-reason', meta['local_reason']] if meta.get('on') == 'local' else [])])
             pending.remove(job)
         for name, proc in list(active.items()):
             code = proc.poll()
@@ -1016,6 +1019,7 @@ def build_parser():
     p.add_argument('name')
     p.add_argument('--to', choices=PRODUCTS, required=True)
     p.add_argument('--on', choices=['mini', 'local'])
+    p.add_argument('--local-reason')
     p.add_argument('--pull', action='store_true')
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
     p.add_argument('--model')
@@ -1042,6 +1046,7 @@ def build_parser():
     p.add_argument('manifest')
     p.add_argument('--dry-run', action='store_true')
     p = sub.add_parser('amend')
+    p.add_argument('--local-reason')
     p.add_argument('name')
     p.add_argument('message')
     p.add_argument('--on', choices=['mini', 'local'])
@@ -1063,6 +1068,7 @@ def build_parser():
     p.add_argument('--override-order', metavar='理由', help='调遣令把目标执行者设为停用时强行放行；理由写进 brief 偏差和账本')
     p.add_argument('--after', help='在指定任务结束后运行')
     p.add_argument('--on', choices=['mini', 'local'])
+    p.add_argument('--local-reason')
     p.add_argument('--pull', action='store_true')
     p.add_argument('--to', choices=PRODUCTS)
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
@@ -1123,7 +1129,7 @@ def main():
     elif args.action == 'amend':
         amend(args)
     elif args.action == 'relaunch':
-        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull, args.sol, args.after, args.worktree, args.override_order)
+        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull, args.sol, args.after, args.worktree, args.override_order, args.local_reason)
     elif args.action == 'order':
         order.main(args)
     elif args.action == 'clean':
