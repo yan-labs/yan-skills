@@ -2,7 +2,9 @@
 // stdout 默认只给简报。git 快照用于判断运行期间有没有新提交/未提交改动。
 
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync, linkSync, unlinkSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 import { judgeTask } from './judge-task.mjs';
 import { computeVerdict, hasControlTokens } from './verdict.mjs';
@@ -63,6 +65,24 @@ export function writeResultFile(logPath, text) {
   if (!resultPath) return null;
   writeFileSync(resultPath, text == null ? '' : String(text));
   return resultPath;
+}
+
+// 硬链接临时文件以原子方式发布，避免并发任务覆盖已生成的报告。
+export function fillReport(reportPath, resultPath) {
+  if (!reportPath || !resultPath || existsSync(reportPath)) return false;
+  let tmp;
+  try {
+    const content = readFileSync(resultPath);
+    if (!content.toString().trim()) return false;
+    mkdirSync(dirname(reportPath), { recursive: true });
+    tmp = `${reportPath}.${randomUUID()}.tmp`;
+    writeFileSync(tmp, content, { flag: 'wx' });
+    linkSync(tmp, reportPath);
+    return true;
+  } catch (err) {
+    if (err.code !== 'EEXIST' && err.code !== 'ENOENT') console.error(`REPORT 回填失败: ${err.message}`);
+    return false;
+  } finally { if (tmp && existsSync(tmp)) unlinkSync(tmp); }
 }
 
 export function previewLines(text, n = DEFAULT_BRIEF_LINES) {
@@ -191,6 +211,7 @@ export function buildBrief(result, { briefLines = DEFAULT_BRIEF_LINES, expectCha
     numTurns: result?.numTurns ?? null,
     ...(result?.continuation ? { continueCount: result.continueCount, continuation: result.continuation, continueStop: result.continueStop, continuationChecks: result.continuationChecks } : {}),
     preview,
+    ...(result?.reportBackfilled ? { reportBackfilled: true } : {}),
     resultPath: result?.resultPath ?? null,
     logPath: result?.logPath ?? null,
     newCommits: result?.newCommits ?? [],
@@ -224,6 +245,7 @@ export function formatBriefHuman(brief) {
     `commits: ${commits}`,
     `dirty: ${brief.hasUncommittedChanges ? 'yes' : 'no'}  controlTokens: ${brief.hasControlTokens ? 'yes' : 'no'}`,
   ];
+  if (brief.reportBackfilled) lines.push('REPORT 由 result 回填');
   if (brief.continuation) lines.push(`续做 ${brief.continueCount} 次${brief.continueStop ? `；${brief.continueStop}` : ''}；${brief.continuation.map(step => `第 ${step.attempt} 次${step.progress ? '有进展' : '无进展'}`).join('，')}`);
   if (brief.model) lines.push(`model: ${brief.model}`);
   if ('serviceTier' in brief) lines.push(`service_tier: ${brief.serviceTier ?? 'unset'}`);

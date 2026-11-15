@@ -97,6 +97,21 @@ function psReceipt(pids) {
   return `ps -o pid=,ppid=,pgid=,command= -p ${pids.join(',')}: (empty)`;
 }
 function alive(pid) { try {process.kill(pid,0);return true;}catch{return false;} }
+const fallbackPath = join(scratch, 'fallback-report.md');
+const fallbackId = await launch('code', {}, ['--review', '--report', fallbackPath]);
+const fallbackWait = await cliRun(['wait', fallbackId]);
+assert.equal(fallbackWait.code, 0);
+assert.match(readFileSync(fallbackPath, 'utf8'), /stub completed/);
+assert.match(fallbackWait.stdout, /REPORT 由 result 回填/);
+writeFileSync(fallbackPath, 'existing report');
+const existingId = await launch('code', {}, ['--review', '--report', fallbackPath]);
+assert.equal((await cliRun(['wait', existingId])).code, 0);
+assert.equal(readFileSync(fallbackPath, 'utf8'), 'existing report');
+const attachedPath = join(scratch, 'attached-report.md');
+const attachedResult = await cliRun(['code', 'test', '--cwd', scratch, '--attach', '--review', '--report', attachedPath]);
+assert.equal(attachedResult.code, 0, attachedResult.stderr);
+assert.match(readFileSync(attachedPath, 'utf8'), /stub completed/);
+assert.match(attachedResult.stdout, /REPORT 由 result 回填/);
 const code = await launch();
 assert.equal((await cliRun(['wait',code])).code,0);
 assert.equal(state(code).status,'done');assert.equal(state(code).brief.verdict,'ok');

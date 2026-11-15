@@ -5,13 +5,20 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { runsDir } from './progress.mjs';
 import { assertSafeToSignal, isPidAlive, isRecordedProcessAlive, sameCwd, signalProcessTree, processCommand, collectDescendantPids, readPidPpidTable, readPidRecord, writePidRecord } from './pid.mjs';
-import { buildBrief, formatBriefHuman, redactEvidence, snapshotGit, inspectGit } from './brief.mjs';
+import { buildBrief, formatBriefHuman, redactEvidence, snapshotGit, inspectGit, fillReport } from './brief.mjs';
 import { recordRun } from './ledger.mjs';
 import { registerQueue, acquireSlot, queueRecord, setSlotState, queueEvent, taskIdentity, releaseParentSlot } from './queue.mjs';
 
 const stopPath = (id) => join(runsDir(), `${id}.stop`);
 export const statePath = (id) => join(runsDir(), `${id}.json`);
 export function writeState(rec) {
+  if (!['running', 'queued', 'parked', 'waiting'].includes(rec.status) && fillReport(rec.reportPath, rec.resultPath)) {
+    if (rec.brief && !Array.isArray(rec.brief)) rec.brief.reportBackfilled = true;
+    if (rec.output !== undefined) {
+      try { const value = JSON.parse(rec.output); value.reportBackfilled = true; rec.output = `${JSON.stringify(value)}\n`; }
+      catch { rec.output += '\nREPORT 由 result 回填\n'; }
+    }
+  }
   const path = statePath(rec.runId);
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(rec, null, 2)}\n`);
