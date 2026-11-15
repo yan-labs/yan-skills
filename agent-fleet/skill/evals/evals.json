@@ -4,51 +4,93 @@
     {
       "id": 1,
       "prompt": "把这个项目的单文件 CLI bug 修好，brief 已写在 fix.md；我只需要它改代码。你会怎么派单和验收？",
-      "expected_output": "Choose fleet code fix.md --low --cwd <project> --expect-changes for a bounded single-file fix; keep the brief limited to the requested change, then inspect its result and diff without adding unrequested tests or a commit.",
+      "expected_output": "Route a bounded single-file fix to Codex Terra with fleet-go new <name> --to gpt --auth local --write <project> --body fix.md, launched as one Bash call with run_in_background; preview with --dry-run, then verify the report and actual diff without adding unrequested tests or a commit.",
       "files": [],
-      "checks": ["包含 fleet code、--low、--expect-changes", "不建议擅自补测试、提交或发布", "以结果文件和实际 diff 验收"]
+      "checks": [
+        "用 fleet-go new --to gpt（Terra），授权 local，不选 Sol",
+        "一条 Bash、run_in_background 启动，不加 & 或 nohup",
+        "不建议擅自补测试、提交或发布",
+        "以报告结论和实际 diff 验收"
+      ]
     },
     {
       "id": 2,
       "prompt": "产品页英文文案和日文翻译放在 copy.md 里，请用便宜模型做完。",
-      "expected_output": "Route copy and translation through fleet copy copy.md, require positive wording and verify the delivered text against the brief.",
+      "expected_output": "Route copy and translation to Gemini with fleet-go new <name> --to gemini --body copy.md (or fleet copy), give a fact list and allowed claims, and have a read-only Terra check facts before accepting.",
       "files": [],
-      "checks": ["选择 fleet copy copy.md", "不派 fleet code 写面向读者的文案", "要求正面表述并核对交付内容"]
+      "checks": [
+        "选择 --to gemini 或 fleet copy",
+        "不派 Codex 写面向读者的文案",
+        "验收前另起只读 Terra 核对事实与遗漏"
+      ]
     },
     {
       "id": 3,
       "prompt": "我有 state.txt 和 questions.json，想自动判断客服消息是否紧急、应该分到哪个组。给我该用的命令和限制。",
       "expected_output": "Use fleet judge state.txt questions.json for structured noul/choice decisions; choice needs criteria; JEV does not generate free text and must not be sent through fleet run.",
       "files": [],
-      "checks": ["包含 fleet judge state.txt questions.json", "指出 choice 需要 criteria", "不把 JEV 当自由文本模型或用 fleet run"]
+      "checks": [
+        "包含 fleet judge state.txt questions.json",
+        "指出 choice 需要 criteria",
+        "不把 JEV 当自由文本模型或用 fleet run"
+      ]
     },
     {
       "id": 4,
       "prompt": "跨模块计费迁移已经由 fleet code 做完，简报显示 ok、退出码 0，工作树还有其他会话的改动。现在能汇报完成吗？",
-      "expected_output": "Separate the task's changes from unrelated dirty/commits state, inspect the actual migration result and required checks, run an independent read-only GPT-6 review against the final diff, and report completion only after resolving concrete findings.",
+      "expected_output": "Separate the task's changes from unrelated dirty/commits state, inspect the actual migration result and required checks, launch an independent read-only Terra review (fleet-go new ... --review --auth review --for <task>) against the final diff, and report completion only after resolving concrete findings.",
       "files": [],
-      "checks": ["不以 ok 或退出码 0 单独判完成", "不把共享工作树的 dirty 或 commits 都归给本任务", "要求独立只读 review 并核对迁移产物"]
+      "checks": [
+        "不以 ok 或退出码 0 单独判完成",
+        "不把共享工作树的 dirty 或 commits 都归给本任务",
+        "要求独立只读 review 并核对迁移产物"
+      ]
     },
     {
       "id": 5,
       "prompt": "一项需要改文件的多轮任务跑出了 partial，日志显示达到轮数上限。brief 没有限定轮数，我也没传 --max-turns。请给出当前判断和处理。",
       "expected_output": "Recognize that current fleet defaults to unlimited turns, so investigate where the limit came from rather than assume a built-in 500-turn default; treat partial as unfinished, inspect existing work, and continue or resume only after identifying the cause.",
       "files": [],
-      "checks": ["指出当前 fleet 默认不限轮数", "不把 partial 当完成", "先核查轮数上限来源和已有产物再续跑"]
+      "checks": [
+        "指出当前 fleet 默认不限轮数",
+        "不把 partial 当完成",
+        "先核查轮数上限来源和已有产物再续跑"
+      ]
     },
     {
       "id": 6,
       "prompt": "第三方模型的简报是 ok，但结果文件里只有裸 tool-call 控制 token，且任务要求的文件没改。应该怎么处理？",
       "expected_output": "Mark the run as failed or suspect rather than successful; inspect the log and actual file changes, diagnose the model output, and do not claim the requested work was done.",
       "files": [],
-      "checks": ["不以 ok 判成功", "识别裸控制 token 和零改动", "要求检查日志与实际文件"]
+      "checks": [
+        "不以 ok 判成功",
+        "识别裸控制 token 和零改动",
+        "要求检查日志与实际文件"
+      ]
     },
     {
       "id": 7,
       "prompt": "要从已登录的 GSC 后台采集数据并做报告，现成脚本是否可用还没查。请给派单方案。",
       "expected_output": "Look for an existing script or opencli adapter first; if browser work is required, specify opencli browser <session>, disallow Playwright/agent-browser, route the report to Codex, and define verifiable data and report deliverables.",
       "files": [],
-      "checks": ["先查现成脚本或 opencli adapter", "浏览器步骤使用 opencli browser", "不使用 Playwright 或 agent-browser", "报告交给 Codex 并列验收产物"]
+      "checks": [
+        "先查现成脚本或 opencli adapter",
+        "浏览器步骤使用 opencli browser",
+        "不使用 Playwright 或 agent-browser",
+        "报告交给 Codex 并列验收产物"
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "Terra 那单交回 partial：它说 brief 要求用只读账号查生产库，但环境里根本没有只读账号，所以停下了。接下来怎么处理？",
+      "expected_output": "First rescue the task with fleet-go amend <name> --say giving a workable guardrail (existing account + read-only transaction + timeout) and keep Terra rather than switching to Sol; then run the dispatch retro: classify as B (constraint unsatisfiable), pick the landing place (project dispatch handbook vs this Skill vs lint), grep for an existing entry on the same topic and rewrite it instead of appending.",
+      "files": [],
+      "checks": [
+        "先 amend --say 续做，不改派 Sol",
+        "归因为限制做不到（B 类，派单可预防）",
+        "按项目手册/本 Skill/lint 选落点",
+        "先查同主题已有条目并改写，不盲目追加新规则"
+      ]
     }
   ]
 }

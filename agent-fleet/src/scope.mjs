@@ -1,6 +1,6 @@
 /**
  * 方向锁定：每个被派出的执行者都要遵守的行动范围。
- * 文字与 skill/SKILL.md「行动范围」一节逐字一致；改这里要同步改那里。
+ * 这里是行动范围句的唯一文本；skill/references/dispatch-discipline.md「Brief」只放指针。
  * 作用：brief 里漏写也生效，防止执行者自己找方向、越界、绕路凑数。
  */
 export const SCOPE_LOCK =
