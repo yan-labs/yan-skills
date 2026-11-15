@@ -9,7 +9,7 @@ import { waitDetached } from '../src/detach.mjs';
 import { appendInbox } from '../src/inbox.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { runCode } from '../src/code-runner.mjs';
-import { CONTINUE_PROMPT, readContinuationState, continuationProgress, continuationRules, judgeContinuation } from '../src/code-continue.mjs';
+import { CONTINUE_PROMPT, readContinuationState, continuationProgress, continuationRules, judgeContinuation, unfinishedAcceptance } from '../src/code-continue.mjs';
 import { buildBrief, formatBriefHuman, redactEvidence } from '../src/brief.mjs';
 import { splitShortArgs } from '../src/shortcuts.mjs';
 
@@ -68,7 +68,7 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
    if (mode === 'missing-sections' || (['finish', 'stuck', 'progress', 'env-off'].includes(mode) && !(mode === 'finish' && count > 1) && !(mode === 'progress' && count > 5))) report = '## 结论\\n' + conclusion + (mode === 'progress' ? count : '');
    if (mode === 'progress') fs.writeFileSync(process.env.REPORT_FILE + '.artifact', String(count));
    fs.writeFileSync(process.env.REPORT_FILE, report);
-   send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:conclusion}}});
+   send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:mode === 'acceptance' && count === 1 ? '证书未核实' : conclusion}}});
    send({method:'turn/completed',params:{turn:{id,status:'completed'}}});
   }, process.env.MODE === 'threshold' ? 400 : 5);
  } else if (req.id !== undefined) send({id:req.id,result:{}});
@@ -359,7 +359,7 @@ try {
     if (mode === 'judge-missing') assert.match(starts[1].params.input[0].text, /缺少 brief 要求的文件/);
     if (mode.startsWith('judge-')) assert(result.continuationChecks.every(check => check.judge));
     const brief = buildBrief(result);
-    assert.equal(brief.verdict, mode === 'fail' ? 'fail' : ['finish', 'progress', 'complete', 'judge-done', 'judge-low', 'judge-fail', 'judge-throw'].includes(mode) || options.review ? 'ok' : 'partial');
+    assert.equal(brief.verdict, mode === 'fail' ? 'fail' : ['finish', 'progress', 'complete', 'judge-done', 'judge-low', 'judge-fail', 'judge-throw'].includes(mode) ? 'ok' : 'partial');
     assert.match(formatBriefHuman(brief), new RegExp(`续做 ${expected} 次`));
     assert.match(readFileSync(result.resultPath, 'utf8'), new RegExp(`续做 ${expected} 次`));
     if (mode === 'stuck' && expected === 2) {
@@ -372,6 +372,15 @@ try {
     }
   }
   delete process.env.FLEET_NO_CONTINUE;
+  for (const options of [{ review: true }, {}]) {
+    process.env.MODE = 'acceptance';
+    process.env.FLEET_DETACHED_RUN_ID = `acceptance-${options.review ? 'review' : 'document'}`;
+    process.env.TRACE = join(scratch, `${process.env.FLEET_DETACHED_RUN_ID}.trace`);
+    const result = await runCode({ prompt: '归类：只读复核\n## 目标\n复核证书', cwd: scratch, codexBin: mock, ...options });
+    assert.equal(result.continueCount, 1);
+    const turns = readFileSync(process.env.TRACE, 'utf8').trim().split('\n').map(JSON.parse).filter(e => e.method === 'turn/start');
+    assert.match(turns[1].params.input[0].text, /证书未核实/);
+  }
   const execMock = join(scratch, 'codex-exec-mock.cjs');
   writeFileSync(execMock, `#!/usr/bin/env node
 const fs = require('node:fs');
@@ -397,7 +406,7 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   process.env.MODE = 'missing-sections';
   process.env.TRACE = join(scratch, 'document.trace');
   const documentRun = await runCode({ prompt: `归类：Codex 文档任务\nREPORT: ${process.env.REPORT_FILE}\n## 目标\n更新文档`, cwd: scratch, codexBin: mock });
-  assert.equal(documentRun.continueCount, 0);
+  assert.equal(documentRun.continueCount, 2);
   delete process.env.FLEET_DETACHED_RUN_ID;
   delete process.env.FLEET_NO_CONTINUE;
   process.env.MODE = 'stuck';
@@ -652,3 +661,12 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   Object.assign(process.env, saved);
   rmSync(scratch, { recursive: true, force: true });
 }
+
+// 回归四个实例中的未完成结果，保留原文供续做。
+for (const line of ['未部署或分析出 core 调用栈；线上重试仍可能再次失败。', '尚未完成逐补丁、PR 和回滚核对，因此不能确定 A/B/C 分类。', '未完成：线上 Worker 哈希、开关、证书、指标、签名附件和回滚有效性尚未核实；这些缺口影响最终验收结论。', '未完成 TEST 和生产的版本、哈希及 /assets 回读；线上仍运行旧版。']) {
+  assert.deepEqual(unfinishedAcceptance('', line), [line]);
+}
+assert.deepEqual(unfinishedAcceptance('', '受阻：授权｜生产写入｜查过仓库｜负责人'), []);
+assert.deepEqual(unfinishedAcceptance('', '判断拿不准：未确认根因'), []);
+assert.deepEqual(unfinishedAcceptance('生产写入未完成\n受阻：授权｜生产写入｜查过仓库｜负责人', ''), []);
+assert.deepEqual(unfinishedAcceptance('生产写入未完成\n证书未核实\n受阻：授权｜生产写入｜查过仓库｜负责人', ''), ['证书未核实']);

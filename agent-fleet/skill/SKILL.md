@@ -164,9 +164,9 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案，正面表述
 - `--body body.md` 只接受现存文件路径；`--body -` 显式读取 stdin，也可以省略 `--body` 使用 heredoc。不存在的路径会明确报错。
 - 重新拉起已有任务：`fleet-go relaunch <name> [--to <产品>] [--tier <档位>]`，沿用唯一同名 brief、`--name` 和 `--report`，由派用者显式决定执行者；仍有未结束同名任务时拒绝重复派发。改需求就改 `--body` 文件再 relaunch，新正文自动换进 brief、修订块保留；换不进时报错，不会拿旧 brief 空跑。跨日期重名时把名字换成报错给出的 brief 路径。
 - 派单正文写固定字段 `动作: 只读 / 改代码 / 本地提交 / 推送 / 部署 / 付费`（仅列实际动作，可多选）；`fleet-go new --action '改代码 / 本地提交'` 可自动写入。缺动作行过渡期仅警告。动作决定授权：改代码需 local 或 local-commit；本地提交需 local-commit；推送、部署需 local-commit 和 deploy-prod；付费需 paid。
-- 正文另写 `## 入口`，下一行 `仓库: /绝对路径`；只读只需仓库，其他动作还需 `可写路径: /绝对路径`。远程访问方式和凭据文件按任务需要自行写明。入口含“未知/自己找”必须显式加 `--sol`；`--no-lint` 只豁免样板检查，入口、动作和授权仍须匹配；重派沿用该设置。
+- 正文另写 `## 入口`，下一行 `仓库: /绝对路径`；只读只需仓库，其他动作还需 `可写路径: /绝对路径`。远程访问方式和凭据文件按任务需要自行写明。入口含“未知/自己找”时先查 brief 引用的报告与仓库；`--no-lint` 只豁免样板检查，入口、动作和授权仍须匹配；重派沿用该设置。
 - **先预览再派**：`fleet-go new ... --dry-run`（只打印 brief，命令写 stderr）；`--no-launch` 只写 brief 不派发；`fleet-go lint brief.md` 检查样板（归类行、REPORT 行、逐字规则句、允许范围小节、密钥字面量）。
-- Codex app-server 两层续做闸门只针对缺失的硬性产物（文件、报告必需节、要求的提交哈希或读回结果）；覆盖未穷尽、补证和低置信度本身不触发续做。JEV 也只判断这些缺项。review 和文档类任务默认不续做；`--no-continue` 或 `FLEET_NO_CONTINUE=1` 可关闭，exec 路径同样适用，其他产品不适用。有进展就继续续做，不设次数上限；连续两次无进展停止；amend/steer/relaunch 行为不变。
+- Terra 的续做闸门包含只读复核和文档任务，未完成验收项原文会被送回继续执行；判断本身不确定可说明，真实受阻逐项说明。Sol 和 Luna 保持原有续做策略；`--no-continue` 或 `FLEET_NO_CONTINUE=1` 可关闭，exec 路径同样适用，其他产品不适用。有进展就继续续做，不设次数上限；连续两次无进展停止；amend/steer/relaunch 行为不变。
 
 - **改方向**：用 `fleet-go amend <name> "补充要求"`，它给 brief 顶部追加「修订 N」并（`--say`）尽量发给运行中的任务；Codex 优先同轮 steer，失败尝试中断后续会话；任务已结束（常见：部分完成交回）时 `--say` 直接按修订后的 brief relaunch（整条命令放 `run_in_background`），不必再单独 relaunch；运行中且两者都不可用时会提示，此时才考虑 `--restart`（只停止所选 run，按 runId/brief/`--name` 核验残留，最多等 60 秒、每 0.5 秒轮询，再走 `relaunch`，以 run 身份判断。超时已确认 stopped 且无同一 runId 存活时告警并重新拉起，否则保留修订并报错）。`amend --auth` 和 `--action` 可替换保存的授权与动作；路径冲突时可按提示用 `relaunch --after` 排队。调整沿用 `amend` / `relaunch` 保存的 brief 与任务身份。`amend` 和 `relaunch` 显式传 `--sol`、`--simple` 或 `--luna` 会替换并保存旧模型档位；显式传 `--low`、`--high`、`--xhigh` 或 `--max` 会替换保存的推理档位。同一次命令中的互斥选项仍不能同用；切到 Terra 时若未指定推理档位，会清除 Luna 专用的 xhigh/max。`amend` 的档位在重启或下次重派生效，运行中插话不会切换当前模型。
 - 看进度：`fleet-go status`（默认非终态及最近 1 小时，`--all` 查看全部本地历史；脱离启动的任务带 ⚠；Mini 的单一次 ssh 批量取，取不到时 stderr 提示「Mini 状态未取到：超时/连接失败…」，此时只列本机）；仍可用 `fleet status --running --json`。
@@ -222,7 +222,11 @@ Terra 与 Sol 派单前问两句：brief 能否写清具体文件、入口和完
 | 任务 | 默认执行者 |
 |---|---|
 | 两问都是“能”（编码、复核、按已知源调研、机械改动） | Codex Terra，`--to gpt`，medium，不开 fast |
-| 任一问“不能”（要自己摸入口、跨系统多步编码、总管、删除数据、新写或大改发布脚本、Terra 已交回过的单） | 开派即用 Sol，`--to gpt --sol`（用户 2026-11-11） |
+| 任一问“不能”（要自己摸入口、跨系统多步编码、总管、删除数据、新写或大改发布脚本） | 开派即用 Sol，`--to gpt --sol`（用户 2026-11-11） |
+
+Terra 交回 partial 后依全局规则先 amend 续做，再按无进展条件决定是否改派。
+
+Terra 交回 partial 后依全局规则先 amend 续做，再按无进展条件决定是否改派。
 | 发布、部署推进（跑现成流水线、合并分支、等 CI/部署、回读、生产实测、写更新日志），不写代码 | Luna，`--to gpt --luna --high`；不用 Terra/Sol（用户 2026-11-11：“这种没必要用 terra 或者 sol”） |
 | 改部署配置、写部署脚本（要写代码） | Codex Terra，`--to gpt`，medium |
 | 巡检、监工、定时、核对整理（比 Haiku 复杂、不需要编码） | Luna，`--to gpt --luna --high`（或默认 xhigh），不开 `--max`（用户 2026-11-11） |

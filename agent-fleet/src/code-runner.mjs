@@ -1,7 +1,7 @@
 import { readYield, resolveYield, writeYield, localCondition, stageState, saveStages, alignStage } from './yield.mjs';
 import { saveCodexQuota, taskIdentity, queueRecord, setSlotState, acquireSlot } from './queue.mjs';
 // Codex 执行层：管理 app-server 回合、插话、自动续做与 exec 降级。
-import { readContinuationState, continuationProgress, continuationRules, judgeContinuation } from './code-continue.mjs';
+import { readContinuationState, continuationProgress, continuationRules, judgeContinuation, unfinishedAcceptance } from './code-continue.mjs';
 import { judgeTask } from './judge-task.mjs';
 import { loadModelsConfig } from './config.mjs';
 import { spawn } from 'node:child_process';
@@ -89,7 +89,8 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const taskHeader = prompt.match(/^归类：[^\n]*/m)?.[0] || '';
   const taskGoal = prompt.match(/^## 目标\s*\n([^\n]+)/m)?.[1] || '';
   const documentTask = /文档|文案|写作|翻译|校对|review|复核|审查/i.test(taskHeader) || /^(?:写|撰写|编写|更新|修改|整理|翻译|校对|复核|审查)(?:文档|报告|文章|文案|资料|说明|代码)/.test(taskGoal);
-  const continueEnabled = !review && !documentTask && !noContinue && process.env.FLEET_NO_CONTINUE !== '1';
+  const terra = !sol && !luna;
+  const continueEnabled = (terra || (!review && !documentTask)) && !noContinue && process.env.FLEET_NO_CONTINUE !== '1';
   const fullPrompt = review ? `${reviewPrompt()}\n\n${prompt}` : `${SCOPE_LOCK}\n\n预计超过2小时且 brief 未给阶段时，第一棒先列出各阶段范围和完成条件，用 fleet plan --file <计划文件> 提交后直接继续，不等批准；阶段边界用 fleet handoff --next <第一动作> --file <五项交接单>。\n\n安装、构建和测试可能持续 30 分钟以上；命令仍在运行时用 write_stdin 发送空内容轮询等待，绝不发送 Ctrl-C（\\u0003）；不因耗时中断。\n\n${prompt}`;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   mkdirSync(runsDir(), { recursive: true });
@@ -323,6 +324,11 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     if (previous) {
       const progress = continuationProgress(previous, state);
       if (handoff !== undefined && previousHandoff !== undefined && handoff !== previousHandoff) progress.progress = true;
+      if (terra && (review || documentTask)) {
+        const oldItems = unfinishedAcceptance(previous.report, previous.finalReply);
+        const newItems = unfinishedAcceptance(state.report, state.finalReply);
+        if (oldItems.some(item => !newItems.includes(item))) progress.progress = true;
+      }
       metadata.continuation.push({ attempt: metadata.continueCount, ...progress });
       stagnant = progress.progress ? 0 : stagnant + 1;
     }
@@ -435,14 +441,16 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
           }
           if (yielded?.blocked) break;
           if (yielded?.prompt) { nextPrompt = yielded.prompt; continue; }
-          if (offsetQueue.length || review) break;
+          if (offsetQueue.length || (review && !terra)) break;
           const state = readContinuationState(workdir, reportPath, prompt);
+          state.finalReply = readFileSync(resultPath, 'utf8');
           metadata.reportConclusion = state.conclusion;
           if (/^(?:阻塞|受阻)/.test(state.conclusion)) log(fleetEvent(FLEET_EVENTS.BLOCKED));
           checkProgress(state);
           let missing = [], judgment;
-          if (continueEnabled && reportPath && !state.conclusion.startsWith('失败')) {
-            missing = continuationRules(state, prompt, workdir, initial);
+          if (continueEnabled && (reportPath || terra) && (terra || !state.conclusion.startsWith('失败'))) {
+            missing = reportPath && !review ? continuationRules(state, prompt, workdir, initial) : [];
+            if (terra) missing.push(...unfinishedAcceptance(state.report, state.finalReply));
             if (!missing.length && state.conclusion.startsWith('完成')) {
               judgment = await judgeContinuation({ brief: prompt, report: state.report,
                 finalReply: readFileSync(resultPath, 'utf8'), judge: continuationJudge });
@@ -525,9 +533,11 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
           continue;
         }
         const state = readContinuationState(workdir, reportPath, prompt);
+        state.finalReply = readFileSync(resultPath, 'utf8');
         metadata.reportConclusion = state.conclusion;
         checkProgress(state);
-        const missing = continueEnabled && reportPath ? continuationRules(state, prompt, workdir, initial) : [];
+        const missing = continueEnabled && reportPath && !review ? continuationRules(state, prompt, workdir, initial) : [];
+        if (continueEnabled && terra) missing.push(...unfinishedAcceptance(state.report, state.finalReply));
         metadata.continueRequired = missing.length > 0;
         metadata.continuationChecks.push({ turn: metadata.numTurns, rules: missing, judge: null });
         if (metadata.continueRequired && stagnant >= 2) metadata.continueStop = '连续两次续做无进展';

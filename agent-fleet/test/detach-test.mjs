@@ -324,6 +324,7 @@ for (const [label, marker, warned] of [
   const finalRow=JSON.parse((await cliRun(['status','--json'])).stdout).find(r=>r.runId===row.runId);
   assert.equal(Boolean(finalRow.launchDetached),warned,'terminal metadata keeps guard result');
   assert.match(readFileSync(row.logPath,'utf8'),/stub log/,'log output preserved');
+  for (let i=0; i<100 && !/verdict: ok/.test(readFileSync(outPath,'utf8')); i++) await sleep(50);
   assert.match(readFileSync(outPath,'utf8'),/verdict: ok/,'launcher still prints original summary');
 }
 const normalGuard=await cliRun(['code','fixture','--cwd',scratch,'--name','normal-guard'],{CLAUDECODE:'1',FLEET_TEST_SLEEP:'3'});

@@ -99,6 +99,14 @@ function commitRequired(brief) {
     && !/不(?:要|用|需|必)?提交|无需提交|无须提交|禁止提交|不.*commit/i.test(clause));
 }
 
+// 保留原文供同一任务续做；明确受阻行只豁免同一项。
+export function unfinishedAcceptance(report, finalReply = '') {
+  const lines = [...new Set(`${report}\n${finalReply}`.split(/\r?\n/).map(line => line.trim()).filter(Boolean))];
+  const blockers = lines.filter(line => /受阻[：:]/.test(line)).map(line => line.split(/[｜|]/)[1]?.trim()).filter(Boolean);
+  return lines.filter(line => !/受阻[：:]/.test(line) && /(?:未确认|未核实|未核查|未核|未完成|未分类|尚未|待核实|未部署)/.test(line)
+    && !/^#{1,6}\s/.test(line) && !/^[-*\s]*(?:判断|结论)拿不准[：:]/.test(line) && !blockers.some(block => line.includes(block)));
+}
+
 /** 第一层只检查报告结构及 brief 明确要求的交付凭据，不以“完成”二字代替证据。 */
 export function continuationRules(state, brief, cwd = process.cwd(), initial = null) {
   if (state.conclusion.startsWith('失败') || state.yield) return [];
