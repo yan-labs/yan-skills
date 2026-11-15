@@ -1,8 +1,8 @@
 ---
 name: rankup
-description: 包括“清理一下”“清理 N 天/一周之前”“清理日志/报告/截图”。独立开发者的项目全生命周期管理：需求验证、选词选品、建站或做原生 App、上线接入、SEO/GEO 获客、支付变现、监控迭代与跨会话接力。以下情况使用：用户提到 rankup 或 /rankup（check、review、init；doctor 仅指整理项目 .rankup 记录）；当前目录或工作区有 .rankup/，或要读取、续做、整理项目计划、路线图、待办、PRD、交接或进度文档；在这些项目记录上下文里说「继续」「接着做」「上次做到哪」「下一步做什么」；精简、压缩 Agent 记忆文件（memory 太大、清理记忆）；以及项目规划、需求验证、关键词调研与 SERP、独立 Google Trends 热度查询或对比、AI 搜索推荐（GEO）、网站体检、sitemap/IndexNow/Search Console、流量、建站、上线、支付（Stripe、Anyway、PayPal）、变现与增长。SEO/GEO 是主要手段，不是适用边界，非 SEO 的项目计划与 macOS、iOS、iPad 原生 App 同样适用。纯文案（含 SEO 趋势博客等主题写作）、纯视觉设计、与项目管理无关的通用开发及基础设施排错（含 Cloudflare 部署报错、普通 CLI doctor）不触发；目录内有 .rankup/ 时仅叠加项目记录维护义务；外链执行交 backlink，浏览器驱动交 opencli，配图生成交 imagegen，多模型派单交 agent-fleet。
+description: 独立开发者的项目全生命周期管理：需求验证、选词选品、建站或做原生 App、上线接入、SEO/GEO 获客、支付变现、监控迭代与跨会话接力。以下情况使用：用户提到 rankup 或 /rankup（check、review、init；doctor 仅指整理项目 .rankup 记录）；当前目录或工作区有 .rankup/，或要读取、续做、整理项目计划、路线图、待办、PRD、交接或进度文档；在这些项目记录上下文里说「继续」「接着做」「上次做到哪」「下一步做什么」；精简、压缩 Agent 记忆文件（memory 太大、清理记忆）；说“清理一下”“清理 N 天/一周之前的日志/报告/截图”来清理项目过程数据；以及项目规划、需求验证、关键词调研与 SERP、独立 Google Trends 热度查询或对比、AI 搜索推荐（GEO）、网站体检、sitemap/IndexNow/Search Console、流量、建站、上线、支付（Stripe、Anyway、PayPal）、变现与增长。SEO/GEO 是主要手段，不是适用边界，非 SEO 的项目计划与 macOS、iOS、iPad 原生 App 同样适用。纯文案（含 SEO 趋势博客等主题写作）、纯视觉设计、与项目管理无关的通用开发及基础设施排错（含 Cloudflare 部署报错、普通 CLI doctor）不触发；目录内有 .rankup/ 时仅叠加项目记录维护义务；外链执行交 backlink，浏览器驱动交 opencli，配图生成交 imagegen，多模型派单交 agent-fleet。
 metadata:
-  version: "4.0.2"
+  version: "4.0.3"
 ---
 
 # Rankup
@@ -11,8 +11,6 @@ metadata:
 SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项目计划、交接文档、功能迭代、上线运维、项目记录整理都归这里。
 每个项目的 `.rankup/` 记录长远规划与当前进展，负责跨会话接力；本文件只做入口与路由，细节在 `references/`，一次任务只读需要的那部分。
 取不到的数据写「未知 / 不可用」，不写 0；区分「官方要求」「工具建议」「项目经验」；阶段性汇报不等于完成。
-
-`node "<rankup-skill-dir>/scripts/maintain/rankup-clean.mjs" --workspace <工作区> --older-than 7d --apply`（单项目用 `--project-root <项目>`，一周可写 `1w`，脚本默认7d且只预览，`--apply`才删除，`--dry-run`始终只预览）按修改时间直接删除过程数据与 research/journal/reports/evidence 里的旧报告、临时脚本，并按同一时限清理历史 trash；Git已跟踪文件不删、列待确认；Git索引无法核实时整项目禁止删除并标明原因；常驻文件、白名单、状态保留，删除链接改行内文字。不回收、不备份。用户只说“清理一下”默认 7 天，直接执行普通清理不先问。报告按时限默认直接删除；证据和备份（路径含 backup/evidence/snapshot/dump，或 SQL、bak、数据库副本等）只列“待确认”，默认按目录/项目聚合为不超过约50行的待确认清单（路径前缀、文件数、总大小、最新时间、是否被引用）；`--json`保留每项的大小、修改时间、任务/项目、文档引用与能否判断无用；未发现引用不等于无用。主线程逐项核实后问用户，同意后才加 `--include-backups <路径…>` 纳入删除，仍遵守时限及常驻/状态/运行中保护。
 
 ## 强制流程（先读这张表，再做任何事）
 
@@ -29,8 +27,8 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 | ChatGPT 问法链路、自然推荐验证 | [`seo-geo.md`](references/seo-geo.md) 步骤 2–3 | 采样与三清单按该唯一源；固定四问正文见其话术入口；词级编排与裁决回 [`entry.md`](references/playbooks/entry.md) | 入口卡②有三清单与原始证据指针 |
 | 「谷歌质量」「HCU」「E-E-A-T」「AI 内容会不会被打」「内容 review」「垃圾内容政策」 | [`seo-helpful-content.md`](references/seo-helpful-content.md) | 区分官方口径与业内推断；按单页或站点级自检表核对并留证据 | 对应自检表通过且无红线 |
 | 建站、做功能、写 UI | [`lifecycle/stage-3-build.md`](references/lifecycle/stage-3-build.md)、[`cloudflare-stack.md`](references/cloudflare-stack.md) | 用用户指定模板，未指定则用默认 shadcn 命令；UI 来自组件库，不手写基础控件；**公开内容页默认构建时预渲染成静态资产，Worker 只管 API 与必须动态的页面，减少 CPU 浪费**（[静态优先](references/cloudflare-stack.md#20-默认静态优先2026-10-27-cpu-降耗回流)）；当天过完 Day-1 清单；核[建设中红线](references/discipline.md#二十一禁止建设中内容与功能区域) | [`checklists.md`](references/checklists.md) 段 3 通过 |
-| 写页面内容、写文章、写 blog、model 页面、模型对比、产品对比、补参考视频、封面图 | [`blog`](../blog/SKILL.md)（`blog/SKILL.md`） | 按其分工与流程执行（X 调研交 Grok、成文交 Gemini、review 交 Sonnet），不自己编内容；站内英文页面内容一律走 `/blog` | sources、成文、review、评判（哥飞评分、AITDK、ChatGPT 匿名问答）、回读证据齐全 |
-| 做内页、「把这个词做成页面」 | [`lifecycle/stage-4-prelaunch.md`「新增内页随手清单」](references/lifecycle/stage-4-prelaunch.md#新增内页--新模板的随手清单2026-09-12-回流) | 页面映射按 [段 2 §2.3](references/lifecycle/stage-2-positioning.md#23-问法簇--页面--faqdescription与站点结构)；目标词登记到 `keywords.md`；按段 4 完成页面与体检；核[建设中红线](references/discipline.md#二十一禁止建设中内容与功能区域) | `checks.md` 记 ✅ 与证据 |
+| 写页面内容、写文章、写 blog、「写这个模型页」、model 页面、模型对比、产品对比、「做对比文」、补参考视频、封面图 | [`blog`](../blog/SKILL.md)（`blog/SKILL.md`） | 按其分工与流程执行（X 调研交 Grok、成文交 Gemini、review 交 Sonnet），不自己编内容；站内英文页面内容一律走 `/blog` | sources、成文、review、评判（哥飞评分、AITDK、ChatGPT 匿名问答）、回读证据齐全 |
+| 做内页、「把这个词做成页面」「我们做个内页吧」「关键词没问题了，做成内页」 | [`lifecycle/stage-4-prelaunch.md`「新增内页随手清单」](references/lifecycle/stage-4-prelaunch.md#新增内页--新模板的随手清单2026-09-12-回流) | 页面映射按 [段 2 §2.3](references/lifecycle/stage-2-positioning.md#23-问法簇--页面--faqdescription与站点结构)；目标词登记到 `keywords.md`；按段 4 完成页面与体检；核[建设中红线](references/discipline.md#二十一禁止建设中内容与功能区域) | `checks.md` 记 ✅ 与证据 |
 | 上线前体检、「能不能上线」 | `checklists.md` 段 4、[`lifecycle/stage-4-prelaunch.md`](references/lifecycle/stage-4-prelaunch.md) | 全套体检：AITDK、PageSpeed、图标专项、占位专项；重跑不采信上一轮；核[建设中红线](references/discipline.md#二十一禁止建设中内容与功能区域) | 段 4 闸门全绿，或写明改不动的理由 |
 | 接入、绑域名、提交 sitemap、「怎么不收录」 | [`lifecycle/stage-5-launch.md`](references/lifecycle/stage-5-launch.md)、[`search-platforms.md`](references/search-platforms.md) | 先 `site-onboard.mjs --check` 再执行；接入一律线上实测 | `.rankup/integrations.md` 逐行有证据与日期 |
 | 外链 | `backlink` Skill、[`lifecycle/stage-6-backlinks.md`](references/lifecycle/stage-6-backlinks.md) | Rankup 只判时机与数量；提交前把候选清单给用户圈定 | 台账有 submitted → public → indexed 证据 |
@@ -40,14 +38,13 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 
 ## 一句话落到哪
 
-本表是已进入 rankup 项目流程后的路由，不扩大触发范围。
+本表是已进入 rankup 项目流程后的路由，不扩大触发范围。接力与继续、做内页、写页面内容、doctor、维护 Skill 源码已在上面「强制流程」表里，这里不重复。
 
 用户不会说「跑一下 seo-audit.mjs」。命中就照入口走，不要现编步骤；越模糊越不盲跑全套：有明确对象先选对应 playbook，已有项目没有明确动作先 `rankup check`，连项目与方向都没有时只问一句有没有想好的词或方向。
 
 | 用户会说的话 | 段 | 入口 |
 |---|---|---|
 | 「做网站时需要 AI 视频/图片生成」「接 Kie」「Kie 音频可不可以用」 | 3 | [Kie 可选分支](references/integrations/kie.md) → [模型快照](references/integrations/kie-models.md)、[登记](references/registry.md)，按能力选供应商，Kie 不是必选 |
-| 有项目记录上下文的「继续」「接着上次做」「上次做到哪了」「看看这份计划」「我们开始执行这个项目的计划」 | 当前段 | 见「强制流程」开工与继续行 |
 | 「挖点需求」「最近有什么能做的」「找几个关键词」（没给具体词） | 1 | [`research/p1-discovery.md`](references/playbooks/research/p1-discovery.md) |
 | 「调研一下这个词」「这个词能不能做」「帮我扩词」「找个 xxx 的需求」 | 1 | [`entry.md`](references/playbooks/entry.md) → [`research/p2-keyword-root.md`](references/playbooks/research/p2-keyword-root.md)（任何词都是词根，按[五个取数动作](references/playbooks/research.md#五个取数动作与编排探索循环)全自动跑完，不反问） |
 | 「做小语种」「这个词在德语怎么搜」「某国市场找词」 | 1 | P2 [阶段 0.7 开工卡](references/playbooks/research/p2-keyword-root.md#阶段-07--非英语市场开工卡目标市场非英语时必填) + [三关](references/playbooks/research/p2-keyword-root.md#小语种候选词三关与本地竞品取词)；语种探测 [`trends.md`](references/trends.md) W1 |
@@ -65,12 +62,10 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 | 「我们做个网站吧」「帮我搭起来」 | 2→3 | 先过段 2 立项，再段 3 按用户指定模板起站，未指定则用默认 shadcn 命令；手上没有词树先回段 1 |
 | 「做个功能」「加个 X」 / 开发中「按 rankup 规范来」 | 3–4 | [`lifecycle/stage-3-build.md`](references/lifecycle/stage-3-build.md)：UI 一律来自 shadcn 组件库，多功能工具站导航先读[侧栏统一规范](references/design-references.md#多功能工具站侧栏统一规范)；做完段 4 全套体检 |
 | 「做个好看的页面」「Hero 怎么设计」「找个组件参考」 / 任何整站设计、改版 | 3 | **必须走 `/design` 并逐字带上获奖标准 prompt**（全文见 [`stage-3-build.md`](references/lifecycle/stage-3-build.md) 硬规则「设计一律走 `/design`」），再用 [`design-references.md`](references/design-references.md) 选 2–3 个案例再实现 |
-| 「我们做个内页吧」「关键词没问题了，做成内页」 | 4 | 见「强制流程」做内页一行 |
 | 「看一下 SEO / GEO 有没有问题」「能不能上线」「TDK」「密度」 | 4 | `checklists.md` 段 4 + [`seo-box.md`](references/seo-box.md)；第三方复核加载官方 `gefei-page`（[`seo-webcafe.md`](references/seo-webcafe.md)） |
 | 「怎么被 AI 引用」「llms.txt」「对 AI 代理友好吗」 | 4 | [`seo-ai-search.md`](references/seo-ai-search.md)；推荐位做法见 `seo-geo.md`；SEO 专题索引 [`seo-growth.md`](references/seo-growth.md) |
 | 「生成 logo / 配图 / og 图」「做一整套网站图标」 | 3–4 | `/imagegen` 真实生成；图标集 `scripts/make-favicons.mjs --src <logo.png> --out <public目录>` |
-| 「写这个模型页」「写篇 blog」「把页面内容写出来」「做对比文」 | 4（上线前） | [`/blog`](../blog/SKILL.md)：站内英文页面内容走它，不自己编 |
-| 「写一下这页的文案」「AI 味太重」 | 4 | 站内英文页面内容走 `/blog`，中文稿仍走 `/write`；中文 `/write`（自带起稿、改稿与去 AI 味体检，不依赖别的 Skill）；内容形状按 `/ai-seo`，见 [`skill-ecosystem.md`](references/skill-ecosystem.md) |
+| 「写一下这页的文案」「AI 味太重」 | 4 | 站内英文页面内容走 `/blog`；中文稿走 `/write`（自带起稿、改稿与去 AI 味体检，不依赖别的 Skill）；内容形状按 `/ai-seo`，见 [`skill-ecosystem.md`](references/skill-ecosystem.md) |
 | 「站慢不慢」「Core Web Vitals」 | 4 | `scripts/pagespeed.mjs collect --strategy both`，判读 `seo-box.md` 一 |
 | 「这个域名能不能用」「域名黑历史」 | 5 | [段 5](references/lifecycle/stage-5-launch.md) 黑历史闸门 + 官方 `gefei-domain` |
 | 「域名买完了」「帮我绑域名」 | 5 | [`cloudflare/domain-email.md`](references/cloudflare/domain-email.md) §8.5 全 API 绑定 → [`cloudflare-stack.md`](references/cloudflare-stack.md) §8.8 基础安全 → `domain-email.md` §8.6 邮箱 → 上线验收 |
@@ -83,9 +78,7 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 | 「现在该做什么」「一步步来」「到哪一步了」「让流量涨一点」「优化一下我的网站」「今天弄下 SEO」 | check | `rankup check`（下文「命令」）；默认打磨转化链路，见[段 7 段首](references/lifecycle/stage-7-monetize.md) |
 | 「review 一下我的站」「查漏补缺」「这项目脱轨了」 | review | `rankup review` |
 | 「把这个老项目接进来」「rankup init」 | init | `rankup init` → [`project-memory.md`](references/project-memory.md) |
-| 「/rankup doctor」「doctor」（整理项目 `.rankup/` 记录）、「整理一下项目记录」「.rankup 太乱了」「整理一下 rankup」 | doctor | `rankup doctor` → [`maintenance.md`](references/maintenance.md)「六」 |
 | 「群里怎么说的」「哥飞说过什么」 | 经验 | 官方 `gefei` Skill 知识库工作流；公开论坛 [`webcafe-forum.md`](references/webcafe-forum.md) |
-| 「把这个经验写进 rankup」 | 维护 | [`maintenance.md`](references/maintenance.md)「五」第 2 条 |
 | 「抓一下后台数据」「Semrush 能查这个吗」 | 取数 | 哥飞工具先加载官方 `gefei`；其他面板看 [`provider-capabilities.md`](references/provider-capabilities.md) |
 | 说的事这张表没有，或点名的兄弟 Skill 本机没装 | — | [`capability-map.md`](references/capability-map.md) → [`skill-ecosystem.md`](references/skill-ecosystem.md) → [`integrations.md`](references/integrations.md) 用 `find-skills` 搜索并安装；不现写等价实现 |
 
@@ -175,6 +168,20 @@ SEO 与 GEO 是最主要的获客与验证手段，**不是适用边界**：项�
 ### `rankup doctor`
 
 整理项目记录，是「维护」章节的显式入口：在用了很久、文档很多的项目上，按 [`maintenance.md`「六」](references/maintenance.md#六rankup-doctor整理-rankup-的显式入口) 全量扫描、**做经验分拣与回流**（项目 / 用户全局层 / Skill 源码 / 别的 Skill，判定见「七」）、清理过时 / 重复 / 任务型内容、原地修订被推翻的结论、目录归位、校验根层 `portfolio.md` 与 `projects.json` 条目数、输出整理报告。第一步永远是只读诊断 `node "<rankup-skill-dir>/scripts/maintain/rankup-doctor.mjs" --project-root . [--portfolio-root <工作区根>]`；拿不准的只列给用户，不删。与 `check`（定位下一步）、`review`（修站）的分工见该节表格。
+
+## 清理
+
+用户说“清理一下”默认 7 天，普通清理直接执行不先问；本节是清理用法的唯一源。
+
+```bash
+node "<rankup-skill-dir>/scripts/maintain/rankup-clean.mjs" --workspace <工作区> --older-than 7d --apply   # 单项目用 --project-root <项目>；一周可写 1w
+```
+
+- 不加 `--apply` 只预览（`--dry-run` 始终只预览）；`--apply` 直接删除，不进回收站、不备份。
+- 删什么：按修改时间删过程数据，以及 `research/`、`journal/`、`reports/`、`evidence/` 里的旧报告和临时脚本；历史 trash 按同一时限清。指向被删文件的链接改成行内文字。
+- 不删什么：Git 已跟踪的文件（列入待确认）、常驻文件、`.keep-data` 白名单、状态文件。Git 索引无法核实时整个项目不删并写明原因。
+- 证据和备份（路径含 backup/evidence/snapshot/dump，或 SQL、bak、数据库副本等）只列「待确认」，按目录或项目聚合成约 50 行以内的清单（路径前缀、文件数、总大小、最新时间、是否被引用）；`--json` 保留每项明细。未发现引用不等于无用。
+- 待确认项由主线程逐项核实后问用户，同意的才加 `--include-backups <路径…>` 删除，仍受时限与常驻、状态、运行中保护约束。
 
 ## 启动协议
 

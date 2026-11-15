@@ -46,7 +46,7 @@
 | 断链 | `.rankup/` 与 Skill references 里相对链接、锚点断链为 0 | `doc-lint.mjs --root <项目>/.rankup`；Skill 用 `doc-lint.mjs` |
 | 过期日期 | 时效契约覆盖的文件（`INDEX.md`、`plan.md`、`keywords.md`、`baseline.md`、`integrations.md`、`infrastructure.md`）最新日期超过 30 天：重新核实，或标「待核实」 | `rankup-doctor.mjs --stale-days 30` |
 | 过程数据残留 | `.rankup/` 内截图和图片、日志、trace/har、测试输出（如 surefire xml）、压缩包、超阈值或未被常驻文件（`INDEX.md`、`plan.md`、`decisions.md`、`leftovers.md` 等）直接引用的原始 `json`/`jsonl` 等可默认清理的过程数据为 0（证据与备份待确认除外）；默认时限7d；Git已跟踪文件不删并列待确认；常驻文档与非过程目录的脚本和代码保留（`mjs`/`js`/`cjs`/`ts`/`py`/`sh`/`sql`）、配置和状态文件（`skill-state.json`、`review-state.json`、`projects.json`、断点状态等）、`.rankup/.keep-data` 白名单及常驻文件直接引用的小体积结构化数据 | `rankup-clean.mjs --project-root <项目>`（默认只列计划，`--apply` 直接删除并改写 md 链接；`--staged` 供pre-commit限定候选，已跟踪/已暂存文件仍保留）；`rankup-doctor.mjs` 归入 A 类 |
-| 备份与临时文件 | 证据与备份的待确认核查、用户确认及显式删除参数统一见 [SKILL.md 清理用法](../SKILL.md) | `rankup-doctor.mjs` |
+| 备份与临时文件 | 证据与备份的待确认核查、用户确认及显式删除参数统一见 [SKILL.md 清理用法](../SKILL.md#清理) | `rankup-doctor.mjs` |
 | 目录外文件 | 顶层文件（含合法根层与已登记项目专属文件）都在[目录规范](project-memory.md#目录规范常驻文件保留什么去哪里多大)里；带日期的一次性文件归入 `research/` 或 `journal/` | `rankup-doctor.mjs` |
 | Skill 文档体积 | references 单文件 > 600 行或 > 80 KB 就拆，主文件留入口与判据 | `doc-lint.mjs`；拆用 `split-doc.mjs` |
 
@@ -67,7 +67,7 @@
 7. **`journal/`**：已记录的判断原文不改写（被推翻时从推翻它的地方反向链接）；但逐步操作、命令输出、一次性 brief 这类流水按「三」压缩成结论加依据，不无限堆积。归档按原观察日期命名 `journal/YYYY-MM-DD-archive-<主题>.md`，超标拆成同日多篇，不改日期凑上限。
 8. **根层 `portfolio.md` / `projects.json`**：阶段、线上状态、下一步与项目内 `INDEX.md` 一致。回写 `projects.json` 前把原文件复制到 `.rankup/` 之外（或确认已在 git 里），用 `jq '… |= …'` 就地更新，改后比对条目数：`jq '.projects | length'`（按实际结构取数组或对象键数）前后必须相等，不等立即恢复。历史上一次 `select` 管道把 17 条塌成 1 条。备份统一按「三」的 C 类口径处理；没有根层登记时此项标 N/A，不创建登记表。doctor 只报当前条目数，执行者须把整理前后计数写进报告。
 
-按时间清理多个项目：`node <rankup>/scripts/maintain/rankup-clean.mjs --workspace <工作区> --older-than 7d --apply`；不指定 `--older-than` 默认7d，历史trash同样按mtime；不指定 `--apply` 只预览。时间筛选额外覆盖 research/journal/reports/evidence 的报告和临时脚本；常驻文件、白名单、state 保留；证据与备份走 [SKILL.md 清理用法](../SKILL.md) 的待确认流程，历史 trash 也遵守同一规则。
+按时间清理多个项目：`node <rankup>/scripts/maintain/rankup-clean.mjs --workspace <工作区> --older-than 7d --apply`；不指定 `--older-than` 默认7d，历史trash同样按mtime；不指定 `--apply` 只预览。时间筛选额外覆盖 research/journal/reports/evidence 的报告和临时脚本；常驻文件、白名单、state 保留；证据与备份走 [SKILL.md 清理用法](../SKILL.md#清理) 的待确认流程，历史 trash 也遵守同一规则。
 
 ## 五、维护 Skill 源码（rankup 本身）
 

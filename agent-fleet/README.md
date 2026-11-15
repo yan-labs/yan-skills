@@ -63,7 +63,7 @@ fleet stop latest
 
 默认由独立监督进程运行，launcher 继续阻塞到终态，打印原简报并按 verdict 退出；`--json` / `--full` 仍输出原格式。`--detach` 是默认行为的兼容别名，立即返回需用 `--no-wait`。关闭终端、退出 Claude 或杀 launcher 整组不影响任务；启动失败明确报错，不退回前台。命令不需要 `&` / nohup / disown。
 
-Claude Code 派单写法与误加 `&` 后的补救见 [Skill 顶部「派单前必读」](skill/SKILL.md)。默认等待 launcher 在 Claude 工具环境下检测到父进程变化时会告警，并在 status 标出 `⚠ detached-launch`（JSON 字段 `launchDetached: true`）；任务继续执行，不要杀掉重派。
+Claude Code 派单写法与误加 `&` 后的补救见 [Skill「派单流程」第 4 步](skill/SKILL.md#派单流程)。默认等待 launcher 在 Claude 工具环境下检测到父进程变化时会告警，并在 status 标出 `⚠ detached-launch`（JSON 字段 `launchDetached: true`）；任务继续执行，不要杀掉重派。
 
 新会话先 `fleet status --running`，对已有任务逐个 `fleet wait <id>` 接着等，不要重派。`status` 默认跨 cwd 列出全部非终态及最近24小时终态，`--running` 只列 running/abnormal，`--json` 返回数组；每行包含 runId、短名、模型、状态、时长、cwd、报告路径及最后心跳。`--name`、`--report` 可指定元数据，未传时从 brief 的“归类…”行及 `REPORT:` 行提取。
 
