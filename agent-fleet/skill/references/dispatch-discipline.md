@@ -54,3 +54,5 @@
 - 第一页 UI library 定组件、颜色、圆角、按钮、间距、图标；其他页引用它，先改 library 再改页面。视觉风格经用户确认后，建该画布独立的 Design System（`/design` 的 Design System 类型），后续需求先改它再改页面。
 - `fleet sonnet`（难的 `fleet opus`）在本地写 `.dc.html`、CSS、`canvas.json`；`executor-haiku` 用 Artifact 工具按目录逐页上传，同一画布上传串行，并发改动前先重读最新 `canvas.json` 合并。
 - brief 不推送时避免“推送出去的…”等歧义用语，写“将来公开的历史”；选 `--auth local-commit` 并写明“本单不推送”。
+
+- 验收项未完成须继续执行；入口不清先查 brief 引用的报告与仓库，真实授权或必需输入缺口逐项写受阻。

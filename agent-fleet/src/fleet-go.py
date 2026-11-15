@@ -181,7 +181,16 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
         entry_match = re.search(r'^##?\s*入口\s*[:：]?\s*\n(.*?)(?=^##?\s|\Z)', text, re.M | re.S)
         entry = entry_match.group(1) if entry_match else ''
         if not action_match:
-            print('警告：缺少动作行；过渡期暂不拦截入口与授权检查。', file=sys.stderr)
+            print('警告：缺少动作行；请补充动作。', file=sys.stderr)
+            body = re.search(r'^## 目标\s*\n(.*?)(?=^## 允许范围|\Z)', text, re.M | re.S)
+            auth = re.search(r'^## 授权覆盖\s*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
+            auth_text = auth.group(1) if auth else ''
+            clauses = re.split(r'[。；;\n]', body.group(1) if body else '')
+            readonly = bool(re.search(r'^归类：[^\n]*(?:只读|复核|审计)', text, re.M) or '允许范围：只读复核' in auth_text)
+            if not readonly and any(re.search(r'合入|合并|推送|部署|安装到|装到|上线|发布', c) and not re.search(r'不(?:要|得|做|进行|允许|推送|合入|部署|上线|发布)|禁止|无需|只读', c) for c in clauses):
+                commit = '允许在本地分支提交' in auth_text or '允许本地提交' in auth_text or bool(re.search(r'^授权块：.*\blocal-commit\b', auth_text, re.M))
+                deploy = '发布全流程' in auth_text or bool(re.search(r'^授权块：.*\bdeploy-prod\b', auth_text, re.M))
+                if not (commit and deploy): errors.append('正文发布动作需要 local-commit 和 deploy-prod 授权。')
         else:
             actions = {re.sub(r'[（(].*?[）)]', '', v).strip() for v in action_match.group(1).split('/')}
             valid = {'只读', '改代码', '本地提交', '推送', '部署', '付费'}
@@ -196,10 +205,19 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
             if '本地提交' in actions and not commit: needed.add('local-commit')
             if actions & {'推送', '部署'}: needed.update(a for a, present in [('local-commit', commit), ('deploy-prod', deploy)] if not present)
             if '付费' in actions and not paid: needed.add('paid')
+            # 正文的发布动作与动作行同样需要授权；只读任务不推断写操作。
+            body = re.search(r'^## 目标\s*\n(.*?)(?=^## 允许范围|\Z)', text, re.M | re.S)
+            revisions = re.findall(r'^## 【修订[^\n]*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
+            clauses = re.split(r'[。；;\n]', (body.group(1) if body else '') + '\n' + '\n'.join(revisions))
+            publishing = any(re.search(r'合入|合并|推送|部署|安装到|装到|上线|发布', clause)
+                and not re.search(r'不(?:要|得|做|进行|允许|推送|合入|部署|上线|发布)|禁止|无需|仅供|只读', clause) for clause in clauses)
+            if actions != {'只读'} and publishing and not (commit and deploy):
+                needed.update(a for a, present in [('local-commit', commit), ('deploy-prod', deploy)] if not present)
+
             if needed:
                 why = [msg for want, msg in [('改代码' in actions and not (local or commit), '改代码需要 local 或 local-commit 授权'),
                                                ('本地提交' in actions and not commit, '本地提交需要 local-commit 授权'),
-                                               (bool(actions & {'推送', '部署'}) and not (commit and deploy), '推送或部署需要 local-commit 和 deploy-prod 授权'),
+                                               ((bool(actions & {'推送', '部署'}) or (actions != {'只读'} and publishing)) and not (commit and deploy), '推送或部署需要 local-commit 和 deploy-prod 授权'),
                                                ('付费' in actions and not paid, '付费需要 paid 授权')] if want]
                 current = {a for a, present in [('local', local), ('local-commit', commit), ('deploy-prod', deploy), ('paid', paid)] if present}
                 current.update(a for a in ('review', 'readonly-web') if block('auth-' + a, {'REPORT': re.search(r'^REPORT: (.+)$', text, re.M).group(1) if re.search(r'^REPORT: (.+)$', text, re.M) else ''}) in auth_text or re.search(r'^授权块：.*(?<![\w-])' + re.escape(a) + r'(?![\w-])', auth_text, re.M))
@@ -229,7 +247,7 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
         if to == 'gpt' and not sol and re.search(r'未知|自己找', entry):
             hit = re.search(r'未知|自己找', entry)
             number = text.count('\n', 0, entry_match.start(1) + hit.start()) + 1
-            errors.append(f'入口未知或自己找时请加 --sol。第 {number} 行命中原文：{hit.group()}。')
+            print(f'提示：入口不清时先查 brief 引用的报告与仓库。第 {number} 行命中原文：{hit.group()}。', file=sys.stderr)
         if simple:
             writes = re.findall(r'^[ \t]*可写路径[ \t]*[:：][ \t]*(/[^\s，,；;（(]+)', entry, re.M)
             allowed = re.search(r'^## 允许范围\s*\n允许写：\n(.*?)(?=^只读：|^## |\Z)', text, re.M | re.S)

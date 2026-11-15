@@ -238,7 +238,7 @@ try {
     assert.match(local.stdout,/部署、git 写操作、线上写入由主线程另行授权/); assert.match(local.stdout,/本单不做 git 提交，报告不需要提交哈希/);
   });
   test('动作、入口与授权 lint 及豁免', () => {
-    const strict = (action, body, opts=[]) => spawnSync(script,['new','strict','--to','gpt','--on','local','--goal','正文提到提交哈希、部署与凭据，但不推断动作','--dry-run',...(action ? ['--action',action] : []),...opts],{encoding:'utf8',env,input:body});
+    const strict = (action, body, opts=[]) => spawnSync(script,['new','strict','--to','gpt','--on','local','--goal','检查任务' ,'--dry-run',...(action ? ['--action',action] : []),...opts],{encoding:'utf8',env,input:body});
     const entry = '## 入口\n仓库：/tmp\n可写路径：/tmp/example\n';
     const readEntry = '## 入口\n仓库：/tmp\n';
     let r = strict('只读',readEntry); assert.equal(r.status,0,r.stderr); assert.match(r.stdout,/动作: 只读/);
@@ -252,8 +252,6 @@ try {
       ['只读','## 入口\n仓库：relative',[],/绝对路径/],
       ['只读','## 入口\n仓库：/no-such-fake-repository',[],/仓库不存在/],
       ['改代码',readEntry,[],/可写路径/],
-      ['只读','## 入口\n仓库：/tmp\n未知', [],/请加 --sol/],
-      ['只读','## 入口\n仓库：/tmp\n未知', ['--simple'],/请加 --sol/],
       ['改代码',entry,['--auth','review'],/local 或 local-commit/],
       ['本地提交',entry,[],/local-commit/],
       ['推送',entry,['--auth','deploy-prod'],/local-commit 和 deploy-prod/],
@@ -262,8 +260,11 @@ try {
       ['未知动作',entry,[],/未知或空动作/],
     ]) { r=strict(action,body,opts); assert.equal(r.status,1,action); assert.match(r.stderr,expected); assert.match(r.stderr,/示例（按实际任务和授权修改）/); }
     r=strict('错误动作',entry); assert.match(r.stderr,/合法集合：只读、改代码、本地提交、推送、部署、付费/);
-    r=strict('只读','## 入口\n仓库：/tmp\n自己找 token=abcdefghijklmnopqrstuv'); assert.match(r.stderr,/命中原文：自己找/); assert.doesNotMatch(r.stderr,/abcdefghijklmnopqrstuv/);
+    r=strict('只读','## 入口\n仓库：/tmp\n自己找 token=abcdefghijklmnopqrstuv'); assert.equal(r.status,1); assert.match(r.stderr,/命中原文：自己找/); assert.doesNotMatch(r.stderr,/abcdefghijklmnopqrstuv/);
     assert.equal(strict('只读','## 入口\n仓库：/tmp\n未知',['--sol']).status,0);
+    r=strict('本地提交',entry+'PR 合入后装到 launchd 路径并回读。',['--auth','local-commit']); assert.equal(r.status,1); assert.match(r.stderr,/deploy-prod/);
+    assert.equal(strict('只读',readEntry+'核查是否部署。').status,0);
+    r=strict('',entry+'PR 合入后装到 launchd 路径并回读。',['--auth','local-commit']); assert.equal(r.status,1); assert.match(r.stderr,/deploy-prod/);
     r=strict('', ''); assert.equal(r.status,0,r.stderr); assert.match(r.stderr,/缺少动作行/);
     r=strict('推送',entry,['--auth','local-commit']); assert.match(r.stderr.split('\n')[0],/^错误：缺授权块 deploy-prod：.*改用 --auth local-commit,deploy-prod/);
     r=strict('部署',readEntry,['--no-lint']); assert.equal(r.status,1); assert.match(r.stderr,/--auth local-commit,deploy-prod/); assert.match(r.stderr,/可写路径/);
@@ -565,13 +566,12 @@ try {
     assert.equal(created.status,0,created.stderr);
     reset();
     const blocked=run(['relaunch','route-relaunch','--simple']);
-    assert.equal(blocked.status,1,blocked.stderr);assert.match(blocked.stderr,/请加 --sol/);
-    assert(!history().some(c=>c.args[0]==='code'));
+    assert.equal(blocked.status,7,blocked.stderr);assert.match(blocked.stderr,/先查 brief/);
     assert.equal(run(['relaunch','route-relaunch']).status,7);
     const metaPath=join(home,'.agent-reports',report.split('/').at(-2),'route-relaunch.brief.json');
     const meta=JSON.parse(readFileSync(metaPath,'utf8'));meta.simple=true;meta.tier='terra';writeFileSync(metaPath,JSON.stringify(meta));
-    assert.equal(run(['relaunch','route-relaunch']).status,1);
-    assert.equal(run(['relaunch','route-relaunch','--luna']).status,1);
+    assert.equal(run(['relaunch','route-relaunch']).status,7);
+    assert.equal(run(['relaunch','route-relaunch','--luna']).status,7);
     const cross=spawnSync(script,['new','route-cross','--to','gpt','--on','local','--goal','接入存储','--action','改代码','--write',temp+'/repo-a/other','--sol','--no-launch'],{encoding:'utf8',env,input:entry.replace('未知入口','具体文件: src/store.ts')});
     assert.equal(cross.status,0,cross.stderr);
     const crossBlocked=run(['relaunch','route-cross','--simple']);

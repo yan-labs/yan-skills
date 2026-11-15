@@ -69,3 +69,5 @@ steer 被接受不等于立即执行，插话无法撤销已经完成的文件�
 2026-09-30，本机默认模型改为 `gpt-6.1-sol`。Codex CLI 0.158.0 调用它会被服务端以「not supported when using Codex with a ChatGPT account」拒绝；0.159.0 的 low 只读样例通过。所以本机 Codex 必须 ≥ 0.159.0（Homebrew 安装的用 `brew upgrade --cask codex` 升级，升级前先确认其他 Codex 任务均已结束）。旧版本调用会失败；fleet 只上报事实，由派用者判断后续执行者。
 
 补扫漏归档线程：`node ~/Project/kcsx/macmini/yan-skills/agent-fleet/bin/fleet-archive-sweep.mjs [--dry-run] [--json] [--min-idle-minutes 10]`。派单前及 Codex 完成后运行；派单入口也会后台补扫（异步运行，失败后主任务继续），`FLEET_NO_ARCHIVE_SWEEP=1` 可关闭自动扫描。
+
+交回前逐条自检 brief 验收项；未做完先继续，判断不确定才写未确认，真实缺口写受阻及已查位置。
