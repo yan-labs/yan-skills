@@ -28,6 +28,8 @@ mini.REMOTE_HOME = '/home/b'
 mini.REMOTE_BIN = '/home/b/fleet'
 
 assert mini.remote_path('/home/a/Project/x') == '/home/b/Project/x'
+assert mini.remote_path('/home/b/.agent-reports/only-mini.md') == '/home/b/.agent-reports/only-mini.md'
+assert mini.rewrite_brief('读取 /home/b/.agent-reports/only-mini.md') == '读取 /home/b/.agent-reports/only-mini.md'
 assert mini.remote_path('/home/a-archive') == '/home/a-archive'
 assert mini.rewrite_brief('正文 /home/a/keep\n- 文本 /home/a/keep\n- /home/a/file\n') == '正文 /home/b/keep\n- 文本 /home/b/keep\n- /home/b/file\n'
 assert not mini.referenced_paths('A/C P50/P95 fu/Bin Redis/DB Java/前端代码里找 private/input.txt')
@@ -45,7 +47,7 @@ for punctuation in '「」『』（）【】，。、；：！？“”‘’\u3
 assert not mini.referenced_paths('https://example.com/a ../x /api/foo `/api/events`')
 with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, json.dumps({'missing':['/home/b/a'], 'ready':False}), '')):
     reason = mini.preflight({'to':'claude'}, ['/home/a/a'])
-    assert 'Mini 缺少路径：/home/a/a' in reason and 'claude 通道不可用' in reason
+    assert 'Mini 缺少路径：/home/b/a' in reason and 'claude 通道不可用' in reason
 with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, json.dumps({'missing':[], 'ready':True}), '')) as remote:
     assert mini.preflight({'to':'gpt', 'name':'unit', 'report':'/tmp/report.md'}, ['/tmp/unit/', '/tmp/report.md', '/tmp/report.checkpoint.md', '/tmp/input']) is None
     assert remote.call_args.args[1]['paths'][-1:] == ['/tmp/input']
@@ -162,7 +164,8 @@ echo '[{"runId":"old-run","status":"done"}]'
     codex = fake_bin / 'codex'; codex.write_text('#!/bin/sh\nexit 0\n'); codex.chmod(0o755)
     sync_meta = {'to':'gpt', 'writes':[str(source_dir)], 'brief':str(brief), 'report':str(source_reports/'result.md'), 'name':'sync'}
     with patch.object(mini, 'LOCAL_HOME', str(source_home)), patch.object(mini, 'REMOTE_HOME', str(target_home)), patch.object(mini, 'call', local_call), patch.object(mini, 'wait', return_value=0), patch.object(mini, 'REMOTE_BIN', str(launch_fleet)), patch.object(mini.os, 'getcwd', return_value=str(tmp)), patch.dict(os.environ, {'PATH':str(fake_bin)+':'+os.environ['PATH']}):
-        assert mini.preflight(sync_meta, [str(source_file), str(source_dir), str(existing_dir)]) is None
+        remote_only = target_home / '.agent-reports/day/remote-only.md'; remote_only.parent.mkdir(parents=True); remote_only.write_text('remote')
+        assert mini.preflight(sync_meta, [str(remote_only), str(source_file), str(source_dir), str(existing_dir)]) is None
         assert remote_file.read_text() == 'input content' and source_dir.is_dir() and remote_dir.is_dir()
         assert (target_home / '.agent-reports/existing/nested/data.md').read_text() == 'nested'
         assert mini.launch(sync_meta, ['fleet','code',str(brief),'--report',sync_meta['report']]) == 0
@@ -257,7 +260,7 @@ fi
     assert proc.returncode != 0 and 'Mini 缺少路径' in proc.stderr, (proc.stdout, proc.stderr)
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','unready','--to','claude','--on','mini','--read','/home/a/missing','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
     assert proc.returncode != 0
-    assert 'Mini 缺少路径：/home/a/missing' in proc.stderr and 'claude 通道不可用' in proc.stderr and '补齐' in proc.stderr
+    assert 'Mini 缺少路径：/home/b/missing' in proc.stderr and 'claude 通道不可用' in proc.stderr and '补齐' in proc.stderr
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','recheck','--to','gpt','--sol','--read','/home/a/original','--goal','x','--no-lint','--no-launch'], env=env, text=True, capture_output=True)
     assert proc.returncode == 0, proc.stderr
     # 原 brief 标记 Mini，但最新同名 run 在本机时 amend 不应同步到 Mini。
@@ -268,13 +271,13 @@ fi
     (local_state / 'recheck.json').write_text(json.dumps({'runId':'2026-11-10T12-00-00-000Z-detach-local','name':'recheck','startedAt':'2026-11-10T12:00:00.000Z'}))
     remote_state = tmp / '.agent-fleet/mini-runs'; remote_state.mkdir(parents=True, exist_ok=True)
     (remote_state / 'recheck.json').write_text(json.dumps({'id':'2026-11-10T10-00-00-000Z-detach-mini','name':'recheck','report':'/home/a/r','brief':'/home/a/b'}))
-    proc = subprocess.run([str(root/'bin/fleet-go'),'amend','recheck','读取 /home/a/revised','--on','local'], env=env, text=True, capture_output=True)
+    proc = subprocess.run([str(root/'bin/fleet-go'),'amend','recheck','读取 /home/a/revised\n\n另读 /home/a/second','--on','local'], env=env, text=True, capture_output=True)
     assert proc.returncode == 0, proc.stderr
     assert json.loads(next((tmp/'.agent-reports').glob('*/recheck.brief.json')).read_text())['on'] == 'local'
     proc = subprocess.run([str(root/'bin/fleet-go'),'relaunch','recheck','--on','mini'], env=env, text=True, capture_output=True)
     assert proc.returncode != 0 and '补齐' in proc.stderr, proc.stderr
     metadata = json.loads(next((tmp/'.agent-reports').glob('*/recheck.brief.json')).read_text())
-    assert '/home/a/original' in metadata['paths'] and '/home/a/revised' in metadata['paths']
+    assert '/home/a/original' in metadata['paths'] and '/home/a/revised' in metadata['paths'] and '/home/a/second' in metadata['paths']
 spec = importlib.util.spec_from_file_location('fleet_go_tools', root / 'src/fleet-go.py')
 fg = importlib.util.module_from_spec(spec); spec.loader.exec_module(fg)
 with patch.object(fg.mini, 'LOCAL_HOME', '/home/a'), patch.object(fg.mini, 'REMOTE_HOME', '/home/b'), patch.object(fg.mini, 'call') as remote, patch.object(fg.worktree, 'execute', side_effect=AssertionError('local worktree')):

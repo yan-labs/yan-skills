@@ -43,6 +43,8 @@ def map_path(value, source, target):
     return value
 
 def remote_path(value):
+    if REMOTE_HOME and (value == REMOTE_HOME or value.startswith(REMOTE_HOME + '/')):
+        return value
     return map_path(value, LOCAL_HOME, REMOTE_HOME)
 
 def local_path(value):
@@ -54,7 +56,7 @@ def expand_path(value):
     return os.path.abspath(os.path.expanduser(os.path.expandvars(value)))
 
 def rewrite_brief(text):
-    return re.sub(re.escape(LOCAL_HOME) + r'(?![\w-])', lambda m: REMOTE_HOME, text) if LOCAL_HOME and REMOTE_HOME else text
+    return re.sub(PATH_PATTERN, lambda m: remote_path(m.group(0)), text) if LOCAL_HOME and REMOTE_HOME else text
 
 def available():
     try:
@@ -245,7 +247,7 @@ print(json.dumps({'missing':missing,'ready':ready,'tools':tools,'timed_out':time
         if value.get('timed_out'): return 'Mini 环境检查超时（负载高）'
         reasons = []
         if value.get('tools'): reasons.append(TOOLS_MISSING + '、'.join(value['tools']) + '（已按登录 shell 补 /opt/homebrew/bin 仍找不到）')
-        if value['missing']: reasons.append('Mini 缺少路径：' + '、'.join(local_path(x) for x in value['missing']))
+        if value['missing']: reasons.append('Mini 缺少路径：' + '、'.join(value['missing']))
         if not value['ready']: reasons.append('Mini 的 ' + meta['to'] + ' 通道不可用')
         return '；'.join(reasons) if reasons else None
     except (OSError, subprocess.TimeoutExpired, ValueError, KeyError):

@@ -496,7 +496,7 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
             text = rewrite_worktree(text, meta, wt, location)
             path.write_text(text)
     scope = text.split('## 目标', 1)[-1].split('## 允许范围', 1)[0] if 'paths' not in meta else ''
-    revisions = '\n'.join(re.findall(r'^## 【修订 [^\n]+】\n(.*?)(?=\n\n)', text, re.M | re.S))
+    revisions = '\n'.join(re.findall(r'^## 【修订 [^\n]+】\n(.*?)(?=^## |\Z)', text, re.M | re.S))
     allowed = text.split('## 允许范围', 1)[-1].split('## 已知坑', 1)[0]
     declared = [p for p in mini.referenced_paths('\n'.join(line for line in allowed.splitlines() if line.startswith('- ')))
                 if p not in (meta['report'], '/tmp/' + name + '/')]
