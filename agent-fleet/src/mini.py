@@ -199,7 +199,23 @@ def preflight(meta, paths):
     script = PATH_FIX + """import base64,json,os,pathlib,shutil,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1]))
 """ + CANONICAL_SCRIPT + """
-p['paths']=[canonical(x) for x in p['paths']]; missing=[x for x in p['paths'] if not pathlib.Path(x).exists()]; tools=[t for t in p.get('commands',[]) if not shutil.which(t)]
+p['paths']=[canonical(x) for x in p['paths']]
+# 仅回填已结束 run 明确声明的 REPORT，原子创建且不覆盖现有文件。
+for record in (pathlib.Path(p['home'])/'.agent-fleet/runs').glob('*.json'):
+ try:
+  row=json.loads(record.read_text()); report=row.get('reportPath'); result=row.get('resultPath')
+  if row.get('status') not in ('done','failed','stopped','blocked') or not report or canonical(report) not in p['paths'] or not result: continue
+  target=pathlib.Path(canonical(report)); content=pathlib.Path(result).read_bytes()
+  if not content.strip() or target.exists(): continue
+  import tempfile
+  target.parent.mkdir(parents=True,exist_ok=True)
+  fd,tmp=tempfile.mkstemp(dir=target.parent,prefix=target.name+'.',suffix='.tmp')
+  try:
+   with os.fdopen(fd,'wb') as f: f.write(content)
+   os.link(tmp,target)
+  finally: os.unlink(tmp)
+ except (OSError,ValueError,TypeError): pass
+missing=[x for x in p['paths'] if not pathlib.Path(x).exists()]; tools=[t for t in p.get('commands',[]) if not shutil.which(t)]
 kind=p['kind']; binary=pathlib.Path(p['bin']); root=binary.parent if binary.is_dir() else binary.parent.parent; envnames={'claude':'ANTHROPIC_CREDIT_API_KEY','openai':'OPENAI_CREDIT_API_KEY','gemini':'KOLLAB_PROD_API_KEY','jev':'TYPESAFE_API_KEY'}
 timed_out=False
 try:

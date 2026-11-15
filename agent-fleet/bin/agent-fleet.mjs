@@ -33,7 +33,7 @@ import { judgeTask } from '../src/judge-task.mjs';
 import { createProgress } from '../src/progress.mjs';
 import { tailLatestLog } from '../src/tail-log.mjs';
 import { timelineFile } from '../src/timeline.mjs';
-import { buildBrief, DEFAULT_BRIEF_LINES, renderManyOutput, renderRunOutput, failureReport, redactEvidence, inspectGit } from '../src/brief.mjs';
+import { buildBrief, DEFAULT_BRIEF_LINES, renderManyOutput, renderRunOutput, failureReport, redactEvidence, inspectGit, fillReport } from '../src/brief.mjs';
 import { collectStatus, deliverSay, formatStatusHuman, requestStop } from '../src/control.mjs';
 import { readPidRecord, resolveRunId, isRecordedProcessAlive, patchPidRecord, runIdFromLogPath } from '../src/pid.mjs';
 import { shortRunOptions, splitShortArgs, resolveBrief } from '../src/shortcuts.mjs';
@@ -126,7 +126,9 @@ function outputOptions(flags, config) {
   };
 }
 
+let attachedReportPath;
 async function printRunResult(result, options) {
+  if (!process.env.FLEET_DETACHED_RUN_ID && fillReport(attachedReportPath, result.resultPath)) result.reportBackfilled = true;
   let output = await renderRunOutput(result, {
     ...options,
     onBrief: brief => {
@@ -545,6 +547,7 @@ async function cmdShortRun(command, argv) {
 }
 
 async function enterAttachedSlot(options) {
+  attachedReportPath = options.reportPath;
   const id = `attach-${randomUUID()}`;
   await registerQueue({ ...options, runId: id });
   while (!(await acquireSlot(id))) await new Promise(r => setTimeout(r, 250));

@@ -170,6 +170,16 @@ echo '[{"runId":"old-run","status":"done"}]'
         assert (target_home / '.agent-reports/existing/nested/data.md').read_text() == 'nested'
         assert mini.launch(sync_meta, ['fleet','code',str(brief),'--report',sync_meta['report']]) == 0
         assert '缺少路径' in mini.preflight(sync_meta, [str(source_home/'missing-repo')])
+        runs = target_home / '.agent-fleet/runs'; runs.mkdir(parents=True)
+        historical = target_home / '.agent-reports/day/historical.md'
+        result = runs / 'old.result.md'; result.write_text('historical result')
+        (runs / 'old.json').write_text(json.dumps({'status':'done','reportPath':str(historical),'resultPath':str(result)}))
+        assert mini.preflight(sync_meta, [str(historical)]) is None
+        assert historical.read_text() == 'historical result'
+        historical.unlink()
+        (runs / 'old.json').write_text(json.dumps({'status':'running','reportPath':str(historical),'resultPath':str(result)}))
+        assert '缺少路径' in mini.preflight(sync_meta, [str(historical)])
+
         with patch.object(mini, 'sync_reports', side_effect=OSError('failed')):
             assert '同步失败' in mini.preflight(sync_meta, [str(source_reports/'missing')])
         # 本机改过的输入（含 --body 正文）覆盖 Mini 旧副本；Mini 较新的不动。
