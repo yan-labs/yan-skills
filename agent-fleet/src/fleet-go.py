@@ -1186,7 +1186,10 @@ def main():
         folder = Path(os.environ.get('AGENT_FLEET_RUNS_DIR', Path.home() / '.agent-fleet/runs'))
         known = {r['runId'] for r in rows}
         for path in sorted(folder.glob('*.json'), key=lambda p: p.name.endswith('.pid.json')):
-            rec = json.loads(path.read_text())
+            try:
+                rec = json.loads(path.read_text())
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
             if path.name.endswith('.pid.json'):
                 run_id = path.name[:-len('.pid.json')]
                 if not rec.get('finished'):
@@ -1202,7 +1205,7 @@ def main():
                 # 前台历史无 status 字段，沿用 fleet 的日志终态判定。
                 log = Path(rec['logPath']).read_text() if rec.get('logPath') and Path(rec['logPath']).exists() else ''
                 rec.update(runId=run_id, status='failed' if re.search(r'\] done error', log) else 'done')
-            if rec.get('runId') not in known and rec.get('status') in ('done', 'failed', 'stopped', 'blocked'):
+            if rec.get('runId') and rec.get('runId') not in known and rec.get('status') in ('done', 'failed', 'stopped', 'blocked'):
                 rows.append(rec)
                 known.add(rec['runId'])
         if not args.all:

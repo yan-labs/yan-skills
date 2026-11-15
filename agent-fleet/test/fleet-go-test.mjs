@@ -53,6 +53,15 @@ const reset = () => writeFileSync(calls, '');
 let checks = 0;
 function test(name, fn) { fn(); checks++; console.log('PASS - '+name); }
 try {
+  test('status 忽略无 runId 和损坏的本地 JSON',()=> {
+    const runs=join(temp,'status-local-runs'); mkdirSync(runs);
+    writeFileSync(join(runs,'quota.json'),JSON.stringify({status:'done'}));
+    writeFileSync(join(runs,'broken.json'),'{');
+    writeFileSync(join(runs,'valid.json'),JSON.stringify({runId:'valid-run',status:'done'}));
+    const r=run(['status','--all'],{AGENT_FLEET_RUNS_DIR:runs});
+    assert.equal(r.status,0,r.stderr); assert.match(r.stdout,/valid-run/);
+    reset();
+  });
   let brief;
   test('dry-run 必需元素及顺序、最后一行逐字规则、无文件或派发', () => {
     const r=run(['new','--to','gpt','one','--goal','独有目标','--dry-run','--write','/tmp/project','--read','/tmp/source']);
