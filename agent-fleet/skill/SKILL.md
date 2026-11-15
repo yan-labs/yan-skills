@@ -75,7 +75,7 @@ CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有�
 **派单与巡检经验（2026-11-12～13）**
 - Agent 子代理也能在 Mac Mini 干活：子代理本身在 MacBook 启动，brief 写明命令用 `~/.claude/skills/macmini/scripts/mm '<命令>'` 在 Mini 执行（mm 不在 PATH，写全路径）。不要以"子代理只能本机跑"为由把任务留在本机。
 - `fleet-go relaunch` 默认在 Mini 执行；明确指定 `--on local --local-reason "理由"` 才在本机执行。
-- `relaunch` 读的是保存的 brief.md，不是 body.md；改了 body.md 要同步改 brief.md（或用 `amend`），否则重派仍按旧要求做。
+- `relaunch` 会把 brief.json 记录的 `--body` 文件重新换进 brief，可能是别的会话 scratchpad 里的旧文件；手改的入口会被盖回，改了入口就新开一单。
 - 巡检子单只给本会话派出的 run 下指令；已结束的 run 不发指令；有进度文件的长任务以进度文件的更新时间判断是否卡住，不按 2 小时规则强令收尾。
 - 阶段计划和交接自动继续，不发审批 ask；`fleet wait` 遇到 ask 只提示并继续等终态。Codex 子线程完成不能当作主任务完成；见 [阶段接力与等待](references/codex-coding.md#阶段接力与等待)。
 - gpt 单一直 queued 无原因：多半是 Codex 用量闸门（`~/.agent-fleet/runs/codex-quota.json` 的 usedPercent 超过 `FLEET_CODEX_QUOTA_LIMIT`，默认 90）。用户说额度够用时，把 `FLEET_CODEX_QUOTA_LIMIT` 写进两机 agent-fleet `.env`；闸门在每个排队进程启动时读入，已在排队的单要 stop 后 relaunch 才生效，而且旧进程会挡住同池后面的单（2026-11-14）。
@@ -116,6 +116,10 @@ CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有�
 brief 引用的文件请写绝对路径；预检只检查绝对文件路径，相对路径和 API 路由不受影响，显式指定 `--on mini` 时不会回退。
 
 ## 快速派单（默认写法）
+
+- 2026-11-15：`amend` / `say` 文本里的路径不要以 `~` 开头，派单机会展开成本机家目录，Mini 会报缺少路径；写 Mini 绝对路径。
+- 2026-11-15：`relaunch` 会用 brief.json 记录的 `--body` 文件重新替换正文，可能盖回手改的入口；改了入口就新开一单。
+- 2026-11-15：`--sol` / `--luna` 只能配 `--to gpt`；原单是 `--to openai` 时，换档用 `relaunch <名> --to gpt --sol`。
 
 - 派单方写 brief 前先读项目 `.rankup/infra/13-dispatch-kit.md` 或 `.rankup/dispatch.md`；项目特有的派单坑写回项目 `.rankup`，通用的才写进本 Skill。
 - 2026-11-15：只读或复核单只写「仓库:」，不写「可写路径」，也不将共享报告目录作为可写路径，以免与同期任务冲突。
