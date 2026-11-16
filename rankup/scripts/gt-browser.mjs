@@ -110,6 +110,11 @@ function parseArgs(argv) {
 }
 
 function opencliRaw(args, opts = {}) {
+  if (args[0] === "browser") {
+    args = ["browser", "--session", args[1], ...args.slice(2)];
+    const i = args.indexOf("--window");
+    if (i >= 0 && !["foreground", "background"].includes(args[i + 1])) args[i + 1] = "background";
+  }
   return execFileSync(OPENCLI, args, {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
@@ -123,7 +128,12 @@ function firstJson(raw) {
   const start = raw.search(/[[{]/);
   if (start < 0) return null;
   try {
-    return JSON.parse(raw.slice(start));
+    const value = JSON.parse(raw.slice(start));
+    if (value && value.ok === true && Object.hasOwn(value, "data")) {
+      if (typeof value.data === "string") { try { return JSON.parse(value.data); } catch { return value.data; } }
+      return value.data;
+    }
+    return value;
   } catch {
     return null;
   }
