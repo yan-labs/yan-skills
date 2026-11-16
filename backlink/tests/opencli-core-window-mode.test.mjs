@@ -1,14 +1,12 @@
 /**
- * `--window`/`OPENCLI_WINDOW` 的单一入口——`normalizeWindowMode` 及其两个消费者
- * `resolveBrowserWindowArgs`（`opencli()` 用）/`buildBatchBrowserArgs`（`batchBrowser()`
- * 用）。2026-09-14 之前这三处各自写了一份「只认 foreground，其余一律 background」
+ * `--window`/`OPENCLI_WINDOW` 的单一入口——`normalizeWindowMode` 及其消费者 `resolveBrowserWindowArgs`。2026-09-14 之前这三处各自写了一份「只认 foreground，其余一律 background」
  * 的二值化三元表达式，把 opencli 实际支持的 `active`/`isolated` 都静默压成了
  * `background`。这里钉住修复之后的透传行为，以及修复前就有的既有行为不能变。
  */
 import { strict as assert } from 'node:assert';
 import test from 'node:test';
 import {
-  ALLOWED_WINDOW_MODES, buildBatchBrowserArgs, normalizeWindowMode, resolveBrowserWindowArgs,
+  ALLOWED_WINDOW_MODES, firstJson, normalizeWindowMode, resolveBrowserWindowArgs,
 } from '../scripts/opencli-core.mjs';
 
 test('normalizeWindowMode passes through all four opencli-recognised modes', () => {
@@ -78,26 +76,8 @@ test('resolveBrowserWindowArgs: sessions/cleanup are bare subcommands, never get
   assert.deepEqual(resolveBrowserWindowArgs(['browser', 'cleanup'], { windowMode: 'active' }), ['browser', 'cleanup']);
 });
 
-test('buildBatchBrowserArgs: active/isolated now really reach the CLI', () => {
-  assert.deepEqual(
-    buildBatchBrowserArgs('s1', [{ cmd: 'eval', args: { js: '1' } }], { windowMode: 'active' }),
-    ['browser', 's1', '--window', 'active', 'batch', '--commands', JSON.stringify([{ cmd: 'eval', args: { js: '1' } }])],
-  );
-});
-
-test('buildBatchBrowserArgs: explicit foreground is unchanged; default is dedicated', () => {
-  const commands = [{ cmd: 'eval', args: { js: '1' } }];
-  assert.deepEqual(
-    buildBatchBrowserArgs('s1', commands, { windowMode: 'foreground' }),
-    ['browser', 's1', '--window', 'foreground', 'batch', '--commands', JSON.stringify(commands)],
-  );
-  assert.deepEqual(
-    buildBatchBrowserArgs('s1', commands, {}),
-    ['browser', 's1', '--window', 'dedicated', 'batch', '--commands', JSON.stringify(commands)],
-  );
-  assert.deepEqual(
-    buildBatchBrowserArgs('s1', commands, { windowMode: 'typo' }),
-    ['browser', 's1', '--window', 'dedicated', 'batch', '--commands', JSON.stringify(commands)],
-    'unrecognised value falls back to dedicated',
-  );
+test('firstJson unwraps OpenCLI 2 eval envelopes and preserves older results', () => {
+  assert.deepEqual(firstJson(JSON.stringify({ ok: true, data: JSON.stringify({ value: 7 }) })), { value: 7 });
+  assert.deepEqual(firstJson('{"ok":true,"data":{"value":7}}'), { value: 7 });
+  assert.deepEqual(firstJson('{"value":7}'), { value: 7 });
 });
