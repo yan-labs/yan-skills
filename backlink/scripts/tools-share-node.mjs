@@ -159,6 +159,7 @@ async function ensurePanelRendered({ session, env, dashboardUrl, wait }) {
   const deadline = Date.now() + Math.max(60, Number(wait) * 4) * 1000;
   let seen = await readPanel();
   while (!seen.hasCard && Date.now() < deadline) {
+    if (/没有账号|去注册/.test(seen.bodyText || '')) throw new Error('Tools Share dashboard is not logged in.');
     const blocked = toolsShareBlockReason(seen);
     if (blocked) throw Object.assign(new Error(`${blocked}; stopped immediately without retrying.`), { code: 'TOOLS_SHARE_BLOCKED' });
     await evalPage('(() => { location.reload(); return JSON.stringify({ r: 1 }); })()').catch(() => {});

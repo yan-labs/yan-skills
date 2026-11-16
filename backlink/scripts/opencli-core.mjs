@@ -503,7 +503,12 @@ export async function opencli(args, options = {}) {
     const sub = resolved.findIndex((a, i) => i >= 2 && a === 'state');
     if (sub >= 0) { resolved = [...resolved]; resolved.splice(sub + 1, 0, '--source', 'ax'); }
   }
-  return await withAccessLog(resolved, () => run('opencli', resolved, options));
+  if (resolved[0] === 'browser' && !BARE_BROWSER_SUBCOMMANDS.has(resolved[1])) {
+    resolved = ['browser', '--session', resolved[1], ...resolved.slice(2)];
+    const i = resolved.indexOf('--window');
+    if (i >= 0 && !['foreground', 'background'].includes(resolved[i + 1])) resolved[i + 1] = 'background';
+  }
+  return await withAccessLog(args, () => run('opencli', resolved, options));
 }
 
 export function firstJson(text) {
@@ -525,7 +530,14 @@ export function firstJson(text) {
     else if (character === '{' || character === '[') stack.push(character);
     else if (character === '}' || character === ']') {
       stack.pop();
-      if (stack.length === 0) return JSON.parse(source.slice(start, index + 1));
+      if (stack.length === 0) {
+        const value = JSON.parse(source.slice(start, index + 1));
+        if (value?.ok === true && Object.hasOwn(value, 'data')) {
+          if (typeof value.data === 'string') { try { return JSON.parse(value.data); } catch { return value.data; } }
+          return value.data;
+        }
+        return value;
+      }
     }
   }
   throw new Error('OpenCLI returned incomplete JSON.');
@@ -589,24 +601,26 @@ export function normalizeWindowMode(value, fallback = 'dedicated') {
   return ALLOWED_WINDOW_MODES.includes(value) ? value : fallback;
 }
 
-/**
- * Execute multiple browser operations in a single CLI call. Each command is
- * {cmd, args} matching the `opencli browser <session> batch` contract.
- * Returns the parsed results array; each element has {cmd, index, ok, result?, error?}.
- */
-/** 纯函数版的 batchBrowser 参数构造——同样的「能直接断言、不用起子进程」理由。 */
-export function buildBatchBrowserArgs(session, commands, options = {}) {
-  const requested = options.windowMode || options.env?.OPENCLI_WINDOW || process.env.OPENCLI_WINDOW || 'dedicated';
-  return [
-    'browser', session, '--window', normalizeWindowMode(requested, 'dedicated'),
-    'batch', '--commands', JSON.stringify(commands),
-  ];
-}
-
+/** OpenCLI 2 runs browser steps sequentially; callers must hold their existing locks. */
 export async function batchBrowser(session, commands, options = {}) {
-  const args = buildBatchBrowserArgs(session, commands, options);
-  const result = await withAccessLog(args, () => run('opencli', args, options));
-  return JSON.parse(result.stdout);
+  const results = [];
+  for (const [index, step] of commands.entries()) {
+    const a = step.args || {};
+    let args;
+    if (step.cmd === 'open') args = ['open', a.url];
+    else if (step.cmd === 'eval') args = ['eval', a.js];
+    else if (step.cmd === 'wait' && a.seconds != null) args = ['wait', 'time', String(a.seconds)];
+    else if (step.cmd === 'wait' && a.selector) args = ['wait', 'selector', a.selector, ...(a.timeout ? ['--timeout', String(a.timeout)] : [])];
+    else throw new Error(`Unsupported browser batch command: ${step.cmd}`);
+    try {
+      const out = await opencli(['browser', session, ...args], options);
+      results.push({ cmd: step.cmd, index, ok: true, result: firstJson(out.stdout) });
+    } catch (error) {
+      results.push({ cmd: step.cmd, index, ok: false, error: error.message });
+      break;
+    }
+  }
+  return results;
 }
 
 /** Build a native batch wait step with a nonnegative delay in seconds. */
@@ -723,10 +737,8 @@ export function guardSessionName(value) {
 /**
  * 打开一个页面并就地取数——配额站上唯一允许的访问形态。
  *
- * 整个 open → wait → extract 打包成**一个 batch**。SKILL.md 记着
- * 「含任一写操作的混合 batch 整体按写处理」，所以这一整包是被会话锁
- * 保护的原子单元，别人插不进来。反过来说：**不允许** open 一次然后
- * 隔几轮对话再回来读——那样会话一直占着，后面所有人都在排队。
+ * OpenCLI 2 顺序执行 open → wait → extract；调用方须持有站点锁，
+ * 不要把同一会话交给其他任务使用。
  *
  * 重试的关键在于**不重开**。导航超时（扩展硬编码 15s，改不了）不等于
  * 页面没开——标签页已经建好了，只是没加载完。所以第二次尝试先光跑一次
