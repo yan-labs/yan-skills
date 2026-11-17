@@ -8,6 +8,15 @@ allowed-tools: Bash(fleet-go order show*) Bash(cat ~/.agents/dispatch-order.md*)
 
 把任务写成 brief，交给 `fleet-go` / `fleet` 的后台执行者去做；主线程只派单、验收、复盘。角色分工、授权红线、报告七节、复核分档和并发上限在全局 `~/.claude/CLAUDE.md`（§2–§4），这里只写怎么做，不复述。
 
+## 思维准则（每次派单最先；用户 2026-11-17 定，来自卡兹克的十条 Agent 提示词，已按执行场景改写）
+
+每一单、每一份 brief 都以六条「思维准则」开头：根因优先、先质疑问题定义、先对齐再动手、推演二三阶影响、跨领域找解、自我证伪。唯一的原文在 `templates/blocks/thinking-principles.md`，别处只放指针。
+
+- `fleet-go new` 自动把它放在「归类/REPORT」首部之后、其余样板之前，所以走 fleet 的单不用手写；`dry-run` 里它必须出现。
+- Agent 工具派的 `executor-*`、手写 brief 的单不经 fleet，主线程把该块原文贴在 brief 最前面（首部之后）。
+- 主线程写 brief 之前自己先过一遍：用户说的是症状还是根因、是手段还是目标？有更值得做的就在 brief 里写明，不是照抄用户原话。
+- 另有四类场景（代码考古与清理、新人认知成本、PR 变慢、返工复盘）是按任务类型挑选的「场景透镜」，由主线程把对应原文写进 brief 正文，见[派单纪律 · 思维准则与场景透镜](references/dispatch-discipline.md#思维准则与场景透镜)。
+
 ## 当前调遣令（自动注入，优先于下文所有路由与顺位）
 
 !`fleet-go order show || cat ~/.agents/dispatch-order.md || true`
@@ -21,7 +30,7 @@ allowed-tools: Bash(fleet-go order show*) Bash(cat ~/.agents/dispatch-order.md*)
 ## 派单流程
 
 1. **选执行者**：按下方[路由原则](#路由原则长期)。
-2. **写 brief**：先读项目派单手册（`.rankup/infra/13-dispatch-kit.md`，没有就 `.rankup/dispatch.md`）；正文只写任务独有的背景、要做的事、入口和验收，其余样板由 `fleet-go new` 自动补。写法见[派单纪律 · Brief](references/dispatch-discipline.md#brief)。
+2. **写 brief**：先按上面的思维准则自查用户的问题定义，再读项目派单手册（`.rankup/infra/13-dispatch-kit.md`，没有就 `.rankup/dispatch.md`）；正文只写任务独有的背景、要做的事、入口和验收，其余样板由 `fleet-go new` 自动补。写法见[派单纪律 · Brief](references/dispatch-discipline.md#brief)。
 3. **预览**：`fleet-go new … --dry-run` 看拼好的 brief；入口、动作与授权不匹配会在这里被拦下。
 4. **启动**：一条 Bash 调用只放一条 `fleet-go new …`、`fleet-go relaunch <名>` 或 `fleet <子命令> …`，工具参数 `run_in_background: true`。命令里不加 `&`、`nohup`、`setsid`、`disown`（PreToolUse hook `check-fleet-launch.py` 会拦），否则收不到完成通知。工具应返回「Command running in background with ID …」，任务状态是 running 而不是几秒内 completed。多个独立任务在同一条消息里并行发多条 Bash。
 5. **挂定时**：确认本会话已挂半小时巡检和交班检查，见[巡检与换班](#巡检与换班)。
