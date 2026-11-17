@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 import shlex
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -57,6 +58,9 @@ def expand_path(value):
 
 def rewrite_brief(text):
     return re.sub(PATH_PATTERN, lambda m: remote_path(m.group(0)), text) if LOCAL_HOME and REMOTE_HOME else text
+
+def on_mini():
+    return socket.gethostname().lower().split('.')[0] == 'yandemac-mini'
 
 def available():
     try:

@@ -378,6 +378,11 @@ def locate(name):
     return path, meta
 
 
+def entry_paths(text):
+    match = re.search(r'^## 入口\s*$([\s\S]*?)(?=^## |\Z)', text, re.M)
+    return mini.referenced_paths(match.group(1)) if match else []
+
+
 def refresh_body(path, meta, text):
     """--body 文件改过就把新正文换进 brief，修订块和其余样板原样保留。"""
     legacy = 'body_text' not in meta
@@ -402,7 +407,7 @@ def refresh_body(path, meta, text):
         meta['object'] = {'repo': repo.group(1).strip('`') if repo else '', 'writes': list(dict.fromkeys([*meta.get('writes', []), *entry_writes])),
                           'environment': previous.get('environment', ''), 'question': previous.get('question', '')}
         text = re.sub(r'^对象: .*$', lambda m: '对象: ' + json.dumps(meta['object'], ensure_ascii=False), text, count=1, flags=re.M)
-    meta['paths'] = list(dict.fromkeys([*meta.get('paths', []), *mini.referenced_paths(body)]))
+    meta['paths'] = list(dict.fromkeys([*meta.get('paths', []), *entry_paths(body)]))
     meta['body'], meta['body_text'] = str(body_path), body
     path.write_text(text)
     print(f'已按 {body_path} 更新 brief 正文（修订块保留）：{path}', flush=True)
@@ -521,12 +526,8 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         else:
             text = rewrite_worktree(text, meta, wt, location)
             path.write_text(text)
-    scope = text.split('## 目标', 1)[-1].split('## 允许范围', 1)[0] if 'paths' not in meta else ''
-    revisions = '\n'.join(re.findall(r'^## 【修订 [^\n]+】\n(.*?)(?=^## |\Z)', text, re.M | re.S))
-    allowed = text.split('## 允许范围', 1)[-1].split('## 已知坑', 1)[0]
-    declared = [p for p in mini.referenced_paths('\n'.join(line for line in allowed.splitlines() if line.startswith('- ')))
-                if p not in (meta['report'], '/tmp/' + name + '/')]
-    meta['paths'] = list(dict.fromkeys([*meta.get('paths', []), *mini.referenced_paths(scope), *mini.referenced_paths(revisions), *declared]))
+    if 'paths' not in meta:
+        meta['paths'] = entry_paths(text)
     checked(text, target, bool(selected_simple), on or 'mini', True, target == 'gpt' and selected == 'sol', meta.get('no_lint', False))
     if target != meta['to']:
         meta.pop('tier', None)
@@ -626,7 +627,7 @@ def residuals(run, path, name):
     return found
 
 
-def restart(run, path, name, on=None, local_reason=None):
+def restart(run, path, name, on=None, local_reason=None, relaunch_fn=relaunch):
     """amend 调用：等待本次停止；非 runId 明确归属的残留只告警，不误挡邻居。"""
     subprocess.run(['fleet', 'stop', run['runId']], check=True, capture_output=True, text=True)
     deadline = time.monotonic() + 60
@@ -646,13 +647,22 @@ def restart(run, path, name, on=None, local_reason=None):
             print('已确认 stopped，残留无法归属同一 runId，继续重新拉起。', file=sys.stderr)
             break
         time.sleep(0.5)
-    relaunch(name, on=on, local_reason=local_reason)
+    relaunch_fn(name, on=on, local_reason=local_reason)
 
 
 def amend(args):
     """保留修订正文，按需插话或停止本次 run 后通过 relaunch 重启。"""
     path, meta = locate(args.name)
     args.name = meta.get('name') or path.name[:-len('.brief.md')]
+    originals = {p: p.read_bytes() for p in (path, path.with_suffix('.json'))}
+    def relaunch_amended(*a, **kw):
+        try:
+            return relaunch(*a, **kw)
+        except Exception:
+            for p, content in originals.items():
+                p.write_bytes(content)
+            print('重派前置失败，已恢复修订前的 brief 和元数据。', file=sys.stderr)
+            raise
     if args.simple or args.sol or args.luna or args.low or args.high or args.xhigh or args.max:
         if (args.simple or args.sol or args.luna or args.max) and meta['to'] != 'gpt':
             raise ValueError('--sol、--simple、--luna 和 --max 仅用于 --to gpt。')
@@ -696,13 +706,10 @@ def amend(args):
             meta['high'] = False
             meta['xhigh'] = False
             meta['max'] = True
-        path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     if args.on is not None:
         meta['on'] = args.on
-        path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     if meta['to'] == 'gpt' and meta.get('tier') not in ('terra', 'sol', 'luna'):
         meta['tier'] = gpt_tier(meta)
-        path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     original = path.read_text()
     if args.auth is not None:
         auth = args.auth.split(',')
@@ -738,22 +745,20 @@ def amend(args):
     path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     remote = mini.find(args.name) if meta.get('execution') == 'mini' else None
     if remote and not remote.get('local'):
+        if args.say and mini.query(remote).get('status') not in ('running', 'waiting', 'abnormal'):
+            print('没有运行中的 run：按修订后的 brief 直接 relaunch。', flush=True)
+            relaunch_amended(args.name, on=args.on, local_reason=args.local_reason)
+            return
+        if args.restart:
+            if mini.forward(['stop', remote['id']]): raise ValueError('Mini 停止失败。')
+            relaunch_amended(args.name, on=args.on, local_reason=args.local_reason)
+            return
         remote_brief = mini.remote_path(str(path))
-        script = '''import base64,json,pathlib,sys
-p=json.loads(base64.b64decode(sys.argv[1]))
-''' + mini.CANONICAL_SCRIPT + '''
-pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
-'''
+        script = "import base64,json,pathlib,sys\np=json.loads(base64.b64decode(sys.argv[1]))\n" + mini.CANONICAL_SCRIPT + "\npathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))\n"
         res = mini.call(script, {'path': remote_brief, 'text': mini.rewrite_brief(path.read_text()), 'home': mini.REMOTE_HOME})
         if res.returncode: raise ValueError('Mini 修订同步失败。')
         if args.say:
-            if mini.query(remote).get('status') not in ('running', 'waiting', 'abnormal'):
-                print('没有运行中的 run：按修订后的 brief 直接 relaunch。', flush=True)
-                relaunch(args.name, on=args.on, local_reason=args.local_reason)
             sys.exit(mini.forward(['say', remote['id'], args.message]))
-        if args.restart:
-            if mini.forward(['stop', remote['id']]): raise ValueError('Mini 停止失败。')
-            relaunch(args.name, on=args.on, local_reason=args.local_reason)
         return
     if not args.say and not args.restart:
         return
@@ -762,7 +767,7 @@ pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
     if not matches and args.say:
         # 上一轮已结束（常见：部分完成后交回）：修订已写入 brief，直接按修订后的 brief 续派，省掉单独 relaunch
         print('没有运行中的 run：按修订后的 brief 直接 relaunch。', flush=True)
-        relaunch(args.name, on=args.on, local_reason=args.local_reason)
+        relaunch_amended(args.name, on=args.on, local_reason=args.local_reason)
         return
     if len(matches) != 1:
         raise ValueError('找不到唯一运行中的 run；修订已保留，未发送或重启。')
@@ -774,7 +779,7 @@ pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
         if result.stdout.strip():
             print(result.stdout.strip())
         return
-    restart(run, path, args.name, args.on, args.local_reason)
+    restart(run, path, args.name, args.on, args.local_reason, relaunch_amended)
 
 
 def level_arg(value):
@@ -970,7 +975,7 @@ def new(args, prepare=False):
             'max': args.max, 'simple': args.simple, 'luna': args.luna, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,
             'subagents': args.subagents, 'bulk': args.bulk, 'expect-changes': args.expect_changes,
             # 账本用：难度档、任务类型、被复核任务名；relaunch/amend 沿用 meta，不另存。
-            'paths': list(dict.fromkeys([*(mini.expand_path(p) for p in (args.read or [])), *(mini.expand_path(p) for p in (args.write or [])), *mini.referenced_paths((args.goal or '') + '\n' + body)])),
+            'paths': list(dict.fromkeys([*(mini.expand_path(p) for p in (args.read or [])), *(mini.expand_path(p) for p in (args.write or [])), *entry_paths(body)])),
             'writes': [mini.expand_path(p) for p in (args.write or [])],
             'body': body_file, 'body_text': body.strip(), 'order_override': args.override_order if deviation else None,
             'on': args.on or 'mini', 'local_reason': args.local_reason, 'pull': args.pull, 'object': object_ if object_['repo'] else None, 'after': args.after, 'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
@@ -1170,6 +1175,8 @@ def main():
     if any(a == '--kind' or a.startswith('--kind=') for a in sys.argv[1:]):
         raise ValueError('请使用 --to gpt|openai|claude|grok|gemini|jev。')
     args = parser.parse_args()
+    if args.action in ('new', 'amend', 'relaunch') and getattr(args, 'on', None) == 'mini' and mini.on_mini():
+        raise ValueError('已在 Mini 上；请使用 --on local --local-reason <理由> 或在派单机执行 --on mini。')
     if hasattr(args, 'name') and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.name) and not (args.action in ('relaunch', 'amend', 'worktree') and args.name.endswith('.brief.md')):
         raise ValueError('名称只能包含字母、数字、下划线与连字符。')
     if args.action == 'new':

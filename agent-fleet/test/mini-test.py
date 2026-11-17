@@ -242,7 +242,9 @@ pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
     fleet = bin/'fleet'
     fleet.write_text('#!/bin/sh\nif [ "$1" = status ]; then echo "[]"; exit 0; fi\nwhile [ "$#" -gt 0 ]; do if [ "$1" = --report ]; then shift; mkdir -p "$(dirname "$1")"; echo result > "$1"; break; fi; shift; done\n')
     fleet.chmod(0o755)
+    (tmp / 'sitecustomize.py').write_text("import socket\nsocket.gethostname = lambda: 'dispatch-host'\n")
     env = dict(os.environ, HOME=str(tmp), PATH=str(bin)+':'+os.environ['PATH'], FLEET_DEFAULT_ON='mini', FLEET_LOCAL_HOME='/home/a', FLEET_MINI_HOME='/home/b', FLEET_MINI_BIN='/home/b/fleet')
+    env['PYTHONPATH'] = str(tmp)
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','fallback','--to','gpt','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
     assert proc.returncode != 0 and 'Mini 不可达' in proc.stderr and '补齐' in proc.stderr
     assert not next((tmp/'.agent-reports').glob('*/fallback.md'), None)
@@ -287,7 +289,7 @@ fi
     proc = subprocess.run([str(root/'bin/fleet-go'),'relaunch','recheck','--on','mini'], env=env, text=True, capture_output=True)
     assert proc.returncode != 0 and '补齐' in proc.stderr, proc.stderr
     metadata = json.loads(next((tmp/'.agent-reports').glob('*/recheck.brief.json')).read_text())
-    assert '/home/a/original' in metadata['paths'] and '/home/a/revised' in metadata['paths'] and '/home/a/second' in metadata['paths']
+    assert '/home/a/original' in metadata['paths'] and '/home/a/revised' not in metadata['paths'] and '/home/a/second' not in metadata['paths']
 spec = importlib.util.spec_from_file_location('fleet_go_tools', root / 'src/fleet-go.py')
 fg = importlib.util.module_from_spec(spec); spec.loader.exec_module(fg)
 with patch.object(fg.mini, 'LOCAL_HOME', '/home/a'), patch.object(fg.mini, 'REMOTE_HOME', '/home/b'), patch.object(fg.mini, 'call') as remote, patch.object(fg.worktree, 'execute', side_effect=AssertionError('local worktree')):

@@ -83,7 +83,7 @@
 - `fleet-go relaunch <名> [--to <产品>] [--tier …] [--sol|--simple|--luna] [--low|--high|--xhigh|--max] [--fast]`：沿用同名 brief、name 和 report 重派（也沿用原档位：从 Luna 换 Terra 要显式加 `--simple`，只写 `--to gpt` 仍是 Luna）；仍有未结束的同名任务时拒绝。跨日期重名时把名字换成报错给出的 brief 路径。`--after <任务>` 排在指定任务结束后运行。
 - 同名 brief 已存在时用 `relaunch` 或 `amend --say`，不要重新 `new`。
 - 改需求：改 `--body` 文件再 `relaunch`，新正文自动换进 brief，修订块保留。注意 `relaunch` 总是用 brief.json 记录的 `--body` 文件替换正文，那可能是别的会话 scratchpad 里的旧文件，手改的入口会被盖回；入口改了就新开一单。
-- `fleet-go amend <名> "补充要求"`：给 brief 顶部追加「修订 N」。
+- `fleet-go amend <名> "补充要求"`：给 brief 顶部追加「修订 N」；修订正文的路径不会成为 Mini 必需路径，重派前置校验失败时恢复原 brief 和元数据。
   - `--say`：尽量送进运行中的任务（各执行者的生效方式见 SKILL.md「中途插话」）；任务已结束（常见于部分完成交回）时直接按修订后的 brief 重派，整条命令放 `run_in_background`。
   - `--restart`：最后兜底。只停所选 run，核验无残留进程后再 `relaunch`（最多等 60 秒）；确认不了已停就保留修订并报错。
   - `--auth`、`--action` 替换保存的授权与动作；档位参数替换保存的档位，在重启或下次重派时生效，运行中插话不会切换当前模型。切到 Terra 且未指定推理档位时，会清掉 Luna 专用的 xhigh/max。
