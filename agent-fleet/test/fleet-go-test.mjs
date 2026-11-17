@@ -196,6 +196,48 @@ try {
     assert.deepEqual(history().at(-1).args,['resume','dead-park']);
     writeFileSync(states,'[]');
   });
+  test('修订路径不参与必需路径，重派前置失败恢复文件', () => {
+    writeFileSync(states,'[]');
+    const missing='/tmp/'+'not-on-mini.git';
+    const r=run(['amend','one','远端机器路径 '+missing,'--say']);
+    assert.equal(r.status,7,r.stderr);
+    const jsonPath=path.replace(/\.md$/,'.json');
+    assert(!JSON.parse(readFileSync(jsonPath,'utf8')).paths.includes(missing));
+    const python=`import importlib.util,sys
+from unittest.mock import patch
+sys.path.insert(0, __import__('os').path.dirname(sys.argv[1]))
+spec=importlib.util.spec_from_file_location('fg',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+a=m.build_parser().parse_args(['amend',sys.argv[2],'远端 /tmp/not-on-mini.git','--say','--on','mini'])
+def dry_preflight(meta, paths):
+ assert '/tmp/not-on-mini.git' not in paths
+ return None
+with patch.object(m,'running',return_value=[]), patch.object(m.mini,'find',return_value=None), patch.object(m.mini,'available',return_value=True), patch.object(m,'checked'), patch.object(m.mini,'preflight',side_effect=dry_preflight), patch.object(m.mini,'launch',return_value=0):
+ try: m.amend(a)
+ except SystemExit as e: assert e.code == 0
+before=[__import__('pathlib').Path(sys.argv[2]).read_bytes(), __import__('pathlib').Path(sys.argv[2]).with_suffix('.json').read_bytes()]
+a=m.build_parser().parse_args(['amend',sys.argv[2],'校验失败','--say','--on','mini'])
+with patch.object(m,'running',return_value=[]), patch.object(m.mini,'find',return_value=None), patch.object(m.mini,'available',return_value=True), patch.object(m,'checked'), patch.object(m.mini,'preflight',return_value='Mini 缺少路径'):
+ try: m.amend(a)
+ except ValueError as e: assert 'Mini 缺少路径' in str(e)
+ else: raise AssertionError('expected failure')
+assert before == [__import__('pathlib').Path(sys.argv[2]).read_bytes(), __import__('pathlib').Path(sys.argv[2]).with_suffix('.json').read_bytes()]
+`;
+    const failed=rawSpawnSync('python3',['-c',python,join(root,'src/fleet-go.py'),path],{encoding:'utf8',env});
+    assert.equal(failed.status,0,failed.stderr);
+  });
+  test('Mini 本机显式指定 --on mini 给出正确提示', () => {
+    const python=`import importlib.util,sys
+from unittest.mock import patch
+sys.path.insert(0, __import__('os').path.dirname(sys.argv[1]))
+spec=importlib.util.spec_from_file_location('fg',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'), patch.object(sys,'argv',['fleet-go','amend','one','--say','x','--on','mini']):
+ try: m.main()
+ except ValueError as e: assert '已在 Mini 上' in str(e) and '--on local' in str(e)
+ else: raise AssertionError('expected failure')
+`;
+    const r=rawSpawnSync('python3',['-c',python,join(root,'src/fleet-go.py')],{encoding:'utf8',env});
+    assert.equal(r.status,0,r.stderr);
+  });
   test('没有运行 run 时 --say 直接按修订后 brief relaunch', () => {
     writeFileSync(states,'[]'); reset(); const r=run(['amend','one','离线修订','--say']); assert.equal(r.status,7,r.stderr); assert.match(r.stdout,/直接 relaunch/);
     assert.ok(history().some(c=>c.args[0]==='code'));
