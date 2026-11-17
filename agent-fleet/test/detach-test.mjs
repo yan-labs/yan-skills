@@ -318,12 +318,17 @@ for (const [label, marker, warned] of [
 ]) {
   const outPath=join(scratch,`orphan-${label}.out`), errPath=join(scratch,`orphan-${label}.err`);
   const orphanEnv={...env,...marker,FLEET_NODE:process.execPath,FLEET_CLI:cli,FLEET_CWD:scratch,
-    FLEET_OUT:outPath,FLEET_ERR:errPath,FLEET_NAME:`orphan-${label}`,FLEET_TEST_SLEEP:'5'};
+    FLEET_OUT:outPath,FLEET_ERR:errPath,FLEET_NAME:`orphan-${label}`,FLEET_TEST_SLEEP:'15'};
   const shell=spawn('/bin/sh',['-c','"$FLEET_NODE" "$FLEET_CLI" code fixture --cwd "$FLEET_CWD" --name "$FLEET_NAME" > "$FLEET_OUT" 2> "$FLEET_ERR" &'],{env:orphanEnv,stdio:'ignore'});
   await new Promise((resolve,reject)=>{shell.once('error',reject);shell.once('close',resolve);});
   await sleep(2200);
-  const rows=JSON.parse((await cliRun(['status','--running','--json'])).stdout);
-  const row=rows.find(r=>r.name===orphanEnv.FLEET_NAME);
+  let row;
+  for (let i=0; i<40; i++) {
+    const rows=JSON.parse((await cliRun(['status','--running','--json'])).stdout);
+    row=rows.find(r=>r.name===orphanEnv.FLEET_NAME);
+    if (row && (!warned || row.launchDetached)) break;
+    await sleep(100);
+  }
   assert(row, 'orphan fixture still running');
   const stderr=readFileSync(errPath,'utf8');
   const log=readFileSync(row.logPath,'utf8');
