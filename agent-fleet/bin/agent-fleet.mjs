@@ -644,7 +644,7 @@ async function main() {
       const text = command === 'run-many' ? '' : resolveBrief(brief);
       const args = flagArgs(flags, ['detach', 'attach', 'no-wait', 'name', 'prompt']);
       if (flags.prompt !== undefined) args.push('--prompt', flags.prompt);
-      const selectedModel = command === 'code' ? resolveCodexModel(flags.luna ? 'luna' : flags.sol ? 'sol' : 'terra') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : command === 'judge' ? 'jev' : flags.model ?? shortRunOptions(command, rest).model;
+      const selectedModel = command === 'code' ? resolveCodexModel(flags.luna ? 'luna' : flags.sol ? 'sol' : 'terra', { log: () => {} }) : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : command === 'judge' ? 'jev' : flags.model ?? shortRunOptions(command, rest).model;
       const launchOptions = {
         cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(),
         model: selectedModel,
