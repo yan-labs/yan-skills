@@ -12,7 +12,7 @@ fleet code brief.md --review --cwd <项目目录>
 
 选 Terra、Sol 还是 Luna 见 [路由原则](../SKILL.md#路由原则长期)；参数互斥关系见 [fleet-go 派单参考](fleet-go.md#执行者与档位)。
 
-底层模型：默认 `gpt-6.1-terra`，`--sol` 用 Sol，`--luna` 用 `gpt-6-luna`。sandbox 一律 `danger-full-access`，review 的只读靠提示词约定。`relaunch`、`amend` 与 `resume` 沿用已保存的档位。本机 Codex CLI 须 ≥ 0.159.0（更旧的版本调用当前默认模型会被服务端拒绝）；升级前确认其他 Codex 任务都已结束。
+底层模型：默认 `terra`，`--sol` 用 Sol，`--luna` 用 `luna`。sandbox 一律 `danger-full-access`，review 的只读靠提示词约定。`relaunch`、`amend` 与 `resume` 沿用已保存的档位。本机 Codex CLI 须 ≥ 0.159.0（更旧的版本调用当前默认模型会被服务端拒绝）；升级前确认其他 Codex 任务都已结束。
 
 Codex 不可用或并发满时，编码按[工具链](fallback-chains.md)换手。
 

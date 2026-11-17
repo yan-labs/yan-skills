@@ -1,3 +1,4 @@
+import { resolveApiModel, familyOf } from './model-family.mjs';
 // 单个子任务的执行核心:把「友好模型名 + 任务描述」翻译成一次完整的 Claude Agent SDK
 // query() 调用,权限模式固定 bypassPermissions(自主读写文件、跑 bash、多轮工具调用直到
 // 任务完成,不需要人工逐步确认),跑完把最终结果整理成一个稳定的 JSON 形状返回。
@@ -223,7 +224,7 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
     // 安全保证由不加载来满足,无需为每个仓库维护白名单;白名单仅加载过滤后的配置。
     projectSettings = assertProjectSettingsTrusted(cwd);
     if (projectSettings !== undefined) process.stderr.write('cwd 在受信白名单内，已跳过项目配置越权检查（项目凭据、地址和请求头设置仍被忽略）\n');
-    resolved = resolveModel(friendlyModel, config);
+    resolved = await resolveApiModel(resolveModel(friendlyModel, config), { log });
     // typesafe-systemone 协议(JEV 等结构化决策 API)不实现 Anthropic Messages 协议,
     // Claude Agent SDK 的 query() 没法驱动它——它不生成文本、不支持多轮工具调用,委派
     // 不了一个完整任务。这里在真正发起 SDK 调用之前就短路拒绝,而不是让它带着一个
@@ -339,6 +340,7 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
     for await (const message of q) {
       logSdkMessage(log, message);
       assistantText = collectAssistantText(assistantText, message);
+      if (message.type === 'assistant' && !message.parent_tool_use_id && message.message?.model) resolved.actualModel = message.message.model;
       if (runId && message.session_id) {
         try {
           patchPidRecord(runId, { sessionId: message.session_id });
@@ -360,7 +362,8 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
     return {
       ok: false,
       model: friendlyModel,
-      resolvedModel: resolved.model,
+      resolvedModel: resolved.actualModel ?? resolved.model,
+      family: familyOf(resolved.model),
       baseURL: resolved.baseURL,
       prompt,
       cwd,
@@ -388,7 +391,8 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
     return {
       ok: false,
       model: friendlyModel,
-      resolvedModel: resolved.model,
+      resolvedModel: resolved.actualModel ?? resolved.model,
+      family: familyOf(resolved.model),
       baseURL: resolved.baseURL,
       prompt,
       cwd,
@@ -419,7 +423,8 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
   return {
     ok: !finalResult.is_error && !wasStopped,
     model: friendlyModel,
-    resolvedModel: resolved.model,
+    resolvedModel: resolved.actualModel ?? resolved.model,
+    family: familyOf(resolved.model),
     baseURL: resolved.baseURL,
     prompt,
     cwd,

@@ -1,3 +1,4 @@
+import { resolveCodexModel } from './model-family.mjs';
 import { readYield, resolveYield, writeYield, localCondition, stageState, saveStages, alignStage } from './yield.mjs';
 import { saveCodexQuota, taskIdentity, queueRecord, setSlotState, acquireSlot } from './queue.mjs';
 // Codex 执行层：管理 app-server 回合、插话、自动续做与 exec 降级。
@@ -82,7 +83,9 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   if (sol && (simple || luna)) throw new Error('--sol 不能与 --simple 或 --luna 同用。');
   if (luna && (simple || review)) throw new Error('--luna 不能与 --simple 或 --review 同用。');
   const effort = max ? 'max' : xhigh ? 'xhigh' : high ? 'high' : low ? 'low' : process.env.FLEET_CODEX_EFFORT || (luna ? 'xhigh' : 'medium');
-  const model = luna ? 'gpt-6-luna' : sol ? 'gpt-6.1-sol' : 'gpt-6.1-terra';
+  const family = luna ? 'luna' : sol ? 'sol' : 'terra';
+  const resolutionLog = [];
+  const model = resolveCodexModel(family, { log: line => resolutionLog.push(line) });
   const serviceTier = fast ? 'priority' : null;
   const workdir = resolve(cwd);
   reportPath ||= prompt.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim();
@@ -117,7 +120,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   briefPath ??= slot?.briefPath;
   const identity = taskIdentity({ ...slot, briefPath, review });
   const metadata = { ...identity, briefPath, backend: 'codex-exec', threadId: resume || null, sessionId: resume || null,
-    steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, high, xhigh, max, simple, sol, luna, model, tier: effort, serviceTier, review, resumedFrom };
+    steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, high, xhigh, max, simple, sol, luna, family, resolvedModel: model, model, tier: effort, serviceTier, review, resumedFrom };
   const record = (patch = {}) => {
     process.send?.({ codexMetadata: metadata });
     return patchPidRecord(runId, { pid: process.pid, command: processCommand(process.pid),
@@ -128,6 +131,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     const evidence = redactEvidence(String(text));
     appendFileSync(logPath, evidence.endsWith('\n') ? evidence : `${evidence}\n`);
   };
+  log(JSON.stringify({ type: 'model_resolution', family, model, warnings: resolutionLog }));
   const fallback = reason => { metadata.fallbacks.push(reason); log(`\n[codex] fallback: ${reason}\n`); record(); };
   const start = args => {
     const child = spawn(codexBin, args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, NODE_USE_ENV_PROXY: '1' } });

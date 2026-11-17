@@ -221,6 +221,7 @@ export function buildBrief(result, { briefLines = DEFAULT_BRIEF_LINES, expectCha
     ...(result?.effort ? { effort: result.effort } : {}),
     ...(result?.backend?.startsWith('codex-') ? { simple: result.simple, serviceTier: result.serviceTier } : {}),
     resolvedModel: result?.resolvedModel ?? null,
+    family: result?.family ?? null,
     stopReason: result?.stopReason ?? null,
     subtype: result?.subtype ?? null,
     error: result?.error ? redactEvidence(result.error) : null,
@@ -264,7 +265,7 @@ export function formatBriefJson(brief) {
 export function formatFullHuman(result) {
   const lines = [
     `${'='.repeat(60)}`,
-    `模型: ${result.model}${result.resolvedModel ? ` (${result.resolvedModel})` : ''}`,
+    `模型: ${result.family ? `${result.family} / ` : ''}${result.model}${result.resolvedModel ? ` (${result.resolvedModel})` : ''}`,
   ];
   if (result.backend?.startsWith('codex-')) lines.push(`service_tier: ${result.serviceTier ?? 'unset'}`);
   if (result.cwd) lines.push(`工作目录: ${result.cwd}`);

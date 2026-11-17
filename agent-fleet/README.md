@@ -22,7 +22,7 @@ fleet team  # 五产品能力、顺位链与可用性；只显示存在性/登�
 | `gemini` | 文案、翻译、摘要、批量机械任务（`--bulk`），默认 xhigh 推理档 | `fleet-go new copy --to gemini --goal "写页面文案" --body task.md` | — |
 | `jev` | 分类、选择、打分等结构化判断 | `fleet-go new decide --to jev --goal "按正文判据分类" --body task.md` | — |
 
-`--to` 指定产品；GPT 默认 Terra，`--sol` 选 Sol、`--simple` 是 Terra 兼容别名、`--luna` 选 Luna，Luna 与 Gemini 默认 xhigh（Luna 可选 `--max`，Gemini 可用 `--low`/`--high`/`--xhigh`），Terra/Sol 默认 medium；可选 `--low` 或 `--high`，`--low`、`--high`、`--xhigh` 与 `--max` 互斥；默认不开 fast，需要时显式 `--fast`。Luna 与 simple/review 不能同用。其他参数见 [Skill 命令速查](skill/SKILL.md#命令速查)。
+`--to` 指定产品；GPT 默认 Terra，`--sol` 选 Sol、`--simple` 是 Terra 兼容别名、`--luna` 选 Luna，Luna 与 Gemini 默认 xhigh（Luna 可选 `--max`，Gemini 可用 `--low`/`--high`/`--xhigh`），模型按族从 Codex 缓存或 OpenAI 模型列表选择最新版本；仅配置兜底保留具体型号。Terra/Sol 默认 medium；可选 `--low` 或 `--high`，`--low`、`--high`、`--xhigh` 与 `--max` 互斥；默认不开 fast，需要时显式 `--fast`。Luna 与 simple/review 不能同用。其他参数见 [Skill 命令速查](skill/SKILL.md#命令速查)。
 
 `brief.md` 也可以直接写成任务文本；默认当前目录、不限轮数、安静模式。`--verbose` 显示进度。短命令和模型对应关系见 [skill](skill/SKILL.md)。
 
@@ -128,7 +128,7 @@ Agent 能力去驱动它们的模型——你拿到的不是"一问一答",而�
 | `kollab-gateway-copy` | 同上 | 同上,`model: "gemini-4-argon"` | 文案/创意用途的命名别名,和默认模型相同,单独命名是为了不依赖默认值以后的调整 |
 | `kollab-gateway-research` | 同上 | 同上,`model: "grok-4.7"` | 通用调研摘要用途 |
 | `kollab-gateway-bulk` | 同上 | 同上,`model: "gemini-3.5-flash-lite"` | 批量翻译/格式转换等机械任务用途,目录里响应最快的免费档模型之一 |
-| `kollab-gateway-gpt-sol` | Kollab | 线上托管网关，`model: "gpt-6-sol"` | GPT-6 Sol |
+| `kollab-gateway-gpt-sol` | Kollab | 线上托管网关，`model: "sol"` | Sol |
 | `kollab-gateway-deepseek` | Kollab | 同上，`model: "deepseek-v4.1-flash"` | DeepSeek V4.1 Flash；无需第三方 Key |
 | `jev` | Typesafe(JEV / System One) | `https://api.typesafe.ai/v1/systemone`,`Authorization: Bearer` 鉴权(`protocol: "typesafe-systemone"`,**不是** Anthropic Messages/OpenAI 协议) | ⚠️ **不支持 `run`/`run-many`**——它是结构化决策 API,不生成文本、不支持多轮工具调用,只能用下面「JEV / `judge` 子命令」一节的方式调用 |
 
@@ -196,7 +196,7 @@ node bin/agent-fleet.mjs judge --model jev --state-file state.txt --questions-fi
 | 简单调研摘要 | `kimi`(需配 `MOONSHOT_API_KEY`,自带联网搜索)或 `kollab-gateway-research`(`grok-4.7`,即用免配置) | Kimi 官方端点自带联网检索能力,适合真正需要查资料的调研;不想等 key 审批时用 `kollab-gateway-research` 顶上 |
 | 高质量单次产出(长文案定稿、复杂推理) | `deepseek-v4-pro`(需配 `DEEPSEEK_API_KEY`) | DeepSeek 官方 Opus 档位映射目标,适合一次成型、不想反复返工的任务 |
 | 自动化流程里的判断/路由节点(分类、打分、二元判断、"下一步选哪个候选") | `jev`(**走 `judge` 子命令,不是 `run`**) | 结构化决策 API,不生成文本、极便宜(≈$0.042/百万 input token,output 免费)、同一输入多次调用高度稳定,没有裸 tool-call 控制 token 这类失败模式(协议本身不返回自由文本)。详见上面「JEV / `judge` 子命令」一节的实测结论表 |
-| Kimi/DeepSeek/Qwen 家族、多轮工具调用容错要求高的任务 | 不建议派给这几个家族的第三方模型,改派 `fleet code`(Codex GPT-6.1 Sol);失败时按全局规则停下告知用户,不静默转给 Claude | 这几个家族的模型已知存在 tool-calling 可靠性问题,有时会把裸的 tool-call 控制 token 当成普通文本吐出来而不是走结构化 `tool_use`,造成"进程正常退出但其实是假成功"——这是模型生成层面的问题,agent-fleet 的 harness 补不了,只能靠不把这类任务派给它们来规避。任何第三方模型只要某次实际输出里出现裸 tool-call 控制 token,那一次就要判定失败——不能因为路由到它就放松这条判定标准 |
+| Kimi/DeepSeek/Qwen 家族、多轮工具调用容错要求高的任务 | 不建议派给这几个家族的第三方模型,改派 `fleet code`(Codex Sol);失败时按全局规则停下告知用户,不静默转给 Claude | 这几个家族的模型已知存在 tool-calling 可靠性问题,有时会把裸的 tool-call 控制 token 当成普通文本吐出来而不是走结构化 `tool_use`,造成"进程正常退出但其实是假成功"——这是模型生成层面的问题,agent-fleet 的 harness 补不了,只能靠不把这类任务派给它们来规避。任何第三方模型只要某次实际输出里出现裸 tool-call 控制 token,那一次就要判定失败——不能因为路由到它就放松这条判定标准 |
 
 **关于 Qwen**:调研建议里提过可以考虑 Qwen,但截至本次核对(2026-09,TEST 环境
 `kollab model list`),Kollab 网关目录里**没有**收录任何 Qwen 系列模型 id,所以上面没有把 Qwen
@@ -389,7 +389,7 @@ ANTHROPIC_DEFAULT_SONNET_MODEL=<subagentModel 的值>
 
 ## 验证情况(如实说明)
 
-当前模型刷新：Grok 路由为 `grok-4.7`，已通过 agent-fleet 生产真实调用（返回 `4`，无控制 token）；GPT-6 Sol 与 DeepSeek V4.1 Flash 已通过 Kollab CLI 生产真实调用，新 agent-fleet 别名的相同托管配置已通过静态检查，尚未逐个运行 SDK。历史 Grok 4.6 验证仅对应当时版本。
+当前模型刷新：Grok 路由为 `grok-4.7`，已通过 agent-fleet 生产真实调用（返回 `4`，无控制 token）；Sol 与 DeepSeek V4.1 Flash 已通过 Kollab CLI 生产真实调用，新 agent-fleet 别名的相同托管配置已通过静态检查，尚未逐个运行 SDK。历史 Grok 4.6 验证仅对应当时版本。
 
 没有真实的 DeepSeek/Moonshot API key(也没有去别的项目"顺手"拿),所以**这两家官方端点没有做过真实
 模型的端到端验证**。`kollab-gateway` 是例外——它用的是 Kollab 产品自助生成的账号 key,不需要等第三方
@@ -586,7 +586,7 @@ agent-fleet 会把 `CLAUDE_CONFIG_DIR` 指向自己专属的 `~/.agent-fleet/cla
 
 ## OpenAI 订阅 API 额度
 
-与 Claude 月度 API 额度入口并列：`fleet openai brief.md` 或 `fleet-go new name --to openai --auth local --goal "目标" --body brief.md`。默认 `gpt-6.1-sol`。把关联 API 组织的 Key 存入本工具 `.env` 的 `OPENAI_CREDIT_API_KEY`（0600）。
+与 Claude 月度 API 额度入口并列：`fleet openai brief.md` 或 `fleet-go new name --to openai --auth local --goal "目标" --body brief.md`。默认 `sol`。把关联 API 组织的 Key 存入本工具 `.env` 的 `OPENAI_CREDIT_API_KEY`（0600）。
 
 该入口通过临时本机协议适配复用现有 Claude Agent SDK 工具、会话/续跑、插话与报告；上游直接 OpenAI Responses API。它不是 Codex，不占 signed-in Codex 额度；`fleet code` 与已有 `fleet gpt` 路由保持原样。不要把 OpenAI Key 直接当 Anthropic Key 发往 Anthropic。
 

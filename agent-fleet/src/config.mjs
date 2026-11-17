@@ -201,6 +201,7 @@ function validateEntry(name, def) {
     description: def.description ?? '',
     baseURL: def.baseURL,
     model: def.model,
+    ...(def.fallbackModel ? { fallbackModel: def.fallbackModel } : {}),
     apiKeyEnv: def.apiKeyEnv,
     authHeader,
     protocol,
