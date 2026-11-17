@@ -1,3 +1,4 @@
+import { isCodexModel } from './model-family.mjs';
 // status / say / stop 的控制面。只按 pid.json 里的 pid 操作,绝不 pkill/killall。
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -58,7 +59,7 @@ export function collectStatus({ cwd } = {}) {
       duration: formatDuration(rec.startedAt, rec.finishedAt),
       state,
       logPath: rec.logPath ?? null,
-      ...(['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'].includes(rec.model) ? { backend: rec.backend, threadId: rec.threadId, sessionId: rec.sessionId,
+      ...(isCodexModel(rec.model) ? { backend: rec.backend, threadId: rec.threadId, sessionId: rec.sessionId,
         steerCount: rec.steerCount, resumeCount: rec.resumeCount, fallbacks: rec.fallbacks,
         low: rec.low, high: rec.high, xhigh: rec.xhigh, max: rec.max, simple: rec.simple, sol: rec.sol, luna: rec.luna, serviceTier: rec.serviceTier, review: rec.review, resumedFrom: rec.resumedFrom } : {}),
     });
@@ -93,7 +94,7 @@ export function deliverSay(spec, text, { cwd } = {}) {
   }
   if (!rec) throw new Error(`找不到任务 ${runId} 的 pid.json`);
   if (rec.model?.startsWith('grok-cli:') && !rec.sessionId) throw new Error('Grok CLI 尚未提供 sessionId，暂不支持 fleet say；当前任务继续运行。');
-  const codex = ['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'].includes(rec.model);
+  const codex = isCodexModel(rec.model);
   if (codex && rec.backend !== 'codex-app-server' && !rec.threadId && !rec.sessionId) {
     throw new Error('Codex 任务不支持 fleet say（当前没有可续跑的会话）；改方向请用 fleet-go amend --restart。');
   }

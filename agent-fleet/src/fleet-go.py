@@ -987,6 +987,11 @@ def new(args, prepare=False):
     if prepare:
         return text, meta
     if args.dry_run:
+        if meta['to'] == 'gpt':
+            resolver = Path(__file__).resolve().with_name('model-family.mjs').as_uri()
+            script = f"import {{resolveCodexModel}} from '{resolver}'; console.log(resolveCodexModel(process.argv[1]));"
+            actual = subprocess.check_output(['node', '--input-type=module', '-e', script, meta['tier']], text=True).strip()
+            print(f"模型：{meta['tier']} / {actual}", file=sys.stderr)
         print(text, end='')
         print('\n将执行：' + shlex.join(command(meta)) + (f"（{gpt_tier(meta).capitalize()}）" if meta['to'] == 'gpt' else ''), file=sys.stderr)
         return

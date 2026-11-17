@@ -54,3 +54,31 @@ try {
   }
   console.log(`模型映射桩通过：${count} 个网关配置，env/settings/本地请求均为 ${allowedModel}`);
 } finally { await mock.close(); }
+
+// Concrete old IDs below are compatibility fixtures, never dispatch defaults.
+const { familyOf, isCodexModel, latestModel, resolveCodexModel, resolveApiModel } = await import('../src/model-family.mjs');
+assert.equal(latestModel(['gpt-6.1-sol', 'gpt-6.2-sol', 'gpt-6.10-sol'], 'sol'), 'gpt-6.10-sol');
+assert.equal(latestModel(['gpt-6.1-sol', 'gpt-6.2-sol'], 'sol'), 'gpt-6.2-sol');
+assert.equal(familyOf('gpt-6.1-sol'), 'sol');
+assert(isCodexModel('gpt-6.1-terra'));
+let fallbackLog = '';
+assert.equal(familyOf(resolveCodexModel('sol', { cachePath: '/nonexistent/model-cache', log: s => fallbackLog = s })), 'sol');
+assert.match(fallbackLog, /fallback/);
+for (const family of ['opus', 'sonnet', 'haiku', 'fable']) assert.equal(config[`claude-${family}`].model, family);
+const api = { protocol: 'openai-responses', model: 'sol', fallbackModel: 'gpt-6.2-sol', baseURL: 'https://catalog.test/v1', apiKey: 'fixture' };
+let calls = 0;
+const fetchModels = async () => { calls++; return { ok: true, json: async () => ({ data: [{ id: 'gpt-6.1-sol' }, { id: 'gpt-6.2-sol' }] }) }; };
+assert.equal((await resolveApiModel(api, { fetchModels })).model, 'gpt-6.2-sol');
+await resolveApiModel(api, { fetchModels });
+assert.equal(calls, 1);
+assert.equal((await resolveApiModel({ ...api, baseURL: 'https://missing.test' }, { fetchModels: async () => { throw Error('offline'); }, log: () => {} })).model, api.fallbackModel);
+
+const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+const { tmpdir } = await import('node:os');
+const { join } = await import('node:path');
+const temp = mkdtempSync(join(tmpdir(), 'fleet-model-family-'));
+try {
+  const cachePath = join(temp, 'models_cache.json');
+  writeFileSync(cachePath, JSON.stringify({ models: [{ slug: 'gpt-6.1-sol' }, { slug: 'gpt-6.2-sol' }] }));
+  assert.equal(resolveCodexModel('sol', { cachePath }), 'gpt-6.2-sol');
+} finally { rmSync(temp, { recursive: true }); }

@@ -16,7 +16,7 @@ description: >-
 
 ## Launching a Codex Sub-Agent
 
-1. **Pick reasoning effort + sandbox** from context — do not interrupt the user with `AskUserQuestion` unless they explicitly ask to be prompted. Model is `gpt-6.1-sol` (the default in `~/.codex/config.toml`; pass `-m` only when the user names another model in the current request). Defaults:
+1. **Pick reasoning effort + sandbox** from context — do not interrupt the user with `AskUserQuestion` unless they explicitly ask to be prompted. Model is `sol` (the default in `~/.codex/config.toml`; pass `-m` only when the user names another model in the current request). Defaults:
    - Reasoning effort: `medium`; `low` for single-file edits with clear boundaries. **Never escalate to `high`/`xhigh` on your own** (global §2); only when the user asks for it explicitly
    - Sandbox: `read-only` unless the task clearly needs edits (`workspace-write`) or network (`danger-full-access`)
 2. **Write the prompt to a temp file** when it's non-trivial (multi-line, contains quotes, long context). Pipe it via stdin so quoting never breaks:
@@ -55,7 +55,7 @@ Codex sub-agents compose cleanly. To run an agent team:
 
 ## Model Selection
 
-**Default model: `gpt-6.1-sol`**, which `~/.codex/config.toml` already sets. Only add an explicit `-m` flag when the user asks for a different model by name in the current request.
+**Default model: `sol`**, which `~/.codex/config.toml` already sets. Only add an explicit `-m` flag when the user asks for a different model by name in the current request.
 
 **Reasoning effort:** `medium` (standard default) · `low` (single-file, clear boundaries). `high` and above are never chosen automatically; use them only on the user's explicit request.
 
@@ -100,7 +100,7 @@ Two `exec` flags the recipes above should use more:
 
 ## CLI Version
 
-Check with `codex --version`. Default model `gpt-6.1-sol` is configured in `~/.codex/config.toml` — do not override it unless the user explicitly requests a different model.
+Check with `codex --version`. Default model `sol` is configured in `~/.codex/config.toml` — do not override it unless the user explicitly requests a different model.
 
 本 Skill 当前位于 `yan-skills/codex/`；安装位置和符号链接以实际工作树为准。
 

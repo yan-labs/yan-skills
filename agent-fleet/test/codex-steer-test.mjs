@@ -1,3 +1,4 @@
+import { familyOf, resolveCodexModel } from '../src/model-family.mjs';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -291,7 +292,7 @@ try {
   assert.equal(review.trace.find(entry => entry.method === 'thread/start').params.approvalPolicy, 'never');
   assert.match(review.trace.find(entry => entry.method === 'turn/start').params.input[0].text, /自己的.*mktemp -d/);
   const reviewSol = await scenario('normal', { review: true, sol: true });
-  assert.equal(reviewSol.result.model, 'gpt-6.1-sol');
+  assert.equal(familyOf(reviewSol.result.model), 'sol');
   const reviewExec = await scenario('normal', { review: true, backend: 'exec' });
   const reviewFallback = await scenario('app-fail', { review: true });
   const reviewResume = await scenario('normal', { review: true, resume: 'thread-one' });

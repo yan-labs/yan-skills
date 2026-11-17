@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { familyOf, isCodexModel, resolveCodexModel } from '../src/model-family.mjs';
 import { land } from '../src/land.mjs';
 import { currentRun, writeYield, ask, startBackground } from '../src/yield.mjs';
 // agent-fleet CLI 入口。
@@ -76,7 +77,7 @@ run 默认不限轮数、安静、当前目录；--verbose 显示进度。--quie
 --system-prompt、--json、--full、--brief-lines、--expect-changes、--judge 可选。
 code/grok-cli/copy/grok/bulk/gpt/run/run-many 默认独立运行并等待；--no-wait 立即返回，--attach 前台，--detach 兼容默认。
 --name 短名、--report 路径；status [--running] [--json]；wait/tail 支持短名或 runId 前缀。
-code 的 --luna 使用 gpt-6-luna，默认 xhigh，可用 --max，且不开 fast；Terra/Sol 默认 medium；不能与 --simple 或 --review 同用。
+code 的 --luna 使用 luna，默认 xhigh，可用 --max，且不开 fast；Terra/Sol 默认 medium；不能与 --simple 或 --review 同用。
 code 的 --review 使用全权限沙箱与内置只读审查提示词；旧 agent-fleet 长命令继续可用。
 copy/bulk（Gemini）默认 xhigh，可用 --low 或 --high 覆盖；copy 自动注入文案语气规范，--no-voice 仅用于纯机械改写（长名 kollab-gateway-copy 同样支持）。
 `;
@@ -414,7 +415,7 @@ async function cmdResume(argv) {
     if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true });
     return;
   }
-  if (['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'].includes(rec.model)) {
+  if (isCodexModel(rec.model)) {
     if (rec.resumeBlocked) throw new Error('Codex 无法确认旧工具已结束，未启动续跑；改方向请用 --restart。');
     const sessionId = rec.threadId || rec.sessionId;
     if (!sessionId) throw new Error('Codex 任务没有 threadId/sessionId，无法 fleet resume；改方向请用 --restart。');
@@ -427,7 +428,7 @@ async function cmdResume(argv) {
       '--resume-session', sessionId, '--resumed-from', runId, '--cwd', cwd];
     if ((flags.xhigh || flags.max) && !rec.luna) throw new Error('--xhigh 和 --max 仅用于 --luna。');
     if (rec.simple) args.push('--simple');
-    if (rec.sol || (rec.model === 'gpt-6.1-sol' && !rec.simple && !rec.luna)) args.push('--sol');
+    if (rec.sol || (familyOf(rec.model) === 'sol' && !rec.simple && !rec.luna)) args.push('--sol');
     if (rec.luna) args.push('--luna');
     if (rec.serviceTier === 'priority') args.push('--fast');
     const selectedEffort = flags.low ? 'low' : flags.high ? 'high' : flags.xhigh ? 'xhigh' : flags.max ? 'max' : rec.luna && (rec.max || rec.tier === 'max') ? 'max' : rec.luna && (rec.xhigh || rec.tier === 'xhigh') ? 'xhigh' : rec.low || rec.tier === 'low' ? 'low' : rec.high || rec.tier === 'high' ? 'high' : null;
@@ -643,7 +644,7 @@ async function main() {
       const text = command === 'run-many' ? '' : resolveBrief(brief);
       const args = flagArgs(flags, ['detach', 'attach', 'no-wait', 'name', 'prompt']);
       if (flags.prompt !== undefined) args.push('--prompt', flags.prompt);
-      const selectedModel = command === 'code' ? (flags.luna ? 'gpt-6-luna' : flags.sol ? 'gpt-6.1-sol' : 'gpt-6.1-terra') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : command === 'judge' ? 'jev' : flags.model ?? shortRunOptions(command, rest).model;
+      const selectedModel = command === 'code' ? resolveCodexModel(flags.luna ? 'luna' : flags.sol ? 'sol' : 'terra') : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : command === 'judge' ? 'jev' : flags.model ?? shortRunOptions(command, rest).model;
       const launchOptions = {
         cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(),
         model: selectedModel,

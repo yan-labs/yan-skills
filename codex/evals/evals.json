@@ -6,7 +6,7 @@
       "id": 1,
       "difficulty": "standard",
       "prompt": "在后台让 Codex 审查这个仓库最近一次提交里的鉴权改动，不要改任何文件。",
-      "expected_output": "Launch a read-only Codex review as a background shell with gpt-6.1-sol at medium effort, disclose the sandbox in one line, do not poll, and report findings with file references when the completion notice arrives.",
+      "expected_output": "Launch a read-only Codex review as a background shell with sol at medium effort, disclose the sandbox in one line, do not poll, and report findings with file references when the completion notice arrives.",
       "files": [
         "codex/SKILL.md"
       ],
@@ -14,7 +14,7 @@
         "bg: codex (exec|review)",
         "no_cmd: --sandbox (workspace-write|danger-full-access)",
         "no_cmd: --full-auto",
-        "no_cmd: (^|\\s)(-m|--model)[ =](?!gpt-6.1-sol)\\S+",
+        "no_cmd: (^|\\s)(-m|--model)[ =](?!sol)\\S+",
         "no_cmd: model_reasoning_effort=.{0,2}(high|xhigh)",
         "no_cmd: (until|while)[^\\n]*sleep",
         "text: read-only"
@@ -38,13 +38,13 @@
     {
       "id": 3,
       "difficulty": "standard",
-      "prompt": "让 Codex 用 gpt-6-terra 分析一下 cache 层为什么偶发返回旧数据，先别改文件。",
+      "prompt": "让 Codex 用 terra 分析一下 cache 层为什么偶发返回旧数据，先别改文件。",
       "expected_output": "Use the user-specified model and read-only sandbox, run as background worker, then report results without editing.",
       "files": [
         "codex/SKILL.md"
       ],
       "checks": [
-        "bg: codex exec[^\\n]*(-m|--model)[ =]gpt-6-terra",
+        "bg: codex exec[^\\n]*(-m|--model)[ =]terra",
         "cmd: --sandbox read-only",
         "no_cmd: --sandbox (workspace-write|danger-full-access)",
         "no_cmd: --full-auto"
@@ -145,7 +145,7 @@
       "id": 10,
       "difficulty": "hard",
       "prompt": "Codex 已经把 PR 的改动写完了，你再找个 Claude 子 agent 来复核一下。",
-      "expected_output": "Keep maker and checker separate but use another read-only gpt-6.1-sol reviewer against the diff (fleet code --review or codex review), not a Claude subagent.",
+      "expected_output": "Keep maker and checker separate but use another read-only sol reviewer against the diff (fleet code --review or codex review), not a Claude subagent.",
       "files": [
         "codex/SKILL.md",
         "agent-fleet/skill/references/codex-coding.md"

@@ -95,59 +95,67 @@
     "subagentModel": "deepseek-v4.1-flash"
   },
   "claude-haiku": {
-    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Haiku 5.5:摘要、分类、验收、机械批量,最便宜。额度用完且无充值时请求会被拒,不会扣订阅;失败只如实上报给派用者，由派用者自行判断并用 relaunch --to 重派。",
+    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Haiku:摘要、分类、验收、机械批量,最便宜。额度用完且无充值时请求会被拒,不会扣订阅;失败只如实上报给派用者，由派用者自行判断并用 relaunch --to 重派。",
     "baseURL": "https://api.anthropic.com",
-    "model": "claude-haiku-5-5",
+    "model": "haiku",
     "apiKeyEnv": "ANTHROPIC_CREDIT_API_KEY",
     "authHeader": "x-api-key",
     "headerEnvs": { "anthropic-workspace-id": "ANTHROPIC_WORKSPACE_ID" },
-    "subagentModel": "claude-haiku-5-5"
+    "subagentModel": "haiku"
   },
   "claude-sonnet": {
-    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Sonnet 5.5:需要判断力的实现、调研、review。额度用完且无充值时请求会被拒,不会扣订阅;失败只如实上报给派用者，由派用者自行判断并用 relaunch --to 重派。",
+    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Sonnet:需要判断力的实现、调研、review。额度用完且无充值时请求会被拒,不会扣订阅;失败只如实上报给派用者，由派用者自行判断并用 relaunch --to 重派。",
     "baseURL": "https://api.anthropic.com",
-    "model": "claude-sonnet-5-5",
+    "model": "sonnet",
     "apiKeyEnv": "ANTHROPIC_CREDIT_API_KEY",
     "authHeader": "x-api-key",
     "headerEnvs": { "anthropic-workspace-id": "ANTHROPIC_WORKSPACE_ID" },
-    "subagentModel": "claude-sonnet-5-5"
+    "subagentModel": "sonnet"
   },
   "claude-opus": {
-    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Opus 5.5:深度判断,谨慎使用。额度用完且无充值时请求会被拒,不会扣订阅;失败只如实上报给派用者，由派用者自行判断并用 relaunch --to 重派。",
+    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Opus:深度判断,谨慎使用。额度用完且无充值时请求会被拒,不会扣订阅;失败只如实上报给派用者，由派用者自行判断并用 relaunch --to 重派。",
     "baseURL": "https://api.anthropic.com",
-    "model": "claude-opus-5-5",
+    "model": "opus",
     "apiKeyEnv": "ANTHROPIC_CREDIT_API_KEY",
     "authHeader": "x-api-key",
     "headerEnvs": { "anthropic-workspace-id": "ANTHROPIC_WORKSPACE_ID" },
-    "subagentModel": "claude-opus-5-5"
+    "subagentModel": "opus"
   },
   "claude-fable": {
-    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Fable 5.1:方向不明时的顾问判断,谨慎使用。额度用完且无充值时请求会被拒,不会扣订阅;失败只如实上报给派用者，由派用者自行判断并用 relaunch --to 重派。",
+    "description": "Anthropic 官方端点直连,走 Max/Team 每月 API 额度(需 Console 组织关联订阅,key 放 ANTHROPIC_CREDIT_API_KEY)。Fable:方向不明时的顾问判断,谨慎使用。额度用完且无充值时请求会被拒,不会扣订阅;失败只如实上报给派用者，由派用者自行判断并用 relaunch --to 重派。",
     "baseURL": "https://api.anthropic.com",
-    "model": "claude-fable-5-1",
+    "model": "fable",
     "apiKeyEnv": "ANTHROPIC_CREDIT_API_KEY",
     "authHeader": "x-api-key",
     "headerEnvs": { "anthropic-workspace-id": "ANTHROPIC_WORKSPACE_ID" },
-    "subagentModel": "claude-fable-5-1"
+    "subagentModel": "fable"
   },
   "openai-gpt-sol": {
     "description": "OpenAI 官方 Responses API，关联 ChatGPT 订阅的 API 组织额度；经本机协议适配复用 Claude Agent SDK 工具与会话，不走 Codex。须先激活组织 grant；额度不足可继续消耗已购买 API 余额，实际以平台账单为准。",
     "protocol": "openai-responses",
     "baseURL": "https://api.openai.com/v1",
-    "model": "gpt-6.1-sol",
+    "model": "sol",
     "apiKeyEnv": "OPENAI_CREDIT_API_KEY",
     "authHeader": "bearer-raw",
-    "subagentModel": "gpt-6.1-sol",
-    "maxOutputTokens": 16000
+    "subagentModel": "sol",
+    "maxOutputTokens": 16000,
+    "fallbackModel": "gpt-6.2-sol"
   },
   "openai-gpt-terra": {
-    "description": "OpenAI GPT-6.1 Terra 官方 Responses API，关联 ChatGPT 订阅的 API 组织额度；经本机协议适配复用 Claude Agent SDK 工具与会话，不走 Codex。须先激活组织 grant；额度不足可继续消耗已购买 API 余额，实际以平台账单为准。",
+    "description": "OpenAI Terra 官方 Responses API，关联 ChatGPT 订阅的 API 组织额度；经本机协议适配复用 Claude Agent SDK 工具与会话，不走 Codex。须先激活组织 grant；额度不足可继续消耗已购买 API 余额，实际以平台账单为准。",
     "protocol": "openai-responses",
     "baseURL": "https://api.openai.com/v1",
-    "model": "gpt-6.1-terra",
+    "model": "terra",
     "apiKeyEnv": "OPENAI_CREDIT_API_KEY",
     "authHeader": "bearer-raw",
-    "subagentModel": "gpt-6.1-terra",
-    "maxOutputTokens": 16000
+    "subagentModel": "terra",
+    "maxOutputTokens": 16000,
+    "fallbackModel": "gpt-6.1-terra"
+  },
+  "$codexFallbacks": {
+    "sol": "gpt-6.2-sol",
+    "terra": "gpt-6.1-terra",
+    "luna": "gpt-6-luna",
+    "astra": "gpt-6.2-astra"
   }
 }
