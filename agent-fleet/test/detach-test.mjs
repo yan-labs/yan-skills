@@ -466,7 +466,7 @@ else {
     const poolIds = [];
     const addPool = async (id, model) => { await registerQueue({runId:id, name:id, model}); poolIds.push(id); return acquireSlot(id); };
     for (let i=0; i<4; i++) assert.equal(await addPool(`code-pool-${i}`, 'gpt-6.1-terra'), true);
-    assert.equal(await addPool('code-pool-wait', 'gpt-6.1-sol'), false);
+    assert.equal(await addPool('code-pool-wait', 'gpt-6.2-astra'), false);
     for (let i=0; i<10; i++) assert.equal(await addPool(`light-pool-${i}`, 'gpt-6-luna'), true);
     assert.equal(await addPool('light-pool-wait', 'claude-haiku'), false);
     await setSlotState('code-pool-0', 'done');

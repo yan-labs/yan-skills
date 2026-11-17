@@ -449,7 +449,7 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
   });
   test('默认 Terra、显式 Sol、旧任务迁移及互斥', () => {
     const dir=path.slice(0,path.lastIndexOf('/'));
-    for (const [name,flags,tier] of [['default-tier',[],'terra'],['sol-tier',['--sol'],'sol'],['luna-tier',['--luna'],'luna']]) {
+    for (const [name,flags,tier] of [['default-tier',[],'terra'],['sol-tier',['--sol'],'sol'],['luna-tier',['--luna'],'luna'],['astra-tier',['--astra'],'astra']]) {
       const preview=run(['new',name,'--to','gpt',...flags,'--goal','x','--dry-run']);
       assert.equal(preview.status,0,preview.stderr); assert(preview.stderr.includes(tier==='terra'?'--simple':'--'+tier));
       assert.equal(run(['new',name,'--to','gpt',...flags,'--goal','x','--no-launch']).status,0);
@@ -466,6 +466,17 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
       assert.equal(JSON.parse(readFileSync(legacy,'utf8')).tier,'sol');
     }
     for (const option of ['--simple','--luna']) assert.equal(run(['new','bad-tier','--to','gpt','--sol',option,'--goal','x','--dry-run']).status,1);
+  });
+  test('astra 新建、重派、修订与互斥', () => {
+    const preview = run(['new','astra-preview','--to','gpt','--astra','--goal','x','--dry-run']);
+    assert.equal(preview.status,0,preview.stderr); assert.match(preview.stderr,/gpt-6\.2-astra/); assert.match(preview.stdout,/遇到缺文件、工具不可用等阻碍/);
+    for (const option of ['--simple','--sol','--luna']) assert.equal(run(['new','astra-bad','--to','gpt','--astra',option,'--goal','x','--dry-run']).status,1);
+    for (const action of ['relaunch','amend']) {
+      const cmd = action === 'relaunch' ? [action,'default-tier'] : [action,'default-tier','切换'];
+      assert.equal(run([...cmd,'--astra','--sol']).status,1);
+      reset(); assert.equal(run([...cmd,'--astra']).status, action === 'relaunch' ? 7 : 0);
+    }
+    reset(); assert.equal(run(['relaunch','default-tier']).status,7); assert(history().at(-1).args.includes('--astra'));
   });
   test('luna 新建、重派和修订保留模型及冲突限制', () => {
     assert.equal(run(['new','luna-mode','--to','gpt','--luna','--low','--goal','x','--no-launch']).status, 0);

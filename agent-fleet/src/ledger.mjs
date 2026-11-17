@@ -43,6 +43,7 @@ export function executorOf(model = '', resolved = '') {
   const m = `${model} ${resolved}`;
   if (/terra/.test(m)) return 'terra';
   if (/luna/.test(m)) return 'luna';
+  if (/astra/.test(m)) return 'astra';
   if (/sol/.test(m)) return 'sol';
   if (/grok/.test(m)) return 'grok';
   if (/gemini|kollab-gateway-(copy|bulk)|^kollab-gateway\b/.test(m)) return 'gemini';

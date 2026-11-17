@@ -13,7 +13,7 @@ export function latestModel(models, family) {
 }
 export function resolveCodexModel(family, { cachePath = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'models_cache.json'), log = console.error } = {}) {
   let model;
-  try { model = latestModel(JSON.parse(readFileSync(cachePath, 'utf8')).models, family); } catch {}
+  try { if (family !== 'astra') model = latestModel(JSON.parse(readFileSync(cachePath, 'utf8')).models, family); } catch {}
   if (model) return model;
   const config = JSON.parse(readFileSync(new URL('../models.config.json', import.meta.url), 'utf8'));
   const fallback = config.$codexFallbacks[family];

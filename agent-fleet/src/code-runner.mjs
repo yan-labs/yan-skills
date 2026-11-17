@@ -76,14 +76,15 @@ async function threadLifecycle(codexBin, method, threadId) {
 }
 
 /** 执行 Codex 任务；自动续做保留 thread，用户插话仍走现有 steer/resume 链路。 */
-export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = false, high = false, xhigh = false, max = false, simple = false, sol = false, luna = false, fast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
+export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = false, high = false, xhigh = false, max = false, simple = false, sol = false, luna = false, astra = false, fast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
   codexBin = process.env.FLEET_CODEX_BIN || 'codex' }) {
   if ([low, high, xhigh, max].filter(Boolean).length > 1) throw new Error('--low、--high、--xhigh 和 --max 不能同用。');
   if ((xhigh || max) && !luna) throw new Error('--xhigh 和 --max 仅用于 --luna。');
+  if (astra && (sol || simple || luna)) throw new Error('--astra 不能与 --sol、--simple 或 --luna 同用。');
   if (sol && (simple || luna)) throw new Error('--sol 不能与 --simple 或 --luna 同用。');
   if (luna && (simple || review)) throw new Error('--luna 不能与 --simple 或 --review 同用。');
   const effort = max ? 'max' : xhigh ? 'xhigh' : high ? 'high' : low ? 'low' : process.env.FLEET_CODEX_EFFORT || (luna ? 'xhigh' : 'medium');
-  const family = luna ? 'luna' : sol ? 'sol' : 'terra';
+  const family = astra ? 'astra' : luna ? 'luna' : sol ? 'sol' : 'terra';
   const resolutionLog = [];
   const model = resolveCodexModel(family, { log: line => resolutionLog.push(line) });
   const serviceTier = fast ? 'priority' : null;
@@ -92,7 +93,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const taskHeader = prompt.match(/^归类：[^\n]*/m)?.[0] || '';
   const taskGoal = prompt.match(/^## 目标\s*\n([^\n]+)/m)?.[1] || '';
   const documentTask = /文档|文案|写作|翻译|校对|review|复核|审查/i.test(taskHeader) || /^(?:写|撰写|编写|更新|修改|整理|翻译|校对|复核|审查)(?:文档|报告|文章|文案|资料|说明|代码)/.test(taskGoal);
-  const terra = !sol && !luna;
+  const terra = !sol && !luna && !astra;
   const continueEnabled = (terra || (!review && !documentTask)) && !noContinue && process.env.FLEET_NO_CONTINUE !== '1';
   const fullPrompt = review ? `${reviewPrompt()}\n\n${prompt}` : `${SCOPE_LOCK}\n\n预计超过2小时且 brief 未给阶段时，第一棒先列出各阶段范围和完成条件，用 fleet plan --file <计划文件> 提交后直接继续，不等批准；阶段边界用 fleet handoff --next <第一动作> --file <五项交接单>。\n\n安装、构建和测试可能持续 30 分钟以上；命令仍在运行时用 write_stdin 发送空内容轮询等待，绝不发送 Ctrl-C（\\u0003）；不因耗时中断。\n\n${prompt}`;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -120,7 +121,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   briefPath ??= slot?.briefPath;
   const identity = taskIdentity({ ...slot, briefPath, review });
   const metadata = { ...identity, briefPath, backend: 'codex-exec', threadId: resume || null, sessionId: resume || null,
-    steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, high, xhigh, max, simple, sol, luna, family, resolvedModel: model, model, tier: effort, serviceTier, review, resumedFrom };
+    steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, high, xhigh, max, simple, sol, luna, astra, family, resolvedModel: model, model, tier: effort, serviceTier, review, resumedFrom };
   const record = (patch = {}) => {
     process.send?.({ codexMetadata: metadata });
     return patchPidRecord(runId, { pid: process.pid, command: processCommand(process.pid),

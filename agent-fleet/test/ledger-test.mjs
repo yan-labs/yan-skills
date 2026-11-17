@@ -88,8 +88,8 @@ try {
   assert(L.buildRow(rec({ status: 'done', verdict: 'ok', reportConclusion: '受阻：缺输入' }), new L.LedgerIndex()).outcome === 'partial', '受阻报告不记完成');
   assert(L.conclusionOutcome('部分完成：xxx') === 'partial' && L.conclusionOutcome('**仍为部分完成**') === 'partial', '部分完成口径');
   assert(L.conclusionOutcome('完成本单授权内工作') === 'complete' && L.conclusionOutcome('失败：xx') === 'failed' && L.conclusionOutcome('本地盘点') === null, '完成/失败/读不出');
-  assert([['gpt-6.1-sol'], ['openai-gpt-terra'], ['gpt-6-luna'], ['grok-cli:grok-4.7'], ['kollab-gateway-copy', 'gemini-4-argon'], ['claude-opus'], ['kollab-gateway-gpt-sol', 'gpt-6-sol']]
-    .map(a => L.executorOf(...a)).join() === 'sol,terra,luna,grok,gemini,opus,sol', '执行者归并');
+  assert([['gpt-6.2-astra'], ['gpt-6.1-sol'], ['openai-gpt-terra'], ['gpt-6-luna'], ['grok-cli:grok-4.7'], ['kollab-gateway-copy', 'gemini-4-argon'], ['claude-opus'], ['kollab-gateway-gpt-sol', 'gpt-6-sol']]
+    .map(a => L.executorOf(...a)).join() === 'astra,sol,terra,luna,grok,gemini,opus,sol', '执行者归并');
   assert(L.guessMakerName('bsm-r2b-review') === 'bsm-r2b' && L.guessMakerName('editor-parity-review-r3') === 'editor-parity'
     && L.guessMakerName('history-test-fixture-review3-1104') === 'history-test-fixture-1104' && L.guessMakerName('plain-task') === null, '复核单名字推测');
 

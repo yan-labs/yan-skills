@@ -61,7 +61,7 @@ export function collectStatus({ cwd } = {}) {
       logPath: rec.logPath ?? null,
       ...(isCodexModel(rec.model) ? { backend: rec.backend, threadId: rec.threadId, sessionId: rec.sessionId,
         steerCount: rec.steerCount, resumeCount: rec.resumeCount, fallbacks: rec.fallbacks,
-        low: rec.low, high: rec.high, xhigh: rec.xhigh, max: rec.max, simple: rec.simple, sol: rec.sol, luna: rec.luna, serviceTier: rec.serviceTier, review: rec.review, resumedFrom: rec.resumedFrom } : {}),
+        low: rec.low, high: rec.high, xhigh: rec.xhigh, max: rec.max, simple: rec.simple, sol: rec.sol, luna: rec.luna, astra: rec.astra, serviceTier: rec.serviceTier, review: rec.review, resumedFrom: rec.resumedFrom } : {}),
     });
   }
   rows.sort((a, b) => String(b.startedAt ?? '').localeCompare(String(a.startedAt ?? '')));
