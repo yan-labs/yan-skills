@@ -389,7 +389,7 @@ console.log(`PASS detach integration; artifacts: ${scratch}`);
   mkdirSync(queueRuns);
   const oldRuns = process.env.AGENT_FLEET_RUNS_DIR;
   process.env.AGENT_FLEET_RUNS_DIR = queueRuns;
-  const { launchDetached, waitDetached } = await import('../src/detach.mjs');
+  const { launchDetached, waitDetached, detachedState } = await import('../src/detach.mjs');
   const { queueRecord, setSlotState, saveCodexQuota, pathsOverlap, canonicalPath, slotPool, registerQueue, taskIdentity, releaseParentSlot, acquireSlot } = await import('../src/queue.mjs');
   // 模拟旧 PID writer 截断文件时槽位扫描的可读错误。
   const broken = join(queueRuns, 'truncated.pid.json');
@@ -398,6 +398,8 @@ console.log(`PASS detach integration; artifacts: ${scratch}`);
   await assert.rejects(acquireSlot('json-check'), /槽位状态 JSON 损坏：.*truncated.pid.json/);
   (await import('node:fs')).unlinkSync(broken);
   await setSlotState('json-check', 'done');
+  const command = execFileSync('ps', ['-o', 'command=', '-p', String(process.pid)], {encoding:'utf8'}).trim();
+  assert.equal(detachedState({runId:'json-check', status:'running', pid:process.pid, command, heartbeatAt:new Date().toISOString()}), 'running');
   const { writePidRecord } = await import('../src/pid.mjs');
   writePidRecord('atomic-check', {pid:0, finished:true});
   assert.equal(JSON.parse(readFileSync(join(queueRuns, 'atomic-check.pid.json'))).finished, true);

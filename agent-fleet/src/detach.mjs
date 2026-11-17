@@ -34,7 +34,8 @@ export function readState(id) {
 }
 export function detachedState(rec) {
   if (rec.status !== 'running') return rec.status;
-  return isRecordedProcessAlive(rec.pid, rec.command) && Date.now() - Date.parse(rec.heartbeatAt) < 90_000 ? queueRecord(rec.runId)?.state ?? 'running' : 'abnormal';
+  const queueState = queueRecord(rec.runId)?.state;
+  return isRecordedProcessAlive(rec.pid, rec.command) && Date.now() - Date.parse(rec.heartbeatAt) < 90_000 ? (['queued', 'parked', 'waiting'].includes(queueState) ? queueState : 'running') : 'abnormal';
 }
 /**
  * 状态还写着 running,但监督进程和执行进程都已不在(含 pid 被别的进程复用):没人会再写终态了,
