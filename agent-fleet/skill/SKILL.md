@@ -52,8 +52,8 @@ Terra 与 Sol 的两问判断、Terra 交回 partial 先续做不改派、发布
 | 改部署配置、写部署脚本 | Codex Terra | `--to gpt` |
 | 巡检、监工、定时、核对整理 | Luna，`--high` 或默认 xhigh，不开 `--max` | `--to gpt --luna --high` |
 | 文案、翻译、多语言、校对 | Gemini（自动带[文案语气规范](references/copy-voice.md)，纯机械改写加 `--no-voice`） | `--to gemini`，批量加 `--bulk` |
-| UI、样式、视觉交互、建站设计、3D、游戏内容 | Sonnet；设计稿由 Claude 出，按稿实施可交 Terra | `--to claude --tier sonnet`；要 Browser pane 用 `executor-sonnet` |
-| 方案、架构、方向未明的综合判断；硬性指标多轮达不到时先出方案 | Fable，只走 Agent 工具 | `subagent_type=executor-fable`，brief 带“这个代码库是你的，做成什么样你说了算，以后也是你接着维护。” |
+| UI、样式、视觉交互、建站设计、3D、游戏内容 | Claude Sonnet，见[工具链](references/fallback-chains.md) | `--to claude --tier sonnet`；要 Browser pane 用 `executor-sonnet` |
+| 方案、架构、方向未明的综合判断；硬性指标多轮达不到时先出方案 | Fable，只走 Agent 工具 | `subagent_type=executor-fable`，brief 带“这个代码库是你的，做成什么样你说了算，以后也是你接着维护。”；Claude 额度不足时 `--to gpt --astra`，见[工具链](references/fallback-chains.md) |
 | 较难的编程、Sonnet 反复打转 | Opus | `--to claude --tier opus` |
 | 小杂活、摘要、核实、机械替换、取证 | Haiku | `--to claude --tier haiku`；要 Browser pane/MCP 用 `executor-haiku` |
 | 视频、图片、X 热点与社媒实时检索、成人题材；Codex 不可用时承接编码 | Grok | `--to grok`，产物样板加 `--make image\|video`，见 [Grok CLI](references/grok-cli.md) |

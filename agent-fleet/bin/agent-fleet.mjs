@@ -50,7 +50,7 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
 
   fleet copy|grok|bulk|gpt|openai <brief文件或文本> [--low|--high|--xhigh] [--cwd dir] [--verbose]
   fleet grok-cli <brief文件或文本> [--review] [--cwd dir] [--model id] [--name name] [--report path] [--no-subagents|--subagents]
-  fleet code <brief文件或文本> [--low|--high|--xhigh|--max] [--simple|--sol|--luna] [--fast] [--review] [--no-continue] [--cwd dir]
+  fleet code <brief文件或文本> [--low|--high|--xhigh|--max] [--simple|--sol|--luna|--astra] [--fast] [--review] [--no-continue] [--cwd dir]
   fleet haiku|sonnet|opus <brief.md|文本>   # Claude 官方端点，走每月 API 赠送额度
   fleet judge <state文件> <questions文件> [--json]
   fleet run --model name --prompt "任务" [--cwd dir] [--max-turns N]
@@ -430,6 +430,7 @@ async function cmdResume(argv) {
     if (rec.simple) args.push('--simple');
     if (rec.sol || (familyOf(rec.model) === 'sol' && !rec.simple && !rec.luna)) args.push('--sol');
     if (rec.luna) args.push('--luna');
+    if (rec.astra || familyOf(rec.model) === 'astra') args.push('--astra');
     if (rec.serviceTier === 'priority') args.push('--fast');
     const selectedEffort = flags.low ? 'low' : flags.high ? 'high' : flags.xhigh ? 'xhigh' : flags.max ? 'max' : rec.luna && (rec.max || rec.tier === 'max') ? 'max' : rec.luna && (rec.xhigh || rec.tier === 'xhigh') ? 'xhigh' : rec.low || rec.tier === 'low' ? 'low' : rec.high || rec.tier === 'high' ? 'high' : null;
     if (selectedEffort) args.push('--' + selectedEffort);
@@ -566,7 +567,7 @@ async function cmdCode(argv) {
   if (flags.help) { console.log(HELP_TEXT); return; }
   const source = flags.prompt ?? positionals[0];
   const prompt = resolveBrief(source);
-  const result = await runCode({ prompt, briefPath: source && existsSync(source) ? resolvePath(source) : null, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), high: Boolean(flags.high), xhigh: Boolean(flags.xhigh), max: Boolean(flags.max), simple: Boolean(flags.simple), sol: Boolean(flags.sol), luna: Boolean(flags.luna), fast: Boolean(flags.fast), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
+  const result = await runCode({ prompt, briefPath: source && existsSync(source) ? resolvePath(source) : null, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), high: Boolean(flags.high), xhigh: Boolean(flags.xhigh), max: Boolean(flags.max), simple: Boolean(flags.simple), sol: Boolean(flags.sol), luna: Boolean(flags.luna), astra: Boolean(flags.astra), fast: Boolean(flags.fast), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
   await printRunResult(result, outputOptions(flags));
   process.exitCode = buildBrief(result, outputOptions(flags)).verdict === 'ok' ? 0 : 1;
 }
@@ -630,6 +631,7 @@ async function main() {
     if (rest.includes('--simple')) {
       if (command !== 'code') throw new Error('--simple 仅用于 fleet code（fleet-go --to gpt）。');
     }
+    if (rest.includes('--astra') && (command !== 'code' || ['--simple', '--sol', '--luna'].some(flag => rest.includes(flag)))) throw new Error('--astra 仅用于 fleet code，且不能与 --simple、--sol 或 --luna 同用。');
     if (rest.includes('--sol') && (command !== 'code' || rest.includes('--simple') || rest.includes('--luna'))) throw new Error('--sol 仅用于 fleet code，且不能与 --simple 或 --luna 同用。');
     if (command === '__supervise') { await supervise(fileURLToPath(import.meta.url)); return; }
     if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many', 'judge'].includes(command)
@@ -644,7 +646,7 @@ async function main() {
       const text = command === 'run-many' ? '' : resolveBrief(brief);
       const args = flagArgs(flags, ['detach', 'attach', 'no-wait', 'name', 'prompt']);
       if (flags.prompt !== undefined) args.push('--prompt', flags.prompt);
-      const selectedModel = command === 'code' ? resolveCodexModel(flags.luna ? 'luna' : flags.sol ? 'sol' : 'terra', { log: () => {} }) : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : command === 'judge' ? 'jev' : flags.model ?? shortRunOptions(command, rest).model;
+      const selectedModel = command === 'code' ? resolveCodexModel(flags.astra ? 'astra' : flags.luna ? 'luna' : flags.sol ? 'sol' : 'terra', { log: () => {} }) : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : command === 'judge' ? 'jev' : flags.model ?? shortRunOptions(command, rest).model;
       const launchOptions = {
         cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(),
         model: selectedModel,

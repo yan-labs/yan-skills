@@ -284,8 +284,11 @@ def checked(text, to, simple=False, on='local', extra=False, sol=False, no_lint=
         raise ValueError('\n'.join(errors))
 
 
+OBSTACLE_NOTE = '遇到缺文件、工具不可用等阻碍必须在报告「未完成」里写明，不得略过。'
+
+
 def gpt_tier(meta):
-    return meta.get('tier') if meta.get('tier') in ('terra', 'sol', 'luna') else ('luna' if meta.get('luna') else 'terra' if meta.get('simple') else 'sol')
+    return meta.get('tier') if meta.get('tier') in ('terra', 'sol', 'luna', 'astra') else ('luna' if meta.get('luna') else 'terra' if meta.get('simple') else 'sol')
 
 
 def command(meta):
@@ -297,7 +300,7 @@ def command(meta):
         args.append(meta['questions'])
     args.extend(['--name', meta['name'], '--report', meta['report']])
     if to == 'gpt':
-        args.append({'terra': '--simple', 'sol': '--sol', 'luna': '--luna'}[gpt_tier(meta)])
+        args.append({'terra': '--simple', 'sol': '--sol', 'luna': '--luna', 'astra': '--astra'}[gpt_tier(meta)])
     for option in ['review', 'low', 'high', 'xhigh', 'max', 'fast', 'no-fast', 'subagents', 'expect-changes']:
         if meta.get(option):
             args.append('--' + option)
@@ -442,7 +445,7 @@ def dispatch_lessons(text):
     return text
 
 
-def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None, worktree_base=None, override_order=None, local_reason=None):
+def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None, worktree_base=None, override_order=None, local_reason=None, astra=False):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     if on == 'local' and not (local_reason or '').strip(): raise ValueError('--on local 必须同时提供 --local-reason 理由。')
     if local_reason and on != 'local': raise ValueError('--local-reason 仅用于 --on local。')
@@ -481,11 +484,11 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         raise ValueError('--tier 仅用于 --to claude。')
     if simple and target != 'gpt':
         raise ValueError('--simple 仅用于 --to gpt。')
-    if sum([simple, sol, luna]) > 1:
-        raise ValueError('--sol、--simple 和 --luna 不能同用。')
-    if (sol or luna) and target != 'gpt':
-        raise ValueError('--sol 和 --luna 仅用于 --to gpt。')
-    selected = ('sol' if sol else 'terra' if simple else 'luna' if luna else gpt_tier(meta) if meta['to'] == 'gpt' else 'terra')
+    if sum([simple, sol, luna, astra]) > 1:
+        raise ValueError('--sol、--simple、--luna 和 --astra 不能同用。')
+    if (sol or luna or astra) and target != 'gpt':
+        raise ValueError('--sol、--luna 和 --astra 仅用于 --to gpt。')
+    selected = ('astra' if astra else 'sol' if sol else 'terra' if simple else 'luna' if luna else gpt_tier(meta) if meta['to'] == 'gpt' else 'terra')
     selected_luna = target == 'gpt' and selected == 'luna'
     selected_simple = target == 'gpt' and selected == 'terra'
     if selected_luna and target != 'gpt':
@@ -505,6 +508,8 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     if (low or high or xhigh) and target not in ('gpt', 'gemini'):
         raise ValueError('--low、--high 和 --xhigh 仅用于 --to gpt|gemini。')
     text = ensure_principles(dispatch_lessons(refresh_body(path, meta, path.read_text())))
+    if target == 'gpt' and selected in ('sol', 'astra') and OBSTACLE_NOTE not in text:
+        text = text.replace(rule(), OBSTACLE_NOTE + '\n\n' + rule(), 1)
     path.write_text(text)
     if on != 'local' and not mini.available():
         raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
@@ -528,11 +533,11 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
             path.write_text(text)
     if 'paths' not in meta:
         meta['paths'] = entry_paths(text)
-    checked(text, target, bool(selected_simple), on or 'mini', True, target == 'gpt' and selected == 'sol', meta.get('no_lint', False))
+    checked(text, target, bool(selected_simple), on or 'mini', True, target == 'gpt' and selected in ('sol', 'astra'), meta.get('no_lint', False))
     if target != meta['to']:
         meta.pop('tier', None)
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
-                                 ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('sol', ['gpt']), ('luna', ['gpt']), ('fast', ['gpt']), ('no-fast', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
+                                 ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('sol', ['gpt']), ('luna', ['gpt']), ('astra', ['gpt']), ('fast', ['gpt']), ('no-fast', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                                  ('bulk', ['gemini'])]:
             if target not in products:
                 meta.pop(option, None)
@@ -551,8 +556,8 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         meta['tier'] = tier
     if target == 'gpt':
         meta['tier'] = selected
-        meta['simple'], meta['sol'], meta['luna'] = selected == 'terra', selected == 'sol', selected == 'luna'
-    if sol and not (low or high or xhigh or max):
+        meta['simple'], meta['sol'], meta['luna'], meta['astra'] = selected == 'terra', selected == 'sol', selected == 'luna', selected == 'astra'
+    if (sol or astra) and not (low or high or xhigh or max):
         meta['xhigh'] = meta['max'] = False
     if simple:
         meta['simple'], meta['luna'], meta['sol'] = True, False, False
@@ -663,24 +668,24 @@ def amend(args):
                 p.write_bytes(content)
             print('重派前置失败，已恢复修订前的 brief 和元数据。', file=sys.stderr)
             raise
-    if args.simple or args.sol or args.luna or args.low or args.high or args.xhigh or args.max:
-        if (args.simple or args.sol or args.luna or args.max) and meta['to'] != 'gpt':
-            raise ValueError('--sol、--simple、--luna 和 --max 仅用于 --to gpt。')
+    if args.simple or args.sol or args.luna or args.astra or args.low or args.high or args.xhigh or args.max:
+        if (args.simple or args.sol or args.luna or args.astra or args.max) and meta['to'] != 'gpt':
+            raise ValueError('--sol、--simple、--luna、--astra 和 --max 仅用于 --to gpt。')
         if (args.low or args.high or args.xhigh) and meta['to'] not in ('gpt', 'gemini'):
             raise ValueError('--low、--high 和 --xhigh 仅用于 --to gpt|gemini。')
-        if sum([args.simple, args.sol, args.luna]) > 1:
-            raise ValueError('--sol、--simple 和 --luna 不能同用。')
+        if sum([args.simple, args.sol, args.luna, args.astra]) > 1:
+            raise ValueError('--sol、--simple、--luna 和 --astra 不能同用。')
         if (args.luna and meta.get('review')) or (args.luna and args.simple):
             raise ValueError('--luna 和 --simple 不能同用，也不能与 --review 同用。')
         if sum([args.low, args.high, args.xhigh, args.max]) > 1:
             raise ValueError('--low、--high、--xhigh 和 --max 不能同用。')
-        if meta['to'] == 'gpt' and (args.xhigh or args.max) and not (args.luna or (not args.simple and not args.sol and gpt_tier(meta) == 'luna')):
+        if meta['to'] == 'gpt' and (args.xhigh or args.max) and not (args.luna or (not args.simple and not args.sol and not args.astra and gpt_tier(meta) == 'luna')):
             raise ValueError('--xhigh 和 --max 仅用于 --luna。')
         if meta['to'] == 'gpt':
-            selected = 'sol' if args.sol else 'terra' if args.simple else 'luna' if args.luna else gpt_tier(meta)
+            selected = 'astra' if args.astra else 'sol' if args.sol else 'terra' if args.simple else 'luna' if args.luna else gpt_tier(meta)
             meta['tier'] = selected
-            meta['simple'], meta['sol'], meta['luna'] = selected == 'terra', selected == 'sol', selected == 'luna'
-            if args.sol and not (args.low or args.high or args.xhigh or args.max):
+            meta['simple'], meta['sol'], meta['luna'], meta['astra'] = selected == 'terra', selected == 'sol', selected == 'luna', selected == 'astra'
+            if (args.sol or args.astra) and not (args.low or args.high or args.xhigh or args.max):
                 meta['xhigh'] = meta['max'] = False
         if args.simple:
             meta['simple'], meta['luna'], meta['sol'] = True, False, False
@@ -708,9 +713,11 @@ def amend(args):
             meta['max'] = True
     if args.on is not None:
         meta['on'] = args.on
-    if meta['to'] == 'gpt' and meta.get('tier') not in ('terra', 'sol', 'luna'):
+    if meta['to'] == 'gpt' and meta.get('tier') not in ('terra', 'sol', 'luna', 'astra'):
         meta['tier'] = gpt_tier(meta)
     original = path.read_text()
+    if meta['to'] == 'gpt' and gpt_tier(meta) in ('sol', 'astra') and OBSTACLE_NOTE not in original:
+        original = original.replace(rule(), OBSTACLE_NOTE + '\n\n' + rule(), 1)
     if args.auth is not None:
         auth = args.auth.split(',')
         if any(a not in AUTH for a in auth): raise ValueError('未知授权块。可用：' + ','.join(AUTH))
@@ -733,7 +740,7 @@ def amend(args):
         revised = ''.join(lines[:2]) + f'\n## 【修订 {max(numbers, default=0) + 1}（{stamp}）】\n{args.message}\n\n' + ''.join(lines[2:])
         original = revised
     if args.auth is not None or args.task_action is not None:
-        checked(original, meta['to'], gpt_tier(meta) == 'terra' and meta['to'] == 'gpt', args.on or meta.get('on') or 'local', True, gpt_tier(meta) == 'sol', meta.get('no_lint', False))
+        checked(original, meta['to'], gpt_tier(meta) == 'terra' and meta['to'] == 'gpt', args.on or meta.get('on') or 'local', True, gpt_tier(meta) in ('sol', 'astra'), meta.get('no_lint', False))
     else:
         checked(original, meta['to'], no_lint=meta.get('no_lint', False))
     path.write_text(original)
@@ -878,7 +885,7 @@ def new(args, prepare=False):
         raise ValueError('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）')
     deviation = order.gate(args.to, args.override_order)
     for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
-                             ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('sol', ['gpt']), ('luna', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
+                             ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('sol', ['gpt']), ('luna', ['gpt']), ('astra', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                              ('bulk', ['gemini'])]:
         if getattr(args, option) and args.to not in products:
             raise ValueError('--' + option + ' 仅用于 --to ' + '|'.join(products) + '。')
@@ -890,8 +897,8 @@ def new(args, prepare=False):
         raise ValueError('--xhigh 和 --max 仅用于 --luna。')
     if args.luna and (args.simple or args.review):
         raise ValueError('--luna 不能与 --simple 或 --review 同用。')
-    if args.sol and (args.simple or args.luna):
-        raise ValueError('--sol 不能与 --simple 或 --luna 同用。')
+    if sum([args.sol, args.simple, args.luna, args.astra]) > 1:
+        raise ValueError('--sol、--simple、--luna 和 --astra 不能同用。')
     if args.make == 'video' and args.to != 'grok':
         raise ValueError('--make video 仅用于 --to grok。')
     if args.for_name and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.for_name):
@@ -961,16 +968,18 @@ def new(args, prepare=False):
         parts.insert(3, deviation)
     if args.on == 'local': parts.insert(3, '本机执行偏差：' + args.local_reason.strip())
     parts.insert(1, block('thinking-principles'))  # 思维准则：每单必带，紧随“归类/REPORT”首部，排在其余样板之前
+    if args.to == 'gpt' and (args.sol or args.astra):
+        parts.insert(-1, OBSTACLE_NOTE)
     text = dispatch_lessons('\n\n'.join(parts) + '\n')
     location = args.on or 'mini'
     if location == 'mini' and not (args.dry_run or args.no_launch or prepare) and not mini.available():
         raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
-    checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna), location, True, args.sol, args.no_lint)
+    checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna or args.astra), location, True, args.sol or args.astra, args.no_lint)
     action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', body, re.M)
     actions = args.task_action or (action_match.group(1) if action_match else '')
     meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
             'auth': auth, 'no_lint': args.no_lint, 'actions': [a.strip() for a in actions.split('/') if a.strip()],
-            'tier': ('luna' if args.luna else 'sol' if args.sol else 'terra') if args.to == 'gpt' else args.tier, 'review': args.review, 'sol': args.sol, 'low': args.low, 'high': args.high,
+            'tier': ('astra' if args.astra else 'luna' if args.luna else 'sol' if args.sol else 'terra') if args.to == 'gpt' else args.tier, 'review': args.review, 'sol': args.sol, 'astra': args.astra, 'low': args.low, 'high': args.high,
             'xhigh': True if (args.to == 'gemini' and not (args.low or args.high)) else args.xhigh,
             'max': args.max, 'simple': args.simple, 'luna': args.luna, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,
             'subagents': args.subagents, 'bulk': args.bulk, 'expect-changes': args.expect_changes,
@@ -1084,7 +1093,7 @@ def build_parser():
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
     p.add_argument('--model')
     p.add_argument('--make', choices=['image', 'video'])
-    for option in ['review', 'low', 'high', 'xhigh', 'max', 'simple', 'sol', 'luna', 'fast', 'no-fast', 'subagents', 'bulk', 'expect-changes']:
+    for option in ['review', 'low', 'high', 'xhigh', 'max', 'simple', 'sol', 'luna', 'astra', 'fast', 'no-fast', 'subagents', 'bulk', 'expect-changes']:
         p.add_argument('--' + option, action='store_true')
     for option in ['why', 'goal', 'body', 'budget', 'forbid', 'pitfalls', 'report', 'after', 'environment', 'question']:
         p.add_argument('--' + option)
@@ -1112,6 +1121,7 @@ def build_parser():
     p.add_argument('--on', choices=['mini', 'local'])
     p.add_argument('--auth', help='替换授权块，逗号分隔')
     p.add_argument('--action', dest='task_action', help='替换动作行')
+    p.add_argument('--astra', action='store_true', help='GPT 任务改用 Astra')
     p.add_argument('--sol', action='store_true', help='后续重派使用 Sol')
     p.add_argument('--simple', action='store_true', help='后续重派使用 Terra')
     p.add_argument('--luna', action='store_true', help='后续重派使用 Luna')
@@ -1132,6 +1142,7 @@ def build_parser():
     p.add_argument('--pull', action='store_true')
     p.add_argument('--to', choices=PRODUCTS)
     p.add_argument('--tier', choices=['haiku', 'sonnet', 'opus', 'fable'])
+    p.add_argument('--astra', action='store_true', help='GPT 任务改用 Astra')
     p.add_argument('--sol', action='store_true', help='GPT 任务改用 Sol')
     p.add_argument('--simple', action='store_true', help='GPT 任务改用 Terra，默认不开 fast')
     p.add_argument('--luna', action='store_true', help='GPT 任务改用 Luna，默认 xhigh 且不开 fast')
@@ -1191,7 +1202,7 @@ def main():
     elif args.action == 'amend':
         amend(args)
     elif args.action == 'relaunch':
-        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull, args.sol, args.after, args.worktree, args.override_order, args.local_reason)
+        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull, args.sol, args.after, args.worktree, args.override_order, args.local_reason, args.astra)
     elif args.action == 'order':
         order.main(args)
     elif args.action == 'clean':

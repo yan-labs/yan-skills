@@ -69,7 +69,9 @@ printf 'mock codex log\n'
   assert(familyOf(terra.model) === 'terra', '普通任务默认 Terra');
   const sol = await runCode({ prompt: '检查文件', cwd: scratch, codexBin: mockCodex, sol: true });
   assert(familyOf(sol.model) === 'sol', '--sol 选择 Sol');
-  for (const flag of ['simple', 'luna']) {
+  const astra = await runCode({ prompt: '检查文件', cwd: scratch, codexBin: mockCodex, astra: true });
+  assert(astra.model === 'gpt-6.2-astra' && astra.family === 'astra', '--astra 选择 Astra');
+  for (const flag of ['simple', 'luna', 'astra']) {
     let rejected = false;
     try { await runCode({ prompt: 'x', sol: true, [flag]: true }); } catch (error) { rejected = /--sol/.test(error.message); }
     assert(rejected, '--sol 与 ' + flag + ' 互斥');
