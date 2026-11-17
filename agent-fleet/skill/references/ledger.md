@@ -36,6 +36,10 @@ LEDGER: blockers=<必修项数> verdict=<pass|fail|partial>
 
 复核单用 `fleet-go new <名字> --for <被复核任务名> ...` 显式关联；没写 `--for` 时按名字推测（去掉 `review` / `recheck` 词与末尾 `r2` 之类轮次，精确同名，或唯一的「候选名-」前缀，且被复核任务更早开始、不是复核单）。推测不到就留空，宁可空不乱配。做活 run 与复核的对应在 `score` 里按 `reviewOf` + 开始时间取「复核前最近一次同名做活 run」。
 
+## Claude 子代理
+
+Agent 工具拉起的子代理（executor-*、general-purpose 等）由 SubagentStop 钩子 `~/.claude/hooks/ledger-subagent.py` 记账，零模型调用：`route=claude-sub`、`runId=sub-<agent_id>`、`backfilled=false`。耗时拆分按 transcript 的 tool_use/tool_result 时间戳算：`cmdMs` 为工具并集时长，`waitMs`/`pollCount` 为命中等待模式（sleep、`fleet wait`、`fleet-go new`、write_stdin）的 Bash 命令，`modelMs`=总时长-cmdMs，`queuedMs`=0，`activeMs`=总时长-waitMs，`timeSource` 注明 wait 为命令模式估计。`tokens` 只计 input+output+cache_creation，不含 cache_read。读不到报告时 `outcome` 为 null（不是 complete）。历史回填：`python3 ~/.claude/hooks/ledger-subagent.py --backfill --days 14`（按 runId 去重，可重复跑）；已记账行重算：`--recompute --days 14`（先备份，只改 claude-sub 行）。
+
 ## 命令
 
 ```sh

@@ -80,7 +80,7 @@
 
 ## 重派与改方向（relaunch / amend）
 
-- `fleet-go relaunch <名> [--to <产品>] [--tier …] [--sol|--simple|--luna] [--low|--high|--xhigh|--max] [--fast]`：沿用同名 brief、name 和 report 重派；仍有未结束的同名任务时拒绝。跨日期重名时把名字换成报错给出的 brief 路径。`--after <任务>` 排在指定任务结束后运行。
+- `fleet-go relaunch <名> [--to <产品>] [--tier …] [--sol|--simple|--luna] [--low|--high|--xhigh|--max] [--fast]`：沿用同名 brief、name 和 report 重派（也沿用原档位：从 Luna 换 Terra 要显式加 `--simple`，只写 `--to gpt` 仍是 Luna）；仍有未结束的同名任务时拒绝。跨日期重名时把名字换成报错给出的 brief 路径。`--after <任务>` 排在指定任务结束后运行。
 - 同名 brief 已存在时用 `relaunch` 或 `amend --say`，不要重新 `new`。
 - 改需求：改 `--body` 文件再 `relaunch`，新正文自动换进 brief，修订块保留。注意 `relaunch` 总是用 brief.json 记录的 `--body` 文件替换正文，那可能是别的会话 scratchpad 里的旧文件，手改的入口会被盖回；入口改了就新开一单。
 - `fleet-go amend <名> "补充要求"`：给 brief 顶部追加「修订 N」。

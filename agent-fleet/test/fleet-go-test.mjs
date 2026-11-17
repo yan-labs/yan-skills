@@ -67,7 +67,7 @@ try {
     const r=run(['new','--to','gpt','one','--goal','独有目标','--dry-run','--write','/tmp/project','--read','/tmp/source']);
     assert.equal(r.status,0,r.stderr); brief=r.stdout;
     let previous=-1;
-    for(const text of ['归类：','REPORT:','围绕本 brief','## 授权覆盖','## 目标','## 允许范围','## 已知坑','## 验收',rule]) {
+    for(const text of ['归类：','REPORT:','## 思维准则（每单首要','根因优先','自我证伪','围绕本 brief','## 授权覆盖','## 目标','## 允许范围','## 已知坑','## 验收',rule]) {
       const i=brief.indexOf(text); assert.ok(i>previous,text); previous=i;
     }
     assert.equal(brief.trim().split('\n').at(-1),rule);
@@ -678,6 +678,9 @@ try {
     const text=readFileSync(bp,'utf8'); assert.match(text,/新正文 B/); assert.doesNotMatch(text,/旧正文 A/); assert.match(text,/修订 1（[^\n]+）】\n修订甲/); assert.match(text,/^对象: \{"repo": "\/tmp"/m);
     assert.equal(history().at(-1).args[0],'code');
     r=run(['relaunch','refresh']); assert.equal(r.status,7); assert.doesNotMatch(r.stdout,/更新 brief 正文/);
+    // 换班重派：缺思维准则的旧 brief 自动补上，已有的不重复。
+    writeFileSync(bp,readFileSync(bp,'utf8').replace(/## 思维准则[\s\S]*?\n\n(?=对象:)/,'')); assert.doesNotMatch(readFileSync(bp,'utf8'),/思维准则/);
+    r=run(['relaunch','refresh']); assert.equal(r.status,7,r.stderr); assert.equal((readFileSync(bp,'utf8').match(/## 思维准则（每单首要/g)||[]).length,1);
     // 旧任务：没有正文快照，同目录 <name>.body.md 比 brief 新时拒绝并给出下一步命令。
     const meta=JSON.parse(readFileSync(bp.replace(/\.md$/,'.json'),'utf8')); delete meta.body; delete meta.body_text;
     writeFileSync(bp.replace(/\.md$/,'.json'),JSON.stringify(meta)); const legacyBody=bp.replace(/\.brief\.md$/,'.body.md');

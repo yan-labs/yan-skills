@@ -409,6 +409,14 @@ def refresh_body(path, meta, text):
     return text
 
 
+def ensure_principles(text):
+    """relaunch/amend 重派时，缺思维准则的旧 brief 补上：紧随前两行（归类、REPORT）之后；已有则原样返回。"""
+    if '## 思维准则（每单首要' in text:
+        return text
+    lines = text.splitlines(keepends=True)
+    return ''.join(lines[:2]) + '\n' + block('thinking-principles') + '\n' + ''.join(lines[2:])
+
+
 def dispatch_lessons(text):
     entry_match = re.search(r'^##?\s*入口\s*[:：]?\s*\n(.*?)(?=^##?\s|\Z)', text, re.M | re.S)
     entry = entry_match.group(1) if entry_match else ''
@@ -491,7 +499,7 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         raise ValueError('--fast 仅用于 --to gpt。')
     if (low or high or xhigh) and target not in ('gpt', 'gemini'):
         raise ValueError('--low、--high 和 --xhigh 仅用于 --to gpt|gemini。')
-    text = dispatch_lessons(refresh_body(path, meta, path.read_text()))
+    text = ensure_principles(dispatch_lessons(refresh_body(path, meta, path.read_text())))
     path.write_text(text)
     if on != 'local' and not mini.available():
         raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
@@ -947,6 +955,7 @@ def new(args, prepare=False):
     if deviation:
         parts.insert(3, deviation)
     if args.on == 'local': parts.insert(3, '本机执行偏差：' + args.local_reason.strip())
+    parts.insert(1, block('thinking-principles'))  # 思维准则：每单必带，紧随“归类/REPORT”首部，排在其余样板之前
     text = dispatch_lessons('\n\n'.join(parts) + '\n')
     location = args.on or 'mini'
     if location == 'mini' and not (args.dry_run or args.no_launch or prepare) and not mini.available():
