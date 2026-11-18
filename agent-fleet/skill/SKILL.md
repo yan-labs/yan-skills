@@ -63,7 +63,7 @@ Terra 与 Sol 的两问判断、Terra 交回 partial 先续做不改派、GPT �
 
 - Claude 档先走 `--to claude`（订阅附赠的月度 API 额度，独立于 Claude App 用量）；需要本应用工具、MCP、Browser pane、`ccd_*` 或本机登录态才用 Agent 工具的 `executor-*`，每次显式传 `model`。
 - Codex 一律不开 fast，需要才显式 `--fast`。
-- 执行者拒绝、不可用或并发满：按[工具链](references/fallback-chains.md)换下一顺位，用 `fleet-go relaunch <名> --to <产品>` 沿用 brief 重派；编码不派 Gemini。临时的停用和额度重置只记在调遣令里。
+- 执行者拒绝、不可用或并发满：按[工具链](references/fallback-chains.md)换下一顺位（含 Codex 额度用满自动改派），用 `fleet-go relaunch <名> --to <产品>` 沿用 brief 重派；编码不派 Gemini。临时的停用和额度重置只记在调遣令里。
 - `fleet-go team` 一屏看各产品的能力、顺位和登录状态（只显示凭据是否存在）。
 
 ## 快速派单

@@ -84,6 +84,24 @@ try {
     assert.equal(run(['new','missing-rule','--to','gpt','--goal','x','--dry-run']).status, 1);
     writeFileSync(globalRules, legacy);
   });
+  test('Codex 额度自动改派及停用边界', () => {
+    const orderFile=join(temp,'fallback-order.md'), runs=join(temp,'fallback-runs'); mkdirSync(runs);
+    const setOrder=(reason, api='正常')=>writeFileSync(orderFile, `| codex | 停用 | 用户另说 | ${reason} |\n| openai-api | ${api} | 用户另说 | |\n`);
+    const extra={AGENT_FLEET_ORDER_FILE:orderFile, AGENT_FLEET_RUNS_DIR:runs};
+    setOrder('自动：额度用尽');
+    let r=run(['new','fallback','--to','gpt','--sol','--fast','--goal','x','--no-launch'],extra);
+    assert.equal(r.status,0,r.stderr);
+    const file=r.stdout.match(/\/[^\n ]+fallback\.brief\.md/)[0];
+    const meta=JSON.parse(readFileSync(file.replace(/\.md$/,'.json'),'utf8'));
+    assert.equal(meta.to,'openai'); assert.match(meta.fallback_deviation,/sol.*fast/); assert.match(readFileSync(file,'utf8'),/自动改派 OpenAI API/);
+    r=run(['relaunch','fallback','--to','gpt','--astra'],extra); assert.equal(r.status,7,r.stderr); assert.equal(history().at(-1).args[0],'openai');
+    setOrder('手动停用'); r=run(['new','manual','--to','gpt','--goal','x','--dry-run'],extra); assert.equal(r.status,1); assert.match(r.stderr,/调遣令拒绝/);
+    setOrder('自动：额度用尽','停用'); r=run(['new','api-stop','--to','gpt','--goal','x','--dry-run'],extra); assert.equal(r.status,1); assert.match(r.stderr,/openai-api/);
+    writeFileSync(orderFile,'| codex | 正常 | 用户另说 | |\n| openai-api | 正常 | 用户另说 | |\n');
+    writeFileSync(join(runs,'codex-quota.json'),JSON.stringify({usedPercent:100,resetsAt:Date.now()/1000+3600}));
+    r=run(['new','quota','--to','gpt','--goal','x','--dry-run'],extra); assert.equal(r.status,0,r.stderr); assert.match(r.stdout,/自动改派 OpenAI API/); assert.match(r.stderr,/fleet openai/);
+    r=run(['new','review-quota','--to','gpt','--review','--goal','x','--dry-run'],extra); assert.equal(r.status,1); assert.match(r.stderr,/不支持 --review/); reset();
+  });
   // 使用输出的 REPORT 路径，避免日期 locale 与时区差异。
   const report = brief.match(/^REPORT: (.+)$/m)[1];
   const path = report.replace(/\.md$/,'.brief.md');

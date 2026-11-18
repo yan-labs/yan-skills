@@ -547,6 +547,34 @@ def dispatch_lessons(text):
     return text
 
 
+def quota_fallback(target, review, original):
+    if target != 'gpt':
+        return None
+    now = order.now_local()
+    try:
+        orders, _ = order.load(now=now)
+    except (OSError, order.OrderError, UnicodeDecodeError):
+        orders = {}
+    codex = orders.get('codex')
+    stopped = codex and codex.active(now) and codex.state == '停用'
+    if stopped and not codex.is_auto:
+        return None
+    exhausted = bool(stopped and codex.is_auto)
+    try:
+        quota = json.loads((Path(os.environ.get('AGENT_FLEET_RUNS_DIR') or Path.home() / '.agent-fleet/runs') / 'codex-quota.json').read_text())
+        exhausted |= float(quota['usedPercent']) >= 100 and float(quota['resetsAt']) > time.time()
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    if not exhausted:
+        return None
+    order.gate('openai')
+    if review:
+        raise ValueError('Codex 订阅额度用完，但 OpenAI API 不支持 --review，无法自动改派。')
+    note = f'Codex 订阅额度用完，按用户 2026-11-19 授权自动改派 OpenAI API；原档位及参数：{original}。报告「偏差」一节须记录。'
+    print('警告：' + note, file=sys.stderr)
+    return note
+
+
 def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None, worktree_base=None, override_order=None, local_reason=None, astra=False, keep_brief=False):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     if on == 'local' and not (local_reason or '').strip(): raise ValueError('--on local 必须同时提供 --local-reason 理由。')
@@ -554,7 +582,16 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     path, meta = locate(name)
     name = meta.get('name') or path.name[:-len('.brief.md')]
     override = override_order or meta.get('order_override')
+    original = ', '.join([gpt_tier(meta)] + [f'--{k}' for k, v in [('simple', simple), ('sol', sol), ('astra', astra), ('luna', luna), ('fast', fast), ('no-fast', no_fast), ('low', low), ('high', high), ('xhigh', xhigh), ('max', max)] if v])
+    fallback = quota_fallback(to or meta['to'], meta.get('review'), original)
+    if fallback:
+        to = 'openai'
+        simple = fast = no_fast = luna = high = xhigh = max = low = sol = astra = False
+        meta['fallback_deviation'] = fallback
     deviation = order.gate(to or meta['to'], override)
+    if fallback:
+        lines = path.read_text().splitlines(keepends=True)
+        path.write_text(''.join(lines[:2]) + '\n' + fallback + '\n' + ''.join(lines[2:]))
     if deviation:
         meta['order_override'] = override
         text = path.read_text()
@@ -1020,6 +1057,12 @@ def new(args, prepare=False):
             args.tier = tier
     if args.to == 'claude' and args.tier == 'fable':
         raise ValueError('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）')
+    original = ', '.join([('astra' if args.astra else 'sol' if args.sol else 'luna' if args.luna else 'terra')] + [f'--{k.replace("_", "-")}' for k in ('simple', 'sol', 'astra', 'luna', 'fast', 'no_fast', 'low', 'high', 'xhigh', 'max') if getattr(args, k)])
+    fallback = quota_fallback(args.to, args.review, original)
+    if fallback:
+        args.to = 'openai'
+        for key in ('simple', 'sol', 'astra', 'luna', 'fast', 'no_fast', 'low', 'high', 'xhigh', 'max'):
+            setattr(args, key, False)
     deviation = order.gate(args.to, args.override_order)
     for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
                              ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('sol', ['gpt']), ('luna', ['gpt']), ('astra', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
@@ -1090,6 +1133,8 @@ def new(args, prepare=False):
                'writes': list(dict.fromkeys([*(args.write or []), *entry_writes])),
                'environment': args.environment or '', 'question': args.question or args.goal or ''}
     parts.insert(2, '对象: ' + json.dumps(object_, ensure_ascii=False))
+    if fallback:
+        parts.insert(3, fallback)
     if deviation:
         parts.insert(3, deviation)
     if args.on == 'local': parts.insert(3, '本机执行偏差：' + args.local_reason.strip())
@@ -1116,7 +1161,7 @@ def new(args, prepare=False):
             # 账本用：难度档、任务类型、被复核任务名；relaunch/amend 沿用 meta，不另存。
             'paths': list(dict.fromkeys([*(mini.expand_path(p) for p in (args.read or [])), *(mini.expand_path(p) for p in (args.write or [])), *entry_paths(body)])),
             'writes': [mini.expand_path(p) for p in (args.write or [])],
-            'body': body_file, 'body_text': body.strip(), 'order_override': args.override_order if deviation else None,
+            'body': body_file, 'body_text': body.strip(), 'order_override': args.override_order if deviation else None, 'fallback_deviation': fallback,
             'on': args.on or 'mini', 'local_reason': args.local_reason, 'pull': args.pull, 'object': object_ if object_['repo'] else None, 'after': args.after, 'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
     if project:
         meta['project'] = str(project)

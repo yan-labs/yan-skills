@@ -2,7 +2,7 @@
 
 ## 入口与额度
 
-`fleet-go new <名> --to openai --auth local --goal "任务" --body task.md`，或底层 `fleet openai task.md`。默认官方 `terra`，不用 Sol、不开 fast，偏慢，适合不急的正经编程。`--to gpt` / `fleet code` 仍走 Codex，两条路由互不影响。
+`fleet-go new <名> --to openai --auth local --goal "任务" --body task.md`，或底层 `fleet openai task.md`。默认官方 `terra`，不用 Sol、不开 fast，偏慢，适合不急的正经编程。`--to gpt` / `fleet code` 仍走 Codex，Codex 用满后自动改派见 [额度换手](fallback-chains.md)。
 
 - 凭据变量 `OPENAI_CREDIT_API_KEY` 只放 agent-fleet 目录的 `.env`（0600），不写进 brief、命令或报告。
 - 先在 ChatGPT/API Billing 激活并关联正确的 API 组织，Key 必须属于该组织；普通 API 调用成功不等于赠送额度已到账。
