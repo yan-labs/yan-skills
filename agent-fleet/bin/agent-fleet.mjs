@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { familyOf, isCodexModel, resolveCodexModel } from '../src/model-family.mjs';
 import { land } from '../src/land.mjs';
-import { currentRun, writeYield, ask, startBackground } from '../src/yield.mjs';
+import { currentRun, writeYield, ask, startBackground, watchBinding, watchRequest } from '../src/yield.mjs';
 // agent-fleet CLI 入口。
 //
 // 定位:通用多模型子任务执行工具。给一个任务描述 + 一个模型友好名字,用 Claude Agent SDK
@@ -551,6 +551,7 @@ async function cmdShortRun(command, argv) {
 async function enterAttachedSlot(options) {
   attachedReportPath = options.reportPath;
   const id = `attach-${randomUUID()}`;
+  watchRequest('bind', { run: id, ...watchBinding({ ...options, parentRunId: process.env.FLEET_SLOT_RUN_ID }) });
   await registerQueue({ ...options, runId: id });
   while (!(await acquireSlot(id))) await new Promise(r => setTimeout(r, 250));
   const previous = process.env.FLEET_SLOT_RUN_ID;

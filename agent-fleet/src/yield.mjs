@@ -1,7 +1,7 @@
 // Durable local yield protocol. Remote watchers publish <runId>.wake.json.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, openSync, closeSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { spawn, execFile } from 'node:child_process';
+import { spawn, spawnSync, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -71,15 +71,43 @@ export function resolveYield(id, entry, result) {
   save(pathFor(id, 'yield'), { ...entry, resolvedAt: Date.now(), result,
     timeouts: (entry.timeouts || 0) + (result.status === 'timeout' ? 1 : 0) });
 }
+export function watchRequest(action, data) {
+  const store = fileURLToPath(new URL('./watch-store.py', import.meta.url));
+  const result = spawnSync('python3', [store, '--request'], {
+    input: JSON.stringify([action, data]), encoding: 'utf8', timeout: 30_000,
+  });
+  if (result.error) throw result.error;
+  const reply = JSON.parse(result.stdout);
+  if (result.status !== 0) throw new Error(reply.error || 'Mini 信箱写入失败');
+  return reply;
+}
+
+export function watchBinding(rec) {
+  const metadata = rec.briefPath && readJSON(rec.briefPath.replace(/\.md$/, '.json'));
+  return {
+    seat: process.env.FLEET_SEAT || undefined, cwd: rec.cwd || process.cwd(),
+    parent: rec.parentRunId || process.env.FLEET_PARENT_RUN_ID || undefined,
+    repo: metadata?.object?.repo,
+  };
+}
+
 export function ask(id, { kind = 'help', text, wait = false, timeout } = {}) {
   validId(id);
   if (!['help', 'shared', 'decision'].includes(kind) || !text?.trim()) throw new Error('ask 需要 --kind help|shared|decision 和问题。');
   const rec = { type: 'ask', id: randomUUID(), runId: id, kind, text, at: new Date().toISOString() };
   // Install the reply wait before publishing the question so a fast say cannot race it.
-  if (wait) writeYield(id, { type: 'park', until: 'reply', timeout: timeout || '30m', say: `答复后继续：${text}` });
+  const park = wait && writeYield(id, { type: 'park', until: 'reply', timeout: timeout || '30m', say: `答复后继续：${text}` });
+  const state = readJSON(pathFor(id, 'json')) || readJSON(pathFor(id, 'queue.json')) || {};
+  const binding = watchBinding(state);
+  try {
+    watchRequest('ask', { ...rec, text: redactEvidence(text), binding });
+  } catch (error) {
+    if (park) resolveYield(id, park, { status: 'ask-failed' });
+    throw error;
+  }
   mkdirSync(runsDir(), { recursive: true });
   appendFileSync(pathFor(id, 'asks'), JSON.stringify(rec) + '\n', { mode: 0o600 });
-  const parent = readJSON(pathFor(id, 'json'))?.parentRunId || process.env.FLEET_PARENT_RUN_ID;
+  const parent = binding.parent;
   if (parent) appendInbox(validId(parent), rec);
   appendFileSync(pathFor(id, 'log'), fleetEvent('ask') + '\n');
   return rec;

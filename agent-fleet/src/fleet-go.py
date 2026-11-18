@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import shlex
 import subprocess
 import sys
@@ -17,6 +18,8 @@ import order
 import worktree
 import clean
 import shlex
+
+seat_for = runpy.run_path(str(Path(__file__).with_name('watch-store.py')))['seat_for']
 
 BLOCKS = Path(__file__).resolve().parents[1] / 'skill/templates/blocks'
 LEGACY_RULE = "禁止单纯转发，允许分发子步骤：不能把整个任务原样甩给另一个 agent 后只回'已启动/等结果'就结束当轮；可以拆出边界清晰的子步骤交给更便宜的 agent 做，但你必须自己掌握全局、消化并验证子任务结果，最终给出真正的结论作为你的最终答案"
@@ -360,6 +363,10 @@ def command(meta):
     return args
 
 
+def watch_seat(meta):
+    return os.environ.get('FLEET_SEAT') or seat_for(os.getcwd()) or seat_for((meta.get('object') or {}).get('repo'))
+
+
 def launch(meta):
     """由 new/relaunch 前台替换为 fleet，保留完成通知和退出码。"""
     location = meta.get('on') or 'mini'
@@ -367,10 +374,13 @@ def launch(meta):
         if not meta.get('local_reason', '').strip():
             raise ValueError('--on local 必须同时提供 --local-reason 理由。')
         meta['execution'] = 'local'
+        meta['watch_seat'] = watch_seat(meta)
         Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
-        os.execvp('fleet', command(meta))
+        os.execvpe('fleet', command(meta), {**os.environ, 'FLEET_SEAT': meta['watch_seat'] or ''})
     reason = 'Mini 不可达' if not mini.available() else mini.preflight(meta, meta.get('paths', []))
     meta['execution'] = 'failed' if reason else 'mini'
+    if not reason:
+        meta['watch_seat'] = watch_seat(meta)
     Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     if reason:
         raise ValueError(reason + '；请在 Mini 补齐（建 worktree、同步目录）后重派。')

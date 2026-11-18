@@ -308,6 +308,9 @@ def launch(meta, argv):
     match = re.search(r'^\s*仓库\s*[:：]\s*(/[^\s`]+)', Path(meta['brief']).read_text(), re.M)
     repo = remote_path(match.group(1)) if match else ''
     payload = {'files': files, 'args': args, 'cwd': remote_path(os.getcwd()), 'repo': repo, 'report': remote_path(meta['report']), 'home': REMOTE_HOME}
+    payload['seat'] = meta.get('watch_seat') or ''
+    payload['parent'] = (os.environ.get('FLEET_SLOT_RUN_ID') or os.environ.get('FLEET_DETACHED_RUN_ID')
+                         or os.environ.get('FLEET_PARENT_RUN_ID') or '')
     script = PATH_FIX + '''import base64,json,os,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1]));
 ''' + CANONICAL_SCRIPT + '''
@@ -320,7 +323,7 @@ binary=pathlib.Path(p['args'][0]); p['args'][0]=str(binary/'fleet' if binary.is_
 for name,text in p['files'].items():
  f=pathlib.Path(name); f.parent.mkdir(parents=True,exist_ok=True); f.write_text(text)
 pathlib.Path(p['report']).parent.mkdir(parents=True,exist_ok=True)
-r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini'},capture_output=True,text=True); print(r.stdout,end=''); print(r.stderr,end='',file=sys.stderr); sys.exit(r.returncode)
+r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini','FLEET_SEAT':p['seat'],'FLEET_PARENT_RUN_ID':p['parent']},capture_output=True,text=True); print(r.stdout,end=''); print(r.stderr,end='',file=sys.stderr); sys.exit(r.returncode)
 '''
     p = call(script, payload)
     if p.returncode: raise ValueError('Mini 启动失败；请检查 Mini 端任务状态，避免重复启动。\n' + ((p.stderr or '') + (p.stdout or ''))[-600:])

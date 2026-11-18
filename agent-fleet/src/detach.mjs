@@ -1,5 +1,5 @@
 import { isCodexModel } from './model-family.mjs';
-import { takeAsk } from './yield.mjs';
+import { takeAsk, watchBinding, watchRequest } from './yield.mjs';
 import { spawn } from 'node:child_process';
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -91,14 +91,17 @@ export async function launchDetached(cli, args, { cwd, model, briefPath, name, r
   const launcherParent = process.ppid;
   const claudeTool = Boolean(process.env.CLAUDECODE || process.env.CLAUDE_CODE_ENTRYPOINT);
   mkdirSync(runsDir(), { recursive: true });
-  const runId = `${new Date().toISOString().replace(/[:.]/g, '-')}-detach-${randomUUID().slice(0, 8)}`;
+  const timerRun = process.env.FLEET_WATCH_TIMER_RUN;
+  if (timerRun && !/^timer-[a-f0-9]{64}$/.test(timerRun)) throw new Error('无效的定时 runId');
+  const runId = timerRun || `${new Date().toISOString().replace(/[:.]/g, '-')}-detach-${randomUUID().slice(0, 8)}`;
   const base = join(runsDir(), runId);
   const identity = taskIdentity({ briefPath, review, auth, actions });
-  const rec = { parentRunId: process.env.FLEET_SLOT_RUN_ID || process.env.FLEET_DETACHED_RUN_ID || null, ...identity, detach: true, runId, status: 'running', pid: null, childPid: null,
+  const rec = { parentRunId: process.env.FLEET_SLOT_RUN_ID || process.env.FLEET_DETACHED_RUN_ID || process.env.FLEET_PARENT_RUN_ID || null, ...identity, detach: true, runId, status: 'running', pid: null, childPid: null,
     startedAt: new Date().toISOString(), heartbeatAt: new Date().toISOString(), finishedAt: null,
     exitCode: null, verdict: null, briefPath: briefPath ?? null, cwd, model, name: name ?? null, reportPath: reportPath ?? null, fallbackWarning: process.env.FLEET_FALLBACK_WARNING || null,
     ...(effort ? { tier: effort, [effort]: true } : {}),
     resultPath: `${base}.result.md`, logPath: `${base}.log` };
+  watchRequest('bind', { run: runId, ...watchBinding(rec) });
   // 任务参数只经 IPC 传递，避免把 prompt 或认证参数留在进程命令行/状态文件。
   const fd = openSync(rec.logPath, 'a');
   let child;
@@ -190,6 +193,14 @@ export async function supervise(cli) {
     else console.error(`[agent-fleet] 忽略外部信号 ${signal}`);
   });
   const payload = await new Promise(resolve => process.once('message', resolve));
+  if (process.env.FLEET_WATCH_TIMER_RUN) {
+    const claimed = watchRequest('claim', { run: payload.rec.runId });
+    delete process.env.FLEET_WATCH_TIMER_RUN;
+    if (!claimed) {
+      process.send?.({ ready: true });
+      return;
+    }
+  }
   rec = { ...payload.rec, pid: process.pid, command: processCommand(process.pid) };
   process.env.FLEET_SLOT_RUN_ID = rec.runId;
   const beat = () => { rec.heartbeatAt = new Date().toISOString(); writeState(rec); };
