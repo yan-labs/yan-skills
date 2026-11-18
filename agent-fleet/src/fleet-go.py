@@ -76,7 +76,7 @@ def worktree_call(data, location):
     if location != 'mini':
         return worktree.execute(data)
     script = Path(worktree.__file__).read_text() + "\nimport base64,sys\np=json.loads(base64.b64decode(sys.argv[1])); print(json.dumps(execute(p)))"
-    result = mini.call(script, data, timeout=600)
+    result = mini.call(script, data, timeout=30 if data['action'] == 'aggregate-roots' else 600)
     if result.returncode:
         raise ValueError('Mini worktree 操作失败：' + result.stderr)
     return json.loads(result.stdout)
@@ -210,6 +210,19 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
         entry_match = re.search(r'^##?\s*入口\s*[:：]?\s*\n(.*?)(?=^##?\s|\Z)', text, re.M | re.S)
         entry = entry_match.group(1) if entry_match else ''
         entry_writes = entry_write_paths(entry)
+        allowed = re.search(r'^## 允许范围\s*\n允许写：\n(.*?)(?=^只读：|^## |\Z)', text, re.M | re.S)
+        writes = [*entry_writes, *mini.split_paths(re.findall(r'^- (/[^\n]+)$', allowed.group(1), re.M) if allowed else [])]
+        if writes:
+            paths = list(dict.fromkeys(mini.expand_path(path) for path in writes))
+            try:
+                if on == 'mini':
+                    paths = [mini.remote_path(path) for path in paths]
+                roots = worktree_call({'action': 'aggregate-roots', 'paths': paths}, on)['roots']
+            except (OSError, ValueError, subprocess.SubprocessError, KeyError):
+                print('警告：未能核验可写路径是否为多仓聚合根。', file=sys.stderr)
+            else:
+                for root in roots:
+                    errors.append(f'可写路径覆盖多仓聚合根：{root}。请改为具体仓库 worktree 或子目录。')
         if not action_match:
             print('警告：缺少动作行；请补充动作。', file=sys.stderr)
             body = re.search(r'^## 目标\s*\n(.*?)(?=^## 允许范围|\Z)', text, re.M | re.S)
@@ -291,10 +304,6 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
             number = text.count('\n', 0, entry_match.start(1) + hit.start()) + 1
             print(f'提示：入口不清时先查 brief 引用的报告与仓库。第 {number} 行命中原文：{hit.group()}。', file=sys.stderr)
         if simple:
-            writes = list(entry_writes)
-            allowed = re.search(r'^## 允许范围\s*\n允许写：\n(.*?)(?=^只读：|^## |\Z)', text, re.M | re.S)
-            if allowed:
-                writes.extend(re.findall(r'^- (/[^\n]+)$', allowed.group(1), re.M))
             if len(repository_roots(writes, on)) >= 2:
                 errors.append('Terra 可写路径跨两个或以上仓库，请改用 Sol（加 --sol）。')
             goal = re.search(r'^## 目标\s*\n(.*?)(?=^## |\Z)', text, re.M | re.S)

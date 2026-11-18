@@ -18,7 +18,26 @@ def submodules_for(target, writes):
     return [sub for sub in paths if any(w == sub or w.startswith(sub + '/') for w in writes)]
 
 
+def aggregate_roots(paths):
+    roots = []
+    for value in paths:
+        path = Path(value).resolve()
+        if not path.is_dir():
+            continue
+        children = {child.resolve() for child in path.iterdir() if (child / '.git').exists()}
+        if (path / '.git').exists():
+            for entry in git(path, 'ls-files', '--stage', '-z').split('\0'):
+                mode, _, filename = entry.partition('\t')
+                if mode.startswith('160000 '):
+                    children.add((path / filename).resolve())
+        if len(children) >= 2:
+            roots.append(value)
+    return roots
+
+
 def execute(p):
+    if p['action'] == 'aggregate-roots':
+        return {'roots': aggregate_roots(p['paths'])}
     repo = Path(p['repo']).resolve()
     if p['action'] == 'exists':
         return {'exists': os.path.lexists(p['path'])}

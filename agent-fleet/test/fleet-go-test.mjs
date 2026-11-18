@@ -169,6 +169,37 @@ try {
     r = preview('--scene', 'editor');
     assert.equal(r.status, 0, r.stderr);
   });
+  test('多仓聚合根拦截入口和 --write，允许具体仓库和子目录', () => {
+    const workspace = join(temp, 'aggregate-workspace');
+    const repo = join(workspace, 'aggregate-repo');
+    const service = join(workspace, 'service');
+    const docs = join(repo, 'docs');
+    mkdirSync(docs, { recursive: true });
+    mkdirSync(service);
+    const git = (cwd, ...args) => {
+      const r = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout.trim();
+    };
+    git(repo, 'init');
+    git(service, 'init');
+    git(repo, '-c', 'user.email=test@example.invalid', '-c', 'user.name=test', 'commit', '--allow-empty', '-m', 'base');
+    const commit = git(repo, 'rev-parse', 'HEAD');
+    for (const name of ['sub-a', 'sub-b']) {
+      git(repo, 'update-index', '--add', '--cacheinfo', `160000,${commit},${name}`);
+    }
+    const body = join(temp, 'scope-body.md');
+    const preview = (path, ...extra) => {
+      writeFileSync(body, `## 入口\n仓库: ${repo}\n可写路径: ${path}\n`);
+      return run(['new', 'scope-preview', '--to', 'gpt', '--sol', '--action', '改代码', '--dry-run', '--body', body, ...extra]);
+    };
+    for (const result of [preview(repo), preview(docs, '--write', workspace)]) {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /覆盖多仓聚合根.*具体仓库 worktree 或子目录/);
+    }
+    assert.equal(preview(docs, '--read', workspace).status, 0);
+    assert.equal(preview(service).status, 0);
+  });
   test('只读授权和动作身份写入元信息，重派可沿用', () => {
     writeFileSync(join(temp,'read-entry.md'), '## 入口\n仓库: /tmp\n');
     const r=run(['new','prodwatch-read','--to','gpt','--auth','review','--action','只读','--goal','readonly','--body',join(temp,'read-entry.md'),'--no-launch']);
