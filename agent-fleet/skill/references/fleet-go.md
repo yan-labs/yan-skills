@@ -70,6 +70,16 @@
 - `--deliverables "产物：路径（上限 N KB 或行）"` 可多次传，逐项写进验收段。
 - `--pitfalls a,b` 覆盖默认带的已知坑块；`--level L1-L4`、`--type`、`--for <被复核任务名>` 记入[账本](ledger.md)。
 
+`--write` 和入口的 `可写路径:` 支持逗号、中文逗号、顿号、分号、换行或空白分隔的绝对路径（含 `~/`、`$HOME/`）。含空格的单个路径用 shell 引号包住。
+
+## 项目场景
+
+`fleet-go scenes [--project <根>]` 列场景。 `new --scene <名>[,<名>]` 显式选择；省略时在 goal 与正文（除入口块）中查找不区分大小写的完整关键词短语。唯一命中会提示，多项命中须指定场景或 `--scene none`。项目从正文仓库或当前目录向上找最近的 `.rankup`，也可用 `new --project <根>` 指定。
+
+每个 `.rankup/dispatch-scenes/<名>.md` 以两行 `---` 包住 JSON 文件头，键为 `description`、`keywords`（数组）、`auth`（逗号分隔）、`action`、`tier`、`writes`（数组）、`acceptance`（数组）。正文放入口、步骤、坑与小节指针。场景紧随思维准则，取代通用派单手册链接；预览直接显示场景。显式授权、动作与档位优先，多场景默认值冲突需显式指定。路径模板供填入入口和 `--write`，实际权限仍以 brief 授权为准。重派沿用已拼好的场景。
+
+nextspace 的动作含「改代码」时，正文必须有 `## 验收环境`，逐行填写账号、免费空间、付费空间、开关、夹具、性能闸门，性能阈值引用计划原文。纯配置等不适用项逐行写明理由。脱离项目根的 worktree 用 `--project` 指定项目。
+
 ## 预览与检查
 
 - `fleet-go new … --dry-run`：只打印 brief，将执行的命令写到 stderr。
@@ -82,7 +92,7 @@
 
 - `fleet-go relaunch <名> [--to <产品>] [--tier …] [--sol|--simple|--luna|--astra] [--low|--high|--xhigh|--max] [--fast]`：沿用同名 brief、name 和 report 重派（也沿用原档位：从 Luna 换 Terra 要显式加 `--simple`，只写 `--to gpt` 仍是 Luna）；仍有未结束的同名任务时拒绝。跨日期重名时把名字换成报错给出的 brief 路径。`--after <任务>` 排在指定任务结束后运行。
 - 同名 brief 已存在时用 `relaunch` 或 `amend --say`，不要重新 `new`。
-- 改需求：改 `--body` 文件再 `relaunch`，新正文自动换进 brief，修订块保留。注意 `relaunch` 总是用 brief.json 记录的 `--body` 文件替换正文，那可能是别的会话 scratchpad 里的旧文件，手改的入口会被盖回；入口改了就新开一单。
+- 改需求：改 `--body` 文件再 `relaunch`，新正文自动换进 brief，修订块保留。注意 `relaunch` 总是用 brief.json 记录的 `--body` 文件替换正文，那可能是别的会话 scratchpad 里的旧文件，手改的入口会被盖回；若已手改正文或 worktree 路径导致快照对不上，想用新正文就换名重派；要保留当前 brief，就先确认已拼装内容，再用 `fleet-go relaunch <名> --keep-brief` 重派。
 - `fleet-go amend <名> "补充要求"`：给 brief 顶部追加「修订 N」；修订正文的路径不会成为 Mini 必需路径，重派前置校验失败时恢复原 brief 和元数据。
   - `--say`：尽量送进运行中的任务（各执行者的生效方式见 SKILL.md「中途插话」）；任务已结束（常见于部分完成交回）时直接按修订后的 brief 重派，整条命令放 `run_in_background`。
   - `--restart`：最后兜底。只停所选 run，核验无残留进程后再 `relaunch`（最多等 60 秒）；确认不了已停就保留修订并报错。

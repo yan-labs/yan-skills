@@ -30,7 +30,7 @@ allowed-tools: Bash(fleet-go order show*) Bash(cat ~/.agents/dispatch-order.md*)
 ## 派单流程
 
 1. **选执行者**：按下方[路由原则](#路由原则长期)。
-2. **写 brief**：先按上面的思维准则自查用户的问题定义，再读项目派单手册（`.rankup/infra/13-dispatch-kit.md`，没有就 `.rankup/dispatch.md`）；正文只写任务独有的背景、要做的事、入口和验收，其余样板由 `fleet-go new` 自动补。写法见[派单纪律 · Brief](references/dispatch-discipline.md#brief)。
+2. **写 brief**：先按上面的思维准则自查用户的问题定义，再用 `fleet-go scenes --project <根>` 查场景，按需用 `--scene <名>` 带入；无适用场景时读项目派单手册；正文只写任务独有的背景、要做的事、入口和验收，其余样板由 `fleet-go new` 自动补。写法见[派单纪律 · Brief](references/dispatch-discipline.md#brief)。
 3. **预览**：`fleet-go new … --dry-run` 看拼好的 brief；入口、动作与授权不匹配会在这里被拦下。
 4. **启动**：一条 Bash 调用只放一条 `fleet-go new …`、`fleet-go relaunch <名>` 或 `fleet <子命令> …`，工具参数 `run_in_background: true`。命令里不加 `&`、`nohup`、`setsid`、`disown`（PreToolUse hook `check-fleet-launch.py` 会拦），否则收不到完成通知。工具应返回「Command running in background with ID …」，任务状态是 running 而不是几秒内 completed。多个独立任务在同一条消息里并行发多条 Bash。
 5. **挂定时**：确认本会话已挂半小时巡检和交班检查，见[巡检与换班](#巡检与换班)。

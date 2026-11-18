@@ -131,6 +131,12 @@ def expand_braces(token):
     return expanded
 
 
+def split_paths(values):
+    return [part.strip() for value in values
+            for part in re.split(r'[,，、;；\s]+(?=(?:/|~/|\$HOME/))', value)
+            if part.strip()]
+
+
 def referenced_paths(text):
     paths = []
     # Only filesystem roots, never relative paths or routes such as /api/foo.
@@ -149,7 +155,8 @@ def referenced_paths(text):
 def sync_reports(meta, paths):
     """把本机 ~/.agent-reports 下的输入同步到 Mini：缺的补齐；已有文件本机较新且内容不同就覆盖。"""
     root = Path(LOCAL_HOME) / '.agent-reports'
-    writes = {expand_path(p.strip()) for value in [*meta.get('writes', []), *(meta.get('object') or {}).get('writes', [])] for part in re.split(r',(?=\s*(?:/|~/|\$HOME/))', value) for p in expand_braces(part)}
+    declared = split_paths([*meta.get('writes', []), *(meta.get('object') or {}).get('writes', [])])
+    writes = {expand_path(p.strip()) for part in declared for p in expand_braces(part)}
     targets = []
     for value in dict.fromkeys(paths):
         path = Path(expand_path(value))
@@ -240,9 +247,9 @@ print(json.dumps({'missing':missing,'ready':ready,'tools':tools,'timed_out':time
     def is_input(path):
         path = os.path.normpath(expand_path(path))
         return path not in (report, checkpoint, temp) and not (temp and path.startswith(temp + os.sep))
-    declared = [part.strip() for value in [*meta.get('writes', []), *(meta.get('object') or {}).get('writes', [])] for part in re.split(r',(?=\s*(?:/|~/|\$HOME/))', value)]
-    inputs = list(dict.fromkeys(p for value in [*paths, *declared] for part in re.split(r',(?=\s*(?:/|~/|\$HOME/))', value) for p in expand_braces(part) if is_input(p.strip())))
-    inputs = [p.strip() for p in inputs]
+    declared = [*meta.get('writes', []), *(meta.get('object') or {}).get('writes', [])]
+    inputs = list(dict.fromkeys(p.strip() for part in split_paths([*paths, *declared])
+                                for p in expand_braces(part) if is_input(p)))
     try:
         text = Path(meta['brief']).read_text() if meta.get('brief') and Path(meta['brief']).is_file() else ''
     except OSError:
@@ -267,7 +274,9 @@ print(json.dumps({'missing':missing,'ready':ready,'tools':tools,'timed_out':time
         if value.get('timed_out'): return 'Mini 环境检查超时（负载高）'
         reasons = []
         if value.get('tools'): reasons.append(TOOLS_MISSING + '、'.join(value['tools']) + '（已按登录 shell 补 /opt/homebrew/bin 仍找不到）')
-        if value['missing']: reasons.append('Mini 缺少路径：' + '、'.join(value['missing']))
+        if value['missing']: reasons.append('Mini 缺少路径：' + value['missing'][0] + '\n'
+                                                  + '\n'.join('- ' + p for p in value['missing'][1:])
+                                                  + '\n请检查路径是否存在、是否分隔符写错。')
         if not value['ready']: reasons.append('Mini 的 ' + meta['to'] + ' 通道不可用')
         return '；'.join(reasons) if reasons else None
     except (OSError, subprocess.TimeoutExpired, ValueError, KeyError):

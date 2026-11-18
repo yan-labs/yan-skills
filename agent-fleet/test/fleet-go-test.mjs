@@ -112,6 +112,63 @@ try {
     const updated=readFileSync(file,'utf8'); assert.ok(updated.includes(fallback)); assert.ok(!updated.includes(primary));
     rmSync(fallback); r=run(['relaunch','lessons']); assert.equal(r.status,7,r.stderr); assert.doesNotMatch(r.stdout,/项目派单经验：/); assert.doesNotMatch(readFileSync(file,'utf8'),/项目派单经验：/);
   });
+  test('场景显式选择、自动唯一/歧义、默认值、验收环境和跳过', () => {
+    const project = join(temp, 'scene-project');
+    const repo = join(project, 'service');
+    const folder = join(project, '.rankup/dispatch-scenes');
+    mkdirSync(folder, { recursive: true });
+    mkdirSync(repo);
+    writeFileSync(join(project, '.rankup/dispatch.md'), '通用派单经验');
+    const scene = (name, keywords, auth, action, tier) => writeFileSync(join(folder, name + '.md'),
+      `---\n${JSON.stringify({ description: name + ' 说明', keywords, auth, action, tier,
+        writes: ['<worktree>'], acceptance: ['检查证据'] })}\n---\n${name} 专用入口\n`);
+    scene('api', ['api TEST 发布'], 'local-commit,deploy-prod', '部署', 'sol');
+    scene('editor', ['编辑器对齐'], 'local-commit', '改代码', 'terra');
+    const file = join(temp, 'scene-body.md');
+    const writeBody = extra => writeFileSync(file, `## 入口\n仓库: ${repo}\n可写路径: ${repo}\n\n${extra}`);
+    writeBody('## 验收目标\n编辑器对齐');
+    const preview = (...args) => run(['new', 'scenes-preview', '--to', 'gpt', '--dry-run', '--body', file, ...args]);
+    const listing = run(['scenes', '--project', project]);
+    assert.equal(listing.status, 0, listing.stderr);
+    assert.match(listing.stdout, /api\s+api 说明/);
+    let r = preview('--scene', 'api');
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /自我证伪[\s\S]*## 派单场景 · api[\s\S]*检查证据/);
+    assert.match(r.stdout, /动作: 部署/);
+    assert.match(r.stdout, /发布全流程/);
+    assert.match(r.stderr, /模型：sol/);
+    assert.doesNotMatch(r.stdout, /项目派单经验：|editor 专用入口/);
+    r = preview();
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stderr, /已自动带场景 editor/);
+    assert.match(r.stdout, /动作: 改代码/);
+    r = preview('--goal', 'API TEST 发布');
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /api, editor.*--scene none/);
+    r = preview('--scene', 'api,editor', '--auth', 'local', '--action', '只读', '--simple');
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /api 专用入口[\s\S]*editor 专用入口/);
+    assert.match(r.stdout, /动作: 只读/);
+    assert.doesNotMatch(r.stdout, /发布全流程|允许在本地分支提交/);
+    assert.match(r.stderr, /模型：terra/);
+    r = preview('--scene', 'none');
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /项目派单经验：/);
+    assert.doesNotMatch(r.stdout, /派单场景 ·/);
+    writeFileSync(file, `## 入口\n仓库: ${repo}\n可写路径: ${repo}、${project}\n`);
+    r = preview('--scene', 'editor');
+    assert.equal(r.status, 0, r.stderr);
+    const object = JSON.parse(r.stdout.match(/^对象: (.+)$/m)[1]);
+    assert.deepEqual(object.writes, [repo, project]);
+    writeBody('');
+    writeFileSync(join(project, 'AGENTS.md'), '# nextspace / Buildin 项目规则\n');
+    r = preview('--scene', 'editor');
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /账号、免费空间、付费空间、开关、夹具、性能闸门/);
+    writeBody('## 验收环境\n- 账号：测试身份\n- 免费空间：fixture-a\n- 付费空间：fixture-b\n- 开关：0%\n- 夹具：fixture\n- 性能闸门：计划 §3\n');
+    r = preview('--scene', 'editor');
+    assert.equal(r.status, 0, r.stderr);
+  });
   test('只读授权和动作身份写入元信息，重派可沿用', () => {
     writeFileSync(join(temp,'read-entry.md'), '## 入口\n仓库: /tmp\n');
     const r=run(['new','prodwatch-read','--to','gpt','--auth','review','--action','只读','--goal','readonly','--body',join(temp,'read-entry.md'),'--no-launch']);
@@ -734,11 +791,19 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
     // 换班重派：缺思维准则的旧 brief 自动补上，已有的不重复。
     writeFileSync(bp,readFileSync(bp,'utf8').replace(/## 思维准则[\s\S]*?\n\n(?=对象:)/,'')); assert.doesNotMatch(readFileSync(bp,'utf8'),/思维准则/);
     r=run(['relaunch','refresh']); assert.equal(r.status,7,r.stderr); assert.equal((readFileSync(bp,'utf8').match(/## 思维准则（每单首要/g)||[]).length,1);
+    writeFileSync(bp, readFileSync(bp,'utf8').replace('新正文 B', '已手改正文'));
+    writeFileSync(bodyFile,'下一版正文');
+    const bodyFuture = new Date(Date.now() + 1000);
+    utimesSync(bodyFile, bodyFuture, bodyFuture);
+    r=run(['relaunch','refresh']); assert.equal(r.status,1); assert.match(r.stderr,/无法自动换进/);
+    assert.match(r.stderr, /--keep-brief/);
+    r=run(['relaunch','refresh','--keep-brief']); assert.equal(r.status,7,r.stderr);
+    assert.match(readFileSync(bp,'utf8'), /已手改正文/);
     // 旧任务：没有正文快照，同目录 <name>.body.md 比 brief 新时拒绝并给出下一步命令。
     const meta=JSON.parse(readFileSync(bp.replace(/\.md$/,'.json'),'utf8')); delete meta.body; delete meta.body_text;
     writeFileSync(bp.replace(/\.md$/,'.json'),JSON.stringify(meta)); const legacyBody=bp.replace(/\.brief\.md$/,'.body.md');
     writeFileSync(legacyBody,'改过的正文'); const later=new Date(Date.now()+5000); utimesSync(legacyBody,later,later);
-    r=run(['relaunch','refresh']); assert.equal(r.status,1); assert.match(r.stderr,/比 brief 新/); assert.match(r.stderr,/touch /);
+    r=run(['relaunch','refresh']); assert.equal(r.status,1); assert.match(r.stderr,/比 brief 新/); assert.match(r.stderr,/--keep-brief/);
     utimesSync(bp,new Date(Date.now()+10000),new Date(Date.now()+10000)); assert.equal(run(['relaunch','refresh']).status,7);
     rmSync(legacyBody);
   });

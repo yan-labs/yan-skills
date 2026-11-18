@@ -23,6 +23,8 @@ LEGACY_RULE = "禁止单纯转发，允许分发子步骤：不能把整个任�
 PRODUCTS = {'gpt': '(a) Codex 编码', 'claude': 'Claude 月度额度', 'openai': 'OpenAI 月度API额度',
             'grok': 'Grok Build CLI', 'gemini': 'Gemini 文本任务', 'jev': 'JEV 判断'}
 AUTH = ['local', 'local-commit', 'readonly-web', 'deploy-prod', 'paid', 'review']
+WRITE_DECLARATION = re.compile(
+    r'^[ \t]*可写路径[ \t]*[:：][ \t]*([^\n]*(?:\n[ \t]*(?:/|~/|\$HOME/)[^\n]*)*)', re.M)
 PITFALLS = ['node-proxy', 'zsh', 'pnpm-entry', 'local-preview', 'playwright-clean', 'shared-tree', 'secrets', 'fleet-bg', 'ssr-check']
 
 EARLY_RULE = "你是这单的负责人，自己掌握全局；可以把边界清晰的子步骤交给更便宜的 agent，并消化、验证它们的结果，最终给出真正的结论作为你的最终答案。"
@@ -147,7 +149,13 @@ def rewrite_worktree(text, meta, wt, location):
     return text
 
 
-def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lint=False):
+def entry_write_paths(entry):
+    values = WRITE_DECLARATION.findall(entry)
+    return [mini.expand_path(path) for value in mini.split_paths(values)
+            if (path := re.split(r'[（(]', value, maxsplit=1)[0].strip()).startswith(('/', '~/', '$HOME/'))]
+
+
+def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lint=False, project=None):
     errors = []
     first = text.splitlines()[0] if text else ''
     if not no_lint and (not first.startswith('归类：') or '理由：' not in first):
@@ -180,6 +188,7 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
         action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*?)[ \t]*$', text, re.M)
         entry_match = re.search(r'^##?\s*入口\s*[:：]?\s*\n(.*?)(?=^##?\s|\Z)', text, re.M | re.S)
         entry = entry_match.group(1) if entry_match else ''
+        entry_writes = entry_write_paths(entry)
         if not action_match:
             print('警告：缺少动作行；请补充动作。', file=sys.stderr)
             body = re.search(r'^## 目标\s*\n(.*?)(?=^## 允许范围|\Z)', text, re.M | re.S)
@@ -242,14 +251,26 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
                     except (OSError, subprocess.SubprocessError):
                         print('警告：无法校验执行机器上的入口仓库。', file=sys.stderr)
                 elif not Path(repo_path).is_dir(): errors.append('执行机器上的入口仓库不存在。')
-            if actions - {'只读'} and not re.search(r'^[ \t]*可写路径[ \t]*[:：][ \t]*/[^\s（(]*', entry, re.M):
+            if actions - {'只读'} and not entry_writes:
                 errors.append('入口缺少可写路径。')
+            if '改代码' in actions:
+                root = project_root(project or entry_repo(text) or Path.cwd())
+                guide = root / 'AGENTS.md' if root else None
+                if guide and guide.is_file() and '# nextspace / Buildin 项目规则' in guide.read_text():
+                    environment = re.search(r'^## 验收环境[ \t]*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
+                    fields = ('账号', '免费空间', '付费空间', '开关', '夹具', '性能闸门')
+                    details = environment.group(1) if environment else ''
+                    missing = [field for field in fields
+                               if not re.search(r'^\s*(?:- )?' + field + r'[:：][ \t]*\S+', details, re.M)]
+                    if missing:
+                        errors.append('nextspace 改代码单须在派单前填好「## 验收环境」；缺：'
+                                      + '、'.join(missing) + '。逐项写明已就绪的入口或值；性能闸门引用计划原文，不适用的写原因。')
         if to == 'gpt' and not sol and re.search(r'未知|自己找', entry):
             hit = re.search(r'未知|自己找', entry)
             number = text.count('\n', 0, entry_match.start(1) + hit.start()) + 1
             print(f'提示：入口不清时先查 brief 引用的报告与仓库。第 {number} 行命中原文：{hit.group()}。', file=sys.stderr)
         if simple:
-            writes = re.findall(r'^[ \t]*可写路径[ \t]*[:：][ \t]*(/[^\s，,；;（(]+)', entry, re.M)
+            writes = list(entry_writes)
             allowed = re.search(r'^## 允许范围\s*\n允许写：\n(.*?)(?=^只读：|^## |\Z)', text, re.M | re.S)
             if allowed:
                 writes.extend(re.findall(r'^- (/[^\n]+)$', allowed.group(1), re.M))
@@ -264,7 +285,7 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
                 object_match = re.search(r'^对象: (.+)$', text, re.M)
                 if object_match:
                     # Generated scope starts with the report and task scratch directory.
-                    scoped = [*re.findall(r'^[ \t]*可写路径[ \t]*[:：][ \t]*(/[^\s，,；;（(]+)', entry, re.M),
+                    scoped = [*entry_writes,
                               *json.loads(object_match.group(1)).get('writes', []),
                               *(re.findall(r'^- (/[^\n]+)$', allowed.group(1), re.M)[2:] if allowed else [])]
                 else:
@@ -278,8 +299,8 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
     return errors
 
 
-def checked(text, to, simple=False, on='local', extra=False, sol=False, no_lint=False):
-    errors = lint(text, to, simple, on, extra, sol, no_lint)
+def checked(text, to, simple=False, on='local', extra=False, sol=False, no_lint=False, project=None):
+    errors = lint(text, to, simple, on, extra, sol, no_lint, project)
     if errors:
         raise ValueError('\n'.join(errors))
 
@@ -383,7 +404,10 @@ def locate(name):
 
 def entry_paths(text):
     match = re.search(r'^## 入口\s*$([\s\S]*?)(?=^## |\Z)', text, re.M)
-    return mini.referenced_paths(match.group(1)) if match else []
+    if not match:
+        return []
+    entry = match.group(1)
+    return [*mini.referenced_paths(WRITE_DECLARATION.sub('', entry)), *entry_write_paths(entry)]
 
 
 def refresh_body(path, meta, text):
@@ -401,11 +425,11 @@ def refresh_body(path, meta, text):
     if not old or text.count(old) != 1:
         raise ValueError(f'{body_path} 比 brief 新，但无法自动换进 {path}（旧任务没记录正文快照，或 brief 已被 worktree 改写）。\n'
                          f'要用新正文：fleet-go new <新名字> ... --body {shlex.quote(str(body_path))}\n'
-                         f'确认沿用旧 brief：touch {shlex.quote(str(path))} 后再 relaunch')
+                         f'确认沿用当前 brief：fleet-go relaunch {shlex.quote(str(path))} --keep-brief')
     text = text.replace(old, body, 1)
     repo = re.search(r'^仓库[ \t]*[:：][ \t]*([^\s，,；;（(]+)', body, re.M)
     if meta.get('object') or repo:
-        entry_writes = re.findall(r'^可写路径[ \t]*[:：][ \t]*(/[^\s，,；;（(]+)', body, re.M)
+        entry_writes = entry_write_paths(body)
         previous = meta.get('object') or {}
         meta['object'] = {'repo': repo.group(1).strip('`') if repo else '', 'writes': list(dict.fromkeys([*meta.get('writes', []), *entry_writes])),
                           'environment': previous.get('environment', ''), 'question': previous.get('question', '')}
@@ -425,27 +449,75 @@ def ensure_principles(text):
     return ''.join(lines[:2]) + '\n' + block('thinking-principles') + '\n' + ''.join(lines[2:])
 
 
-def dispatch_lessons(text):
+def project_root(path):
+    path = Path(path).expanduser().resolve()
+    return next((root for root in (path, *path.parents) if (root / '.rankup').is_dir()), None)
+
+
+def dispatch_scenes(root):
+    scenes = {}
+    if root:
+        for path in sorted((root / '.rankup/dispatch-scenes').glob('*.md')):
+            sections = re.split(r'^---[ \t]*$\n', path.read_text(), maxsplit=2, flags=re.M)
+            if len(sections) != 3 or sections[0]:
+                raise ValueError(f'{path} 缺少 JSON 场景文件头。')
+            scenes[path.stem] = (json.loads(sections[1]), sections[2].strip())
+    return scenes
+
+
+def select_scenes(args, body, project):
+    if args.scene == 'none':
+        return []
+    scenes = dispatch_scenes(project)
+    if args.scene is not None:
+        names = list(dict.fromkeys(name.strip() for name in args.scene.split(',')))
+        unknown = [name for name in names if name not in scenes]
+        if unknown:
+            raise ValueError('未知场景：' + ', '.join(unknown) + '。请用 fleet-go scenes 查看。')
+    else:
+        query = re.sub(r'^##?\s*入口[^\n]*\n.*?(?=^##?\s|\Z)', '', body, flags=re.M | re.S)
+        query = ((args.goal or '') + '\n' + query).casefold()
+        names = [name for name, (data, _) in scenes.items()
+                 if any(keyword.casefold() in query for keyword in data['keywords'] if keyword.strip())]
+        if len(names) > 1:
+            raise ValueError('匹配多个场景：' + ', '.join(names) + '。请指定 --scene <名> 或 --scene none。')
+        if names:
+            print('已自动带场景 ' + names[0], file=sys.stderr)
+    return [(name, *scenes[name]) for name in names]
+
+
+def scene_default(scenes, field):
+    values = {data[field] for _, data, _ in scenes if data.get(field)}
+    if len(values) > 1:
+        option = '档位（如 --simple、--sol、--tier）' if field == 'tier' else '--' + field
+        raise ValueError(f'场景默认值冲突，请显式指定 {option}。')
+    return next(iter(values), None)
+
+
+def entry_repo(text):
     entry_match = re.search(r'^##?\s*入口\s*[:：]?\s*\n(.*?)(?=^##?\s|\Z)', text, re.M | re.S)
     entry = entry_match.group(1) if entry_match else ''
     match = re.search(r'^仓库[ \t]*[:：][ \t]*([^\s，,；;（(]+)', entry, re.M)
-    if not match:
+    return match.group(1).strip('`') if match else None
+
+
+def dispatch_lessons(text):
+    repo = entry_repo(text)
+    if not repo or re.search(r'^## 派单场景 · ', text, re.M):
         return text
     text = re.sub(r'^项目派单经验：.*（派单前先读）\n?', '', text, flags=re.M)
-    repo = Path(match.group(1).strip('`')).expanduser().resolve()
-    for root in (repo, *repo.parents):
-        if (root / '.rankup').is_dir():
-            for name in ('infra/13-dispatch-kit.md', 'dispatch.md'):
-                lesson = root / '.rankup' / name
-                if lesson.is_file():
-                    line = f'项目派单经验：{lesson}（派单前先读）'
-                    print(line, flush=True)
-                    return text.replace('## 已知坑', '## 已知坑\n' + line, 1) if '## 已知坑' in text else text + '\n## 已知坑\n' + line + '\n'
-            break
+    root = project_root(repo)
+    if root:
+        for name in ('infra/13-dispatch-kit.md', 'dispatch.md'):
+            lesson = root / '.rankup' / name
+            if lesson.is_file():
+                line = f'项目派单经验：{lesson}（派单前先读）'
+                print(line, flush=True)
+                return text.replace('## 已知坑', '## 已知坑\n' + line, 1) if '## 已知坑' in text else text + '\n## 已知坑\n' + line + '\n'
     return text
 
 
-def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None, worktree_base=None, override_order=None, local_reason=None, astra=False):
+def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None, worktree_base=None, override_order=None, local_reason=None, astra=False, keep_brief=False):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
     if on == 'local' and not (local_reason or '').strip(): raise ValueError('--on local 必须同时提供 --local-reason 理由。')
     if local_reason and on != 'local': raise ValueError('--local-reason 仅用于 --on local。')
@@ -507,7 +579,10 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         raise ValueError('--fast 仅用于 --to gpt。')
     if (low or high or xhigh) and target not in ('gpt', 'gemini'):
         raise ValueError('--low、--high 和 --xhigh 仅用于 --to gpt|gemini。')
-    text = ensure_principles(dispatch_lessons(refresh_body(path, meta, path.read_text())))
+    text = path.read_text()
+    if not keep_brief:
+        text = refresh_body(path, meta, text)
+    text = ensure_principles(dispatch_lessons(text))
     if target == 'gpt' and selected in ('sol', 'astra') and OBSTACLE_NOTE not in text:
         text = text.replace(rule(), OBSTACLE_NOTE + '\n\n' + rule(), 1)
     path.write_text(text)
@@ -533,7 +608,7 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
             path.write_text(text)
     if 'paths' not in meta:
         meta['paths'] = entry_paths(text)
-    checked(text, target, bool(selected_simple), on or 'mini', True, target == 'gpt' and selected in ('sol', 'astra'), meta.get('no_lint', False))
+    checked(text, target, bool(selected_simple), on or 'mini', True, target == 'gpt' and selected in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project'))
     if target != meta['to']:
         meta.pop('tier', None)
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
@@ -740,7 +815,7 @@ def amend(args):
         revised = ''.join(lines[:2]) + f'\n## 【修订 {max(numbers, default=0) + 1}（{stamp}）】\n{args.message}\n\n' + ''.join(lines[2:])
         original = revised
     if args.auth is not None or args.task_action is not None:
-        checked(original, meta['to'], gpt_tier(meta) == 'terra' and meta['to'] == 'gpt', args.on or meta.get('on') or 'local', True, gpt_tier(meta) in ('sol', 'astra'), meta.get('no_lint', False))
+        checked(original, meta['to'], gpt_tier(meta) == 'terra' and meta['to'] == 'gpt', args.on or meta.get('on') or 'local', True, gpt_tier(meta) in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project'))
     else:
         checked(original, meta['to'], no_lint=meta.get('no_lint', False))
     path.write_text(original)
@@ -881,6 +956,32 @@ def new(args, prepare=False):
     """组装标准 brief；预览不写盘，正文文件与 stdin 使用明确输入规则。"""
     if args.on == 'local' and not (args.local_reason or '').strip(): raise ValueError('--on local 必须同时提供 --local-reason 理由。')
     if args.local_reason and args.on != 'local': raise ValueError('--local-reason 仅用于 --on local。')
+    if args.body and args.body != '-':
+        body_path = Path(args.body).expanduser()
+        if not body_path.is_file():
+            raise ValueError(f'--body 不是文件路径：{diagnostic_path(body_path)}；--body 需要文件路径，用 - 读取 stdin。')
+        body = body_path.read_text()
+        body_file = str(body_path.resolve())
+    else:
+        body_file = None
+        body = sys.stdin.read() if args.body == '-' or not sys.stdin.isatty() else ''
+    if not args.goal and not body.strip():
+        raise ValueError('请提供 --goal、--body 或 stdin 正文。')
+    args.write = [mini.expand_path(path) for path in mini.split_paths(args.write or [])]
+    project = project_root(args.project or entry_repo(body) or Path.cwd())
+    scenes = select_scenes(args, body, project)
+    if args.auth is None:
+        args.auth = scene_default(scenes, 'auth') or 'local'
+    if args.task_action is None and not re.search(r'^动作[ \t]*[:：]', body, re.M):
+        args.task_action = scene_default(scenes, 'action')
+    if args.to == 'gpt' and not (args.simple or args.sol or args.astra or args.luna or args.xhigh or args.max):
+        tier = scene_default(scenes, 'tier')
+        if tier in ('terra', 'sol', 'astra', 'luna'):
+            setattr(args, 'simple' if tier == 'terra' else tier, True)
+    if args.to == 'claude' and args.tier is None:
+        tier = scene_default(scenes, 'tier')
+        if tier in ('haiku', 'sonnet', 'opus'):
+            args.tier = tier
     if args.to == 'claude' and args.tier == 'fable':
         raise ValueError('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）')
     deviation = order.gate(args.to, args.override_order)
@@ -922,17 +1023,6 @@ def new(args, prepare=False):
         raise ValueError('未知已知坑块。')
     values = {'NAME': args.name, 'REPORT': report, 'DATE': day,
               'COMMITS': '本地提交仅限授权分支，报告列出本地提交哈希' if 'local-commit' in auth or 'deploy-prod' in auth else '本单不做 git 提交，报告不需要提交哈希'}
-    if args.body and args.body != '-':
-        body_path = Path(args.body).expanduser()
-        if not body_path.is_file():
-            raise ValueError(f'--body 不是文件路径：{diagnostic_path(body_path)}；--body 需要文件路径，用 - 读取 stdin。')
-        body = body_path.read_text()
-        body_file = str(body_path.resolve())
-    else:
-        body_file = None
-        body = sys.stdin.read() if args.body == '-' or not sys.stdin.isatty() else ''
-    if not args.goal and not body.strip():
-        raise ValueError('请提供 --goal、--body 或 stdin 正文。')
     classification = PRODUCTS[args.to] + (' 只读复核' if args.review else '')
     if args.to == 'claude':
         classification += ' ' + (args.tier or 'sonnet')
@@ -959,7 +1049,7 @@ def new(args, prepare=False):
     parts.extend(['## 验收\n' + (('产物清单：\n' + '\n'.join('- ' + item for item in args.deliverables) + '\n\n') if args.deliverables else '') + block('accept-boilerplate', values) + '\n\n' + block('report-template', values)
                   + ('\n\n' + block('review-ledger', values) if is_review else ''), rule()])
     repo_match = re.search(r'^仓库[ \t]*[:：][ \t]*([^\s，,；;（(]+)', body, re.M)
-    entry_writes = re.findall(r'^可写路径[ \t]*[:：][ \t]*(/[^\s，,；;（(]+)', body, re.M)
+    entry_writes = entry_write_paths(body)
     object_ = {'repo': repo_match.group(1).strip('`') if repo_match else '',
                'writes': list(dict.fromkeys([*(args.write or []), *entry_writes])),
                'environment': args.environment or '', 'question': args.question or args.goal or ''}
@@ -967,6 +1057,10 @@ def new(args, prepare=False):
     if deviation:
         parts.insert(3, deviation)
     if args.on == 'local': parts.insert(3, '本机执行偏差：' + args.local_reason.strip())
+    parts[1:1] = [f"## 派单场景 · {name}\n{data['description']}\n\n{content}"
+                  + ('\n\n可写路径模板（由派单人填写）：' + '、'.join(data['writes']) if data.get('writes') else '')
+                  + '\n\n验收要点：\n' + '\n'.join('- ' + item for item in data['acceptance'])
+                  for name, data, content in scenes]
     parts.insert(1, block('thinking-principles'))  # 思维准则：每单必带，紧随“归类/REPORT”首部，排在其余样板之前
     if args.to == 'gpt' and (args.sol or args.astra):
         parts.insert(-1, OBSTACLE_NOTE)
@@ -974,7 +1068,7 @@ def new(args, prepare=False):
     location = args.on or 'mini'
     if location == 'mini' and not (args.dry_run or args.no_launch or prepare) and not mini.available():
         raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
-    checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna or args.astra), location, True, args.sol or args.astra, args.no_lint)
+    checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna or args.astra), location, True, args.sol or args.astra, args.no_lint, project)
     action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', body, re.M)
     actions = args.task_action or (action_match.group(1) if action_match else '')
     meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
@@ -988,6 +1082,8 @@ def new(args, prepare=False):
             'writes': [mini.expand_path(p) for p in (args.write or [])],
             'body': body_file, 'body_text': body.strip(), 'order_override': args.override_order if deviation else None,
             'on': args.on or 'mini', 'local_reason': args.local_reason, 'pull': args.pull, 'object': object_ if object_['repo'] else None, 'after': args.after, 'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
+    if project:
+        meta['project'] = str(project)
     if args.worktree is not None:
         wt = prepare_worktree(args.name, object_['writes'], args.worktree, location, object_['repo'] or None)
         text = rewrite_worktree(text, meta, wt, location)
@@ -1103,7 +1199,9 @@ def build_parser():
     p.add_argument('--for', dest='for_name', help='本单复核的任务名，记入账本做 maker/checker 配对')
     p.add_argument('--deliverables', action='append', help='交付物及篇幅上限，可多次指定')
     p.add_argument('--action', dest='task_action', help='动作，多项用 / 分隔：只读、改代码、本地提交、推送、部署、付费')
-    p.add_argument('--auth', default='local')
+    p.add_argument('--auth')
+    p.add_argument('--scene', help='项目场景，逗号分隔；none 跳过自动匹配')
+    p.add_argument('--project', help='场景所属项目根目录')
     p.add_argument('--no-lint', action='store_true', help='仅豁免样板 lint，仍检查入口与授权')
     p.add_argument('--worktree', nargs='?', const='')
     for option in ['write', 'read']:
@@ -1111,6 +1209,8 @@ def build_parser():
     group = p.add_mutually_exclusive_group()
     group.add_argument('--dry-run', action='store_true')
     group.add_argument('--no-launch', action='store_true')
+    p = sub.add_parser('scenes', help='列出项目派单场景')
+    p.add_argument('--project', default='.')
     p = sub.add_parser('batch', help='JSON 数组，每项为 new 的参数数组；先打印重叠矩阵')
     p.add_argument('manifest')
     p.add_argument('--dry-run', action='store_true')
@@ -1134,6 +1234,7 @@ def build_parser():
     group.add_argument('--restart', action='store_true')
     p = sub.add_parser('relaunch')
     p.add_argument('name')
+    p.add_argument('--keep-brief', action='store_true', help='沿用已拼装 brief，跳过正文文件更新')
     p.add_argument('--worktree', nargs='?', const='')
     p.add_argument('--override-order', metavar='理由', help='调遣令把目标执行者设为停用时强行放行；理由写进 brief 偏差和账本')
     p.add_argument('--after', help='在指定任务结束后运行')
@@ -1171,6 +1272,7 @@ def build_parser():
         p.add_argument('name')
         if action == 'say': p.add_argument('message')
     p = sub.add_parser('lint')
+    p.add_argument('--project', help='brief 所属项目根目录')
     p.add_argument('brief')
     p.add_argument('--no-lint', action='store_true', help='仅豁免样板 lint，仍检查入口与授权')
     p.add_argument('--simple', action='store_true')
@@ -1197,12 +1299,15 @@ def main():
         raise ValueError('名称只能包含字母、数字、下划线与连字符。')
     if args.action == 'new':
         new(args)
+    elif args.action == 'scenes':
+        for name, (data, _) in dispatch_scenes(project_root(args.project)).items():
+            print(f"{name}\t{data['description']}")
     elif args.action == 'batch':
         batch(args, parser)
     elif args.action == 'amend':
         amend(args)
     elif args.action == 'relaunch':
-        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull, args.sol, args.after, args.worktree, args.override_order, args.local_reason, args.astra)
+        relaunch(args.name, args.to, args.tier, args.simple, args.fast, args.no_fast, args.luna, args.high, args.xhigh, args.max, args.low, args.on, args.pull, args.sol, args.after, args.worktree, args.override_order, args.local_reason, args.astra, args.keep_brief)
     elif args.action == 'order':
         order.main(args)
     elif args.action == 'clean':
@@ -1226,7 +1331,7 @@ def main():
     elif args.action == 'team':
         os.execvp('fleet', ['fleet', 'team'])
     elif args.action == 'lint':
-        checked(Path(args.brief).read_text(), args.to, args.to == 'gpt' and not args.sol, args.on, True, args.sol, args.no_lint)
+        checked(Path(args.brief).read_text(), args.to, args.to == 'gpt' and not args.sol, args.on, True, args.sol, args.no_lint, args.project)
         print('lint 通过。')
     elif args.action == 'score':
         score(args)

@@ -52,8 +52,12 @@ with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, 
     assert mini.preflight({'to':'gpt', 'name':'unit', 'report':'/tmp/report.md'}, ['/tmp/unit/', '/tmp/report.md', '/tmp/report.checkpoint.md', '/tmp/input']) is None
     assert remote.call_args.args[1]['paths'][-1:] == ['/tmp/input']
 with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, json.dumps({'missing':[], 'ready':True}), '')) as remote:
-    assert mini.preflight({'to':'gpt', 'object': {'writes':['/home/a/one,/home/a/two']}}, []) is None
-    assert remote.call_args.args[1]['paths'] == ['/home/b/one', '/home/b/two']
+    for separator in (',', '、', '，', '\n', '； ', ';', ' '):
+        paths = ['/home/a/one' + separator + '/home/a/two']
+        assert mini.preflight({'to':'gpt', 'object': {'writes': paths}}, []) is None
+        assert remote.call_args.args[1]['paths'] == ['/home/b/one', '/home/b/two']
+assert mini.split_paths(['/tmp/path with spaces，~/one\n$HOME/two']) == [
+    '/tmp/path with spaces', '~/one', '$HOME/two']
 with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, json.dumps({'missing':[], 'ready':True}), '')) as remote:
     assert mini.preflight({'to':'gpt', 'object': {'writes':['/home/a/2026-11-1{4,5}']}}, []) is None
     assert remote.call_args.args[1]['paths'] == ['/home/b/2026-11-14', '/home/b/2026-11-15']
