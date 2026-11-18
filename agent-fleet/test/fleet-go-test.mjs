@@ -763,7 +763,7 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
     assert.doesNotMatch(python,/os\.(?:fork|setsid|system)\(/);
     assert.match(python,/os\.execvp\('fleet'/);
   });
-  test('worktree brief 路径和 relaunch 复用', () => {
+  test('worktree relaunch 复用、收尾后提示重建并续做', () => {
     const remote=join(temp,'wt-remote'), repo=join(temp,'wt-repo');
     const git=(...args)=>{const r=spawnSync('git',args,{encoding:'utf8'}); assert.equal(r.status,0,r.stderr);};
     git('init','--bare',remote); git('clone',remote,repo);
@@ -777,6 +777,38 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
     assert.equal(meta.object.writes[0],meta.worktree.path);
     const again=run(['relaunch','wt-test','--worktree']); assert.equal(again.status,7,again.stderr);
     assert.equal(JSON.parse(readFileSync(bp.replace(/\.md$/,'.json'),'utf8')).worktree.path,meta.worktree.path);
+    const pruned = run(['worktree', 'prune', 'wt-test']);
+    assert.equal(pruned.status, 0, pruned.stderr);
+    assert.ok(!existsSync(meta.worktree.path));
+    const oldBrief = readFileSync(bp, 'utf8');
+    let follow = run(['amend', 'wt-test', '续做一项', '--say']);
+    assert.equal(follow.status, 1);
+    assert.match(follow.stderr, /worktree recreate/);
+    assert.equal(readFileSync(bp, 'utf8'), oldBrief);
+    let rebuilt = run(['worktree', 'recreate', 'wt-test']);
+    assert.equal(rebuilt.status, 0, rebuilt.stderr);
+    assert.ok(existsSync(meta.worktree.path));
+    assert.ok(readFileSync(bp, 'utf8').includes(meta.worktree.branch + '-2'));
+    follow = run(['amend', 'wt-test', '续做一项', '--say']);
+    assert.equal(follow.status, 7, follow.stderr);
+    assert.match(readFileSync(bp, 'utf8'), /续做一项/);
+    rebuilt = run(['worktree', 'recreate', 'wt-test']);
+    assert.equal(rebuilt.status, 1);
+    assert.match(rebuilt.stderr, /路径已存在/);
+
+    const manual = join(temp, 'wt-ops', 'manual-tree');
+    const manualBody = join(temp, 'manual-tree.md');
+    writeFileSync(manualBody, `## 入口\n仓库: ${repo}\n可写路径: ${manual}\n`);
+    const handMade = run(['new', 'manual-tree', '--to', 'gpt', '--body', manualBody, '--no-launch']);
+    assert.equal(handMade.status, 0, handMade.stderr);
+    follow = run(['amend', 'manual-tree', '继续修文档', '--say']);
+    assert.equal(follow.status, 1);
+    assert.match(follow.stderr, /worktree recreate.*--base/);
+    rebuilt = run(['worktree', 'recreate', 'manual-tree', '--base', meta.worktree.base]);
+    assert.equal(rebuilt.status, 0, rebuilt.stderr);
+    assert.ok(existsSync(manual));
+    follow = run(['amend', 'manual-tree', '继续修文档', '--say']);
+    assert.equal(follow.status, 7, follow.stderr);
   });
   test('relaunch 按改过的 --body 更新正文并保留修订；旧单不能自动换就大声拒绝', () => {
     const bodyFile=join(temp,'refresh.body.md'); writeFileSync(bodyFile,'旧正文 A\n');

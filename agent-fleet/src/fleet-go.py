@@ -86,7 +86,7 @@ def prepare_worktree(name, writes, base, location, repo=None):
     """worktree 以入口「仓库:」为准（没有才按 --write 推断），不看 cwd；子模块只初始化可写路径所在的那几个。"""
     if not writes and not repo:
         raise ValueError('--worktree 需要入口「仓库: <绝对路径>」或 --write。')
-    writes = [path.strip() for value in writes for part in re.split(r',(?=\s*(?:/|~/|\$HOME/))', value) for path in mini.expand_braces(part)]
+    writes = [path.strip() for part in mini.split_paths(writes) for path in mini.expand_braces(part)]
     convert = lambda p: mini.remote_path(mini.expand_path(p)) if location == 'mini' else mini.expand_path(p)
     payload = {'repo': convert(repo) if repo else None, 'writes': [convert(p) for p in writes]}
     script = """import base64,json,subprocess,sys,pathlib
@@ -115,6 +115,27 @@ print(json.dumps({'roots':roots,'writes':rel}))
     target = str(Path(root).parent / (Path(root).name + '-wt') / name)
     data = {'action': 'create', 'repo': root, 'path': target, 'branch': 'yan/' + name + '-' + datetime.date.today().strftime('%Y%m%d'), 'base': base or None, 'writes': found['writes']}
     return worktree_call(data, location)
+
+
+def recorded_worktree(meta):
+    if meta.get('worktree'):
+        return meta['worktree'], meta.get('worktree_location', 'local')
+    obj = meta.get('object') or {}
+    if not obj.get('repo') or not meta.get('name'):
+        return None, None
+    # 手工建立的任务目录只从本单明确登记的可写路径反推。
+    writes = [Path(path) for path in mini.split_paths(obj.get('writes', []))]
+    candidates = {parent for path in writes for parent in (path, *path.parents)
+                  if parent.name == meta['name']
+                  and (parent.parent.name.endswith('-wt') or parent.parent.name.startswith('wt-'))}
+    if len(candidates) != 1:
+        return None, None
+    target = candidates.pop()
+    location = meta.get('on') or 'mini'
+    convert = mini.remote_path if location == 'mini' else str
+    return {'repo': convert(obj['repo']), 'path': convert(str(target)), 'base': None,
+            'branch': 'yan/' + meta['name'] + '-' + datetime.date.today().strftime('%Y%m%d'),
+            'writes': [str(path.relative_to(target)) for path in writes if target in path.parents]}, location
 
 
 def rewrite_worktree(text, meta, wt, location):
@@ -588,6 +609,12 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     path.write_text(text)
     if on != 'local' and not mini.available():
         raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
+    recorded, recorded_location = recorded_worktree(meta)
+    if recorded and not worktree_call({**recorded, 'action': 'exists'}, recorded_location)['exists']:
+        rebuild = shlex.join(['fleet-go', 'worktree', 'recreate', str(path)])
+        if not recorded.get('base'):
+            rebuild += ' --base <原环境分支，如 origin/main>'
+        raise ValueError(f"本单 worktree 已移除：{recorded['path']}\n先重建再重派：{rebuild}")
     if worktree_base is not None:
         location = on or 'mini'
         existing = meta.get('worktree')
@@ -1259,7 +1286,8 @@ def build_parser():
     p.add_argument('--include-backups', nargs='+', default=[], metavar='PATH', help='用户逐项同意后，显式指定待确认的证据/备份路径')
     p.add_argument('--dry-run', action='store_true')
     p = sub.add_parser('worktree')
-    p.add_argument('operation', choices=['prune'])
+    p.add_argument('operation', choices=['prune', 'recreate'])
+    p.add_argument('--base', help='手工 worktree 的原环境分支，如 origin/main')
     p.add_argument('name')
     p = sub.add_parser('read')
     p.add_argument('name')
@@ -1315,13 +1343,30 @@ def main():
     elif args.action == 'worktree':
         path, meta = locate(args.name)
         args.name = meta.get('name') or path.name[:-len('.brief.md')]
-        if not meta.get('worktree'): raise ValueError('任务没有登记 worktree。')
         if any(r.get('name') == args.name and r.get('status') in ('running', 'queued', 'parked', 'waiting', 'unreachable') for r in running(False)):
             raise ValueError('任务仍在运行。')
-        worktree_call({**meta['worktree'], 'action': 'prune'}, meta.get('worktree_location', 'local'))
-        meta.pop('worktree')
-        path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
-        print('已删除 worktree。')
+        if args.operation == 'prune':
+            if not meta.get('worktree'):
+                raise ValueError('任务没有登记 worktree。')
+            worktree_call({**meta['worktree'], 'action': 'prune'}, meta.get('worktree_location', 'local'))
+            print('已删除 worktree；保留重建记录。')
+        else:
+            old, location = recorded_worktree(meta)
+            if not old:
+                raise ValueError('任务没有唯一的已登记 worktree 路径。')
+            base = args.base or old.get('base')
+            if not base:
+                raise ValueError('手工 worktree 未登记基线；请提供 --base <原环境分支>。')
+            created = worktree_call({**old, 'action': 'recreate', 'base': base}, location)
+            original = path.read_text()
+            text = original.replace('；分支：' + old['branch'] + '；', '；分支：' + created['branch'] + '；', 1)
+            text = text.replace('branch -D ' + shlex.quote(old['branch']) + '`',
+                                'branch -D ' + shlex.quote(created['branch']) + '`', 1)
+            if text != original:
+                path.write_text(text)
+            meta.update(worktree=created, worktree_location=location)
+            path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
+            print(f"已重建 worktree：{created['path']}（{created['branch']}）")
     elif args.action == 'read':
         rec = mini.find(args.name)
         if not rec or rec.get('local'): raise ValueError('找不到 Mini 任务；最新同名任务可能在本机。')

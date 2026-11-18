@@ -106,6 +106,8 @@ nextspace 的动作含「改代码」时，正文必须有 `## 验收环境`，�
 - 合回基础分支并推送后收尾：`fleet-go worktree prune <任务名>` 删 worktree 和本地功能分支；没合回的保留，报告写明释放条件。合并到环境分支仍在主克隆做。
 - 派单机（MacBook）上任何会话都不建 worktree；代码 worktree 只由 fleet 在 Mini 创建。
 
+- 已收尾删除的 worktree，直接跑重派提示中的 `fleet-go worktree recreate <名>`，再重发修订。工具从已登记仓库和基线以新序号分支重建原目录；手工 worktree 按提示加 `--base <原环境分支>`，已有目录会保留。
+
 ## 续做闸门
 
 Codex 单交回时，fleet 会检查报告必需节、brief 明确要求的文件、已授权的提交哈希和读回结果；缺了就把未完成的验收项原文送回让它继续。

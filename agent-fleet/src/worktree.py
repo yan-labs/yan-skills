@@ -20,6 +20,8 @@ def submodules_for(target, writes):
 
 def execute(p):
     repo = Path(p['repo']).resolve()
+    if p['action'] == 'exists':
+        return {'exists': os.path.lexists(p['path'])}
     target = Path(p['path']).resolve()
     if p['action'] == 'prune':
         if git(target, 'status', '--porcelain', '--untracked-files=all'):
@@ -35,12 +37,21 @@ def execute(p):
         git(repo, 'worktree', 'remove', str(target))
         git(repo, 'branch', '-D', branch)
         return p
+    if p['action'] == 'recreate' and os.path.lexists(p['path']):
+        raise ValueError('worktree 路径已存在，保留原内容')
     if target.exists():
         if git(target, 'rev-parse', '--show-toplevel') != str(target) or git(target, 'symbolic-ref', '--short', 'HEAD') != p['branch'] or git(target, 'rev-parse', '--path-format=absolute', '--git-common-dir') != git(repo, 'rev-parse', '--path-format=absolute', '--git-common-dir'):
             raise ValueError('已有路径不属于本任务 worktree')
         p['base'] = p.get('base') or git(target, 'rev-parse', '--abbrev-ref', '@{upstream}')
         return p
     git(repo, 'fetch', 'origin')
+    if p['action'] == 'recreate':
+        stem = p.get('branch_stem') or p['branch']
+        refs = set(git(repo, 'for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes/origin').splitlines())
+        sequence = int(p['branch'].rsplit('-', 1)[1]) + 1 if p.get('branch_stem') else 2
+        while any(prefix + f'{stem}-{sequence}' in refs for prefix in ('refs/heads/', 'refs/remotes/origin/')):
+            sequence += 1
+        p = {**p, 'action': 'create', 'branch_stem': stem, 'branch': f'{stem}-{sequence}'}
     if p.get('base'):
         base = p['base']
     else:
