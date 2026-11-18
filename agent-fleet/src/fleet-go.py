@@ -253,7 +253,7 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
             revisions = re.findall(r'^## 【修订[^\n]*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
             clauses = re.split(r'[。；;\n]', (body.group(1) if body else '') + '\n' + '\n'.join(revisions))
             publishing = any(re.search(r'合入|合并|推送|部署|安装到|装到|上线|发布', clause)
-                and not re.search(r'不(?:要|得|做|进行|允许|推送|合入|部署|上线|发布)|禁止|无需|仅供|只读', clause) for clause in clauses)
+                and not re.search(r'不(?:要|得|做|进行|允许|推送|合入|部署|上线|发布)|禁止|无需|仅供|只读|执行者收尾', clause) for clause in clauses)
             if actions != {'只读'} and publishing and not (commit and deploy):
                 needed.update(a for a, present in [('local-commit', commit), ('deploy-prod', deploy)] if not present)
 
