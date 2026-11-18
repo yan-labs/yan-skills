@@ -46,10 +46,12 @@ def connect():
                  if os.environ.get('AGENT_FLEET_RUNS_DIR') else Path.home() / '.agent-fleet/watch'))
     os.umask(0o077)
     root.mkdir(parents=True, exist_ok=True)
+    root.chmod(0o700)
     db = sqlite3.connect(root / 'mailbox.sqlite3', timeout=10)
     db.row_factory = sqlite3.Row
     db.execute('PRAGMA journal_mode=WAL')
     db.executescript(SCHEMA)
+    migrate(db)
     return db
 
 
@@ -87,6 +89,74 @@ def seat_for(cwd):
     return str(path)
 
 
+def dispatch_session():
+    return os.environ.get('FLEET_DISPATCH_SESSION') or os.environ.get('CODEX_THREAD_ID')
+
+
+def line_seat(repo, line):
+    return f'{repo}#{line}' if line else repo
+
+
+def current_seat(cwd, session=None, repo=None):
+    line = os.environ.get('FLEET_LINE')
+    if not line and os.environ.get('FLEET_SEAT'):
+        return os.environ['FLEET_SEAT']
+    base = seat_for(cwd) or seat_for(repo)
+    return line_seat(base, line or session or dispatch_session()) if base else None
+
+
+def run_binding(state):
+    brief = state.get('briefPath')
+    metadata = read_record(Path(brief).with_suffix('.json')) if brief else {}
+    # sessionId belongs to the executor, so it cannot establish dispatch ownership.
+    return dict(cwd=state.get('cwd'), parent=state.get('parentRunId'),
+                repo=(state.get('object') or metadata.get('object') or {}).get('repo'),
+                seat=state.get('watchSeat'),
+                line=state.get('watchLine') or state.get('dispatchSession') or metadata.get('dispatch_session'))
+
+
+def terminal_summary(state, verdict):
+    return f'{verdict}/{state}' if verdict else state
+
+
+def migrate(db):
+    if db.execute('PRAGMA user_version').fetchone()[0]:
+        return
+    with db:
+        db.execute('BEGIN IMMEDIATE')
+        if db.execute('PRAGMA user_version').fetchone()[0]:
+            return
+        root = runs_root()
+
+        def owner(run, seen):
+            if not run or run in seen or not re.fullmatch(r'[\w.-]+', run, re.ASCII):
+                return None
+            row = db.execute('SELECT seat FROM runs WHERE id=?', (run,)).fetchone()
+            if row and '#' in row['seat']:
+                return row['seat']
+            state = read_record(root / (run + '.json')) or read_record(root / (run + '.queue.json'))
+            binding = run_binding(state)
+            inherited = owner(binding['parent'], {*seen, run})
+            if inherited:
+                return inherited
+            base = row['seat'] if row else seat_for(binding['cwd']) or seat_for(binding['repo'])
+            return line_seat(base, binding['line']) if base and binding['line'] else None
+
+        for row in db.execute('SELECT id,seat,state FROM runs').fetchall():
+            run = row['id']
+            seat = owner(run, set())
+            if seat and seat != row['seat']:
+                db.execute('UPDATE runs SET seat=? WHERE id=?', (seat, run))
+                db.execute('UPDATE events SET seat=? WHERE run=? AND acked_by IS NULL', (seat, run))
+            if row['state'] in TERMINAL:
+                verdict = read_record(root / (run + '.json')).get('verdict')
+                if verdict:
+                    db.execute("""UPDATE events SET summary=? WHERE run=? AND kind='terminal'
+                                  AND acked_by IS NULL AND summary=?""",
+                               (terminal_summary(row['state'], verdict), run, row['state']))
+        db.execute('PRAGMA user_version=1')
+
+
 def now_iso():
     return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
@@ -102,7 +172,7 @@ def read_record(path):
         return {}
 
 
-def bind(db, run, seat=None, cwd=None, parent=None, repo=None, ancestors=()):
+def bind(db, run, seat=None, cwd=None, parent=None, repo=None, line=None, ancestors=()):
     if not re.fullmatch(r'[\w.-]+', run, re.ASCII) or run in ('.', '..'):
         raise ValueError('无效 runId')
     current = db.execute('SELECT seat FROM runs WHERE id=?', (run,)).fetchone()
@@ -113,11 +183,8 @@ def bind(db, run, seat=None, cwd=None, parent=None, repo=None, ancestors=()):
     if not owner and parent and parent not in (*ancestors, run) and re.fullmatch(r'[\w.-]+', parent, re.ASCII):
         state = read_record(runs_root() / (parent + '.json'))
         if state.get('runId') == parent:
-            brief = state.get('briefPath')
-            metadata = read_record(Path(brief).with_suffix('.json')) if brief else {}
-            owner = bind(db, parent, cwd=state.get('cwd'), parent=state.get('parentRunId'),
-                         repo=(metadata.get('object') or {}).get('repo'), ancestors=(*ancestors, run))
-    owner = owner or seat or seat_for(cwd) or seat_for(repo) or 'unassigned'
+            owner = bind(db, parent, **run_binding(state), ancestors=(*ancestors, run))
+    owner = owner or seat or line_seat(seat_for(cwd) or seat_for(repo) or 'unassigned', line)
     db.execute('INSERT INTO runs(id,seat) VALUES (?,?)', (run, owner))
     return owner
 
@@ -150,9 +217,9 @@ def snapshot(db, seat, session=None, started=None):
                 current=bool(owner and owner['session'] == session), at=now_iso())
 
 
-def acknowledge(db, event_id, session):
-    row = db.execute('''SELECT a.session FROM events e JOIN seats a ON e.seat=a.id WHERE e.id=?''',
-                     (event_id,)).fetchone()
+def acknowledge(db, event_id, session, seat):
+    row = db.execute('''SELECT a.session FROM events e JOIN seats a ON e.seat=a.id WHERE e.id=? AND e.seat=?''',
+                     (event_id, seat)).fetchone()
     if not row or row['session'] != session:
         raise ValueError('只有当前席位代可确认此事件')
     db.execute('UPDATE events SET acked_by=? WHERE id=? AND acked_by IS NULL', (session, event_id))
@@ -201,18 +268,20 @@ def main():
     ack = sub.add_parser('ack')
     ack.add_argument('event_id')
     ack.add_argument('--session', required=True)
+    ack.add_argument('--seat')
     args = parser.parse_args()
     try:
         if args.serve or args.request:
             action, data = json.load(sys.stdin)
             result = request(action, data, remote=args.request and remote_machine())
         elif args.command == 'status':
-            seat = args.seat or seat_for(os.getcwd())
+            seat = args.seat or current_seat(os.getcwd())
             if not seat:
                 raise ValueError('当前目录无法解析席位，请指定 --seat')
             result = request('snapshot', {'seat': seat}, remote=remote_machine())
         elif args.command == 'ack':
-            result = request('ack', {'event_id': args.event_id, 'session': args.session}, remote=remote_machine())
+            result = request('ack', dict(event_id=args.event_id, session=args.session,
+                                         seat=args.seat or current_seat(os.getcwd(), args.session)), remote=remote_machine())
         else:
             parser.error('需要 status 或 ack')
         print(json.dumps(result, ensure_ascii=False))

@@ -19,7 +19,7 @@ import worktree
 import clean
 import shlex
 
-seat_for = runpy.run_path(str(Path(__file__).with_name('watch-store.py')))['seat_for']
+watch_store = runpy.run_path(str(Path(__file__).with_name('watch-store.py')))
 
 BLOCKS = Path(__file__).resolve().parents[1] / 'skill/templates/blocks'
 LEGACY_RULE = "禁止单纯转发，允许分发子步骤：不能把整个任务原样甩给另一个 agent 后只回'已启动/等结果'就结束当轮；可以拆出边界清晰的子步骤交给更便宜的 agent 做，但你必须自己掌握全局、消化并验证子任务结果，最终给出真正的结论作为你的最终答案"
@@ -134,6 +134,7 @@ def recorded_worktree(meta):
     if len(candidates) != 1:
         return None, None
     target = candidates.pop()
+    meta['dispatch_session'] = watch_store['dispatch_session']()
     location = meta.get('on') or 'mini'
     convert = mini.remote_path if location == 'mini' else str
     return {'repo': convert(obj['repo']), 'path': convert(str(target)), 'base': None,
@@ -364,7 +365,7 @@ def command(meta):
 
 
 def watch_seat(meta):
-    return os.environ.get('FLEET_SEAT') or seat_for(os.getcwd()) or seat_for((meta.get('object') or {}).get('repo'))
+    return watch_store['current_seat'](os.getcwd(), repo=(meta.get('object') or {}).get('repo'))
 
 
 def launch(meta):

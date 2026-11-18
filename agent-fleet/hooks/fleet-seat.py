@@ -19,13 +19,19 @@ store = runpy.run_path(str(FLEET / 'src/watch-store.py'))
 def pickup(payload):
     if any(os.environ.get(key) for key in ('FLEET_SLOT_RUN_ID', 'FLEET_DETACHED_RUN_ID', 'FLEET_PARENT_RUN_ID')):
         return None
-    seat = os.environ.get('FLEET_SEAT') or store['seat_for'](payload['cwd'])
+    session = payload['session_id']
+    if payload.get('hook_event_name') == 'SessionStart' and os.environ.get('CLAUDE_ENV_FILE'):
+        with open(os.environ['CLAUDE_ENV_FILE'], 'a') as env_file:
+            env_file.write(shlex.join(['export', f'FLEET_DISPATCH_SESSION={session}']) + '\n')
+    seat = store['current_seat'](payload['cwd'], session)
     if not seat:
         return None
-    session = payload['session_id']
     os.umask(0o077)
     root = Path(os.environ.get('FLEET_WATCH_CACHE', Path.home() / '.agent-fleet/watch/cache'))
     root.mkdir(parents=True, exist_ok=True)
+    root.chmod(0o700)
+    if root.parent == Path.home() / '.agent-fleet/watch':
+        root.parent.chmod(0o700)
     key = hashlib.sha256(seat.encode()).hexdigest()
     start = root / hashlib.sha256(json.dumps([seat, session]).encode()).hexdigest()
     try:
@@ -50,18 +56,21 @@ def pickup(payload):
         summary = ' '.join(entry['summary'].split())[:220]
         lines.append(f"[{entry['kind']}] {entry['run']} · {entry['id']} · {summary}")
         if snap['current']:
-            lines.append(shlex.join(['fleet', 'watch', 'ack', entry['id'], '--session', session]))
+            lines.append(shlex.join(['fleet', 'watch', 'ack', entry['id'], '--session', session, '--seat', seat]))
     if snap['unread'] > len(snap['events']):
         lines.append('列表显示前 20 条，确认后会显示后续事件。')
     return '\n'.join(lines)
 
 
 def main():
-    payload = json.load(sys.stdin)
-    message = pickup(payload)
-    if message:
-        print(json.dumps({'hookSpecificOutput': {'hookEventName': payload['hook_event_name'],
-                                                'additionalContext': message}}, ensure_ascii=False))
+    try:
+        payload = json.load(sys.stdin)
+        message = pickup(payload)
+        if message:
+            print(json.dumps({'hookSpecificOutput': {'hookEventName': payload['hook_event_name'],
+                                                    'additionalContext': message}}, ensure_ascii=False))
+    except Exception:
+        return
 
 
 if __name__ == '__main__':

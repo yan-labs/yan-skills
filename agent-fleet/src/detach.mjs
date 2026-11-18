@@ -1,5 +1,5 @@
 import { isCodexModel } from './model-family.mjs';
-import { takeAsk, watchBinding, watchRequest } from './yield.mjs';
+import { dispatchSession, takeAsk, watchBinding, watchRequest } from './yield.mjs';
 import { spawn } from 'node:child_process';
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -101,7 +101,9 @@ export async function launchDetached(cli, args, { cwd, model, briefPath, name, r
     exitCode: null, verdict: null, briefPath: briefPath ?? null, cwd, model, name: name ?? null, reportPath: reportPath ?? null, fallbackWarning: process.env.FLEET_FALLBACK_WARNING || null,
     ...(effort ? { tier: effort, [effort]: true } : {}),
     resultPath: `${base}.result.md`, logPath: `${base}.log` };
-  watchRequest('bind', { run: runId, ...watchBinding(rec) });
+  rec.dispatchSession = dispatchSession();
+  rec.watchLine = process.env.FLEET_LINE || null;
+  rec.watchSeat = watchRequest('bind', { run: runId, ...watchBinding(rec) });
   // 任务参数只经 IPC 传递，避免把 prompt 或认证参数留在进程命令行/状态文件。
   const fd = openSync(rec.logPath, 'a');
   let child;

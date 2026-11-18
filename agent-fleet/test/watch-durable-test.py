@@ -51,7 +51,7 @@ def verify_mailbox(root, runs, repo, seat):
     assert time.monotonic() - started < 60
     assert store['request']('snapshot', {'seat': seat})['unread'] == 1
     print(f'ask 到可读 {time.monotonic() - started:.2f}s')
-    write(runs / (child + '.json'), {**state, 'runId': child, 'status': 'done', 'parentRunId': live_id})
+    write(runs / (child + '.json'), {**state, 'runId': child, 'status': 'failed', 'verdict': 'partial', 'parentRunId': live_id})
     assert 'fixture question' in run([fleet, 'wait', child]).stdout
     assert (runs / (child + '.asks-seen')).exists()
     with closing(store['connect']()) as db:
@@ -60,6 +60,7 @@ def verify_mailbox(root, runs, repo, seat):
     snap = store['request']('snapshot', {'seat': seat})
     assert snap['unread'] == 3 and snap['running'] == 1
     assert {e['kind'] for e in snap['events']} == {'ask', 'stall', 'terminal'}
+    assert next(e['summary'] for e in snap['events'] if e['kind'] == 'terminal') == 'partial/failed'
     assert sum(e['id'] == ask['id'] for e in snap['events']) == 1
 
     # Force the SSH branch offline using a local transport stub.
@@ -79,8 +80,8 @@ def verify_mailbox(root, runs, repo, seat):
     message = invoke_hook('B', 'UserPromptSubmit').stdout
     assert '本席在跑 1 单、未读 3 条' in message and ask['id'] in message and '--session B' in message
     assert '仅可查看' in invoke_hook('A', 'UserPromptSubmit').stdout
-    assert run([fleet, 'watch', 'ack', ask['id'], '--session', 'A']).returncode == 1
-    assert run([fleet, 'watch', 'ack', ask['id'], '--session', 'B']).returncode == 0
+    assert run([fleet, 'watch', 'ack', ask['id'], '--session', 'A', '--seat', seat]).returncode == 1
+    assert run([fleet, 'watch', 'ack', ask['id'], '--session', 'B', '--seat', seat]).returncode == 0
     assert json.loads(run([fleet, 'watch', 'status', '--seat', seat], check=True).stdout)['unread'] == 2
     with patch.dict(os.environ, {'FLEET_SLOT_RUN_ID': live_id}):
         assert not invoke_hook('worker', 'SessionStart').stdout
@@ -156,6 +157,72 @@ with closing(watch['store']['connect']()) as db:
     assert watch['next_due'](dict(rule='daily 08:00', timezone='Asia/Taipei', due=0), 0) == 86400
 
 
+def verify_lines(root, runs, repo, seat):
+    def hook_for(session, event='UserPromptSubmit', env=None):
+        return run([fleet, 'watch', 'hook'], input=json.dumps(dict(
+            session_id=session, hook_event_name=event, cwd=str(repo))), env=env, check=True)
+
+    stub = root / 'codex'
+    env = {**os.environ, 'FLEET_CODEX_BIN': str(stub), 'FLEET_CODEX_BACKEND': 'exec',
+           'FLEET_NO_ARCHIVE_SWEEP': '1', 'TEST_COUNT': str(root / 'line-executions')}
+    env_file = root / 'claude-env'
+    env.pop('FLEET_SEAT', None)
+    env.pop('FLEET_LINE', None)
+    results = {}
+    for session, line in [('session-a', 'session-a'), ('session-b', 'operations')]:
+        context = {**env, 'CLAUDE_ENV_FILE': str(env_file)}
+        if session != line:
+            context['FLEET_LINE'] = line
+        hook_for(session, 'SessionStart', context)
+        assert f'export FLEET_DISPATCH_SESSION={session}' in env_file.read_text()
+        context['FLEET_DISPATCH_SESSION'] = session
+        reply = run([fleet, 'code', 'fixture', '--no-wait'], cwd=repo, env=context, check=True)
+        run_id = next(line.split()[1] for line in reply.stdout.splitlines() if line.startswith('runId: '))
+        run([fleet, 'wait', run_id], env=context, check=True)
+        saved = json.loads((runs / (run_id + '.json')).read_text())
+        assert saved['dispatchSession'] == session and saved['watchSeat'] == f'{seat}#{line}'
+        ask = run([fleet, 'ask', '--run', run_id, session], cwd=repo, env=context, check=True)
+        results[session] = (line, json.loads(ask.stdout)['id'], context)
+
+    for session, (line, event, context) in results.items():
+        other = next(item[1] for key, item in results.items() if key != session)
+        reply = hook_for(session, env=context).stdout
+        assert event in reply and other not in reply
+        prefix = [fleet, 'watch', 'ack']
+        flags = ['--session', session, '--seat', f'{seat}#{line}']
+        assert run([*prefix, other, *flags]).returncode == 1
+        if session == line:
+            # A new session inherits the original session's stable line name.
+            next_ctx = {**context, 'FLEET_LINE': line}
+            assert event in hook_for('successor', 'SessionStart', next_ctx).stdout
+            assert run([*prefix, event, *flags]).returncode == 1
+            flags[1] = 'successor'
+        assert run([*prefix, event, *flags]).returncode == 0
+
+    cache = Path(env['FLEET_WATCH_CACHE'])
+    cache.chmod(0o755)
+    db_root = Path(env['FLEET_WATCH_DIR'])
+    db_root.chmod(0o755)
+    hook_for('permissions', env=env)
+    assert cache.stat().st_mode & 0o777 == db_root.stat().st_mode & 0o777 == 0o700
+    bad_cache = root / 'not-a-directory'
+    bad_cache.touch()
+    result = hook_for('broken-cache', env={**env, 'FLEET_WATCH_CACHE': str(bad_cache / 'cache')})
+    assert not result.stderr and not result.stdout
+
+
+def verify_migration(runs, seat):
+    parent, child = 'legacy-detach-parent', 'legacy-detach-child'
+    with closing(store['connect']()) as db, db:
+        for run_id in (parent, child):
+            store['bind'](db, run_id, seat=seat)
+            store['event'](db, run_id, 'ask', 'legacy question', run_id)
+        write(runs / f'{parent}.json', {'runId': parent, 'dispatchSession': 'first'})
+        write(runs / f'{child}.json', {'runId': child, 'parentRunId': parent, 'sessionId': 'worker'})
+        db.execute('PRAGMA user_version=0')
+    assert store['request']('snapshot', {'seat': seat + '#first'})['unread'] == 2
+
+
 def main():
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -169,10 +236,13 @@ def main():
         assert seat == store['seat_for'](str(mirror)) == 'github.com/fixture/watch'
         runs = root / 'runs'
         runs.mkdir()
-        with patch.dict(os.environ, {'AGENT_FLEET_RUNS_DIR': str(runs), 'FLEET_WATCH_DIR': str(root / 'db'),
+        worker_keys = ('FLEET_SLOT_RUN_ID', 'FLEET_DETACHED_RUN_ID', 'FLEET_PARENT_RUN_ID')
+        with patch.dict(os.environ, {**dict.fromkeys(worker_keys, ''), 'FLEET_SEAT': seat, 'AGENT_FLEET_RUNS_DIR': str(runs), 'FLEET_WATCH_DIR': str(root / 'db'),
                                      'FLEET_WATCH_CACHE': str(root / 'cache')}):
             verify_mailbox(root, runs, repo, seat)
             verify_timer(root, runs, repo, seat)
+            verify_lines(root, runs, repo, seat)
+            verify_migration(runs, seat)
     print('PASS SQLite、旧 wait、离线三类事件、接班和迟到确认、定时派发崩溃重放')
 
 

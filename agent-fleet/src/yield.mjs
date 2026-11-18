@@ -82,10 +82,16 @@ export function watchRequest(action, data) {
   return reply;
 }
 
+export function dispatchSession() {
+  return process.env.FLEET_DISPATCH_SESSION || process.env.CODEX_THREAD_ID || null;
+}
+
 export function watchBinding(rec) {
   const metadata = rec.briefPath && readJSON(rec.briefPath.replace(/\.md$/, '.json'));
   return {
-    seat: process.env.FLEET_SEAT || undefined, cwd: rec.cwd || process.cwd(),
+    seat: rec.watchSeat || (process.env.FLEET_LINE ? undefined : process.env.FLEET_SEAT) || metadata?.watch_seat || undefined,
+    line: rec.watchLine || rec.dispatchSession || process.env.FLEET_LINE || metadata?.dispatch_session || dispatchSession(),
+    cwd: rec.cwd || process.cwd(),
     parent: rec.parentRunId || process.env.FLEET_PARENT_RUN_ID || undefined,
     repo: metadata?.object?.repo,
   };

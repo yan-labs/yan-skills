@@ -75,14 +75,14 @@ def progress(path, since):
     return None, since
 
 
-def transition(db, row, state, now):
+def transition(db, row, state, now, verdict=None):
     if row['state'] == state:
         return
     sequence = row['transition'] + 1
     db.execute('UPDATE runs SET state=?, transition=?, changed=? WHERE id=?', (state, sequence, now, row['id']))
     if state in store['TERMINAL'] or state in ('heartbeat', 'stalled'):
         kind = 'terminal' if state in store['TERMINAL'] else 'stall'
-        reason = {'heartbeat': '监督心跳超过 90 秒', 'stalled': '进度超过 30 分钟未更新'}.get(state, state)
+        reason = {'heartbeat': '监督心跳超过 90 秒', 'stalled': '进度超过 30 分钟未更新'}.get(state, store['terminal_summary'](state, verdict))
         store['event'](db, row['id'], kind, reason, f"{row['id']}:{sequence}")
 
 
@@ -140,11 +140,7 @@ def reconcile(db, root, now):
             rec, _, attached = records[run]
             if not rec or (rec.get('state' if attached else 'status') in store['TERMINAL']):
                 return
-            parent = rec.get('parentRunId')
-            repo = (rec.get('object') or {}).get('repo')
-            if rec.get('briefPath'):
-                repo = repo or (record(Path(rec['briefPath']).with_suffix('.json')).get('object') or {}).get('repo')
-            store['bind'](db, run, cwd=rec.get('cwd'), parent=parent, repo=repo)
+            store['bind'](db, run, **store['run_binding'](rec))
             known[run] = db.execute('SELECT * FROM runs WHERE id=?', (run,)).fetchone()
 
         collected = {}
@@ -183,7 +179,7 @@ def reconcile(db, root, now):
                         observed = row['progressed']
                     db.execute('UPDATE runs SET progress=?, progressed=? WHERE id=?', (mark, observed, run))
                     state = 'stalled' if now - observed >= STALLED_SECONDS else 'running'
-            transition(db, row, state, now)
+            transition(db, row, state, now, rec.get('verdict'))
             if state in store['ACTIVE']:
                 collected[row['seat']] = collected.get(row['seat'], 0) + 1
         return collected
