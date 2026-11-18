@@ -42,15 +42,15 @@ allowed-tools: Bash(fleet-go order show*) Bash(cat ~/.agents/dispatch-order.md*)
 
 ## 路由原则（长期）
 
-Terra 与 Sol 的两问判断、Terra 交回 partial 先续做不改派、发布推进与巡检用 Luna、Gemini 只写文案，规则原文在全局 `~/.claude/CLAUDE.md` §2「路由」；下表是对应的命令。用户点名优先；成本、额度、并发满时按[工具链](references/fallback-chains.md)换手。
+Terra 与 Sol 的两问判断、Terra 交回 partial 先续做不改派、GPT 最低用 Terra、不派 Luna、Gemini 只写文案，规则原文在全局 `~/.claude/CLAUDE.md` §2「路由」；下表是对应的命令。用户点名优先；成本、额度、并发满时按[工具链](references/fallback-chains.md)换手。
 
 | 任务 | 执行者 | 命令 |
 |---|---|---|
 | 两问都是“能”：编码、复核、按已知源调研、机械改动、技术文档、数据整理、一般任务 | Codex Terra（medium） | `fleet-go new <名> --to gpt` |
 | 任一问“不能”：自己摸入口、跨系统多步编码、总管、删除数据、新写或大改发布脚本 | Codex Sol，开派即用 | `--to gpt --sol` |
-| 发布、部署推进（跑现成流水线、合并、等 CI、回读、生产实测、更新日志），不写代码 | Luna | `--to gpt --luna --high` |
+| 发布、部署推进（跑现成流水线、合并、等 CI、回读、生产实测、更新日志），不写代码 | Codex Terra（不用 Luna，用户 2026-11-18） | `--to gpt` |
 | 改部署配置、写部署脚本 | Codex Terra | `--to gpt` |
-| 巡检、监工、定时、核对整理 | Luna，`--high` 或默认 xhigh，不开 `--max` | `--to gpt --luna --high` |
+| 巡检、监工、定时、核对整理 | Codex Terra | `--to gpt` |
 | 文案、翻译、多语言、校对 | Gemini（自动带[文案语气规范](references/copy-voice.md)，纯机械改写加 `--no-voice`） | `--to gemini`，批量加 `--bulk` |
 | UI、样式、视觉交互、建站设计、3D、游戏内容 | Claude Sonnet，见[工具链](references/fallback-chains.md) | `--to claude --tier sonnet`；要 Browser pane 用 `executor-sonnet` |
 | 方案、架构、方向未明的综合判断；硬性指标多轮达不到时先出方案 | Fable，只走 Agent 工具 | `subagent_type=executor-fable`，brief 带“这个代码库是你的，做成什么样你说了算，以后也是你接着维护。”；Claude 额度不足时 `--to gpt --astra`，见[工具链](references/fallback-chains.md) |
@@ -78,7 +78,7 @@ BRIEF
 fleet-go new review-card --to gpt --review --auth review --read /path/to/project --for fix-card --goal "复核 fix-card 的改动" --body review.md
 
 # 发布推进（正文写齐目标、环境、回滚条件和回读清单）
-fleet-go new deploy-site --to gpt --luna --high --auth deploy-prod,readonly-web --goal "部署 <HEAD> 并回读" --body body.md
+fleet-go new deploy-site --to gpt --auth deploy-prod,readonly-web --goal "部署 <HEAD> 并回读" --body body.md
 
 # 文案
 fleet-go new page-copy --to gemini --goal "写 XX 页英文文案" --body body.md
@@ -98,7 +98,7 @@ fleet-go new page-copy --to gemini --goal "写 XX 页英文文案" --body body.m
 1. 挂会话内巡检（已挂不重复；7 天到期仍有任务就续挂）。把 `<任务名列表>` 换成本会话负责的任务：
 
    ```text
-   CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有后台任务在跑；没有则用 CronList 找到这条巡检并 CronDelete；有则在本会话按本机 ~/.agent-fleet/patrol-brief.md 派 Luna 巡检子单（--luna --high --on mini，run_in_background），只看本会话负责的任务：<任务名列表>；完成通知回来后，读它的「需要主会话处理」并逐条处理。")
+   CronCreate(cron="7,37 * * * *", prompt="【半小时巡检】先检查是否有后台任务在跑；没有则用 CronList 找到这条巡检并 CronDelete；有则在本会话按本机 ~/.agent-fleet/patrol-brief.md 派 Terra 巡检子单（--to gpt --on mini，run_in_background），只看本会话负责的任务：<任务名列表>；完成通知回来后，读它的「需要主会话处理」并逐条处理。")
    ```
 
 2. 巡检子单回来后，读它最终回复第一段「需要主会话处理」并逐条裁定（补授权、改派、调整顺序、找用户、是否重派），不能只看巡检记录。

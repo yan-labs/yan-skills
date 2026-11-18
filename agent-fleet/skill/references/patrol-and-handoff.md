@@ -12,7 +12,7 @@
 
 ## 巡检子单做什么
 
-每次定时触发，主会话先看有没有后台任务在跑：没有就 CronList 找到这条巡检并 CronDelete；有就派一个 Luna 巡检子单（`--luna --high --on mini`，`run_in_background`），brief 用本机 `~/.agent-fleet/patrol-brief.md`，提示里写明本会话负责的任务名。巡检用会话内 Cron，不用独立定时任务。
+每次定时触发，主会话先看有没有后台任务在跑：没有就 CronList 找到这条巡检并 CronDelete；有就派一个 Terra 巡检子单（`--to gpt --on mini`，`run_in_background`），brief 用本机 `~/.agent-fleet/patrol-brief.md`，提示里写明本会话负责的任务名。巡检用会话内 Cron，不用独立定时任务。
 
 巡检子单：
 

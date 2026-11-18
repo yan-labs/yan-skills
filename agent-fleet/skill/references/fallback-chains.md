@@ -67,7 +67,7 @@ Claude（订阅与 API）额度不足或调遣令停用 claude-sub 时，原本�
 ### Fable 与 Astra 分工（用户 2026-11-18）
 
 - Astra：方案、架构、方向未明的综合判断、计划维护与裁定（Claude 额度不足时顶替 Fable）；长链路多步专业交付（报告、表格、幻灯片）；既有代码库中复杂难改的编码（原 Opus 档，Claude 不可用时）。默认 medium，难题才 `--high`。
-- 不派 Astra：常规编码与复核继续 Terra/Sol；发布推进与巡检用 Luna；文案翻译用 Gemini；安全漏洞挖掘和攻防测试不派 GPT 6.2，其网络安全护栏可能限制合法测试。
+- 不派 Astra：常规编码与复核继续 Terra/Sol；发布推进与巡检用 Terra（不派 Luna）；文案翻译用 Gemini；安全漏洞挖掘和攻防测试不派 GPT 6.2，其网络安全护栏可能限制合法测试。
 - Fable 保留需要 Claude 应用工具（Agent 工具、MCP、Browser pane、ccd_*）的方案单，不设 Fable 专属维护线。方案、裁定、计划维护的执行者均带提示「这个代码库是你的，做成什么样你说了算，以后也是你接着维护。」
 - UI、样式、视觉交互、建站设计、3D、游戏单仍只派 Claude Sonnet；Claude 额度不足时排队等恢复，不改派 Astra 或其他 GPT。用户 2026-11-18 原话：「UI 还是交给 Claude 用」。
 - 派 GPT 6.2 Astra 与 Sol 的 brief 必须写：遇到缺文件、工具不可用等阻碍必须在报告「未完成」里写明，不得略过。主线程验收核对产物，别只信结论。续做尽量用 amend/say 追加，不重写 brief 前缀，以复用缓存。
