@@ -38,22 +38,23 @@ async function exists(target) {
   }
 }
 
-// 仓库里带 SKILL.md 的一级子目录就是一个 Skill。
+// Skill 独立目录与 agent-fleet 的嵌套 Skill 使用相同的安装名称。
 async function discoverSkills() {
   const entries = await readdir(repoRoot, { withFileTypes: true });
   const skills = [];
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
     if (await exists(path.join(repoRoot, entry.name, "SKILL.md"))) {
-      skills.push(entry.name);
+      skills.push({ name: entry.name, source: path.join(repoRoot, entry.name) });
     }
   }
-  return skills.sort();
+  const fleet = path.join(repoRoot, "agent-fleet", "skill");
+  if (await exists(path.join(fleet, "SKILL.md"))) skills.push({ name: "agent-fleet", source: fleet });
+  return skills.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // 已经指向本仓库对应目录的链接视为正常,其余一律需要处理。
-async function inspect(name) {
-  const source = path.join(repoRoot, name);
+async function inspect({ name, source }) {
   const target = path.join(globalSkills, name);
   if (!(await exists(target))) return { name, source, target, state: "missing" };
 
@@ -97,12 +98,13 @@ if (skills.length === 0) {
   process.exit(1);
 }
 
-await mkdir(globalSkills, { recursive: true });
+if (!checkOnly) await mkdir(globalSkills, { recursive: true });
 const stamp = new Date().toISOString().slice(0, 10);
 const drift = [];
 
-for (const name of skills) {
-  const report = await inspect(name);
+for (const skill of skills) {
+  const report = await inspect(skill);
+  const { name } = report;
   if (report.state === "linked") {
     console.log(`OK   ${name}`);
     continue;
