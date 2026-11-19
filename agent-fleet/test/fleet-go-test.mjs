@@ -67,22 +67,22 @@ try {
     const r=run(['new','--to','gpt','one','--goal','独有目标','--dry-run','--write','/tmp/project','--read','/tmp/source']);
     assert.equal(r.status,0,r.stderr); brief=r.stdout;
     let previous=-1;
-    for(const text of ['归类：','REPORT:','## 思维准则（每单首要','根因优先','自我证伪','围绕本 brief','## 授权覆盖','## 目标','## 允许范围','## 已知坑','## 验收',rule]) {
+    for(const text of ['归类：','REPORT:','## 思维准则（每单首要','根因优先','自我证伪','围绕本 brief','## 授权覆盖','## 目标','## 允许范围','## 验收',rule]) {
       const i=brief.indexOf(text); assert.ok(i>previous,text); previous=i;
     }
     assert.equal(brief.trim().split('\n').at(-1),rule);
     assert.match(r.stderr,/将执行：fleet code .*--name one --report /);
-    assert.match(brief,/NODE_USE_ENV_PROXY=1/);
+    assert.doesNotMatch(brief,/NODE_USE_ENV_PROXY=1/);
+    assert.match(r.stderr,/样板字符数.*样板占比/);
     assert.match(brief,/规则回执/);
     assert.equal(history().length,0);
     assert.ok(!existsSync(join(home,'.agent-fleet/reports')));
-    const globalRules = join(home, '.claude/CLAUDE.md');
-    const legacy = readFileSync(globalRules, 'utf8');
-    writeFileSync(globalRules, rule);
-    assert.equal(run(['new','positive-rule','--to','gpt','--goal','x','--dry-run']).status, 0);
-    writeFileSync(globalRules, '规则句缺失');
-    assert.equal(run(['new','missing-rule','--to','gpt','--goal','x','--dry-run']).status, 1);
-    writeFileSync(globalRules, legacy);
+    assert.match(brief, /不启动子代理或子线程/);
+    assert.doesNotMatch(brief, /可以把边界清晰的子步骤交给/);
+    const orchestrator = run(['new','orchestrator','--to','gpt','--type','orchestrate','--goal','x','--dry-run']);
+    assert.equal(orchestrator.status,0,orchestrator.stderr);
+    assert.match(orchestrator.stdout,/可以把边界清晰的子步骤交给/);
+    assert.doesNotMatch(orchestrator.stdout,/不启动子代理或子线程/);
   });
   test('Codex 额度自动改派及停用边界', () => {
     const orderFile=join(temp,'fallback-order.md'), runs=join(temp,'fallback-runs'); mkdirSync(runs);
@@ -572,10 +572,10 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
       const r=run(['new','tier','--to','claude','--tier',tier,'--goal','任务','--dry-run']);
       assert.equal(r.status,0,r.stderr); assert.ok(r.stderr.includes('fleet '+tier+' '));
     }
-    for(const [to,opts,entry] of [['gpt',['--review','--low'],'code'],['grok',['--review','--model','grok-code','--subagents'],'grok-cli'],['gemini',['--bulk'],'bulk']]) {
+    for(const [to,opts,entry] of [['gpt',['--review','--low'],'code'],['grok',['--review','--model','grok-code','--subagents','--type','orchestrate'],'grok-cli'],['gemini',['--bulk'],'bulk']]) {
       const r=run(['new','opts','--to',to,...opts,'--goal','任务','--dry-run']);
       assert.equal(r.status,0,r.stderr); assert.ok(r.stderr.includes('fleet '+entry+' '));
-      for(const opt of opts.filter(x=>x.startsWith('--')&&x!=='--bulk')) assert.ok(r.stderr.includes(opt));
+      for(const opt of opts.filter(x=>x.startsWith('--')&&!['--bulk','--type'].includes(x))) assert.ok(r.stderr.includes(opt));
     }
     assert.notEqual(run(['new','missing','--goal','任务','--dry-run']).status,0);
     const old=run(['new','old','--kind','code']); assert.equal(old.status,1); assert.match(old.stderr,/--to/); assert.equal(old.stderr.trim().split('\n').length,1);
@@ -982,6 +982,61 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
     assert.ok(existsSync(meta.worktree.path)); assert.match(meta.worktree.path,/wt2-repo-wt\/wt-entry$/);
     assert.ok(text.includes('仓库: '+meta.worktree.path)); assert.ok(text.includes('可写路径: '+meta.worktree.path+'/src'));
     assert.deepEqual(meta.worktree.writes,['src']);
+  });
+  test('拒绝落账四阶段，队列拒绝后同命令换正文可用，报告目录与巡检时窗不撞', () => {
+    const orderFile = join(temp, 'gate-order.md'), rejects = join(temp, 'gate-rejects.jsonl');
+    const runs = join(temp, 'gate-runs'), scripts = join(temp, 'gate-bin');
+    mkdirSync(scripts); mkdirSync(runs);
+    writeFileSync(orderFile, '| 全局 | 停用 | 用户另说 | fixture |\n');
+    const fixture = { ...env, AGENT_FLEET_ORDER_FILE: orderFile, AGENT_FLEET_GATE_REJECTS: rejects,
+      AGENT_FLEET_RUNS_DIR: runs, PATH: scripts + ':' + env.PATH };
+    const invoke = (args, input = '') => spawnSync(script, args, { encoding: 'utf8', env: fixture, input });
+    const badOrder = invoke(['new','reject-order','--to','gpt','--goal','x']);
+    assert.equal(badOrder.status,1); assert.match(badOrder.stderr,/调遣令拒绝/);
+    writeFileSync(orderFile, '| 全局 | 正常 | 用户另说 | |\n');
+    const badLint = invoke(['new','reject-lint','--to','gpt','--goal','x','--action','只读']);
+    assert.equal(badLint.status,1); assert.match(badLint.stderr,/入口缺少仓库/);
+    const hook = rawSpawnSync('python3',[join(root,'hooks/check-fleet-launch.py')], { encoding:'utf8',env:fixture,
+      input:JSON.stringify({tool_input:{command:'fleet-go new reject-hook --to gpt --goal x'}}) });
+    assert.equal(JSON.parse(hook.stdout).hookSpecificOutput.permissionDecision,'deny');
+    writeFileSync(join(scripts,'fleet'), `#!${process.execPath}
+(async()=>{
+  const {registerQueue,setSlotState}=await import(${JSON.stringify(new URL('../src/queue.mjs',import.meta.url).href)});
+  const {readFileSync}=require('node:fs');
+  const briefPath=process.argv[3], name=process.argv[5];
+  const meta=JSON.parse(readFileSync(briefPath.replace(/\\.md$/,'.json')));
+  if(meta.paths.some(p=>p.endsWith('/optional-missing'))) throw Error('instruction path became required');
+  await registerQueue({runId:meta.attemptId,name,briefPath,model:'test'});
+  await setSlotState(meta.attemptId,'done');
+})().catch(e=>{console.error(e.message);process.exit(1)});
+`, {mode:0o755});
+    const body = join(temp,'retry-body.md');
+    const shared = join(home,'.agent-fleet/reports');
+    const repo = join(temp,'wt2-repo');
+    const base = `## 入口\n仓库: ${repo}\n可写路径: ${shared}\n可选目录 \`${repo}/optional-missing\`\n`;
+    writeFileSync(body, base);
+    const retry = ['new','retry-same','--to','gpt','--goal','goal','--body',body,'--after','prerequisite'];
+    const rejected = invoke(retry); assert.equal(rejected.status,1,rejected.stderr); assert.match(rejected.stderr,/找不到前置单/);
+    assert.equal(invoke(['new','prerequisite','--to','gpt','--goal','prerequisite'],base).status,0);
+    writeFileSync(body, base + '修订正文明细');
+    const retried = invoke(retry); assert.equal(retried.status,0,retried.stderr);
+    const score = invoke(['score','--fault-window','--since','2000-01-01','--until','2999-01-01']);
+    assert.equal(score.status,0,score.stderr);
+    assert.match(score.stdout,/拒绝落账覆盖阶段：4\/4/);
+    for(const metric of ['判定与 outcome','无进展续做停机','部分完成','涉及报告路径','示例 dry-run','快照巡检部分完成']) assert.ok(score.stdout.includes(metric));
+    const rows = readFileSync(rejects,'utf8').trim().split('\n').map(JSON.parse);
+    assert.deepEqual(rows.map(row=>row.stage),['order','lint','launch-hook','queue']);
+    assert.equal(new Set(rows.map(row=>row.attemptId)).size,4);
+    const cmd = name => ['new',name,'--to','gpt','--scene','snapshot-patrol','--goal','固定巡检'];
+    const one = invoke(cmd('snapshot-one'), base + '时间窗: 08:00–08:30\n');
+    const two = invoke(cmd('snapshot-two'), base + '时间窗: 08:30–09:00\n');
+    assert.equal(one.status,0,one.stderr); assert.equal(two.status,0,two.stderr);
+    const same = invoke(cmd('snapshot-duplicate'),base+'时间窗: 08:30–09:00\n');
+    assert.equal(same.status,1); assert.match(same.stderr,/fleet say/);
+    const preview = invoke(['new','preview-worktree','--to','gpt','--worktree','--dry-run','--goal','x'],base);
+    assert.equal(preview.status,0,preview.stderr);
+    assert.match(preview.stderr,/将准备工作树/); assert.match(preview.stderr,/样板占比/);
+    assert.ok(!existsSync(repo+'-wt/preview-worktree'));
   });
   console.log(`fleet-go：${checks} 组通过。`);
 } finally { rmSync(temp,{recursive:true,force:true}); }

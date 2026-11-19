@@ -175,6 +175,7 @@ async function cmdRun(argv, { copyVoice = false } = {}) {
   // 进度行实时打到 stderr,并同步写进 ~/.agent-fleet/runs/<ISO时间>-<模型名>.log(tail 的
   // 数据源);--quiet 时 stderr 静音,文件照写。日志文件路径在启动时已由进度对象打到 stderr。
   const result = await runTask({ friendlyModel: flags.model, prompt: flags.prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), config, maxTurns: flags['max-turns'] === undefined ? undefined : Number(flags['max-turns']), systemPrompt: flags['system-prompt'], noVoice: Boolean(flags['no-voice']), copyVoice, effort, progress: createProgress({ quiet: !flags.verbose || Boolean(flags.quiet), label: flags.model }) });
+  result.reportPath = flags.report;
   await printRunResult(result, outputOptions(flags, config));
   process.exitCode = buildBrief(result, outputOptions(flags, config)).verdict === 'ok' ? 0 : 1;
 }
@@ -576,7 +577,10 @@ async function cmdCode(argv) {
 async function cmdGrok(argv) {
   const { positionals, flags } = splitShortArgs(argv);
   if (flags.help) { console.log(HELP_TEXT); return; }
-  const result = await runGrok({ prompt: resolveBrief(flags.prompt ?? positionals[0]), cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), model: flags.model, review: Boolean(flags.review), subagents: Boolean(flags.subagents) && !flags['no-subagents'], maxTurns: flags['max-turns'], reasoningEffort: flags['reasoning-effort'], resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
+  const prompt = resolveBrief(flags.prompt ?? positionals[0]);
+  const result = await runGrok({ prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), model: flags.model, review: Boolean(flags.review), subagents: Boolean(flags.subagents) && !flags['no-subagents'], maxTurns: flags['max-turns'], reasoningEffort: flags['reasoning-effort'], resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
+  Object.defineProperty(result, 'prompt', { value: prompt });
+  result.reportPath = flags.report;
   await printRunResult(result, outputOptions(flags));
   process.exitCode = !result.suspectNote && buildBrief(result, outputOptions(flags)).verdict === 'ok' ? 0 : 1;
 }

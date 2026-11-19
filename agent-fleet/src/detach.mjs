@@ -13,7 +13,7 @@ import { registerQueue, acquireSlot, queueRecord, setSlotState, queueEvent, task
 const stopPath = (id) => join(runsDir(), `${id}.stop`);
 export const statePath = (id) => join(runsDir(), `${id}.json`);
 export function writeState(rec) {
-  if (!['running', 'queued', 'parked', 'waiting'].includes(rec.status) && fillReport(rec.reportPath, rec.resultPath)) {
+  if (!rec.dispatchRejected && !['running', 'queued', 'parked', 'waiting'].includes(rec.status) && fillReport(rec.reportPath, rec.resultPath)) {
     if (rec.brief && !Array.isArray(rec.brief)) rec.brief.reportBackfilled = true;
     if (rec.output !== undefined) {
       try { const value = JSON.parse(rec.output); value.reportBackfilled = true; rec.output = `${JSON.stringify(value)}\n`; }
@@ -271,15 +271,18 @@ export async function supervise(cli) {
     rec.output = output;
     if (stopping) rec.brief = { ...rec.brief, ok: false, verdict: 'stopped', stopped: true };
     rec.verdict = Array.isArray(rec.brief) ? rec.brief.every(b => b.verdict === 'ok') ? 'ok' : 'fail' : rec.brief.verdict;
+    rec.pending = rec.brief?.pending;
     rec.exitCode = rec.verdict === 'ok' ? 0 : 1;
-    rec.status = stopping ? 'stopped' : rec.yield?.type === 'blocked' ? 'blocked' : rec.verdict === 'ok' ? 'done' : 'failed';
+    const blocked = rec.yield?.type === 'blocked' || rec.brief?.continueStop?.startsWith('受阻：');
+    rec.status = stopping ? 'stopped' : blocked ? 'blocked' : rec.verdict === 'ok' ? 'done' : 'failed';
   } catch (err) {
     if (child?.pid) forceStop();
     rec.status = stopping ? 'stopped' : 'failed';
     rec.verdict = stopping ? 'stopped' : 'fail';
     rec.exitCode = 1;
+    rec.dispatchRejected = Boolean(err.dispatchRejected);
     rec.error = redactEvidence(err.message);
-    if (process.connected) process.send({ ready: false, error: rec.error });
+    if (process.connected) process.send({ ready: false, error: (rec.dispatchRejected ? '[fleet-queue-rejected] ' : '') + rec.error });
     rec.brief = buildBrief({ ...failureFacts(rec), ok: false, error: rec.error, progress: { phase: '监督进程' }, resultPath: rec.resultPath, logPath: rec.logPath });
     console.error(rec.error);
   } finally {

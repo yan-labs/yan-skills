@@ -3,6 +3,7 @@ import { isCodexModel } from './model-family.mjs';
 
 import { existsSync, readFileSync } from 'node:fs';
 import { detachedState, listDetached, readState, reconcileDetached, resolveDetached, stopDetached } from './detach.mjs';
+import { queueRecord } from './queue.mjs';
 import { appendInbox } from './inbox.mjs';
 import {
   assertSafeToSignal,
@@ -44,7 +45,7 @@ export function collectStatus({ cwd } = {}) {
       rec = { ...rec, ...finalizeDeadPidRecord(rec.runId, rec) };
     }
     if (rec.finished && Date.now() - Date.parse(rec.finishedAt ?? rec.startedAt) > 86_400_000) continue;
-    let state = 'running';
+    let state = rec.slotRunId && queueRecord(rec.slotRunId)?.state === 'parked' ? 'parked' : 'running';
     if (rec.finished) {
       const log = rec.logPath && existsSync(rec.logPath) ? readFileSync(rec.logPath, 'utf8') : '';
       state = rec.verdict ? rec.verdict === 'ok' ? 'done' : 'failed' : /\] done error/.test(log) ? 'failed' : 'done';
@@ -59,6 +60,7 @@ export function collectStatus({ cwd } = {}) {
       duration: formatDuration(rec.startedAt, rec.finishedAt),
       state,
       logPath: rec.logPath ?? null,
+      activeMs: rec.activeMs, waitMs: rec.waitMs, pollCount: rec.pollCount,
       ...(isCodexModel(rec.model) ? { backend: rec.backend, threadId: rec.threadId, sessionId: rec.sessionId,
         steerCount: rec.steerCount, resumeCount: rec.resumeCount, fallbacks: rec.fallbacks,
         low: rec.low, high: rec.high, xhigh: rec.xhigh, max: rec.max, simple: rec.simple, sol: rec.sol, luna: rec.luna, astra: rec.astra, serviceTier: rec.serviceTier, review: rec.review, resumedFrom: rec.resumedFrom } : {}),

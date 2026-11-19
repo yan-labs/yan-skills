@@ -8,7 +8,7 @@ import re
 import subprocess
 import time
 
-PRESERVE = {'ledger.jsonl', 'dispatch-order.md', 'patrol-brief.md', '.env', 'config.json', 'mini.json', 'models.config.json'}
+PRESERVE = {'ledger.jsonl', 'gate-rejects.jsonl', 'dispatch-order.md', 'patrol-brief.md', '.env', 'config.json', 'mini.json', 'models.config.json'}
 TERMINAL = {'done', 'failed', 'stopped', 'blocked', 'completed', 'cancelled'}
 
 

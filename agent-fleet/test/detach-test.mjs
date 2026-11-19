@@ -550,7 +550,7 @@ with mini.parent_slot_released():
 
     const writer=await start('writer',[join(scratch,'repo')]);
     await until(()=>began(writer),'writer starts');
-    await assert.rejects(start('collision',[join(scratch,'repo','src')]), err => { assert.match(err.message,/可写路径重叠/); assert.ok(err.message.includes(join(scratch,'repo','src'))); assert.ok(err.message.includes(join(scratch,'repo'))); assert.match(err.message,/fleet-go relaunch 'collision' --worktree[\s\S]*--after 'writer'/); assert.match(err.message,/fleet say 'writer'/); return true; });
+    await assert.rejects(start('collision',[join(scratch,'repo','src')]), err => { assert.match(err.message,/可写路径重叠/); assert.ok(err.message.includes(join(scratch,'repo','src'))); assert.ok(err.message.includes(join(scratch,'repo'))); assert.match(err.message,/fleet-go relaunch 'collision' --worktree[\s\S]*--after 'writer'/); assert.doesNotMatch(err.message,/fleet say/); return true; });
     const separate=await start('separate',[join(scratch,'repo-wt','separate')]);
     await until(()=>began(separate),'independent worktree starts');release(separate);await waitDetached(separate);
     const frontCollision=await cliRun(['code',join(queueRuns,'writer.brief.md'),'--cwd',scratch,'--attach'],{AGENT_FLEET_RUNS_DIR:queueRuns,FLEET_SLOT_CAPACITY:'5'});
@@ -583,7 +583,7 @@ with mini.parent_slot_released():
     for(const id of occupied) release(id);
     for(const id of occupied) await waitDetached(id);
     const original=await start('same-question');release(original);await waitDetached(original);
-    await assert.rejects(start('same-question-copy',[],null,'mini','mock','same-question'),/重复问题/);
+    await assert.rejects(start('same-question-copy',[],null,'mini','mock','same-question'),/重复问题[\s\S]*fleet say/);
     const local=[];
     for(let i=0;i<3;i++) local.push(await start('local-'+i,[],null,'local','mock','local-'+i,3));
     for(const id of local) await until(()=>began(id),'local three start');

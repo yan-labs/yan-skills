@@ -3,11 +3,11 @@
 
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, linkSync, unlinkSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import { judgeTask } from './judge-task.mjs';
-import { computeVerdict, hasControlTokens } from './verdict.mjs';
+import { acceptanceResult, computeVerdict, hasControlTokens } from './verdict.mjs';
 
 export const DEFAULT_BRIEF_LINES = 3;
 
@@ -196,13 +196,18 @@ export function buildBrief(result, { briefLines = DEFAULT_BRIEF_LINES, expectCha
     stopped: Boolean(result?.stopped),
   });
 
+  let report = '';
+  try { const path = result?.reportPath ?? result?.prompt?.match(/^REPORT: (.+)$/m)?.[1]; if (path) report = readFileSync(resolve(result.cwd ?? process.cwd(), path), 'utf8'); } catch {}
+  const acceptance = result?.acceptance ?? acceptanceResult(result?.prompt, report, result?.yield);
   const preview = previewLines(result?.ok ? result?.result : redactEvidence(result?.result ?? ''), briefLines);
   return {
     ok: Boolean(result?.ok),
     verdict: !result?.ok && !result?.stopped ? 'fail'
       : judged.verdict === 'fail' || judged.verdict === 'stopped' ? judged.verdict
+      : acceptance ? acceptance.verdict
       : result?.ok && result?.reportConclusion?.startsWith('失败') ? 'fail'
       : result?.ok && (result?.yield || /^(?:部分完成|未完成)/.test(result?.reportConclusion || '') || result?.continueRequired) ? 'partial' : judged.verdict,
+    ...(acceptance ? { pending: acceptance.pending } : {}),
     verdictNote: !result?.ok ? null : judged.note ?? null,
     durationMs: result?.durationMs ?? null,
     sdkDurationMs: result?.sdkDurationMs ?? null,
@@ -305,7 +310,7 @@ export async function renderRunOutput(result, opts = {}) {
   opts.onBrief?.(brief);
   if (opts.full) {
     if (opts.json) {
-      return `${JSON.stringify({ ...result, verdict: brief.verdict, verdictNote: brief.verdictNote, hasControlTokens: brief.hasControlTokens, preview: brief.preview }, null, 2)}\n`;
+      return `${JSON.stringify({ ...result, ...(brief.pending !== undefined ? { pending: brief.pending } : {}), verdict: brief.verdict, verdictNote: brief.verdictNote, hasControlTokens: brief.hasControlTokens, preview: brief.preview }, null, 2)}\n`;
     }
     return formatFullHuman(result);
   }

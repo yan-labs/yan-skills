@@ -293,6 +293,10 @@ else:
  def canonical(value): return value
 '''
 
+class QueueRejected(ValueError):
+    pass
+
+
 def launch(meta, argv):
     files = {remote_path(meta['brief']): rewrite_brief(Path(meta['brief']).read_text())}
     if meta.get('questions'):
@@ -328,6 +332,8 @@ pathlib.Path(p['report']).parent.mkdir(parents=True,exist_ok=True)
 r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini','FLEET_SEAT':p['seat'],'FLEET_LINE':'','FLEET_DISPATCH_SESSION':p['session'],'FLEET_PARENT_RUN_ID':p['parent']},capture_output=True,text=True); print(r.stdout,end=''); print(r.stderr,end='',file=sys.stderr); sys.exit(r.returncode)
 '''
     p = call(script, payload)
+    if p.returncode and '[fleet-queue-rejected]' in (p.stderr or ''):
+        raise QueueRejected((p.stderr or '')[-2000:])
     if p.returncode: raise ValueError('Mini 启动失败；请检查 Mini 端任务状态，避免重复启动。\n' + ((p.stderr or '') + (p.stdout or ''))[-600:])
     if p.stdout.startswith('Mini 工作目录不存在'): print(p.stdout.splitlines()[0], flush=True)
     m = re.search(r'^runId: (\S+)', p.stdout, re.M)
@@ -338,7 +344,7 @@ r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini'
     print('Mini runId: ' + rec['id'], flush=True)
     return wait(rec, meta.get('pull', False))
 
-STATUS_KEYS = ('runId', 'status', 'state', 'verdict', 'exitCode', 'resultPath', 'startedAt', 'finishedAt', 'model', 'duration', 'heartbeatAt', 'launchDetached')
+STATUS_KEYS = ('runId', 'status', 'state', 'verdict', 'exitCode', 'resultPath', 'startedAt', 'finishedAt', 'model', 'duration', 'heartbeatAt', 'launchDetached', 'activeMs', 'waitMs', 'pollCount', 'pending')
 
 def query(rec, timeout=20, kill_group=False):
     script = PATH_FIX + '''import base64,json,pathlib,subprocess,sys

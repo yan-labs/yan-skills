@@ -6,6 +6,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { outcomeFor } from './verdict.mjs';
 import { timelineFile } from './timeline.mjs';
 import { recordQuotaOrder } from './order-hook.mjs';
 
@@ -152,12 +153,9 @@ export function buildRow(rec, index, { useReport = true, backfilled = false } = 
   const report = useReport ? safeRead(rec.reportPath) : '';
   const section = /^##\s*结论[ \t]*\n+([^\n]{0,200})/m.exec(report);
   const concluded = conclusionOutcome(rec.reportConclusion ?? section?.[1]);
-  const yieldText = safeRead(rec.logPath?.replace(/\.log$/, '.yield'));
-  let yielded; try { yielded = JSON.parse(yieldText); } catch {}
-  const yieldKind = yielded?.resolvedAt ? null : typeof yielded === 'string' ? yielded : yielded?.type ?? yielded?.kind;
-  const outcome = yieldKind === 'blocked' ? 'partial' : yieldKind === 'park' || yieldKind === 'handoff' ? 'partial'
-    : rec.status === 'stopped' || verdict === 'stopped' ? 'stopped'
-    : concluded ?? (verdict === 'ok' ? 'complete' : verdict === 'partial' ? 'partial' : 'failed');
+  const pending = brief.pending ?? rec.pending ?? 'none';
+  const historical = backfilled && brief.pending === undefined && rec.pending === undefined;
+  const outcome = historical && verdict !== 'stopped' ? concluded ?? outcomeFor(verdict, pending) : outcomeFor(verdict, pending);
   const trailer = parseTrailer(result) ?? parseTrailer(report);
   const isReview = meta.type === 'review' || (!meta.type && Boolean(rec.review || meta.review || meta.for || guessMakerName(name)));
   const executor = executorOf(rec.model, brief.resolvedModel);
@@ -173,7 +171,8 @@ export function buildRow(rec, index, { useReport = true, backfilled = false } = 
     fallbackDeviation: meta.fallback_deviation ?? null,
     localReason: meta.local_reason ?? null,
     type: meta.type ?? (isReview ? 'review' : /orchestrat/i.test(name) ? 'orchestrate' : 'work'),
-    status: rec.status, verdict, outcome, failure: classifyFailure(rec),
+    status: rec.status, verdict, outcome, pending,
+    noProgress: /无进展|无新证据/.test(rec.continueStop ?? brief.continueStop ?? ''), failure: classifyFailure(rec),
     continues: rec.continueCount ?? 0,
     prevRunId: null, prevExecutor: null, prevFailure: null,
     reviewOf: null, pairSource: null,

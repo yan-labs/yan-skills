@@ -50,7 +50,7 @@ try {
   const yieldedRun = rec();
   const yieldedPath = yieldedRun.logPath.replace(/\.log$/, '.yield');
   writeFileSync(yieldedPath, JSON.stringify({type:'park'}));
-  assert(L.buildRow(yieldedRun,new L.LedgerIndex()).outcome === 'partial','未唤醒 park 记部分完成');
+  assert(L.buildRow(yieldedRun,new L.LedgerIndex()).outcome === 'complete','旧记录以运行判定为准');
   writeFileSync(yieldedPath, JSON.stringify({type:'park',resolvedAt:Date.now()}));
   assert(L.buildRow(yieldedRun,new L.LedgerIndex()).outcome === 'complete','已唤醒 park 不污染最终完成口径');
   const blockedRun = rec({status:'blocked',verdict:'partial'});
@@ -87,7 +87,7 @@ try {
   assert(kind(failed('Grok 退出码 1', { logPath: grokLog })) === 'quota', '日志尾部的 402 → quota');
 
   // 3. 结论口径、执行者、复核单名字
-  assert(L.buildRow(rec({ status: 'done', verdict: 'ok', reportConclusion: '受阻：缺输入' }), new L.LedgerIndex()).outcome === 'partial', '受阻报告不记完成');
+  assert(L.buildRow(rec({ status: 'done', verdict: 'ok', reportConclusion: '受阻：缺输入' }), new L.LedgerIndex()).outcome === 'complete', 'outcome 与 verdict 一致');
   assert(L.conclusionOutcome('部分完成：xxx') === 'partial' && L.conclusionOutcome('**仍为部分完成**') === 'partial', '部分完成口径');
   assert(L.conclusionOutcome('完成本单授权内工作') === 'complete' && L.conclusionOutcome('失败：xx') === 'failed' && L.conclusionOutcome('本地盘点') === null, '完成/失败/读不出');
   assert([['gpt-6.2-astra'], ['gpt-6.1-sol'], ['openai-gpt-terra'], ['gpt-6-luna'], ['grok-cli:grok-4.7'], ['kollab-gateway-copy', 'gemini-4-argon'], ['claude-opus'], ['kollab-gateway-gpt-sol', 'gpt-6-sol']]
@@ -139,11 +139,11 @@ try {
   writeState(lone);
   assert(rows().find(r => r.runId === lone.runId).reviewOf === null, '找不到被复核任务则留空');
 
-  // 7. 报告「结论」自述部分完成 → outcome partial(ok 但自述部分)
+  // 7. 实时账本不再以报告自由文字覆盖 verdict
   const withReport = rec({ name: 'beta' });
   writeFileSync(withReport.reportPath, '# beta\n## 结论\n部分完成：还差一步\n');
   writeState(withReport);
-  assert(rows().find(r => r.runId === withReport.runId).outcome === 'partial', 'ok 但报告自述部分完成 → partial');
+  assert(rows().find(r => r.runId === withReport.runId).outcome === 'complete', 'ok 的 outcome 统一为 complete');
 
   // 8. 账本写不了不影响任务:账本路径落在一个普通文件下面
   const blocker = join(scratch, 'blocker');

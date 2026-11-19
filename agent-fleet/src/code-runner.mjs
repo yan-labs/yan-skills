@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto';
 import { resolveCodexModel } from './model-family.mjs';
 import { readYield, resolveYield, writeYield, localCondition, stageState, saveStages, alignStage } from './yield.mjs';
 import { saveCodexQuota, taskIdentity, queueRecord, setSlotState, acquireSlot } from './queue.mjs';
 // Codex 执行层：管理 app-server 回合、插话、自动续做与 exec 降级。
-import { readContinuationState, continuationProgress, continuationRules, judgeContinuation, unfinishedAcceptance } from './code-continue.mjs';
+import { acceptanceResult } from './verdict.mjs';
+import { readContinuationState, continuationProgress, continuationRules, judgeContinuation, acceptanceContinuation } from './code-continue.mjs';
 import { judgeTask } from './judge-task.mjs';
 import { loadModelsConfig } from './config.mjs';
 import { spawn } from 'node:child_process';
@@ -120,7 +122,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const slot = process.env.FLEET_SLOT_RUN_ID ? queueRecord(process.env.FLEET_SLOT_RUN_ID) : null;
   briefPath ??= slot?.briefPath;
   const identity = taskIdentity({ ...slot, briefPath, review });
-  const metadata = { ...identity, briefPath, backend: 'codex-exec', threadId: resume || null, sessionId: resume || null,
+  const metadata = { ...identity, briefPath, slotRunId: slot?.runId, backend: 'codex-exec', threadId: resume || null, sessionId: resume || null,
     steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, high, xhigh, max, simple, sol, luna, astra, family, resolvedModel: model, model, tier: effort, serviceTier, review, resumedFrom };
   const record = (patch = {}) => {
     process.send?.({ codexMetadata: metadata });
@@ -291,6 +293,12 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       return { blocked: true };
     }
     const slotId = process.env.FLEET_SLOT_RUN_ID || runId;
+    const parkedAt = Date.now();
+    const waited = metadata.waitMs ?? 0;
+    metadata.activeMs = parkedAt - startedAt - waited;
+    metadata.waitMs = waited;
+    metadata.pollCount ??= 0;
+    record();
     await setSlotState(slotId, 'parked');
     let result;
     while (!stopping) {
@@ -300,6 +308,9 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         result = { status: 'ask', text: '先处理子任务求助，再决定是否继续等待原条件。' };
         break;
       }
+      metadata.pollCount = (metadata.pollCount ?? 0) + 1;
+      metadata.waitMs = waited + Date.now() - parkedAt;
+      record();
       result = await localCondition(entry.until, { id: entry.sourceId || runId, entry, cwd: workdir, replies: offsetQueue });
       if (result || Date.now() >= entry.at + entry.timeoutMs) break;
       await new Promise(resolve => setTimeout(resolve, 250));
@@ -309,7 +320,10 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     resolveYield(runId, entry, result);
     if (result.status === 'timeout' && entry.timeouts >= 1) {
       writeYield(runId, { type: 'blocked', need: 'input', what: `同条件第二次超时：${entry.until}`, tried: '本地条件等待两次', who: '派单主会话' });
-      return handleYield();
+      const blocked = await handleYield();
+      metadata.yield.external = true;
+      record();
+      return blocked;
     }
     await setSlotState(slotId, 'queued');
     while (queueRecord(slotId) && !(await acquireSlot(slotId))) {
@@ -325,15 +339,30 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     return { prompt: `${entry.say}\n条件：${entry.until}\n终态：${JSON.stringify(result)}${replies.length ? '\n答复：' + replies.join('\n\n') : ''}` };
   };
   let previous, previousHandoff, stagnant = 0;
+  let lastAcceptance = initial;
+  const commandEvidence = new Set();
+  const recordCommandEvidence = item => {
+    const command = item?.command;
+    const output = item?.aggregatedOutput ?? item?.aggregated_output;
+    if (!command || !output) return;
+    commandEvidence.add(createHash('sha256').update(command).update('\0').update(output).digest('hex'));
+  };
+  let previousCommandEvidence = 0;
+  const namedMissing = state => {
+    const count = commandEvidence.size;
+    const { missing, blocked } = acceptanceContinuation(lastAcceptance, state, count > previousCommandEvidence);
+    previousCommandEvidence = count;
+    lastAcceptance = state;
+    if (blocked) {
+      metadata.continueStop = '受阻：本单验收未过且无新证据';
+      log(fleetEvent(FLEET_EVENTS.BLOCKED));
+    }
+    return missing;
+  };
   const checkProgress = (state, handoff) => {
     if (previous) {
       const progress = continuationProgress(previous, state);
       if (handoff !== undefined && previousHandoff !== undefined && handoff !== previousHandoff) progress.progress = true;
-      if (terra && (review || documentTask)) {
-        const oldItems = unfinishedAcceptance(previous.report, previous.finalReply);
-        const newItems = unfinishedAcceptance(state.report, state.finalReply);
-        if (oldItems.some(item => !newItems.includes(item))) progress.progress = true;
-      }
       metadata.continuation.push({ attempt: metadata.continueCount, ...progress });
       stagnant = progress.progress ? 0 : stagnant + 1;
     }
@@ -385,6 +414,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         if (event.method === 'item/completed' && params.item?.type === 'agentMessage' && params.item.phase !== 'commentary')
           writeFileSync(resultPath, params.item.text || '');
         if (event.method === 'thread/tokenUsage/updated') { metadata.usage = params.tokenUsage; record(); }
+        if (event.method === 'item/completed' && params.item?.type === 'commandExecution') recordCommandEvidence(params.item);
         if (event.method === 'turn/completed') { completed = params.turn; finishTurn(); }
       };
       child.stdout.setEncoding('utf8');
@@ -446,16 +476,17 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
           }
           if (yielded?.blocked) break;
           if (yielded?.prompt) { nextPrompt = yielded.prompt; continue; }
-          if (offsetQueue.length || (review && !terra)) break;
+          if (offsetQueue.length) break;
           const state = readContinuationState(workdir, reportPath, prompt);
           state.finalReply = readFileSync(resultPath, 'utf8');
           metadata.reportConclusion = state.conclusion;
           if (/^(?:阻塞|受阻)/.test(state.conclusion)) log(fleetEvent(FLEET_EVENTS.BLOCKED));
           checkProgress(state);
           let missing = [], judgment;
-          if (continueEnabled && (reportPath || terra) && (terra || !state.conclusion.startsWith('失败'))) {
+          if (state.acceptance && !noContinue && process.env.FLEET_NO_CONTINUE !== '1') {
+            missing = namedMissing(state);
+          } else if (continueEnabled && (reportPath || terra) && (terra || !state.conclusion.startsWith('失败'))) {
             missing = reportPath && !review ? continuationRules(state, prompt, workdir, initial) : [];
-            if (terra) missing.push(...unfinishedAcceptance(state.report, state.finalReply));
             if (!missing.length && state.conclusion.startsWith('完成')) {
               judgment = await judgeContinuation({ brief: prompt, report: state.report,
                 finalReply: readFileSync(resultPath, 'utf8'), judge: continuationJudge });
@@ -464,7 +495,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
             metadata.continuationChecks.push({ turn: metadata.numTurns, rules: missing, judge: judgment ?? null });
           }
           metadata.continueRequired = missing.length > 0;
-          if (metadata.continueRequired && stagnant >= 2) metadata.continueStop = '连续两次续做无进展';
+          if (metadata.continueRequired && !state.acceptance && stagnant >= 2) metadata.continueStop = '连续两次续做无进展';
           record();
           if (!metadata.continueRequired || metadata.continueStop) break;
           metadata.continueCount++;
@@ -506,6 +537,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
             try {
               const event = JSON.parse(line);
               if (event.type === 'thread.started') { metadata.threadId = metadata.sessionId = event.thread_id; record(); schedule(); }
+              if (event.type === 'item.completed' && event.item?.type === 'command_execution') recordCommandEvidence(event.item);
               if (event.type === 'turn.completed') metadata.usage = event.usage;
             } catch { /* legacy exec stdout remains in log */ }
           }
@@ -541,11 +573,11 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         state.finalReply = readFileSync(resultPath, 'utf8');
         metadata.reportConclusion = state.conclusion;
         checkProgress(state);
-        const missing = continueEnabled && reportPath && !review ? continuationRules(state, prompt, workdir, initial) : [];
-        if (continueEnabled && terra) missing.push(...unfinishedAcceptance(state.report, state.finalReply));
+        const missing = state.acceptance ? (!noContinue && process.env.FLEET_NO_CONTINUE !== '1' ? namedMissing(state) : [])
+          : continueEnabled && reportPath && !review ? continuationRules(state, prompt, workdir, initial) : [];
         metadata.continueRequired = missing.length > 0;
         metadata.continuationChecks.push({ turn: metadata.numTurns, rules: missing, judge: null });
-        if (metadata.continueRequired && stagnant >= 2) metadata.continueStop = '连续两次续做无进展';
+        if (metadata.continueRequired && !state.acceptance && stagnant >= 2) metadata.continueStop = '连续两次续做无进展';
         if (!metadata.continueRequired || metadata.continueStop) break;
         if (!metadata.threadId) { metadata.continueStop = '缺少 threadId，无法续做'; break; }
         metadata.continueCount++;
@@ -566,8 +598,13 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const result = existsSync(resultPath) ? readFileSync(resultPath, 'utf8') : '';
   if (!existsSync(resultPath)) writeFileSync(resultPath, '');
   const git = inspectGit(workdir, before);
+  let report = '';
+  try { if (reportPath) report = readFileSync(resolve(workdir, reportPath), 'utf8'); } catch {}
+  const acceptance = acceptanceResult(prompt, report, metadata.yield);
+  const finalAcceptance = acceptance && { verdict: acceptance.verdict, pending: acceptance.pending };
   return attachArtifacts({
     ...metadata,
+    acceptance: finalAcceptance,
     tier: effort,
     progress: { phase: outcome.error ? '启动执行器' : 'Codex 进程结束', exitCode: outcome.code ?? null },
     stderr: stderr.split(/\r?\n/).slice(-20).join('\n'),

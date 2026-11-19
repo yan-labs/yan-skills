@@ -8,8 +8,9 @@ import { registerQueue, acquireSlot, queueRecord, setSlotState } from '../src/qu
 import { waitDetached } from '../src/detach.mjs';
 import { appendInbox } from '../src/inbox.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
+import { acceptanceResult } from '../src/verdict.mjs';
 import { runCode } from '../src/code-runner.mjs';
-import { CONTINUE_PROMPT, readContinuationState, continuationProgress, continuationRules, judgeContinuation, unfinishedAcceptance } from '../src/code-continue.mjs';
+import { CONTINUE_PROMPT, readContinuationState, continuationProgress, continuationRules, judgeContinuation, acceptanceContinuation } from '../src/code-continue.mjs';
 import { buildBrief, formatBriefHuman, redactEvidence } from '../src/brief.mjs';
 import { splitShortArgs } from '../src/shortcuts.mjs';
 
@@ -66,6 +67,7 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
    const conclusion = (mode === 'finish' && count > 1) || (mode === 'progress' && count > 5) || mode.startsWith('judge-') || mode === 'complete' || mode === 'missing-sections' ? '完成' : mode === 'fail' ? '失败' : '部分完成';
    let report = '# 测试\\n## 规则回执\\n测试\\n## 实际执行\\n测试\\n## 改动与产物\\n测试\\n## 验证证据\\n测试\\n## 偏差\\n无\\n## 结论\\n' + conclusion + '。\\n## 未完成/风险/需要用户决定的事\\n' + (mode === 'progress' ? count : '待办');
    if (mode === 'missing-sections' || (['finish', 'stuck', 'progress', 'env-off'].includes(mode) && !(mode === 'finish' && count > 1) && !(mode === 'progress' && count > 5))) report = '## 结论\\n' + conclusion + (mode === 'progress' ? count : '');
+   if (mode === 'named-stuck' || mode === 'named-external') report = '## 结论\\nV1｜' + (mode === 'named-stuck' ? '未过' : '等外部') + '｜fixture';
    if (mode === 'progress') fs.writeFileSync(process.env.REPORT_FILE + '.artifact', String(count));
    fs.writeFileSync(process.env.REPORT_FILE, report);
    send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:mode === 'acceptance' && count === 1 ? '证书未核实' : conclusion}}});
@@ -377,9 +379,18 @@ try {
     process.env.FLEET_DETACHED_RUN_ID = `acceptance-${options.review ? 'review' : 'document'}`;
     process.env.TRACE = join(scratch, `${process.env.FLEET_DETACHED_RUN_ID}.trace`);
     const result = await runCode({ prompt: '归类：只读复核\n## 目标\n复核证书', cwd: scratch, codexBin: mock, ...options });
-    assert.equal(result.continueCount, 1);
-    const turns = readFileSync(process.env.TRACE, 'utf8').trim().split('\n').map(JSON.parse).filter(e => e.method === 'turn/start');
-    assert.match(turns[1].params.input[0].text, /证书未核实/);
+    assert.equal(result.continueCount, 0, 'legacy prose does not trigger the retired Terra keyword scan');
+  }
+  for (const [mode, wanted, verdict] of [['named-stuck', 1, 'partial'], ['named-external', 0, 'ok']]) {
+    process.env.MODE = mode;
+    process.env.FLEET_DETACHED_RUN_ID = mode;
+    process.env.TRACE = join(scratch, mode + '.trace');
+    process.env.REPORT_FILE = join(scratch, mode + '.md');
+    const result = await runCode({ prompt: `REPORT: ${process.env.REPORT_FILE}\n## 验收\nV1 fixture｜owner：本单`, cwd: scratch, codexBin: mock });
+    assert.equal(result.continueCount, wanted, mode);
+    assert.equal(buildBrief(result).verdict, verdict, mode);
+    if (wanted) assert.match(result.continueStop, /无新证据/);
+    else assert.equal(buildBrief(result).pending, 'external');
   }
   const execMock = join(scratch, 'codex-exec-mock.cjs');
   writeFileSync(execMock, `#!/usr/bin/env node
@@ -662,11 +673,12 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   rmSync(scratch, { recursive: true, force: true });
 }
 
-// 回归四个实例中的未完成结果，保留原文供续做。
-for (const line of ['未部署或分析出 core 调用栈；线上重试仍可能再次失败。', '尚未完成逐补丁、PR 和回滚核对，因此不能确定 A/B/C 分类。', '未完成：线上 Worker 哈希、开关、证书、指标、签名附件和回滚有效性尚未核实；这些缺口影响最终验收结论。', '未完成 TEST 和生产的版本、哈希及 /assets 回读；线上仍运行旧版。']) {
-  assert.deepEqual(unfinishedAcceptance('', line), [line]);
-}
-assert.deepEqual(unfinishedAcceptance('', '受阻：授权｜生产写入｜查过仓库｜负责人'), []);
-assert.deepEqual(unfinishedAcceptance('', '判断拿不准：未确认根因'), []);
-assert.deepEqual(unfinishedAcceptance('生产写入未完成\n受阻：授权｜生产写入｜查过仓库｜负责人', ''), []);
-assert.deepEqual(unfinishedAcceptance('生产写入未完成\n证书未核实\n受阻：授权｜生产写入｜查过仓库｜负责人', ''), ['证书未核实']);
+// Named items use only report rows and new evidence.
+const named = '## 验收\n- V1 验证｜owner：本单\n- V2 外部｜owner：外部:CI';
+const state = report => ({ head: 'same', acceptance: acceptanceResult(named, '## 结论\n' + report) });
+const before = state('V1｜未过｜a\nV2｜等外部｜CI');
+assert.deepEqual(acceptanceContinuation(before, before), { missing: ['V1'], blocked: true });
+assert.deepEqual(acceptanceContinuation(before, before, true), { missing: ['V1'], blocked: false });
+assert.deepEqual(acceptanceContinuation(before, { ...before, head: 'new' }), { missing: ['V1'], blocked: false });
+assert.deepEqual(acceptanceContinuation(before, state('V1｜未过｜b')), { missing: ['V1'], blocked: false });
+assert.deepEqual(acceptanceContinuation(before, state('V1｜已过｜b\nV2｜未过｜CI')), { missing: [], blocked: false });

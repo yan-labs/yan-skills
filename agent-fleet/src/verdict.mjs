@@ -88,3 +88,45 @@ export function computeVerdict({
 
   return { verdict: 'ok' };
 }
+
+export function acceptanceResult(brief = '', report = '', yielded = null) {
+  const items = new Map();
+  const sections = [...brief.matchAll(/^## (?:验收|派单场景 · [^\r\n]+)[ \t]*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/gm)];
+  for (const [, section] of sections) {
+    for (const [, id, owner] of section.matchAll(/^[ \t]*(?:- )?(V\d+) +[^\r\n｜|]+[｜|]owner[：:] *(本单|外部[:：][^\r\n｜|]+|下游[:：][^\r\n｜|]+)(?=[｜|]|\r?$)/gm)) {
+      items.set(id, owner.trim());
+    }
+  }
+  const conclusion = report.match(/^## 结论[ \t]*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/m)?.[1] ?? '';
+  const handoff = yielded?.type === 'handoff' || /^巡检换班[，,:：]/m.test(conclusion);
+  if (handoff) return { verdict: 'ok', pending: 'handoff', unmet: [], table: '' };
+  if (!items.size) return null;
+  const rows = new Map();
+  for (const [, id, status, evidence] of conclusion.matchAll(/^[ \t]*(?:- )?(V\d+)[ \t]*[｜|][ \t]*(已过|未过|等外部|待下游|已回滚|不适用)[ \t]*[｜|][ \t]*(\S[^\r\n]*)/gm)) {
+    rows.set(id, { status, evidence: evidence.trim() });
+  }
+  const rollback = /^(?:[- ]*回滚(?:条件|出口|方案)[：:] *[^\s]|授权块：[^\r\n]*deploy-prod\b)|正文没写回滚条件时，用/m.test(brief);
+  const unmet = [], missing = [];
+  let pending = 'none';
+  for (const [id, owner] of items) {
+    const status = rows.get(id)?.status;
+    if (owner === '本单') {
+      if (status === '未过') unmet.push(id);
+      else if (!status || (status === '已回滚' && !rollback)) missing.push(id);
+    }
+    if (status === '等外部' || (!status && owner.startsWith('外部'))) pending = 'external';
+    else if ((status === '待下游' || (!status && owner.startsWith('下游'))) && pending !== 'external') pending = 'downstream';
+    else if (status === '已回滚' && rollback && pending === 'none') pending = 'rolled-back';
+  }
+  if (yielded?.external || yielded?.type === 'park') pending = 'external';
+  return {
+    verdict: unmet.length ? 'partial' : missing.length && !yielded?.external ? 'needs-review' : 'ok',
+    pending, unmet, table: JSON.stringify([...items.keys()].sort().map(id => [id, rows.get(id)])),
+  };
+}
+
+export function outcomeFor(verdict, pending = 'none') {
+  if (verdict === 'stopped') return 'stopped';
+  if (verdict === 'ok') return pending === 'none' ? 'complete' : pending;
+  return verdict === 'partial' ? 'partial' : 'failed';
+}

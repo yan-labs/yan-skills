@@ -3,6 +3,7 @@ import argparse
 import base64
 import datetime
 import errno
+import fcntl
 import difflib
 import inspect
 import json
@@ -15,13 +16,42 @@ import subprocess
 import sys
 import time
 import unicodedata
+import uuid
 import mini
 import order
 import worktree
 import clean
-import shlex
+from types import SimpleNamespace
 
 watch_store = runpy.run_path(str(Path(__file__).with_name('watch-store.py')))
+
+gate_reject = runpy.run_path(str(Path(__file__).with_name('gate-reject.py')))
+
+
+def gate_rows():
+    path = gate_reject['path']()
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text().splitlines():
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            pass
+    return rows
+
+
+def dispatch_gate(args, stage, operation, category=None):
+    args.gate_stage = stage
+    try:
+        result = operation()
+    except (ValueError, OSError, subprocess.SubprocessError) as error:
+        if not getattr(args, 'dry_run', False) and not isinstance(error, mini.QueueRejected):
+            gate_reject['record'](args.attempt_id, stage, getattr(error, 'category', category or stage), args.name, error)
+        raise
+    args.gate_stage = None
+    return result
+
 
 BLOCKS = Path(__file__).resolve().parents[1] / 'skill/templates/blocks'
 LEGACY_RULE = "禁止单纯转发，允许分发子步骤：不能把整个任务原样甩给另一个 agent 后只回'已启动/等结果'就结束当轮；可以拆出边界清晰的子步骤交给更便宜的 agent 做，但你必须自己掌握全局、消化并验证子任务结果，最终给出真正的结论作为你的最终答案"
@@ -43,13 +73,7 @@ def block(name, values=None):
 
 
 def rule():
-    stored = block('rule-sentence')
-    source = Path.home() / '.claude/CLAUDE.md'
-    if source.exists():
-        text = source.read_text()
-        if stored not in text and LEGACY_RULE not in text:
-            raise ValueError('请同步 ~/.claude/CLAUDE.md 与 rule-sentence.md 的负责人规则句。')
-    return stored
+    return block('rule-sentence')
 
 
 def repository_roots(paths, on):
@@ -162,7 +186,7 @@ def rewrite_worktree(text, meta, wt, location):
         for alias in aliases:
             if value == alias or value.startswith(alias + '/'): return target + value[len(alias):]
         return value
-    for key in ('paths', 'writes'):
+    for key in ('paths', 'writes', 'parameterPaths'):
         meta[key] = [mapped(v) for v in meta.get(key, [])]
     if not meta.get('object'):
         meta['object'] = {'repo': target, 'writes': list(meta.get('writes', [])), 'environment': '', 'question': ''}
@@ -313,15 +337,11 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
                 repo_path = repo_match.group(1) if repo_match else '/'
                 concrete = [os.path.normpath(f if f.startswith('/') else os.path.join(repo_path, f)) for f in files]
                 object_match = re.search(r'^对象: (.+)$', text, re.M)
-                if object_match:
-                    # Generated scope starts with the report and task scratch directory.
-                    scoped = [*entry_writes,
-                              *json.loads(object_match.group(1)).get('writes', []),
-                              *(re.findall(r'^- (/[^\n]+)$', allowed.group(1), re.M)[2:] if allowed else [])]
-                else:
-                    report = re.search(r'^REPORT: (.+)$', text, re.M)
-                    outputs = {report.group(1), '/tmp/' + Path(report.group(1)).stem + '/'} if report else set()
-                    scoped = [p for p in writes if p not in outputs]
+                report = re.search(r'^REPORT: (.+)$', text, re.M)
+                target = Path(report.group(1)) if report else None
+                outputs = {str(target), str(target.with_suffix('.checkpoint.md')), '/tmp/' + target.stem + '/'} if target else set()
+                scoped = [p for p in (json.loads(object_match.group(1)).get('writes', []) if object_match else writes)
+                          if not any(Path(p).resolve() == Path(output).resolve() for output in outputs)]
                 if not concrete or any(not any(f == w.rstrip('/') or f.startswith(w.rstrip('/') + '/') for f in concrete) for w in scoped):
                     errors.append('Terra 的跨服务目标入口未列全具体文件，请改用 Sol（加 --sol）或补齐入口文件。')
         if errors:
@@ -373,7 +393,12 @@ def launch(meta):
         meta['execution'] = 'local'
         meta['watch_seat'] = watch_seat(meta)
         Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
-        os.execvpe('fleet', command(meta), {**os.environ, 'FLEET_SEAT': meta['watch_seat'] or ''})
+        try:
+            os.execvpe('fleet', command(meta), {**os.environ, 'FLEET_SEAT': meta['watch_seat'] or ''})
+        except OSError:
+            meta['execution'] = 'failed'
+            Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
+            raise
     reason = 'Mini 不可达' if not mini.available() else mini.preflight(meta, meta.get('paths', []))
     meta['execution'] = 'failed' if reason else 'mini'
     if not reason:
@@ -381,7 +406,12 @@ def launch(meta):
     Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     if reason:
         raise ValueError(reason + '；请在 Mini 补齐（建 worktree、同步目录）后重派。')
-    sys.exit(mini.launch(meta, command(meta)))
+    try:
+        sys.exit(mini.launch(meta, command(meta)))
+    except mini.QueueRejected:
+        meta['execution'] = 'failed'
+        Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
+        raise
 
 
 def running(active_only=True, status_timeout=None, recent_seconds=None):
@@ -453,7 +483,7 @@ def entry_paths(text):
     if not match:
         return []
     entry = match.group(1)
-    return [*mini.referenced_paths(WRITE_DECLARATION.sub('', entry)), *entry_write_paths(entry)]
+    return [*([repo] if (repo := entry_repo(text)) else []), *entry_write_paths(entry)]
 
 
 def refresh_body(path, meta, text):
@@ -463,6 +493,8 @@ def refresh_body(path, meta, text):
     if not body_path or not body_path.is_file():
         return text
     body = body_path.read_text().strip()
+    if meta.get('report'):
+        body = narrow_report_entry(body, meta['report'])
     old = meta.get('body_text')
     if legacy and body_path.stat().st_mtime <= path.stat().st_mtime:
         return text
@@ -477,10 +509,10 @@ def refresh_body(path, meta, text):
     if meta.get('object') or repo:
         entry_writes = entry_write_paths(body)
         previous = meta.get('object') or {}
-        meta['object'] = {'repo': repo.group(1).strip('`') if repo else '', 'writes': list(dict.fromkeys([*meta.get('writes', []), *entry_writes])),
+        meta['object'] = {**previous, 'repo': repo.group(1).strip('`') if repo else '', 'writes': report_writes([*meta.get('writes', []), *entry_writes], meta.get('report') or str(path.with_name(path.name.replace('.brief.md', '.md')))),
                           'environment': previous.get('environment', ''), 'question': previous.get('question', '')}
         text = re.sub(r'^对象: .*$', lambda m: '对象: ' + json.dumps(meta['object'], ensure_ascii=False), text, count=1, flags=re.M)
-    meta['paths'] = list(dict.fromkeys([*meta.get('paths', []), *entry_paths(body)]))
+    meta['paths'] = list(dict.fromkeys([*meta.get('parameterPaths', []), *entry_paths(body)]))
     meta['body'], meta['body_text'] = str(body_path), body
     path.write_text(text)
     print(f'已按 {body_path} 更新 brief 正文（修订块保留）：{path}', flush=True)
@@ -534,10 +566,12 @@ def brief_gate_errors(root, actions, text):
 
 
 def scene_paths(root, warn=False):
-    if not root:
-        return {}
-    paths = {path.stem: path for path in (root / '.rankup/dispatch-scenes').glob('*.md')}
-    paths.update({path.stem: path for path in (root / '.agent-fleet/scenes').glob('*.md')})
+    global_scenes = Path.home() / '.agent-fleet/scenes'
+    paths = {path.stem: path for path in (BLOCKS.parent / 'scenes').glob('*.md')}
+    paths.update({path.stem: path for path in global_scenes.glob('*.md')})
+    if root:
+        paths.update({path.stem: path for path in (root / '.rankup/dispatch-scenes').glob('*.md')})
+        paths.update({path.stem: path for path in (root / '.agent-fleet/scenes').glob('*.md')})
     if warn and any(path.parent.name == 'dispatch-scenes' for path in paths.values()):
         print('警告：请将旧场景从 .rankup/dispatch-scenes/ 迁到 .agent-fleet/scenes/。', file=sys.stderr)
     return dict(sorted(paths.items()))
@@ -568,7 +602,7 @@ def context(root):
             print('\n'.join((directory / 'README.md').read_text().splitlines()[:60]))
     scenes = dispatch_scenes(root)
     if scenes:
-        print('## 项目场景')
+        print('## 派单场景')
         for name, (data, _) in scenes.items():
             print(f"- {name} · {data['description']}")
     print('优先级：用户当场指令 > 调遣令 > 项目层 > 全局层 > 源码默认。授权红线不被任何层放宽。')
@@ -674,7 +708,8 @@ def recently_used_scenes(root, cutoff):
 
 def doctor(root):
     global_layer = Path.home() / '.agent-fleet'
-    scenes = scene_paths(root, warn=True)
+    builtin = BLOCKS.parent / 'scenes'
+    scenes = {name: path for name, path in scene_paths(root, warn=True).items() if path.parent != builtin}
     layers = [(global_layer, sorted((global_layer / 'scenes').glob('*.md')))]
     if root:
         layers.append((root / '.agent-fleet', list(scenes.values())))
@@ -824,12 +859,13 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     name = meta.get('name') or path.name[:-len('.brief.md')]
     override = override_order or meta.get('order_override')
     original = ', '.join([gpt_tier(meta)] + [f'--{k}' for k, v in [('simple', simple), ('sol', sol), ('astra', astra), ('luna', luna), ('fast', fast), ('no-fast', no_fast), ('low', low), ('high', high), ('xhigh', xhigh), ('max', max)] if v])
-    fallback = quota_fallback(to or meta['to'], meta.get('review'), original)
+    attempt = SimpleNamespace(attempt_id=str(uuid.uuid4()), name=name)
+    fallback = dispatch_gate(attempt, 'order', lambda: quota_fallback(to or meta['to'], meta.get('review'), original))
     if fallback:
         to = 'openai'
         simple = fast = no_fast = luna = high = xhigh = max = low = sol = astra = False
         meta['fallback_deviation'] = fallback
-    deviation = order.gate(to or meta['to'], override)
+    deviation = dispatch_gate(attempt, 'order', lambda: order.gate(to or meta['to'], override))
     if fallback:
         lines = path.read_text().splitlines(keepends=True)
         path.write_text(''.join(lines[:2]) + '\n' + fallback + '\n' + ''.join(lines[2:]))
@@ -909,7 +945,7 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
             old = mini.local_path(existing['path']) if meta.get('worktree_location') == 'mini' else existing['path']
             repo = mini.local_path(existing['repo']) if meta.get('worktree_location') == 'mini' else existing['repo']
             text = text.replace(old, repo)
-            for key in ('paths', 'writes'):
+            for key in ('paths', 'writes', 'parameterPaths'):
                 meta[key] = [repo + v[len(old):] if v == old or v.startswith(old + '/') else v for v in meta.get(key, [])]
             meta['object']['repo'] = repo
             meta['object']['writes'] = [repo + v[len(old):] if v == old or v.startswith(old + '/') else v for v in meta['object']['writes']]
@@ -920,9 +956,8 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         else:
             text = rewrite_worktree(text, meta, wt, location)
             path.write_text(text)
-    if 'paths' not in meta:
-        meta['paths'] = entry_paths(text)
-    checked(text, target, bool(selected_simple), on or 'mini', True, target == 'gpt' and selected in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project'))
+    meta['paths'] = list(dict.fromkeys([*meta.get('parameterPaths', meta.get('writes', [])), *entry_paths(text)]))
+    dispatch_gate(attempt, 'lint', lambda: checked(text, target, bool(selected_simple), on or 'mini', True, target == 'gpt' and selected in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project')))
     if target != meta['to']:
         meta.pop('tier', None)
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
@@ -933,7 +968,7 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         if target == 'gpt' and not selected_luna:
             meta.pop('xhigh', None)
             meta.pop('max', None)
-    meta.update(to=target, name=name, brief=str(path))
+    meta.update(to=target, name=name, brief=str(path), attemptId=attempt.attempt_id)
     meta['on'] = on or 'mini'
     meta['local_reason'] = local_reason if on == 'local' else None
     if on == 'local' and '本机执行偏差：' + local_reason.strip() not in path.read_text():
@@ -982,7 +1017,7 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         meta['questions'] = str(path.with_suffix('.questions.json'))
         Path(meta['questions']).write_text(json.dumps({'decision': {'type': 'noul', 'instructions': text}}, ensure_ascii=False) + '\n')
     path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
-    launch(meta)
+    dispatch_gate(attempt, 'lint', lambda: launch(meta), category='preflight')
 
 
 def diagnostic_path(value):
@@ -1190,10 +1225,12 @@ NONCAP = [('quota', '额度'), ('capacity', '容量/429'), ('zombie', '僵尸'),
 MIN_SAMPLE = 8
 
 
-def ledger_rows():
+def ledger_rows(allow_missing=False):
     """读账本 ~/.agent-fleet/ledger.jsonl（环境变量 AGENT_FLEET_LEDGER 可改路径）；坏行跳过。"""
     path = Path(os.environ.get('AGENT_FLEET_LEDGER') or Path.home() / '.agent-fleet/ledger.jsonl')
     if not path.exists():
+        if allow_missing:
+            return path, []
         raise ValueError(f'账本不存在：{path}。先运行 bin/fleet-ledger-backfill.mjs 回填，或等新任务结束自动写入。')
     rows = []
     for line in path.read_text().splitlines():
@@ -1216,14 +1253,68 @@ def mean_text(values):
     return f'{sum(values) / len(values):.2f} (n={len(values)})' if values else '-'
 
 
+def fault_score(rows, args):
+    lower, upper = args.since or '', args.until or '9999-12-31'
+    rejects = [r for r in gate_rows() if lower <= r.get('date', '') <= upper]
+    resolver = Path(__file__).with_name('verdict.mjs').as_uri()
+    script = f"""import {{ outcomeFor }} from '{resolver}';
+import {{ readFileSync }} from 'node:fs';
+console.log(JSON.stringify(JSON.parse(readFileSync(0,'utf8')).map(r => outcomeFor(r.verdict,r.pending))));"""
+    outcomes = json.loads(subprocess.run(['node', '--input-type=module', '-e', script],
+                                         input=json.dumps(rows), capture_output=True, text=True, check=True).stdout)
+    count = len(rows)
+    partial = [r for r in rows if r.get('outcome') == 'partial']
+    snapshots = [r for r in rows if 'snapshot-patrol' in (r.get('scenes') or [])]
+    runs = Path(os.environ.get('AGENT_FLEET_RUNS_DIR') or Path.home() / '.agent-fleet/runs')
+    no_progress = unknown_progress = 0
+    for row in rows:
+        if 'noProgress' in row:
+            no_progress += bool(row['noProgress'])
+            continue
+        run_id = row.get('runId', '')
+        try:
+            if not run_id or Path(run_id).name != run_id:
+                raise ValueError('invalid run id')
+            state = json.loads((runs / f'{run_id}.json').read_text())
+            stop = state.get('continueStop') or (state.get('brief') or {}).get('continueStop', '')
+            no_progress += bool(re.search(r'无进展|无新证据', stop or ''))
+        except (OSError, ValueError, AttributeError):
+            unknown_progress += 1
+    examples = subprocess.run(['node', str(BLOCKS.parents[2] / 'test/dispatch-examples.mjs')], capture_output=True, text=True, timeout=90)
+    example_rows = json.loads(examples.stdout)
+    passed = sum(r['status'] == 'pass' for r in example_rows)
+    deferred = sum(r['status'] == 'deferred' for r in example_rows)
+    stages = {r.get('stage') for r in rejects} & {'lint', 'order', 'queue', 'launch-hook'}
+    pending = {p: sum(r.get('pending') == p and r.get('verdict') == 'ok' for r in rows)
+               for p in ('external', 'downstream', 'rolled-back', 'handoff')}
+    print(f'日期窗：{lower or "最早"} 至 {args.until or "最新"}（含两端）')
+    print(f'判定与 outcome 不一致：{sum(r.get("outcome") != o for r, o in zip(rows, outcomes))}/{count}')
+    print(f'无进展续做停机：{no_progress}/{count}；缺历史状态 {unknown_progress}')
+    print(f'部分完成：{len(partial)}/{count}；pending={json.dumps(pending)}')
+    report_overlap = sum(1 for r in rejects if r.get('category') == 'report-overlap' or (
+        r.get('category') == 'write-overlap' and re.search(r'/(?:\.agent-reports|\.agent-fleet/reports)(?:/|\b)', r.get('reason') or '')))
+    print(f'涉及报告路径的重叠拒绝：{report_overlap}')
+    print(f'示例 dry-run（当前版本）：{passed}/{len(example_rows) - deferred}；等待内联正文 {deferred}')
+    print(f'拒绝落账覆盖阶段：{len(stages)}/4（{", ".join(sorted(stages)) or "无样本"}）')
+    print(f'快照巡检部分完成：{sum(r.get("outcome") == "partial" for r in snapshots)}/{len(snapshots)}')
+
+
+
 def score(args):
     """只读账本，按执行者给出计数；不设总分权重。样本少于 8 的标「样本不足」。"""
-    path, rows = ledger_rows()
+    path, rows = ledger_rows(allow_missing=args.fault_window)
     total_rows = len(rows)
-    if args.since:
-        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', args.since):
-            raise ValueError('--since 需要 YYYY-MM-DD。')
-        rows = [r for r in rows if (r.get('date') or '') >= args.since]
+    for flag, value in (('--since', args.since), ('--until', args.until)):
+        if value:
+            if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+                raise ValueError(f'{flag} 需要 YYYY-MM-DD。')
+            datetime.date.fromisoformat(value)
+    if args.since and args.until and args.since > args.until:
+        raise ValueError('--since 不得晚于 --until。')
+    rows = [r for r in rows if (not args.since or (r.get('date') or '') >= args.since)
+            and (not args.until or (r.get('date') or '') <= args.until)]
+    if args.fault_window:
+        return fault_score(list({r['runId']: r for r in rows if r.get('runId')}.values()), args)
     makers = [r for r in rows if r.get('type') != 'review']
     checkers = [r for r in rows if r.get('type') == 'review']
     # 复核单 -> 被复核的那次做活 run：同名、更早开始、取最近一次。
@@ -1266,8 +1357,42 @@ def score(args):
         print(f'\n复核单 {len(checkers)} 条，已关联被复核任务 {paired} 条（--for 显式 {sum(1 for r in checkers if r.get("pairSource") == "explicit")}，同名前缀推测 {sum(1 for r in checkers if r.get("pairSource") == "inferred")}）。')
 
 
+def report_writes(paths, report):
+    target = Path(report).resolve()
+    checkpoint = target.with_suffix('.checkpoint.md')
+    roots = [root.resolve() for root in clean.report_roots()]
+    return list(dict.fromkeys(report if target.is_relative_to(Path(p).resolve()) and
+                              any(Path(p).resolve().is_relative_to(root) for root in roots) else p
+                              for p in paths if Path(p).resolve() not in (target, checkpoint) or p == report))
+
+
+def narrow_report_entry(body, report):
+    def rewrite(section):
+        def narrow(declaration):
+            paths = entry_write_paths(declaration.group())
+            scoped = report_writes(paths, report)
+            if paths == scoped:
+                return declaration.group()
+            return '可写路径: ' + '、'.join(scoped or [report])
+        return WRITE_DECLARATION.sub(narrow, section.group())
+    return re.sub(r'^## 入口[ \t]*\n[\s\S]*?(?=^## |\Z)', rewrite, body, count=1, flags=re.M)
+
+
+def retry_metadata(path):
+    try:
+        meta = json.loads(path.with_suffix('.json').read_text())
+    except (OSError, ValueError):
+        return None
+    if meta.get('execution') == 'failed' or (meta.get('attemptId') and any(
+            r.get('attemptId') == meta['attemptId'] and r.get('stage') == 'queue' for r in gate_rows())):
+        return meta
+    return None
+
+
 def new(args, prepare=False):
     """组装标准 brief；预览不写盘，正文文件与 stdin 使用明确输入规则。"""
+    args.attempt_id = str(uuid.uuid4())
+    args.gate_stage = None
     if args.on == 'local' and not (args.local_reason or '').strip(): raise ValueError('--on local 必须同时提供 --local-reason 理由。')
     if args.local_reason and args.on != 'local': raise ValueError('--local-reason 仅用于 --on local。')
     if args.body and args.body != '-':
@@ -1299,12 +1424,12 @@ def new(args, prepare=False):
     if args.to == 'claude' and args.tier == 'fable':
         raise ValueError('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）')
     original = ', '.join([('astra' if args.astra else 'sol' if args.sol else 'luna' if args.luna else 'terra')] + [f'--{k.replace("_", "-")}' for k in ('simple', 'sol', 'astra', 'luna', 'fast', 'no_fast', 'low', 'high', 'xhigh', 'max') if getattr(args, k)])
-    fallback = quota_fallback(args.to, args.review, original)
+    fallback = dispatch_gate(args, 'order', lambda: quota_fallback(args.to, args.review, original))
     if fallback:
         args.to = 'openai'
         for key in ('simple', 'sol', 'astra', 'luna', 'fast', 'no_fast', 'low', 'high', 'xhigh', 'max'):
             setattr(args, key, False)
-    deviation = order.gate(args.to, args.override_order)
+    deviation = dispatch_gate(args, 'order', lambda: order.gate(args.to, args.override_order))
     for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
                              ('low', ['gpt', 'gemini']), ('high', ['gpt', 'gemini']), ('xhigh', ['gpt', 'gemini']), ('max', ['gpt']), ('simple', ['gpt']), ('sol', ['gpt']), ('luna', ['gpt']), ('astra', ['gpt']), ('model', ['grok']), ('subagents', ['grok']),
                              ('bulk', ['gemini'])]:
@@ -1327,15 +1452,18 @@ def new(args, prepare=False):
     day = datetime.date.today().isoformat()
     folder = clean.report_roots()[0] / day
     path = folder / (args.name + '.brief.md')
-    if any((root / day / path.name).exists() for root in clean.report_roots()) and not args.dry_run:
+    retry = retry_metadata(path) if path.exists() and not args.dry_run else None
+    if any((root / day / path.name).exists() and (root / day / path.name != path or retry is None) for root in clean.report_roots()) and not args.dry_run:
         raise ValueError(f'同名 brief 已存在，拒绝覆盖：{path}\n改需求后重派：fleet-go amend {args.name} "<修订说明>" --say\n原样重派（--body 文件改过会自动换进 brief）：fleet-go relaunch {args.name}\n另起一单：把名字换成 {args.name}-2 重跑原命令')
     report = str(Path(args.report).expanduser().absolute()) if args.report else str(folder / (args.name + '.md'))
+    body = narrow_report_entry(body, report)
     auth = args.auth.split(',')
     if any(a not in AUTH for a in auth):
         raise ValueError('未知授权块。可用：' + ','.join(AUTH))
     if 'local-commit' in auth:
         auth = [a for a in auth if a != 'local']
-    pitfalls = args.pitfalls.split(',') if args.pitfalls is not None else (['node-proxy', 'zsh', 'secrets', 'shared-tree'] if args.to in ('gpt', 'grok') else ['secrets', 'fleet-bg'])
+    pitfalls = args.pitfalls.split(',') if args.pitfalls is not None else [
+        key.removeprefix('pitfall-') for _, data, _ in scenes for key in data.get('blocks', [])]
     if args.pitfalls is None and 'deploy-prod' in auth:
         pitfalls.append('pnpm-entry')
         pitfalls.extend(p.stem[8:] for p in BLOCKS.glob('pitfall-deploy-*.md'))
@@ -1347,7 +1475,14 @@ def new(args, prepare=False):
     if args.to == 'claude':
         classification += ' ' + (args.tier or 'sonnet')
     is_review = bool(args.review or args.for_name or (args.type or '').lower() == 'review')
-    parts = [f'归类：{classification}；理由：{args.why or classification + "任务，按既有路由执行"}\nREPORT: {report}', block('style-sol', values), block('time-box', values),
+    orchestrator = args.type == 'orchestrate'
+    if args.subagents and not orchestrator:
+        raise ValueError('--subagents 仅用于明确标明 --type orchestrate 的总管单。')
+    checkpoint = str(Path(report).with_suffix('.checkpoint.md'))
+    values['CHECKPOINT'] = checkpoint
+    style = block('style-sol', values)
+    role = block('role-orchestrator' if orchestrator else 'role-single', values)
+    parts = [f'归类：{classification}；理由：{args.why or classification + "任务，按既有路由执行"}\nREPORT: {report}', style + '\n' + role, block('time-box', values),
              '## 授权覆盖\n' + '\n\n'.join(block('auth-' + a, values) for a in dict.fromkeys(auth))]
     if args.task_action:
         parts.append('动作: ' + args.task_action)
@@ -1369,55 +1504,78 @@ def new(args, prepare=False):
         parts.append('## 产物要求\n' + block('make-' + args.make, {'OUTDIR': '/tmp/' + args.name + '/'}))
         if args.make == 'image':
             parts.append('执行方法：' + ('使用 imagegen Skill 和 Codex 内置 image_gen 工具。' if args.to == 'gpt' else 'Grok 使用内置 image_gen / image_edit 工具，model 参数留空。' if args.to == 'grok' else '使用当前产品可用的真实图片生成工具，生成受阻时如实报告缺口。'))
-    writes = [report, '/tmp/' + args.name + '/', *(args.write or [])]
+    writes = [report, checkpoint, '/tmp/' + args.name + '/', *report_writes(args.write, report)]
     parts.append('## 允许范围\n允许写：\n' + '\n'.join('- ' + p for p in dict.fromkeys(writes)) + '\n- 正文明确写了“允许读写”的路径（含源码仓与其 .git）\n只读：\n' + ('\n'.join('- ' + p for p in (args.read or [])) or '按正文指定路径读取。'))
     if args.forbid:
         parts.append('另行授权事项：' + args.forbid)
-    parts.append('## 已知坑\n' + '\n\n'.join(block('pitfall-' + p, values) for p in dict.fromkeys(pitfalls) if p))
+    pitfall_blocks = {f'pitfall-{p}': block('pitfall-' + p, values) for p in dict.fromkeys(pitfalls) if p}
+    if pitfall_blocks:
+        parts.append('## 已知坑\n' + '\n\n'.join(pitfall_blocks.values()))
     parts.extend(['## 验收\n' + (('产物清单：\n' + '\n'.join('- ' + item for item in args.deliverables) + '\n\n') if args.deliverables else '') + block('accept-boilerplate', values) + '\n\n' + block('report-template', values)
                   + ('\n\n' + block('review-ledger', values) if is_review else ''), rule()])
-    repo_match = re.search(r'^仓库[ \t]*[:：][ \t]*([^\s，,；;（(]+)', body, re.M)
-    entry_writes = entry_write_paths(body)
-    object_ = {'repo': repo_match.group(1).strip('`') if repo_match else '',
-               'writes': list(dict.fromkeys([*(args.write or []), *entry_writes])),
+    repo = entry_repo(body)
+    entry = re.search(r'^## 入口[ \t]*\n(.*?)(?=^## |\Z)', body, re.M | re.S)
+    entry_writes = entry_write_paths(entry.group(1)) if entry else []
+    object_ = {'repo': repo or '',
+               'writes': [p for p in report_writes([*args.write, *entry_writes], report) if p != report],
                'environment': args.environment or '', 'question': args.question or args.goal or ''}
+    if any(name == 'snapshot-patrol' for name, _, _ in scenes):
+        window = re.search(r'^时间窗[：:] *(\S[^\r\n]*)', body, re.M)
+        if not window:
+            raise ValueError('快照巡检正文须填「时间窗: <起止时间>」。')
+        object_['window'] = window.group(1).strip()
     parts.insert(2, '对象: ' + json.dumps(object_, ensure_ascii=False))
     if fallback:
         parts.insert(3, fallback)
     if deviation:
         parts.insert(3, deviation)
     if args.on == 'local': parts.insert(3, '本机执行偏差：' + args.local_reason.strip())
+    used_ids = {int(n) for n in re.findall(r'^\s*(?:- )?V(\d+)\s', body, re.M)}
+    def scene_acceptance(data):
+        rows = []
+        for item in data['acceptance']:
+            match = re.match(r'V(\d+) ', item)
+            if match:
+                number = int(match.group(1))
+                while number in used_ids:
+                    number += 1
+                used_ids.add(number)
+                item = f'V{number} ' + item[match.end():]
+            rows.append('- ' + item)
+        return '\n'.join(rows)
     parts[1:1] = [f"## 派单场景 · {name}\n{data['description']}\n\n{content}"
                   + ('\n\n可写路径模板（由派单人填写）：' + '、'.join(data['writes']) if data.get('writes') else '')
-                  + '\n\n验收要点：\n' + '\n'.join('- ' + item for item in data['acceptance'])
+                  + '\n\n验收要点：\n' + scene_acceptance(data)
                   for name, data, content in scenes]
     parts.insert(1, block('thinking-principles'))  # 思维准则：每单必带，紧随“归类/REPORT”首部，排在其余样板之前
-    if args.to == 'gpt' and (args.sol or args.astra):
-        parts.insert(-1, OBSTACLE_NOTE)
     text = dispatch_lessons('\n\n'.join(parts) + '\n')
     location = args.on or 'mini'
     if location == 'mini' and not (args.dry_run or args.no_launch or prepare) and not mini.available():
         raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
-    checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna or args.astra), location, True, args.sol or args.astra, args.no_lint, project)
+    dispatch_gate(args, 'lint', lambda: checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna or args.astra), location, True, args.sol or args.astra, args.no_lint, project))
     action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', body, re.M)
     actions = args.task_action or (action_match.group(1) if action_match else '')
-    meta = {'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
+    parameter_paths = [*(mini.expand_path(p) for p in (args.read or [])), *report_writes(args.write, report)]
+    meta = {'attemptId': args.attempt_id, 'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
             'auth': auth, 'no_lint': args.no_lint, 'actions': [a.strip() for a in actions.split('/') if a.strip()],
             'tier': ('astra' if args.astra else 'luna' if args.luna else 'sol' if args.sol else 'terra') if args.to == 'gpt' else args.tier, 'review': args.review, 'sol': args.sol, 'astra': args.astra, 'low': args.low, 'high': args.high,
             'xhigh': True if (args.to == 'gemini' and not (args.low or args.high)) else args.xhigh,
             'max': args.max, 'simple': args.simple, 'luna': args.luna, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,
             'subagents': args.subagents, 'bulk': args.bulk, 'expect-changes': args.expect_changes,
             # 账本用：难度档、任务类型、被复核任务名；relaunch/amend 沿用 meta，不另存。
-            'paths': list(dict.fromkeys([*(mini.expand_path(p) for p in (args.read or [])), *(mini.expand_path(p) for p in (args.write or [])), *entry_paths(body)])),
-            'writes': [mini.expand_path(p) for p in (args.write or [])],
+            'parameterPaths': parameter_paths,
+            'paths': list(dict.fromkeys([*parameter_paths, *([repo] if repo else []), *report_writes(entry_writes, report)])),
+            'writes': report_writes(args.write, report),
             'body': body_file, 'body_text': body.strip(), 'order_override': args.override_order if deviation else None, 'fallback_deviation': fallback,
-            'on': args.on or 'mini', 'local_reason': args.local_reason, 'pull': args.pull, 'object': object_ if object_['repo'] else None, 'after': args.after, 'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
+            'on': args.on or 'mini', 'local_reason': args.local_reason, 'pull': args.pull, 'object': object_ if object_['repo'] or object_['writes'] or object_.get('window') else None, 'after': args.after, 'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
     if project:
         meta['project'] = str(project)
     if scenes:
         meta['scenes'] = [name for name, _, _ in scenes]
-    if args.worktree is not None:
-        wt = prepare_worktree(args.name, object_['writes'], args.worktree, location, object_['repo'] or None)
+    if args.worktree is not None and not (args.dry_run or prepare):
+        wt = (retry or {}).get('worktree')
+        if not wt or retry.get('worktree_location') != location:
+            wt = prepare_worktree(args.name, object_['writes'], args.worktree, location, object_['repo'] or None)
         text = rewrite_worktree(text, meta, wt, location)
     if args.to == 'jev':
         meta['questions'] = str(path.with_suffix('.questions.json'))
@@ -1429,19 +1587,36 @@ def new(args, prepare=False):
             script = f"import {{resolveCodexModel}} from '{resolver}'; console.log(resolveCodexModel(process.argv[1]));"
             actual = subprocess.check_output(['node', '--input-type=module', '-e', script, meta['tier']], text=True).strip()
             print(f"模型：{meta['tier']} / {actual}", file=sys.stderr)
+        if args.worktree is not None:
+            print(f"将准备工作树：{object_['repo'] or '由 --write 推断'} / {args.name} / {args.worktree or '默认基点'}", file=sys.stderr)
+        if 'deploy-prod' in auth and not re.search(r'^.*回滚(?:条件|出口|方案)', body, re.M):
+            print('使用默认回滚：发布前版本或开关 0%。', file=sys.stderr)
+        blocks = {'header': parts[0], 'thinking-principles': block('thinking-principles'),
+                  'role': style + '\n' + role + '\n' + rule(), 'time-box': block('time-box', values),
+                  'accept-boilerplate': block('accept-boilerplate', values), 'report-template': block('report-template', values),
+                  **{f'auth-{a}': block(f'auth-{a}', values) for a in auth}, **pitfall_blocks}
+        if is_review:
+            blocks['review-ledger'] = block('review-ledger', values)
+        total = sum(map(len, blocks.values()))
+        print('样板字符数：' + ' '.join(f'{name}={len(value)}' for name, value in blocks.items()) +
+              f'；样板占比 {total / len(text):.1%} ({total}/{len(text)})', file=sys.stderr)
         print(text, end='')
         print('\n将执行：' + shlex.join(command(meta)) + (f"（{gpt_tier(meta).capitalize()}）" if meta['to'] == 'gpt' else ''), file=sys.stderr)
         return
     folder.mkdir(parents=True, exist_ok=True)
-    with path.open('x') as file:
-        file.write(text)
-    if args.to == 'jev':
-        Path(meta['questions']).write_text(json.dumps({'decision': {'type': 'noul', 'instructions': args.goal or body.strip()}}, ensure_ascii=False) + '\n')
-    path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
+    with (folder / '.dispatch.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if path.exists() and (not retry or retry_metadata(path) != retry):
+            raise ValueError(f'同名 brief 已存在，拒绝覆盖：{path}')
+        with path.open('w' if retry else 'x') as file:
+            file.write(text)
+        if args.to == 'jev':
+            Path(meta['questions']).write_text(json.dumps({'decision': {'type': 'noul', 'instructions': args.goal or body.strip()}}, ensure_ascii=False) + '\n')
+        path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     if args.no_launch:
         print(f'已生成：{path}')
     else:
-        launch(meta)
+        dispatch_gate(args, 'lint', lambda: launch(meta), category='preflight')
 
 
 def batch(args, parser):
@@ -1618,6 +1793,8 @@ def build_parser():
     p = sub.add_parser('status')
     p.add_argument('--all', action='store_true')
     p = sub.add_parser('score')
+    p.add_argument('--fault-window', action='store_true', help='输出判定和派单的七项指标')
+    p.add_argument('--until', help='只统计该日期（YYYY-MM-DD）及以前的账本行')
     p.add_argument('--since', help='只统计该日期（YYYY-MM-DD）及以后的账本行')
     return parser
 
@@ -1632,7 +1809,12 @@ def main():
     if hasattr(args, 'name') and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.name) and not (args.action in ('relaunch', 'amend', 'worktree') and args.name.endswith('.brief.md')):
         raise ValueError('名称只能包含字母、数字、下划线与连字符。')
     if args.action == 'new':
-        new(args)
+        try:
+            new(args)
+        except (ValueError, OSError, subprocess.SubprocessError) as error:
+            if not args.dry_run and not args.gate_stage:
+                gate_reject['record'](args.attempt_id, 'lint', 'input', args.name, error)
+            raise
     elif args.action == 'context':
         context(project_root(args.project))
     elif args.action == 'doctor':

@@ -3,7 +3,8 @@ import { existsSync, statSync, mkdirSync, readFileSync, readdirSync, realpathSyn
 import { dirname, join, resolve } from 'node:path';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { pathToFileURL } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runsDir } from './progress.mjs';
 import { isRecordedProcessAlive, processCommand } from './pid.mjs';
 import { fleetEvent } from './timeline.mjs';
@@ -37,7 +38,12 @@ export function taskObject(briefPath) {
   const meta = read(metaPath);
   const object = meta?.object;
   if (!object) return null; // Legacy/direct fleet briefs still share the machine slot limit.
-  return { ...object, repo: canonicalPath(object.repo), writes: object.writes.map(canonicalPath), after: meta.after || null };
+  const report = meta.report && canonicalPath(meta.report);
+  const reportRoots = [join(process.env.HOME, '.agent-fleet', 'reports'), join(process.env.HOME, '.agent-reports')].map(canonicalPath);
+  const writes = object.writes.map(canonicalPath).filter(path => !report ||
+    !(path === report || path === report.replace(/\.md$/, '.checkpoint.md') ||
+      reportRoots.some(root => (path === root || path.startsWith(root + '/')) && report.startsWith(path + '/'))));
+  return { ...object, repo: object.repo ? canonicalPath(object.repo) : '', writes, after: meta.after || null };
 }
 export function taskIdentity(rec) {
   const meta = rec.briefPath ? read(rec.briefPath.replace(/\.md$/, '.json')) : null;
@@ -113,29 +119,48 @@ function poolCapacity(pool) {
   return Number(process.env[pool === 'light' ? 'FLEET_LIGHT_CAPACITY' : 'FLEET_CODE_CAPACITY'] || (pool === 'light' ? 10 : 4));
 }
 export async function registerQueue(rec) {
-  return locked(() => {
-    const rows = refreshedRows();
-    const object = taskObject(rec.briefPath);
-    const identity = taskIdentity(rec);
-    const row = { runId: rec.runId, name: rec.name, pid: process.pid, command: processCommand(process.pid),
-      machine: hostname(), model: rec.model, briefPath: rec.briefPath, object, ...identity, after: object?.after,
-      createdAt: Date.now(), state: 'queued' };
-    if (row.after && !dependency(rows, row.after)) throw new Error('--after 找不到任务；请先派发前置单。');
-    for (const other of rows) {
-      if (!object || !other.object || other.runId === row.runId) continue;
-      if (live.has(other.state) && pathsOverlap(object.writes, other.object.writes) && !follows(rows, row, other)) {
-        const pairs = object.writes.flatMap(a => other.object.writes.filter(b => pathsOverlap([a], [b])).map(b => `${a} ↔ ${b}`));
-        const quote = s => `'${String(s).replaceAll("'", "'\\''")}'`;
-        throw new Error(`可写路径重叠：${other.name || other.runId}\n${pairs.join('\n')}\nfleet-go relaunch ${quote(row.name)} --worktree\nfleet-go relaunch ${quote(row.name)} --after ${quote(other.name || other.runId)}\nfleet say ${quote(other.name || other.runId)} '请处理重叠路径上的任务'`);
+  const quote = s => "'" + String(s).replaceAll("'", "'\\''") + "'";
+  let category = 'registration';
+  try {
+    return await locked(() => {
+      const rows = refreshedRows();
+      const object = taskObject(rec.briefPath);
+      const identity = taskIdentity(rec);
+      const row = { runId: rec.runId, name: rec.name, pid: process.pid, command: processCommand(process.pid),
+        machine: hostname(), model: rec.model, briefPath: rec.briefPath, object, ...identity, after: object?.after,
+        createdAt: Date.now(), state: 'queued' };
+      if (row.after && !dependency(rows, row.after)) {
+        category = 'missing-predecessor';
+        throw new Error(`--after 找不到前置单 ${row.after}。如已生成 brief，先运行：fleet-go relaunch ${quote(row.after)}`);
       }
-      if ((live.has(other.state) || Date.now() - (other.finishedAt || other.createdAt) < 86_400_000) &&
-          object.question && object.repo === other.object.repo && object.environment === other.object.environment &&
-          object.question.trim() === other.object.question?.trim() && other.name !== row.name && !follows(rows, row, other))
-        throw new Error(`重复问题：${other.name || other.runId}；请对已有单 say。`);
+      for (const other of rows) {
+        if (!object || !other.object || other.runId === row.runId) continue;
+        if (live.has(other.state) && pathsOverlap(object.writes, other.object.writes) && !follows(rows, row, other)) {
+          const pairs = object.writes.flatMap(a => other.object.writes.filter(b => pathsOverlap([a], [b])).map(b => `${a} ↔ ${b}`));
+          category = 'write-overlap';
+          throw new Error(`可写路径重叠：${other.name || other.runId}\n${pairs.join('\n')}\nfleet-go relaunch ${quote(row.name)} --worktree\nfleet-go relaunch ${quote(row.name)} --after ${quote(other.name || other.runId)}`);
+        }
+        if ((live.has(other.state) || Date.now() - (other.finishedAt || other.createdAt) < 86_400_000) &&
+            object.question && object.repo === other.object.repo && object.environment === other.object.environment &&
+            object.question.trim() === other.object.question?.trim() && (object.window ?? '') === (other.object.window ?? '') &&
+            other.name !== row.name && !follows(rows, row, other)) {
+          category = 'duplicate-target';
+          throw new Error(`重复问题：${other.name || other.runId}。运行：fleet say ${quote(other.name || other.runId)} '请接续该目标'`);
+        }
+      }
+      write(row);
+      return row;
+    });
+  } catch (error) {
+    let attempt;
+    try { attempt = rec.briefPath && read(rec.briefPath.replace(/\.md$/, '.json'))?.attemptId; } catch {}
+    if (!process.env.AGENT_FLEET_RUNS_DIR || process.env.AGENT_FLEET_GATE_REJECTS) {
+      spawnSync('python3', [fileURLToPath(new URL('./gate-reject.py', import.meta.url)), attempt || randomUUID(),
+        'queue', category, rec.name || '',], { input: error.message, stdio: ['pipe', 'ignore', 'ignore'] });
     }
-    write(row);
-    return row;
-  });
+    error.dispatchRejected = true;
+    throw error;
+  }
 }
 export function saveCodexQuota(rateLimits) {
   mkdirSync(runsDir(), { recursive: true });

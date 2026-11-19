@@ -281,7 +281,7 @@ pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
     env = dict(os.environ, HOME=str(tmp), PATH=str(bin)+':'+os.environ['PATH'], FLEET_DEFAULT_ON='mini', FLEET_LOCAL_HOME='/home/a', FLEET_MINI_HOME='/home/b', FLEET_MINI_BIN='/home/b/fleet')
     env['PYTHONPATH'] = str(tmp)
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','fallback','--to','gpt','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
-    assert proc.returncode != 0 and 'Mini 不可达' in proc.stderr and '补齐' in proc.stderr
+    assert proc.returncode != 0 and 'Mini 不可达' in proc.stderr and '补齐' in proc.stderr, (proc.stdout, proc.stderr)
     assert not next((tmp/'.agent-fleet/reports').glob('*/fallback.md'), None)
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','missing-reason','--to','gpt','--on','local','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
     assert proc.returncode != 0 and '--local-reason' in proc.stderr
@@ -327,6 +327,41 @@ fi
     assert '/home/a/original' in metadata['paths'] and '/home/a/revised' not in metadata['paths'] and '/home/a/second' not in metadata['paths']
 spec = importlib.util.spec_from_file_location('fleet_go_tools', root / 'src/fleet-go.py')
 fg = importlib.util.module_from_spec(spec); spec.loader.exec_module(fg)
+# Same-name retry after preflight rejection refreshes the source and only checks declarations.
+with tempfile.TemporaryDirectory() as location:
+    local = Path(location)
+    repo = local / 'repo'
+    repo.mkdir()
+    body = local / 'body.md'
+    required = repo / 'required'
+    optional = repo / 'optional'
+    body.write_text(f'## 入口\n仓库: {repo}\n可写路径: {required}\n旧正文\n')
+    parser = fg.build_parser()
+    argv = ['new', 'retry-preflight', '--to', 'gpt', '--sol', '--body', str(body), '--on', 'mini']
+    def remote(script, payload, **kwargs):
+        if 'paths' in payload:
+            missing = [p for p in payload['paths'] if not Path(p).exists()]
+            return subprocess.CompletedProcess([], 0, json.dumps({'missing': missing, 'ready': True}), '')
+        raise AssertionError('unexpected remote operation')
+    with patch.dict(os.environ, {'HOME': location, 'AGENT_FLEET_GATE_REJECTS': str(local / 'rejects.jsonl')}), \
+         patch.multiple(fg.mini, available=lambda: True, REMOTE_HOME=location, LOCAL_HOME=location,
+                        REMOTE_BIN='fixture', call=remote, sync_reports=lambda *_: [],
+                        launch=lambda *_: 0), patch.object(fg, 'watch_seat', return_value=None), \
+         patch.object(fg, 'worktree_call', return_value={'roots': []}):
+        try:
+            fg.new(parser.parse_args(argv))
+            raise AssertionError('missing path should be rejected')
+        except ValueError as error:
+            assert f'Mini 缺少路径：{required}' in str(error), error
+        body.write_text(f'## 入口\n仓库: {repo}\n顺带说明 `{optional}` 尚未创建。\n')
+        try:
+            fg.new(parser.parse_args(argv))
+        except SystemExit as status:
+            assert status.code == 0
+        brief = next((local / '.agent-fleet/reports').glob('*/retry-preflight.brief.md'))
+        assert str(optional) in brief.read_text() and '旧正文' not in brief.read_text()
+        assert json.loads(brief.with_suffix('.json').read_text())['paths'] == [str(repo)]
+
 with patch.object(fg.mini, 'LOCAL_HOME', '/home/a'), patch.object(fg.mini, 'REMOTE_HOME', '/home/b'), patch.object(fg.mini, 'call') as remote, patch.object(fg.worktree, 'execute', side_effect=AssertionError('local worktree')):
     remote.side_effect = [subprocess.CompletedProcess([], 0, json.dumps({'roots':['/home/b/repo'], 'writes':['src']}), ''), subprocess.CompletedProcess([], 0, json.dumps({'repo':'/home/b/repo','path':'/home/b/repo-wt/task'}), '')]
     result = fg.prepare_worktree('task', ['/home/a/repo/src'], '', 'mini', '/home/a/repo')

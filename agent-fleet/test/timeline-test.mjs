@@ -28,5 +28,5 @@ assert.equal(gt.queuedMs + gt.activeMs, 10000); assert.match(gt.timeSource, /Gro
 assert.equal(grok('tool_call', 3, 1234, { timestamp: '2026-01-01T00:00:00Z' }).emittedAtMs, Date.parse('2026-01-01T00:00:00Z'));
 assert.equal(JSON.parse(fleetEvent(FLEET_EVENTS.STEER)).method, 'fleet/steer');
 const row = buildRow({ runId: 'x', name: 'x', status: 'done', verdict: 'partial', reportConclusion: '完成：已交付', startedAt: '2026-01-01T00:00:00Z' }, new LedgerIndex());
-assert.equal(row.outcome, 'complete'); assert.equal(row.cmdMs, 0);
+assert.equal(row.outcome, 'partial'); assert.equal(row.cmdMs, 0);
 console.log('PASS timeline and report outcome');

@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { acceptanceResult } from './verdict.mjs';
 import { redactEvidence } from './brief.mjs';
 
 export const CONTINUE_PROMPT = '报告写的是部分完成。把『未完成』里授权范围内能做的步骤继续做完——包括等 runner 空闲、推送、发布、读回——不要结束回合去等；只有真正缺授权或缺必需输入的那一步才可以停。做完更新报告七节及 brief 已授权且明确要求的交付凭据。';
@@ -31,7 +32,7 @@ export function readContinuationState(cwd, reportPath, brief = '') {
     try { hash.update(readFileSync(resolve(cwd, path))); } catch { hash.update('missing'); }
     hash.update('\0');
   }
-  return { conclusion, report, head: git(['rev-parse', 'HEAD']).trim(), files: hash.digest('hex') };
+  return { conclusion, report, acceptance: acceptanceResult(brief, report), head: git(['rev-parse', 'HEAD']).trim(), files: hash.digest('hex') };
 }
 
 /** 对比相邻回合；只有提交或产物变化才算进展，单独改报告不算。 */
@@ -99,12 +100,11 @@ function commitRequired(brief) {
     && !/不(?:要|用|需|必)?提交|无需提交|无须提交|禁止提交|不.*commit/i.test(clause));
 }
 
-// 保留原文供同一任务续做；明确受阻行只豁免同一项。
-export function unfinishedAcceptance(report, finalReply = '') {
-  const lines = [...new Set(`${report}\n${finalReply}`.split(/\r?\n/).map(line => line.trim()).filter(Boolean))];
-  const blockers = lines.filter(line => /受阻[：:]/.test(line)).map(line => line.split(/[｜|]/)[1]?.trim()).filter(Boolean);
-  return lines.filter(line => !/受阻[：:]/.test(line) && /(?:未确认|未核实|未核查|未核|未完成|未分类|尚未|待核实|未部署)/.test(line)
-    && !/^#{1,6}\s/.test(line) && !/^[-*\s]*(?:判断|结论)拿不准[：:]/.test(line) && !blockers.some(block => line.includes(block)));
+export function acceptanceContinuation(before, after, logProgress = false) {
+  const acceptance = after.acceptance;
+  if (!acceptance || acceptance.pending === 'handoff' || !acceptance.unmet.length) return { missing: [], blocked: false };
+  const progress = before.head !== after.head || before.acceptance?.table !== acceptance.table || logProgress;
+  return { missing: acceptance.unmet, blocked: !progress };
 }
 
 /** 第一层只检查报告结构及 brief 明确要求的交付凭据，不以“完成”二字代替证据。 */

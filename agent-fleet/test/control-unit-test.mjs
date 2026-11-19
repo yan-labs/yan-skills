@@ -353,3 +353,31 @@ assert(wallClockDurationMs('bad', 10) === 0, '非法 startedAt 墙钟为 0');
 }
 
 finish();
+
+
+// Two live tasks may declare their report directory without reserving it.
+const { mkdtempSync: makeReportFixture, writeFileSync: put, rmSync: remove } = await import('node:fs');
+const { tmpdir: tempRoot, homedir } = await import('node:os');
+const { join: childPath } = await import('node:path');
+const { registerQueue: admit, setSlotState: finishSlot } = await import('../src/queue.mjs');
+const reportFixture = makeReportFixture(childPath(tempRoot(), 'report-admission-'));
+const oldRuns = process.env.AGENT_FLEET_RUNS_DIR;
+process.env.AGENT_FLEET_RUNS_DIR = childPath(reportFixture, 'runs');
+try {
+  const shared = childPath(homedir(), '.agent-fleet/reports/window');
+  for (const id of ['report-a', 'report-b']) {
+    const briefPath = childPath(reportFixture, id + '.brief.md');
+    const report = childPath(shared, id + '.md');
+    put(briefPath, '动作: 只读');
+    put(briefPath.replace(/\.md$/, '.json'), JSON.stringify({
+      report, object: { repo: reportFixture, writes: [shared, report, report.replace(/\.md$/, '.checkpoint.md')] },
+    }));
+    const row = await admit({ runId: id, name: id, briefPath });
+    if (row.object.writes.length) throw new Error('report path reserved a queue write slot');
+  }
+  for (const id of ['report-a', 'report-b']) await finishSlot(id, 'done');
+} finally {
+  if (oldRuns === undefined) delete process.env.AGENT_FLEET_RUNS_DIR;
+  else process.env.AGENT_FLEET_RUNS_DIR = oldRuns;
+  remove(reportFixture, { recursive: true, force: true });
+}
