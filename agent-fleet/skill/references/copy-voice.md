@@ -29,7 +29,7 @@ For lyrics, prefer "After your video is ready, take a moment to check that the v
 Present lyric matching as a quality check with its actual accuracy limits. Disclose any material purchasing or safety condition clearly where relevant.
 Privacy copy must be warm AND precise: check the supplied data flow and /privacy before making access, storage, retention, or exclusivity claims.
 Use "safely", "securely", "protected", or similar data-security assurances only with supplied evidence. Keep every supplied input type visible, including both lyrics and prompts when both are processed.
-Name every relevant intermediary, including all three recipients in website -> kie.ai -> underlying model.
+Name every relevant intermediary, including any intermediary between the site and the underlying model.
 Use "Your lyrics are shared only with our platform and the AI model" only if that exclusive scope is verified for all relevant recipients and processing.
 For a verified rendering-only route, describe the studio, routing partner, and AI video model explicitly and accurately.
 When other retention is unknown, say "from our storage"; base training and confidentiality statements on verified policies.
@@ -44,7 +44,6 @@ Before returning, check warmth, factual scope, unsupported absolutes, cold wordi
 
 ## 为什么这样写
 
-用户在 2026-10-04 明确要求：全部页面和流程文案交给 Gemini，写作必须使用 `/marketing-psychology`、`/marketing-ideas`、`/write` 的原则。Gemini 看不到 Claude Skill，这里的英文块就是三份 Skill 的可用原则摘要，`fleet copy` 每次从本文件读取并原样前置，不另存一份提示词。
 
 营销话术从用户想得到什么、现在能做什么出发。懂行的朋友会说明下一步，也会说清价格和数据去向，让读者知道可行的动作。框架效应改变表达角度，事实和条件保持不变。
 
@@ -60,7 +59,7 @@ Before returning, check warmth, factual scope, unsupported absolutes, cold wordi
 
 | 场景与适用事实 | 冷腔版 | 暖版 |
 |---|---|---|
-| prompt／歌词隐私：已核实网站 → kie.ai → 底层模型，仅用于本次渲染，未发给分析工具 | 我们会把用户的 prompt 发送给视频生成服务商。 | 你的歌词和提示词会从我们的工作室，经 kie.ai 交给负责渲染的 AI 视频模型，不会发送给分析工具。 |
+| prompt／歌词隐私：已核实网站 → 媒体服务中转方 → 底层模型，仅用于本次渲染，未发给分析工具 | 我们会把用户的 prompt 发送给视频生成服务商。 | 你的歌词和提示词会从我们的工作室，经 媒体服务中转方 交给负责渲染的 AI 视频模型，不会发送给分析工具。 |
 | 隐私只有两处接触：仅当全链路核实无其他接收、处理主体 | 我们向第三方服务提供你的歌词。 | 你的歌词仅在我们的平台和负责生成的 AI 模型之间传递。 |
 | 歌词输入框：允许输入歌词，准确演唱无保证 | 歌词不能被准确地唱出来，所以没验证过。 | 视频生成后，建议你再核对一遍画面和歌词是否都如你所愿。 |
 | 失败退积分：本次生成已失败，本次扣除的积分已实际退回，无自动重试 | 生成失败，服务不可用，积分已退款。 | 这次视频没能完成，本次扣除的积分已退回，你可以重新开始。 |
@@ -68,11 +67,9 @@ Before returning, check warmth, factual scope, unsupported absolutes, cold wordi
 | 余额不足：需 10 积分，账户有 6 积分，支持购买积分包 | 余额不足，无法执行请求。 | 这次视频需要 10 积分，你现在有 6 积分。选一个积分包就能继续。 |
 | 内容被拒绝：已被内容规则拒绝，允许修改重提，不承诺修改必通过 | 请求被拒绝，违反内容政策。 | 这段内容未通过内容规则检查。调整后可以重新提交。 |
 | 生成等待中：任务确在生成，可在账户视频页取回，无已验完成时长 | 服务商正在处理，请等待，耗时未知。 | 你的视频正在制作。你可以稍后回到视频记录页查看结果。 |
-| 促销倒计时：10 积分优惠截至 2026-10-07 00:00 UTC，之后 12 积分 | 警告：优惠即将失效，错过损失巨大。 | 现在用 10 积分开始制作。优惠截至 2026 年 10 月 7 日 00:00 UTC，之后每次 12 积分。 |
 | 删除数据确认：确实只删照片、视频与历史，保留账户和积分，不可恢复 | 确认执行永久数据清除操作？ | 要删除你的照片、视频和生成记录吗？删除后无法恢复，账户和积分会保留。按钮：删除这些数据／暂时保留。 |
 | 照片清理：仅已确认本平台存储会在上传后 1 小时内删除，合作方留存按其政策 | 第三方存储的保留期限不受我们控制。 | 你的原始照片会在上传后 1 小时内从我们的存储中清除；渲染合作方的留存按其隐私政策执行。 |
 
-用户给的隐私方向「你的歌词仅会在我们平台和大模型平台这两个地方接触到，不会在任何其他第三方平台出现」表达亲切，但只能在真实数据流支持时使用。存在 kie.ai 中转时列全三个接收方，「不发给分析工具」保持这一精确范围。同样，照片「1 小时内删除」须核实计时起点、删除范围和合作方留存，完整保留事实边界。
 
 ## 优先平实表达的场景
 
@@ -82,7 +79,7 @@ Before returning, check warmth, factual scope, unsupported absolutes, cold wordi
 
 ## 使用方式与措辞参考
 
-日常文案用 `fleet copy brief.md`，或 `fleet run --model kollab-gateway-copy --prompt "..."`。brief 仍须给事实清单、允许范围、目标页面和输出格式。文件缺失、块缺失或超过 60 行会明确报错，主线程据此处理缺口。
+日常文案用 `fleet copy brief.md`。brief 仍须给事实清单、允许范围、目标页面和输出格式。文件缺失、块缺失或超过 60 行会明确报错，主线程据此处理缺口。
 
 `--no-voice` 仅用于纯机械改写，例如逐字符转换、固定词替换；它只跳过语气块，保留原 brief 和行动范围。事实准确性要求始终适用。
 

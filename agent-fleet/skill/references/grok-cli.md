@@ -2,32 +2,21 @@
 
 产品派单主推 `fleet-go new <name> --to grok`；下列 `fleet grok-cli` 为底层入口。
 
-`fleet grok-cli` 调用 xAI 官方 `@xai-official/grok` 完整编码 Agent（自己的工具）；`fleet grok` 是 Kollab 网关 `grok-4.7` 单轮 Agent，两者独立。
+`fleet grok-cli` 调用 xAI 官方 `@xai-official/grok` 完整编码 Agent（自己的工具）；`fleet grok` 是托管网关配置的 Grok 单轮 Agent，两者独立。
 
 ## 启动与模型
 
-```sh
-grok login --oauth
-grok models
-fleet grok-cli brief.md --cwd /path/to/project --name task --report /tmp/task.md
-fleet grok-cli brief.md --review --cwd /path/to/project
-fleet grok-cli brief.md --model <grok-models列出的ID> --subagents
-fleet-go new task --to grok --auth local --goal "编码任务" --body brief.md --dry-run
-fleet status
-fleet wait task
-fleet tail task --follow
-fleet stop task
-```
+用 `grok models` 核对登录和可用模型。在仓库目录已有 `brief.md` 时，用 `fleet grok-cli brief.md --cwd "$PWD"` 执行。只读复核加 `--review`，换模型用 `--model`，并按实际授权决定是否请求下游协作。
 
-brief 是现存文件路径或任务文本；`--name`、`--report` 是任务元数据，未传可从归类与 REPORT 行提取。报告正文由 brief 要求执行者写，fleet 另写 `.result.md` 和 `.log`。`fleet team` 给 Grok 联网检查 20 秒。默认先用 `grok models` 核验登录并获取默认值；`--model` 可覆盖，以实时目录选择。启动环境原样透传父进程 HTTPS_PROXY/HTTP_PROXY/ALL_PROXY 及小写变量，并设置 `GROK_DISABLE_AUTOUPDATER=1`，沿用已有代理配置。Rust Grok 不认 NODE_USE_ENV_PROXY；终端必须设置实际代理变量，Clash 常用示例为 `HTTPS_PROXY=http://127.0.0.1:7890`。
+brief 是现存文件路径或任务文本；`--name`、`--report` 是任务元数据，未传可从归类与 REPORT 行提取。报告正文由 brief 要求执行者写，fleet 另写 `.result.md` 和 `.log`。`fleet team` 给 Grok 联网检查 20 秒。默认先用 `grok models` 核验登录并获取默认值；`--model` 可覆盖，以实时目录选择。启动环境原样透传父进程 HTTPS_PROXY/HTTP_PROXY/ALL_PROXY 及小写变量，并设置 `GROK_DISABLE_AUTOUPDATER=1`，沿用已有代理配置。Rust Grok 不认 NODE_USE_ENV_PROXY；终端必须设置实际代理变量。
 
 支持 `--max-turns N`、`--reasoning-effort <CLI支持的级别>`、`--expect-changes`、`--json`、`--full`、`--brief-lines N`。默认独立监督并等待；`--no-wait` 立即返回，`--attach` 前台，`--detach` 兼容默认。status/wait/tail/stop 共用 fleet 通道；`fleet say <任务> "新指令"`、`fleet-go amend <任务> "新指令" --say` 会停止当前 Grok 进程并以 `-r <sessionId>` 在同一会话继续；`fleet resume <任务>` 同样续会话，沿用 name/report 和 review 参数。sessionId 尚未出现时 say 明确报不支持且不停止任务。`--expect-changes` 在零文件改动时判 suspect；空结果、裸工具控制 token、认证/额度错误判 fail，verdict 按结束状态和实际结果判定。
 
-`--model <id>` 的可选值以 `grok models` 为准；当前为 `grok-4.7`（默认）、`grok-4.7-build-fast`、`grok-4.6`、`grok-4.5`。例如 `fleet grok-cli brief.md --model grok-4.7-build-fast`，fleet 向 CLI 传 `--model <id>`。
+`--model <id>` 的可选值以 `grok models` 为准；fleet 将选择的模型 ID 传给 CLI。
 
 ## 内置图片与视频工具
 
-Grok CLI 内置 `image_gen`、`image_edit`、`image_to_video`（6 或 10 秒，480p/720p）、`reference_to_video`（1–15 秒，参考图/音色/首尾帧）。这些工具走当前 OAuth 账号，没有 model 参数；做法：仅传工具支持的输入，沿用工具自身模型，生图或视频模型选择留给工具。产品入口可用 `fleet-go new <name> --to grok --make image|video` 叠加产物样板；在 brief 里写明输入素材、时长/分辨率及落盘路径，例如「用 image_to_video 将 /tmp/input.png 生成 6 秒 720p 视频，保存到 /tmp/output.mp4」。`--make` 只叠加样板，沿用所选执行通道；使用仍须已有费用授权。ZDR/privacy 类错误如实报告原因与处理方法，产物缺口如实列入报告。
+Grok CLI 内置 `image_gen`、`image_edit`、`image_to_video`、`reference_to_video`（参考图、音色、首尾帧）。这些工具走当前 OAuth 账号，没有 model 参数；做法：仅传工具支持的输入，沿用工具自身模型，生图或视频模型选择留给工具。产品入口可用 `fleet-go new <name> --to grok --make image|video` 叠加产物样板；在 brief 里写明输入素材、时长/分辨率及落盘路径，例如「用 image_to_video 将 /tmp/input.png 生成 6 秒 720p 视频，保存到 /tmp/output.mp4」。`--make` 只叠加样板，沿用所选执行通道；使用仍须已有费用授权。ZDR/privacy 类错误如实报告原因与处理方法，产物缺口如实列入报告。
 
 ## 输出、权限与续跑
 
@@ -37,8 +26,8 @@ runner 逐行解析 `streaming-json`，text 拼接为原格式 `.result.md`；en
 
 ## 登录与常见坑
 
-- 额度：订阅额度按周重置、无充值；只能在交互 TUI 里输入 `/usage` 查看（`grok usage <SESSION_ID>` 只给单会话用量），需要查就开终端面板请用户输入。用完返回 402 `Grok Build usage balance exhausted`，只能等重置，编码按工具链换下一顺位；在跑的任务不换手，产物另找执行者复核。
-- OAuth：`grok login --oauth`，使用已有 SuperGrok/X Premium+ 订阅登录。`grok models` 出现 `You are not authenticated` 表示未登录；fleet 在执行任务前明确报错，不等待批准；失败只上报事实，由主线程判断是否重派。
+- 额度：重置时间以账户状态为准；只能在交互 TUI 里输入 `/usage` 查看（`grok usage <SESSION_ID>` 只给单会话用量），需要查就开终端面板请用户输入。用完返回 402 `Grok Build usage balance exhausted`，按调遣令等重置，编码按工具链换下一顺位；在跑的任务不换手，产物另找执行者复核。
+- OAuth：`grok login --oauth`，使用有权访问的账号登录。`grok models` 出现 `You are not authenticated` 表示未登录；fleet 在执行任务前明确报错，不等待批准；失败只上报事实，由主线程判断是否重派。
 - 备用为环境变量 `XAI_API_KEY`，走按量计费；只在已授权按量费用时使用，key 仅经受控存储与进程通道传递。`GROK_HOME` 可指定 CLI 状态目录；登录检查只通过 `grok models` 看状态；`auth.json` 保持未读取。
 - 失败只记录执行者/档位、脱敏原始错误、已完成步骤、产物与 dirty 状态，错误分类、后续建议与执行者选择由主线程负责。顺位见[工具链](fallback-chains.md)，由主线程判断并用 `fleet-go relaunch <name> --to <产品>` 重派；Gemini 仅文本。`grok usage` 可查看 CLI 会话 token 与费用。
 - npm `latest` dist-tag 可能过期，安装时应指定 `@xai-official/grok@1.0.49` 或更新的明确版本；安装或升级由主线程另行授权。

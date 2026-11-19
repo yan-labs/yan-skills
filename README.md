@@ -28,6 +28,7 @@ npx skills add yan-labs/yan-skills -g --all
 | [`backlink`](backlink/) | 外链与**登录态数据** | 去哪发、能不能发、发完有没有真的生效 |
 | [`opencli`](opencli/) | 浏览器与**取数的底层** | 怎么把用户那个已登录的 Chrome 开对，怎么不让两个任务抢同一个标签页 |
 | [`imagegen`](imagegen/) | 网站的**视觉素材** | logo、吉祥物、og 图、内页配图、用户场景图、手绘插画——真实生成，页面上不许留占位图 |
+| [`agent-fleet`](agent-fleet/skill/) | 后台派单与验收 | `fleet-go context` 读取调遣令及两层派单上下文。按项目场景组装 brief，逐项验收，并按需监督、等待和交接。 |
 | [`cf-cli`](cf-cli/) | Cloudflare **新版 CLI** | 查账号资源、zone、DNS、域名与 API 命令；现有 Worker 项目仍遵守自己的 Wrangler 构建和部署流程 |
 
 小游戏每日自动化由 [`game-opportunity`](game-opportunity/) 的 `collect-checklist` 和

@@ -1,6 +1,6 @@
 ## JEV judge
 
-`fleet judge state.txt questions.json [--json]`：state 为文本或 `.json` 文件；questions 是 `{ "key": { "type": "noul"|"choice"|"score", "instructions": "..." } }`。`choice` 和 `score` 必须带 `criteria`。JEV 只用 `fleet judge`，输出限定为结构化判断；`fleet run` 的允许模型范围不含 JEV。旧写法 `fleet judge --model jev --state-file state.txt --questions-file questions.json` 仍可用。
+`fleet judge state.txt questions.json [--json]`：state 为文本或 `.json` 文件；questions 是 `{ "key": { "type": "noul"|"choice"|"score", "instructions": "..." } }`。`choice` 和 `score` 必须带 `criteria`。JEV 可经 `fleet judge` 或派单的 `--to jev` 使用，输出限定为结构化判断。旧写法 `fleet judge --model jev --state-file state.txt --questions-file questions.json` 仍可用。
 
 `questions.json` 可按需选用其中一种或组合使用：
 
