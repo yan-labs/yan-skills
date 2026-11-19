@@ -207,7 +207,10 @@ assert(wallClockDurationMs('bad', 10) === 0, '非法 startedAt 墙钟为 0');
   const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   const cli = join(import.meta.dirname || new URL('.', import.meta.url).pathname, '..', 'bin', 'agent-fleet.mjs');
   try {
-    for (const kind of ['kollab-test', 'nextspace-test']) {
+    for (const { kind, requirePush, requireMainClone, pipelineMode } of [
+      { kind: 'release-hook', requirePush: true, requireMainClone: false, pipelineMode: 'watch' },
+      { kind: 'team-pipeline', requirePush: false, requireMainClone: true, pipelineMode: 'trigger' },
+    ]) {
       const dir = join(root, kind); mkdirSync(dir);
       const repo = join(dir, 'main'), remote = join(dir, 'remote.git');
       git(dir, 'init', '--bare', remote); git(dir, 'clone', remote, repo);
@@ -228,15 +231,20 @@ assert(wallClockDurationMs('bad', 10) === 0, '非法 startedAt 墙钟为 0');
         if(c.phase==='push') execFileSync('git',['push',c.remote,'HEAD:refs/heads/'+c.branch],{cwd:c.repo});
         if(c.phase==='verify') { const sha=execFileSync('git',['rev-parse','HEAD'],{cwd:c.repo,encoding:'utf8'}).trim();if(sha!==c.candidate)process.exit(2); }
         console.log(c.phase==='pipeline'?'team-pipeline-1':'ok');`);
-      const cfg = { kind, repo, env: 'test', branch: 'test', expectedHead: base, runningCommit: base,
-        push: [process.execPath, hook], check: [process.execPath, hook], pipeline: [process.execPath, hook], verify: [process.execPath, hook] };
+      const cfg = { kind, requirePush, requireMainClone, pipelineMode, repo, env: 'test', branch: 'test', expectedHead: base, runningCommit: base,
+        check: [process.execPath, hook], pipeline: [process.execPath, hook], verify: [process.execPath, hook] };
+      const legacy = { ...cfg };
+      delete legacy.requirePush;
+      writeFileSync(config, JSON.stringify({ adapters: [legacy] }));
+      let configError = '';
+      try { await land({ repo, env: 'test', flush: true, config }); } catch (e) { configError = e.message; }
+      assert(configError.includes('requirePush') && !existsSync(calls), 'Incomplete policy fails closed');
       writeFileSync(config, JSON.stringify({ adapters: [cfg] }));
-      if (kind === 'kollab-test') {
-        const missingPush = {...cfg}; delete missingPush.push;
-        writeFileSync(config, JSON.stringify({adapters:[missingPush]}));
+      if (requirePush) {
         let error = '';
         try { await land({repo,env:'test',flush:true,config}); } catch(e) { error = e.message; }
-        assert(error.includes('push') && !existsSync(calls), 'Kollab requires explicit private push protocol before any mutation');
+        assert(error.includes('push') && !existsSync(calls), 'Adapter requires explicit private push protocol before any mutation');
+        cfg.push = [process.execPath, hook];
         writeFileSync(config, JSON.stringify({adapters:[cfg]}));
       }
       for (let i = 0; i < commits.length; i++) {
@@ -251,10 +259,10 @@ assert(wallClockDurationMs('bad', 10) === 0, '非法 startedAt 墙钟为 0');
       const latePark = writeYield(`${kind}-0`, {type:'park',until:`land:${result.key}`,say:'continue',timeout:'1m'});
       assert((await localCondition(latePark.until, {id:`${kind}-0`,entry:latePark,cwd:repo}))?.batchId === result.id, `${kind} completion before park is consumed by registration`);
       const events = readFileSync(calls, 'utf8').trim().split('\n').map(JSON.parse);
-      assert(events.filter(c => c.phase === 'push').length === 1, `${kind} private push hook runs exactly once`);
-      assert(events.find(c => c.phase === 'push')?.base === base && events.find(c => c.phase === 'push')?.candidate === result.candidate, `${kind} push hook receives expected base and candidate`);
+      assert(events.filter(c => c.phase === 'push').length === Number(requirePush), `${kind} uses its configured push path`);
+      if (requirePush) assert(events.find(c => c.phase === 'push')?.base === base && events.find(c => c.phase === 'push')?.candidate === result.candidate, `${kind} push hook receives expected base and candidate`);
       assert(events.filter(c => c.phase === 'pipeline').length === 1, `${kind} batch triggers exactly one team pipeline`);
-      assert(events.find(c => c.phase === 'pipeline').trigger === (kind === 'nextspace-test'), `${kind} respects push-trigger versus explicit Jenkins trigger`);
+      assert(events.find(c => c.phase === 'pipeline').trigger === (pipelineMode === 'trigger'), `${kind} respects push-trigger versus explicit pipeline trigger`);
       assert(existsSync(join(repo, 'good-a')) && existsSync(join(repo, 'good-c')) && !existsSync(join(repo, 'bad')), `${kind} final environment contains only good changes`);
       assert(git(repo, 'rev-parse', 'HEAD') === git(remote, 'rev-parse', 'test'), `${kind} main clone and remote environment branch readback agree`);
       const wake = await localCondition(`land:${result.key}`, { id: `${kind}-1`, entry: { at: 0 }, cwd: repo });
@@ -287,7 +295,7 @@ assert(wallClockDurationMs('bad', 10) === 0, '非法 startedAt 墙钟为 0');
       writeFileSync(join(repo,'recovery-change'),'new candidate'); git(repo,'add','.'); git(repo,'commit','-m','unpublished candidate');
       const recoveryCommit = git(repo,'rev-parse','HEAD'); git(repo,'checkout','test');
       const movedHead = git(remote,'commit-tree',`${candidateHead}^{tree}`,'-p',candidateHead,'-m','concurrent remote commit');
-      const normalPush = cfg.push;
+      const normalPush = [process.execPath, hook];
       for (const moveRemote of [false, true, 'local-edit']) {
         process.env.AGENT_FLEET_RUNS_DIR = join(dir, `refused-${moveRemote}-runs`);
         cfg.expectedHead = git(repo, 'rev-parse', 'HEAD'); cfg.runningCommit = cfg.expectedHead;
@@ -321,7 +329,8 @@ assert(wallClockDurationMs('bad', 10) === 0, '非法 startedAt 墙钟为 0');
       error = '';
       try { await land({ repo, env: 'test', flush: true, config }); } catch (e) { error = e.message; }
       assert(error.includes('上批发布未确认'), `${kind} failed pipeline cannot be automatically replayed`);
-      if (kind === 'nextspace-test') {
+      {
+        cfg.pipeline = [process.execPath, hook];
         const alternate = join(dir, 'alternate');
         git(repo, 'worktree', 'add', '-b', 'old-test', alternate, base);
         git(repo, 'checkout', '--detach'); git(alternate, 'checkout', 'test');
@@ -329,7 +338,8 @@ assert(wallClockDurationMs('bad', 10) === 0, '非法 startedAt 墙钟为 0');
         process.env.AGENT_FLEET_RUNS_DIR = join(dir, 'alternate-runs');
         await land({ repo: alternate, env: 'test', run: 'alternate-test' });
         const refused = await land({ repo: alternate, env: 'test', flush: true, config });
-        assert(refused.status === 'failed' && refused.error.includes('主克隆'), 'nextspace refuses environment merge from linked worktree');
+        assert(requireMainClone ? refused.status === 'failed' && refused.error.includes('主克隆') : refused.status === 'done',
+          `${kind} applies its linked worktree policy`);
         git(repo, 'worktree', 'remove', '--force', alternate);
       }
       process.env.AGENT_FLEET_RUNS_DIR = join(root, 'runs');

@@ -1,13 +1,14 @@
 // Private runtime adapters own project-specific checks and team pipeline entry points.
-// Runtime JSON: {adapters:[{kind:'kollab-test'|'nextspace-test', repo, env:'test',
-// branch:'test', remote:'origin', expectedHead, runningCommit, check:argv,
-// push:argv, pipeline:argv, verify:argv}]}. Never commit real entries or credentials.
+// Runtime JSON: {adapters:[{kind:'example-test', repo, env:'test', branch:'test',
+// remote:'origin', expectedHead, runningCommit, requireMainClone:true,
+// requirePush:false, pipelineMode:'trigger', check:argv, pipeline:argv, verify:argv}]}.
+// pipelineMode is 'trigger' or 'watch'. When present, push is an argv hook.
+// Never commit real entries or credentials.
 // Hooks receive batch/candidate/members/cwd as JSON on stdin; exit 0 means complete.
 // check is isolated and must not deploy. pipeline waits the team pipeline to finish,
 // handles project-required rollback on failure; trigger=false only waits a push's CI.
-// Kollab requires push: a private argv wrapper around the project release-ref protocol.
-// It validates the expected base/candidate and pushes exactly once; land never retries it.
-// The wrapper must reuse the project release script; private entry points stay in runtime config.
+// requirePush forces a private hook that validates the base/candidate and pushes once.
+// Land never retries the hook. Without a hook, land pushes the test ref directly.
 // verify must read back this candidate's digest and project smoke checks.
 import { mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, mkdtempSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -42,9 +43,12 @@ function adapterConfig(path, repo, env) {
   if (!path) throw new Error('land 需要受控运行时 --config 或 FLEET_LAND_CONFIG。');
   const entries = JSON.parse(readFileSync(path, 'utf8')).adapters;
   const config = entries?.find(c => realpathSync(c.repo) === realpathSync(repo) && c.env === env);
-  if (!config || !['kollab-test', 'nextspace-test'].includes(config.kind) || env !== 'test' || config.branch !== 'test')
-    throw new Error('只支持配置明确指定的 Kollab/nextspace test；生产仅登记候选。');
-  for (const phase of ['check', 'pipeline', 'verify', ...(config.kind === 'kollab-test' || config.push !== undefined ? ['push'] : [])]) {
+  if (!config || typeof config.kind !== 'string' || !config.kind || env !== 'test' || config.branch !== 'test')
+    throw new Error('只支持配置明确指定的 test 环境及分支；生产仅登记候选。');
+  if (typeof config.requireMainClone !== 'boolean' || typeof config.requirePush !== 'boolean' ||
+      !['trigger', 'watch'].includes(config.pipelineMode))
+    throw new Error('adapter 需声明 requireMainClone、requirePush 和 pipelineMode（trigger 或 watch）。');
+  for (const phase of ['check', 'pipeline', 'verify', ...(config.requirePush || config.push !== undefined ? ['push'] : [])]) {
     if (!Array.isArray(config[phase]) || !config[phase].length || config[phase].some(s => typeof s !== 'string')) throw new Error(`adapter 缺少 ${phase} 命令数组。`);
   }
   if (!/^[a-f0-9]{40}$/.test(config.expectedHead || '') || !/^[a-f0-9]{40}$/.test(config.runningCommit || ''))
@@ -91,11 +95,11 @@ export async function land(flags) {
     let temp;
     try {
       if (await git(repo, 'status', '--porcelain')) throw new Error('主克隆有未提交或暂存改动，保持原样并停止发车。');
-      if (await git(repo, 'symbolic-ref', '--short', 'HEAD') !== config.branch) throw new Error('发车必须在主克隆本地 test 分支。');
-      if (config.kind === 'nextspace-test') {
+      if (await git(repo, 'symbolic-ref', '--short', 'HEAD') !== config.branch) throw new Error('发车必须在本地 test 分支。');
+      if (config.requireMainClone) {
         const common = resolve(repo, await git(repo, 'rev-parse', '--git-common-dir'));
         const gitDir = resolve(repo, await git(repo, 'rev-parse', '--git-dir'));
-        if (realpathSync(common) !== realpathSync(gitDir)) throw new Error('nextspace 环境合入必须在主克隆，不能在 worktree。');
+        if (realpathSync(common) !== realpathSync(gitDir)) throw new Error('该适配器要求在主克隆合入环境分支。');
       }
       await git(repo, 'fetch', config.remote, config.branch);
       const base = await git(repo, 'rev-parse', 'FETCH_HEAD');
@@ -133,7 +137,7 @@ export async function land(flags) {
       }
       batch.accepted = accepted;
       if (accepted.length) {
-        // Only this merge touches the environment branch, in its main clone.
+        // Only this merge touches the local environment branch before push.
         await git(repo, 'merge', '--ff-only', candidate);
         batch.candidate = candidate; batch.status = 'publishing';
         state.batches.push(batch); state.pending = []; save(path, state);
@@ -168,8 +172,7 @@ export async function land(flags) {
         }
         const remoteHead = (await git(repo, 'ls-remote', config.remote, `refs/heads/${config.branch}`)).split(/\s/)[0];
         if (remoteHead !== candidate) throw new Error('推送后远端头不符，停止发布。');
-        // Kollab: wait/read back the push-triggered pipeline. Nextspace: trigger and wait Jenkins.
-        const pipeline = await invoke('pipeline', { ...context, candidate, members: accepted, trigger: config.kind === 'nextspace-test' });
+        const pipeline = await invoke('pipeline', { ...context, candidate, members: accepted, trigger: config.pipelineMode === 'trigger' });
         await invoke('verify', { ...context, candidate, members: accepted, pipeline });
       } else { state.batches.push(batch); state.pending = []; }
       batch.status = 'done'; batch.finishedAt = Date.now(); save(path, state);
