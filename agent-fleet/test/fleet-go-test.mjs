@@ -1037,6 +1037,17 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
     assert.equal(preview.status,0,preview.stderr);
     assert.match(preview.stderr,/将准备工作树/); assert.match(preview.stderr,/样板占比/);
     assert.ok(!existsSync(repo+'-wt/preview-worktree'));
+    for (const [role, flags] of Object.entries({
+      terra: [], sol: ['--sol'], astra: ['--astra'], luna: ['--luna'],
+      review: ['--review', '--sol'], orchestrator: ['--type', 'orchestrate', '--sol'],
+    })) {
+      const render = invoke(['new', 'preview-' + role, '--to', 'gpt', '--dry-run', '--goal', 'x', ...flags], base);
+      assert.equal(render.status, 0, render.stderr);
+      for (const model of ['terra', 'sol', 'astra', 'review', 'orchestrator']) {
+        const sentence = readFileSync(join(root, 'skill/templates/blocks/model-' + model + '.md'), 'utf8').trim();
+        assert.equal(render.stdout.split(sentence).length - 1, Number(role === model));
+      }
+    }
   });
   console.log(`fleet-go：${checks} 组通过。`);
 } finally { rmSync(temp,{recursive:true,force:true}); }

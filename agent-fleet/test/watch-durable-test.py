@@ -63,6 +63,17 @@ def verify_mailbox(root, runs, repo, seat):
     assert next(e['summary'] for e in snap['events'] if e['kind'] == 'terminal') == 'partial/failed'
     assert sum(e['id'] == ask['id'] for e in snap['events']) == 1
 
+    # Script-only patrol batches changed evidence, then reuses the six-question review.
+    with closing(store['connect']()) as db:
+        now = time.time()
+        original = watch['patrol'](db, runs, now)
+        fact = next(row for row in original['rows'] if row['runId'] == live_id)
+        assert original['reviewBatch'] == [live_id] and fact['intervalMinutes'] == 10
+        reviewed = watch['patrol'](db, runs, now + 1, {live_id: {
+            'evidence': fact['evidence'], 'verdict': '逐项复核完成', 'inputTokens': 900}})
+        assert not reviewed['reviewBatch'] and reviewed['rows'][0]['inputTokens'] == 900
+        assert reviewed['rows'][0]['reusedAt'] == now + 1
+
     # Force the SSH branch offline using a local transport stub.
     ssh = root / 'ssh'
     ssh.write_text('#!/bin/sh\nexit 255\n')

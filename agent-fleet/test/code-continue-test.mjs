@@ -49,6 +49,14 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
   const id = 'turn-' + ++count;
   send({id:req.id,result:{turn:{id}}});
   send({method:'turn/started',params:{turn:{id}}});
+  if (process.env.MODE === 'yield-interrupt' && count === 1) {
+   fs.writeFileSync(process.env.YIELD_FILE, JSON.stringify({type:'park',until:'file:ready',say:'从已完成工具挂起',at:Date.now(),timeoutMs:5000,timeouts:0}));
+   send({method:'item/completed',params:{item:{id:'park-tool',type:'commandExecution',command:'fleet park --until file:ready',exitCode:0}}});
+   return;
+  }
+  if (process.env.MODE === 'supervision-correct') {
+   for (let i = 0; i < 3; i++) send({method:'item/completed',params:{item:{id:'sample-'+i,type:'commandExecution',command:'gh run view 123',aggregatedOutput:'pending',exitCode:0}}});
+  }
   setTimeout(() => {
    const mode = process.env.MODE;
    if ((mode === 'plan' && count === 1) || (mode === 'replan' && count === 2)) fs.writeFileSync(process.env.YIELD_FILE,JSON.stringify({type:'plan',text:'实现：假测试通过\\n验收点：报告完成',at:Date.now()}));
@@ -72,7 +80,10 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
    fs.writeFileSync(process.env.REPORT_FILE, report);
    send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:mode === 'acceptance' && count === 1 ? '证书未核实' : conclusion}}});
    send({method:'turn/completed',params:{turn:{id,status:'completed'}}});
-  }, process.env.MODE === 'threshold' ? 400 : 5);
+  }, process.env.MODE === 'supervision-correct' ? 550 : process.env.MODE === 'threshold' ? 400 : 5);
+ } else if (req.method === 'turn/interrupt' && process.env.MODE === 'yield-interrupt') {
+   send({id:req.id,result:{}});
+   send({method:'turn/completed',params:{turn:{id:req.params.turnId,status:'interrupted'}}});
  } else if (req.id !== undefined) send({id:req.id,result:{}});
 });
 `);
@@ -196,6 +207,18 @@ try {
   assert(resumedTrace.some(e=>e.method==='thread/resume' && e.params.threadId==='old-thread'));
   assert.match(resumedTrace.find(e=>e.method==='turn/start').params.input[0].text,/醒来执行指定动作/);
   console.log('PASS - handoff full anchor/new thread and durable park resume');
+  process.env.FLEET_DETACHED_RUN_ID = 'yield-interrupt';
+  process.env.TRACE = join(scratch,'yield-interrupt.trace');
+  process.env.YIELD_FILE = join(scratch,'yield-interrupt.yield');
+  process.env.MODE = 'yield-interrupt';
+  assert((await runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true})).ok);
+  const parkedTrace = readFileSync(process.env.TRACE,'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(parkedTrace.filter(event => event.method === 'turn/interrupt').length, 1);
+  const wakeStarts = parkedTrace.filter(event => event.method === 'turn/start');
+  assert.equal(wakeStarts.length, 2);
+  assert.match(wakeStarts[1].params.input[0].text, /从已完成工具挂起/);
+  process.env.MODE = 'complete';
+
   process.env.FLEET_DETACHED_RUN_ID = 'remote-recovered';
   process.env.TRACE = join(scratch,'remote-resume.trace');
   const remotePark = writeYield('remote-dead',{type:'park',until:'gh-run:fixture',say:'远程状态恢复',timeout:'1s'});
@@ -211,6 +234,15 @@ try {
   const thresholdTrace = readFileSync(process.env.TRACE,'utf8').trim().split('\n').map(JSON.parse);
   assert(thresholdTrace.some(e=>e.method==='turn/steer' && /不是强停/.test(e.params.input[0].text)));
   delete process.env.FLEET_HANDOFF_ACTIVE_MS;
+  process.env.FLEET_DETACHED_RUN_ID = 'supervision-correct';
+  process.env.MODE = 'supervision-correct';
+  process.env.TRACE = join(scratch,'supervision.trace');
+  await runCode({prompt:anchor,cwd:scratch,codexBin:mock,noContinue:true});
+  const corrections = readFileSync(process.env.TRACE,'utf8').trim().split('\n').map(JSON.parse)
+    .filter(event => event.method === 'turn/steer' && /监督命中/.test(event.params.input[0].text));
+  assert.equal(corrections.length, 1);
+  assert.match(corrections[0].params.input[0].text, /repeat、wait/);
+
   rmSync(join(scratch,'ready'));
   // A parked turn frees its slot; no RPC is sent until a local condition wakes it.
   process.env.FLEET_SLOT_CAPACITY = '1';

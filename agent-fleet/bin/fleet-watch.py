@@ -185,6 +185,80 @@ def reconcile(db, root, now):
         return collected
 
 
+def patrol(db, root, now, reviews=None):
+    """Batch current facts and retain decisions only for identical evidence."""
+    db.execute("""CREATE TABLE IF NOT EXISTS patrol (
+        run TEXT PRIMARY KEY, evidence TEXT NOT NULL, due REAL NOT NULL,
+        reviewed REAL, verdict TEXT, input_tokens INTEGER
+    )""")
+    rows = []
+    with db:
+        db.execute('BEGIN IMMEDIATE')
+        for row in db.execute("SELECT id,state,seat,progress FROM runs ORDER BY id"):
+            if row['state'] not in store['ACTIVE']:
+                continue
+            run = row['id']
+            if not RUN_ID.fullmatch(run) or run in ('.', '..'):
+                continue
+            pid = record(root / (run + '.pid.json'))
+            state = record(root / (run + '.json')) or record(root / (run + '.queue.json'))
+            if not pid and state.get('childRunId') and RUN_ID.fullmatch(state['childRunId']):
+                pid = record(root / (state['childRunId'] + '.pid.json'))
+            yielded = record(root / (run + '.yield'))
+            watch = pid.get('supervision') or {}
+            brief_path = state.get('briefPath') or pid.get('briefPath')
+            meta = record(Path(brief_path).with_suffix('.json')) if brief_path else {}
+            actions = pid.get('actions') or meta.get('actions') or []
+            production = bool('deploy-prod' in (pid.get('auth') or meta.get('auth') or []) or
+                              re.search('发布|生产|部署', str(actions)))
+            waiting = row['state'] in WAITING
+            interval = 10 if production or row['state'] in ('stalled', 'heartbeat') else watch.get('intervalMinutes', 10)
+            if row['state'] == 'parked' and not production:
+                interval = 30
+            hits = [] if waiting else watch.get('hits', [])
+            facts = {
+                'runId': run, 'state': row['state'], 'intervalMinutes': interval, 'hits': hits,
+                'decision': None if waiting else watch.get('decision'),
+                'lastProgressAt': watch.get('progressAt'), 'tokenUsage': watch.get('tokenUsage', 'unknown'),
+                'activeMs': pid.get('activeMs'), 'waitMs': pid.get('waitMs'), 'pollCount': pid.get('pollCount'), 'wakeCount': pid.get('wakeCount'),
+                'events': [] if waiting else watch.get('recent', [])[-12:],
+            }
+            if row['state'] == 'parked':
+                facts.update(waitKind=yielded.get('until', '').split(':')[0],
+                             deadlineAt=(yielded['at'] + yielded['timeoutMs']
+                                         if 'at' in yielded and 'timeoutMs' in yielded else None),
+                             waitOwner=yielded.get('owner', '本单'))
+            try:
+                brief_digest = hashlib.sha256(Path(brief_path).read_bytes()).hexdigest() if brief_path else None
+            except FileNotFoundError:
+                brief_digest = None
+            evidence = hashlib.sha256(json.dumps(
+                [facts['state'], facts['lastProgressAt'], hits, facts['decision'], facts.get('deadlineAt'),
+                 brief_digest, row['progress'] if not watch and not waiting else None], sort_keys=True
+            ).encode()).hexdigest()
+            if facts['decision'] == '交主会话':
+                key = f"{run}:{facts['lastProgressAt']}:{','.join(hits)}"
+                store['event'](db, run, 'stall', '监督升级交主会话：' + '、'.join(hits), key)
+            saved = db.execute('SELECT * FROM patrol WHERE run=?', (run,)).fetchone()
+            same = saved is not None and saved['evidence'] == evidence
+            same_interval = saved is not None and saved['due'] <= now + interval * 60
+            due = saved['due'] if same_interval and saved['due'] > now else now + interval * 60
+            review = (reviews or {}).get(run)
+            reviewed = saved['reviewed'] if same else None
+            verdict = saved['verdict'] if same else None
+            input_tokens = saved['input_tokens'] if same else None
+            if review and review.get('evidence') == evidence and not waiting:
+                verdict = review['verdict']
+                reviewed = now
+                input_tokens = review.get('inputTokens')
+            db.execute('INSERT OR REPLACE INTO patrol VALUES (?,?,?,?,?,?)',
+                       (run, evidence, due, reviewed, verdict, input_tokens))
+            facts.update(evidence=evidence, nextReviewAt=due, reviewRequired=not waiting and verdict is None,
+                         reusedAt=reviewed, review=verdict, inputTokens=input_tokens)
+            rows.append(facts)
+    return {'rows': rows, 'reviewBatch': [row['runId'] for row in rows if row['reviewRequired']]}
+
+
 def next_due(timer, now):
     rule = timer['rule']
     if rule == 'once':
@@ -235,13 +309,28 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--once', action='store_true')
     parser.add_argument('--dispatch', action='store_true', help='启用定时派发。默认只采集。')
+    parser.add_argument('--patrol', action='store_true', help='输出全部在途任务及待复核批次（JSON）。')
+    parser.add_argument('--record-reviews', action='store_true', help='从标准输入接收 runId 到 evidence、verdict、inputTokens 的 JSON 映射。')
     args = parser.parse_args()
+    reviews = None
+    if args.record_reviews:
+        raw = json.load(sys.stdin)
+        reviews = {}
+        for run, review in raw.items():
+            result = subprocess.run([str(FLEET / 'bin/redact')], input=review['verdict'],
+                                    capture_output=True, text=True, check=True, timeout=5)
+            reviews[run] = {**review, 'verdict': result.stdout.strip()}
     root = store['runs_root']()
     with closing(store['connect']()) as db:
         previous = None
         while True:
             started = time.monotonic()
-            seats = reconcile(db, root, time.time())
+            now = time.time()
+            seats = reconcile(db, root, now)
+            facts = patrol(db, root, now, reviews)
+            if args.patrol or args.record_reviews:
+                print(json.dumps(facts, ensure_ascii=False))
+                return
             if args.once or seats != previous:
                 print(json.dumps({'runs': sum(seats.values()), 'seats': seats}, ensure_ascii=False), flush=True)
             previous = seats

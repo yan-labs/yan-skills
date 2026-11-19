@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { acceptanceResult } from './verdict.mjs';
 import { redactEvidence } from './brief.mjs';
 
-export const CONTINUE_PROMPT = '报告写的是部分完成。把『未完成』里授权范围内能做的步骤继续做完——包括等 runner 空闲、推送、发布、读回——不要结束回合去等；只有真正缺授权或缺必需输入的那一步才可以停。做完更新报告七节及 brief 已授权且明确要求的交付凭据。';
+export const CONTINUE_PROMPT = '报告写的是部分完成。把『未完成』里授权范围内能做的步骤继续做完——包括等 runner 空闲、推送、发布、读回——外部等待登记终态后用 fleet park；只有真正缺授权或缺必需输入的那一步才可以停。做完更新报告七节及 brief 已授权且明确要求的交付凭据。';
 
 /** 读取回合结束时的实际状态；文件内容指纹能识别同一脏文件再次修改。 */
 export function readContinuationState(cwd, reportPath, brief = '') {
@@ -26,13 +26,16 @@ export function readContinuationState(cwd, reportPath, brief = '') {
   paths.sort();
   // shortcut: 共享工作树里的其他人改动也算进展；需要区分作者时再加入任务归属。
   const hash = createHash('sha256');
+  const fingerprints = Object.create(null);
   for (const path of paths) {
     if (reportPath && resolve(cwd, path) === resolve(cwd, reportPath)) continue;
     hash.update(path).update('\0');
-    try { hash.update(readFileSync(resolve(cwd, path))); } catch { hash.update('missing'); }
+    try { fingerprints[path] = createHash('sha256').update(readFileSync(resolve(cwd, path))).digest('hex'); }
+    catch { fingerprints[path] = 'missing'; }
+    hash.update(fingerprints[path]);
     hash.update('\0');
   }
-  return { conclusion, report, acceptance: acceptanceResult(brief, report), head: git(['rev-parse', 'HEAD']).trim(), files: hash.digest('hex') };
+  return { conclusion, report, acceptance: acceptanceResult(brief, report), head: git(['rev-parse', 'HEAD']).trim(), fingerprints, files: hash.digest('hex') };
 }
 
 /** 对比相邻回合；只有提交或产物变化才算进展，单独改报告不算。 */

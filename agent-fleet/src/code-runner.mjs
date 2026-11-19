@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { resolveCodexModel } from './model-family.mjs';
-import { readYield, resolveYield, writeYield, localCondition, stageState, saveStages, alignStage } from './yield.mjs';
+import { readJSON, readYield, resolveYield, writeYield, localCondition, stageState, saveStages, alignStage } from './yield.mjs';
 import { saveCodexQuota, taskIdentity, queueRecord, setSlotState, acquireSlot } from './queue.mjs';
 // Codex 执行层：管理 app-server 回合、插话、自动续做与 exec 降级。
 import { acceptanceResult } from './verdict.mjs';
@@ -15,8 +15,9 @@ import { fileURLToPath } from 'node:url';
 
 import { snapshotGit, inspectGit, attachArtifacts, redactEvidence } from './brief.mjs';
 import { runsDir } from './progress.mjs';
-import { patchPidRecord, processCommand, collectDescendantPids, readPidPpidTable, isPidAlive } from './pid.mjs';
+import { readPidRecord, patchPidRecord, processCommand, collectDescendantPids, readPidPpidTable, isPidAlive } from './pid.mjs';
 import { watchInbox } from './inbox.mjs';
+import { createSupervision, commandObservation, escalationAction, sleepSeconds } from './supervision.mjs';
 import { SCOPE_LOCK } from './scope.mjs';
 import { fleetEvent, FLEET_EVENTS } from './timeline.mjs';
 
@@ -97,7 +98,9 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const documentTask = /文档|文案|写作|翻译|校对|review|复核|审查/i.test(taskHeader) || /^(?:写|撰写|编写|更新|修改|整理|翻译|校对|复核|审查)(?:文档|报告|文章|文案|资料|说明|代码)/.test(taskGoal);
   const terra = !sol && !luna && !astra;
   const continueEnabled = (terra || (!review && !documentTask)) && !noContinue && process.env.FLEET_NO_CONTINUE !== '1';
-  const fullPrompt = review ? `${reviewPrompt()}\n\n${prompt}` : `${SCOPE_LOCK}\n\n预计超过2小时且 brief 未给阶段时，第一棒先列出各阶段范围和完成条件，用 fleet plan --file <计划文件> 提交后直接继续，不等批准；阶段边界用 fleet handoff --next <第一动作> --file <五项交接单>。\n\n安装、构建和测试可能持续 30 分钟以上；命令仍在运行时用 write_stdin 发送空内容轮询等待，绝不发送 Ctrl-C（\\u0003）；不因耗时中断。\n\n${prompt}`;
+  const waitRule = readFileSync(new URL('../skill/templates/blocks/executor-wait.md', import.meta.url), 'utf8').trim();
+  const basePrompt = review ? reviewPrompt() : `${SCOPE_LOCK}\n\n预计超过2小时且 brief 未给阶段时，第一棒先列出各阶段范围和完成条件，用 fleet plan --file <计划文件> 提交后直接继续，不等批准；阶段边界用 fleet handoff --next <第一动作> --file <五项交接单>。`;
+  const fullPrompt = [basePrompt, ...(prompt.includes(waitRule) ? [] : [waitRule]), prompt].join('\n\n');
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   mkdirSync(runsDir(), { recursive: true });
   const runId = process.env.FLEET_DETACHED_RUN_ID || process.env.FLEET_SLOT_RUN_ID || `${stamp}-codex`;
@@ -123,7 +126,69 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   briefPath ??= slot?.briefPath;
   const identity = taskIdentity({ ...slot, briefPath, review });
   const metadata = { ...identity, briefPath, slotRunId: slot?.runId, backend: 'codex-exec', threadId: resume || null, sessionId: resume || null,
-    steerCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, high, xhigh, max, simple, sol, luna, astra, family, resolvedModel: model, model, tier: effort, serviceTier, review, resumedFrom };
+    steerCount: 0, wakeCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, high, xhigh, max, simple, sol, luna, astra, family, resolvedModel: model, model, tier: effort, serviceTier, review, resumedFrom };
+  const production = identity.auth.includes('deploy-prod') || identity.actions.some(action => /生产|部署|发布/.test(action)) ||
+    /^(?:动作[：:]\s*.*(?:部署|发布|生产)|允许范围：正文明确指定的服务与环境.*发布全流程)/m.test(prompt);
+  const supervision = createSupervision(startedAt, { production, previous: readPidRecord(resumedFrom || runId)?.supervision });
+  const ownAcceptance = prompt.match(/^[- ]*(V\d+).*?｜owner：本单/gm) || [];
+  let sampled = initial, lastSample = 0, intervention, interruptedForPark = false, restartPrompt;
+  const tools = new Map();
+  const sample = at => {
+    if (at - lastSample < 15_000) return;
+    lastSample = at;
+    const state = readContinuationState(workdir, reportPath, prompt);
+    if (state.head !== sampled.head || state.acceptance?.table !== sampled.acceptance?.table)
+      supervision.progress(at, '提交或验收变化');
+    for (const path of new Set([...Object.keys(state.fingerprints), ...Object.keys(sampled.fingerprints)])) {
+      supervision.file(at, path, sampled.fingerprints[path] ?? 'clean');
+      supervision.file(at, path, state.fingerprints[path] ?? 'clean');
+    }
+    sampled = state;
+    const toolCommands = [...tools.values()].filter(item => item.command);
+    const park = readYield(runId);
+    const scanOptions = { waiting: yielding || Boolean(park?.type === 'park' && !park.resolvedAt),
+      sleep: Math.max(0, ...toolCommands.map(item => sleepSeconds(item.command))),
+      building: toolCommands.some(item => /\b(?:build|install|test|make|xcodebuild)\b/.test(item.command)) };
+    const stateView = supervision.scan(at, scanOptions);
+    metadata.supervision = stateView;
+    const signal = stateView.correction || stateView.escalation;
+    if (!signal || intervention || restartPrompt || completed) return;
+    if (!turnId || metadata.backend !== 'codex-app-server') {
+      metadata.supervision.decision = '交主会话';
+      return;
+    }
+    const item = sampled.acceptance?.unmet?.join('、') || ownAcceptance.map(line => line.trim().split(/\s/)[0]).join('、') || '当前验收';
+    const safeItem = redactEvidence(item);
+    const message = `〔${safeItem}〕监督命中 ${stateView.hits.join('、')}，距最近有效证据 ${Math.round((at - stateView.progressAt) / 60000)} 分钟，最近事件为${stateView.recent.at(-1)?.kind || '启动'}。换一条可验证路径；只剩外部条件时登记终态并 park。下次只报新证据或具体缺口。`;
+    if (stateView.correction) {
+      intervention = rpc('turn/steer', { threadId: metadata.threadId, expectedTurnId: turnId, input: textInput(message) })
+        .then(() => {
+          for (const hit of stateView.hits) supervision.delivered(hit, at);
+          metadata.supervision = { ...stateView, delivered: Object.fromEntries(
+            [...Object.entries(stateView.delivered), ...stateView.hits.map(hit => [hit, at])]) };
+          record();
+        })
+        .catch(error => log(`[监督] 插话未送达：${error.message}`))
+        .finally(() => { intervention = null; });
+      return;
+    }
+    const briefMeta = briefPath && readJSON(briefPath.replace(/\.md$/, '.json'));
+    const safe = (identity.readonly || identity.actions.length > 0) && !production && !identity.auth.includes('paid') && identity.actions.every(action => /^(只读|read|readonly|改代码|本地提交)$/.test(action)) &&
+      (identity.readonly || briefMeta?.worktree?.path === workdir) && !tools.size &&
+      activeChild?.pid && !collectDescendantPids(activeChild.pid, readPidPpidTable()).length;
+    const decision = escalationAction({ enabled: process.env.FLEET_SUPERVISION_RESTART === '1',
+      safe, terra, restarts: stateView.restarts, hits: stateView.hits });
+    if (decision !== 'restart') {
+      metadata.supervision.decision = decision;
+      return;
+    }
+    restartPrompt = `恢复监督快照。卡点：${signal}。已试路径见本线程最近命令。先用另一种观测核对 ${safeItem}；保留已完成产物。\n${message}`;
+    writeFileSync(base + '.supervision-checkpoint.json', JSON.stringify({ signal, progressAt: stateView.progressAt,
+      events: stateView.recent, head: sampled.head, item: safeItem, next: restartPrompt }), { mode: 0o600 });
+    intervention = rpc('turn/interrupt', { threadId: metadata.threadId, turnId })
+      .catch(error => { restartPrompt = null; log(`[监督] 换班未执行：${error.message}`); })
+      .finally(() => { intervention = null; });
+  };
   const record = (patch = {}) => {
     process.send?.({ codexMetadata: metadata });
     return patchPidRecord(runId, { pid: process.pid, command: processCommand(process.pid),
@@ -300,6 +365,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     metadata.pollCount ??= 0;
     record();
     await setSlotState(slotId, 'parked');
+    supervision.pause(parkedAt);
     let result;
     while (!stopping) {
       inbox.pump();
@@ -310,15 +376,16 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       }
       metadata.pollCount = (metadata.pollCount ?? 0) + 1;
       metadata.waitMs = waited + Date.now() - parkedAt;
-      record();
+      if (metadata.pollCount === 1 || metadata.pollCount % 20 === 0) record();
       result = await localCondition(entry.until, { id: entry.sourceId || runId, entry, cwd: workdir, replies: offsetQueue });
       if (result || Date.now() >= entry.at + entry.timeoutMs) break;
       await new Promise(resolve => setTimeout(resolve, 250));
     }
     if (stopping) { resolveYield(runId, entry, { status: 'stopped' }); return { blocked: true }; }
+    metadata.waitMs = waited + Date.now() - parkedAt;
     result ||= { status: 'timeout' };
-    resolveYield(runId, entry, result);
     if (result.status === 'timeout' && entry.timeouts >= 1) {
+      resolveYield(runId, entry, result);
       writeYield(runId, { type: 'blocked', need: 'input', what: `同条件第二次超时：${entry.until}`, tried: '本地条件等待两次', who: '派单主会话' });
       const blocked = await handleYield();
       metadata.yield.external = true;
@@ -330,18 +397,23 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       if (stopping) return { blocked: true };
       await new Promise(resolve => setTimeout(resolve, 250));
     }
+    metadata.waitMs = waited + Date.now() - parkedAt;
+    resolveYield(runId, entry, result);
     const replies = offsetQueue.splice(0);
     for (const text of replies) pendingAsks.delete(text);
     metadata.yield = null;
     yielding = false;
+    metadata.wakeCount++;
     log(fleetEvent(FLEET_EVENTS.WAKE)); record();
     activeSince = Date.now();
+    supervision.pause(activeSince);
     return { prompt: `${entry.say}\n条件：${entry.until}\n终态：${JSON.stringify(result)}${replies.length ? '\n答复：' + replies.join('\n\n') : ''}` };
   };
   let previous, previousHandoff, stagnant = 0;
   let lastAcceptance = initial;
   const commandEvidence = new Set();
   const recordCommandEvidence = item => {
+    if (item?.command) supervision.command(commandObservation(JSON.parse(redactEvidence(item)), Date.now()));
     const command = item?.command;
     const output = item?.aggregatedOutput ?? item?.aggregated_output;
     if (!command || !output) return;
@@ -413,8 +485,24 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         if (event.method === 'turn/started') { turnId = params.turn.id; metadata.numTurns++; record({ activeTurnId: turnId }); }
         if (event.method === 'item/completed' && params.item?.type === 'agentMessage' && params.item.phase !== 'commentary')
           writeFileSync(resultPath, params.item.text || '');
-        if (event.method === 'thread/tokenUsage/updated') { metadata.usage = params.tokenUsage; record(); }
+        if (event.method === 'thread/tokenUsage/updated') {
+          metadata.usage = params.tokenUsage;
+          const total = params.tokenUsage?.total;
+          // Codex outputTokens already includes reasoningOutputTokens.
+          supervision.token(Date.now(), total?.outputTokens);
+          record();
+        }
+        if (event.method === 'item/started' && params.item && /commandExecution|mcpToolCall|dynamicToolCall|fileChange|webSearch|collabAgentToolCall/.test(params.item.type))
+          tools.set(params.item.id, params.item);
+        if (event.method === 'item/completed' && params.item) tools.delete(params.item.id);
         if (event.method === 'item/completed' && params.item?.type === 'commandExecution') recordCommandEvidence(params.item);
+        if (event.method === 'item/completed' && params.item?.type === 'commandExecution' && !interruptedForPark && !tools.size && turnId) {
+          const park = readYield(runId);
+          if (park?.type === 'park' && !park.resolvedAt) {
+            interruptedForPark = true;
+            rpc('turn/interrupt', { threadId: metadata.threadId, turnId }).catch(() => { interruptedForPark = false; });
+          }
+        }
         if (event.method === 'turn/completed') { completed = params.turn; finishTurn(); }
       };
       child.stdout.setEncoding('utf8');
@@ -446,6 +534,10 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         const threshold = setInterval(() => {
           const elapsed = Date.now() - activeSince; activeSince = Date.now();
           if (!yielding) activeElapsed += elapsed;
+          if (turnId && !completed && Date.now() - lastSample >= 15_000) {
+            sample(Date.now());
+            record();
+          }
           const tokens = metadata.usage?.last?.totalTokens || metadata.usage?.total?.totalTokens || 0;
           if (!thresholdSent && !yielding && turnId && (tokens >= Number(process.env.FLEET_HANDOFF_TOKENS || 150000) || activeElapsed >= Number(process.env.FLEET_HANDOFF_ACTIVE_MS || 7200000))) {
             thresholdSent = true;
@@ -457,13 +549,27 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         while (true) {
           // 每轮都先安装完成监听，避免很快结束的回合漏掉通知。
           completed = null;
+          turnId = null;
+          tools.clear();
+          interruptedForPark = false;
           turnDone = turnFinished = new Promise(resolve => { finishTurn = resolve; });
           writeFileSync(resultPath, '');
           const turn = await rpc('turn/start', { threadId: metadata.threadId, input: textInput(nextPrompt), effort });
           turnId = turn.turn.id; record({ activeTurnId: turnId }); schedule();
           await turnDone;
           inbox.pump(); await drain;
-          if (completed?.status !== 'completed' || stopping) break;
+          if (stopping) break;
+          if (restartPrompt && completed?.status === 'interrupted') {
+            await intervention;
+            nextPrompt = restartPrompt;
+            restartPrompt = null;
+            supervision.restart(Date.now());
+            metadata.supervision = supervision.scan(Date.now());
+            record();
+            continue;
+          }
+          restartPrompt = null;
+          if (completed?.status !== 'completed' && !interruptedForPark) break;
           const yielded = await handleYield();
           inbox.pump(); await drain;
           if (stopping) break;
@@ -502,7 +608,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
           nextPrompt = `继续完成本任务，具体缺项：\n${missing.map(item => `- ${item}`).join('\n')}\n只做 brief 已授权范围；做完更新报告七节及要求的交付凭据，中途自查不是最终交付。`;
           log(`[codex] 续做 ${metadata.continueCount} 次`);
         }
-        if (completed?.status === 'completed') outcome = { code: 0 };
+        if (completed?.status === 'completed' || metadata.yield?.external) outcome = { code: 0 };
         else outcome = { error: new Error(completed?.error?.message || `Codex turn ${completed?.status || 'disconnected'}`) };
       } catch (error) {
         fallback(`app-server unavailable: ${error.message}; exec${metadata.threadId ? ' resume' : ''}`);
@@ -538,12 +644,17 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
               const event = JSON.parse(line);
               if (event.type === 'thread.started') { metadata.threadId = metadata.sessionId = event.thread_id; record(); schedule(); }
               if (event.type === 'item.completed' && event.item?.type === 'command_execution') recordCommandEvidence(event.item);
-              if (event.type === 'turn.completed') metadata.usage = event.usage;
+              if (event.type === 'turn.completed') {
+                metadata.usage = event.usage;
+                supervision.token(Date.now(), event.usage?.output_tokens);
+              }
             } catch { /* legacy exec stdout remains in log */ }
           }
         });
         child.stdin.end(nextPrompt);
+        const sampling = setInterval(() => { sample(Date.now()); record(); }, 15_000);
         outcome = await closed;
+        clearInterval(sampling);
         if (buffer) log(buffer);
         inbox.pump(); await drain;
         activeChild = null;
@@ -592,6 +703,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   } finally {
     inbox.stop(); await drain.catch(error => { outcome = { error }; });
     if (metadata.threadId && ownsAppThread) await archive();
+    metadata.activeMs = Math.max(0, Date.now() - startedAt - (metadata.waitMs || 0));
     record({ finished: true, finishedAt: new Date().toISOString(), activeTurnId: null });
   }
   outcome ||= { error: new Error('Codex stopped') };

@@ -13,6 +13,7 @@ case "${1:-}" in
   watch)
     shift
     if [ "${1:-}" = hook ]; then exec python3 "$dir/../hooks/fleet-seat.py"; fi
+    if [ "${1:-}" = patrol ]; then shift; exec python3 "$dir/fleet-watch.py" --patrol "$@"; fi
     exec python3 "$dir/../src/watch-store.py" "$@"
     ;;
   wait|say|stop|tail)

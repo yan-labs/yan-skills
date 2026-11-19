@@ -1481,7 +1481,12 @@ def new(args, prepare=False):
     checkpoint = str(Path(report).with_suffix('.checkpoint.md'))
     values['CHECKPOINT'] = checkpoint
     style = block('style-sol', values)
-    role = block('role-orchestrator' if orchestrator else 'role-single', values)
+    discipline = block('role-orchestrator' if orchestrator else 'role-single', values)
+    responsibility = ('review' if is_review else 'orchestrator' if orchestrator else
+                      'astra' if args.astra else 'sol' if args.sol else 'terra')
+    model_role = block('model-' + responsibility, values) if args.to == 'gpt' and not args.luna else ''
+    waiting = block('executor-wait', values) if args.to == 'gpt' else ''
+    role = '\n'.join(part for part in (discipline, model_role, waiting) if part)
     parts = [f'归类：{classification}；理由：{args.why or classification + "任务，按既有路由执行"}\nREPORT: {report}', style + '\n' + role, block('time-box', values),
              '## 授权覆盖\n' + '\n\n'.join(block('auth-' + a, values) for a in dict.fromkeys(auth))]
     if args.task_action:

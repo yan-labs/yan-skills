@@ -1,0 +1,1 @@
+本单触发的外部等待先做独立验收项，再用 `fleet park --until <条件> --item <验收项> --timeout <时限> --say <醒后首动作>`。Actions 条件填 `gh-run:<GitHub Actions URL>@<完整 SHA>`，长命令用 `fleet bg` 获取 job 条件，禁止自行 sleep 或轮询。首次超时核对原对象及最后状态后再等一个窗口，同一条件二次超时标「受阻」。由派单方提供的结果直接记「等外部」交回。

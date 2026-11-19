@@ -58,7 +58,7 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
   fleet land --repo <主克隆> --env test [--commit SHA --run ID | --flush --config <私有JSON> | --status]
   fleet timeline <runId|名字>
   fleet wait <id|latest> [--timeout 秒]   等待终态；ask 醒目标出并继续等待
-  fleet park --until <条件> --timeout 2h --say <醒来做什么>
+  fleet park --until <条件> --timeout 2h --item V1 --say <醒来做什么>
   fleet blocked --need auth|input|access --what <缺口> --tried <查过哪里> --who <谁能给>
   fleet ask --kind help|shared|decision "问题" [--wait] [--timeout 30m]
   fleet plan --file <阶段计划>   每行范围与完成条件，提交后自动继续
@@ -66,6 +66,7 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
   fleet bg -- <命令> [参数]
   本地条件：file:<路径> / run:<本机runId> / job:<jobId> / after:2m / at:<ISO时间> / reply
   all:/any: 后接条件 JSON 数组；cmd:<命令> 探测间隔至少 2 分钟。
+  Actions 使用 gh-run:<GitHub Actions URL>@<完整 SHA>，runner 对同条件限频读取。
   远程条件由 watchd 写 runs/<runId>.wake.json：{condition,at(毫秒),status:done|failed,logPath?}。
   plan/handoff/park/blocked/ask 在任务内定位本单，独立调用可用 --run <runId>。
   fleet say <id|latest> "消息" | stop <id|latest> | resume <id|latest>
@@ -679,7 +680,7 @@ async function main() {
         const { flags, positionals } = splitShortArgs(rest);
         const id = currentRun(flags);
         const result = command === 'ask' ? ask(id, { kind: flags.kind, text: positionals.join(' '), wait: flags.wait, timeout: flags.timeout })
-          : writeYield(id, command === 'plan' ? { type: 'plan', text: flags.file ? readFileSync(resolvePath(flags.file), 'utf8') : positionals.join(' ') } : command === 'handoff' ? { type: 'handoff', next: flags.next, text: flags.file ? readFileSync(resolvePath(flags.file), 'utf8') : positionals.join(' ') } : command === 'park' ? { type: 'park', until: flags.until, timeout: flags.timeout, say: flags.say }
+          : writeYield(id, command === 'plan' ? { type: 'plan', text: flags.file ? readFileSync(resolvePath(flags.file), 'utf8') : positionals.join(' ') } : command === 'handoff' ? { type: 'handoff', next: flags.next, text: flags.file ? readFileSync(resolvePath(flags.file), 'utf8') : positionals.join(' ') } : command === 'park' ? { type: 'park', until: flags.until, timeout: flags.timeout, item: flags.item, say: flags.say }
             : { type: 'blocked', need: flags.need, what: flags.what, tried: flags.tried, who: flags.who });
         console.log(JSON.stringify(result));
         break;

@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { join, resolve } from 'node:path';
 import { spawn, spawnSync, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { runsDir } from './progress.mjs';
 import { appendInbox } from './inbox.mjs';
@@ -31,6 +31,11 @@ export function duration(value = '2h') {
   if (!match || Number(match[1]) <= 0) throw new Error('时长应为正数，支持 ms/s/m/h。');
   return Number(match[1]) * ({ ms: 1, s: 1000, m: 60000, h: 3600000 }[match[2] || 's']);
 }
+const exactActions = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/actions\/runs\/(\d+)@([a-f0-9]{40})$/i;
+export function actionsTerminal(run, sha) {
+  if (run.headSha?.toLowerCase() !== sha.toLowerCase() || run.status !== 'completed') return null;
+  return { status: run.conclusion === 'success' ? 'done' : 'failed', conclusion: run.conclusion, sha };
+}
 export function validateCondition(condition) {
   if (condition === 'reply') return;
   const index = String(condition).indexOf(':');
@@ -45,6 +50,7 @@ export function validateCondition(condition) {
   if (kind === 'after') duration(value);
   if (kind === 'at' && !Number.isFinite(Date.parse(value))) throw new Error('at: 需要有效时间。');
   if (kind === 'run' || kind === 'job') validId(value);
+  if (kind === 'gh-run' && value.includes('@') && !exactActions.test(value)) throw new Error('gh-run 需要 GitHub Actions URL@完整提交 SHA。');
 }
 export function writeYield(id, entry) {
   validId(id);
@@ -61,8 +67,11 @@ export function writeYield(id, entry) {
   } else throw new Error('无效 yield 类型。');
   const previous = readYield(id);
   if (previous && !previous.resolvedAt) throw new Error('已有未处理的 yield。');
-  const rec = { ...entry, at: Date.now(), timeoutMs: entry.type === 'park' ? duration(entry.timeout) : undefined,
-    timeouts: previous?.until === entry.until ? previous?.timeouts || 0 : 0 };
+  const sameWait = previous?.type === 'park' && previous.until === entry.until;
+  const rec = { ...entry, ...(entry.type === 'park' ? { owner: entry.owner || '本单' } : {}),
+    sourceId: sameWait ? previous.sourceId : undefined, at: Date.now(),
+    timeoutMs: entry.type === 'park' ? duration(entry.timeout) : undefined,
+    timeouts: sameWait ? previous.timeouts || 0 : 0 };
   save(pathFor(id, 'yield'), rec);
   appendFileSync(pathFor(id, 'log'), fleetEvent(entry.type) + '\n');
   return rec;
@@ -148,12 +157,36 @@ export async function localCondition(condition, { id, entry, cwd, replies = [] }
     if (['running', 'queued', 'parked', 'waiting'].includes(rec.status) || (!rec.status && !rec.finished)) return null;
     return { status: rec.status === 'done' || (!rec.status && rec.verdict === 'ok') ? 'done' : 'failed', logPath: rec.logPath, resultPath: rec.resultPath };
   }
+  const wake = readJSON(pathFor(id, 'wake.json'));
+  const actions = kind === 'gh-run' && value.match(exactActions);
+  if (wake?.condition === condition && ['done', 'failed'].includes(wake.status) &&
+      (actions ? wake.sha?.toLowerCase() === actions[3].toLowerCase() : wake.at >= entry.at)) return wake;
+  const probeKey = () => `probe-${createHash('sha256').update(condition).digest('hex')}`;
+  if (actions) {
+    const [, repo, number, sha] = actions;
+    const probe = pathFor(id, probeKey() + '.json');
+    const previous = readJSON(probe);
+    if (previous?.terminal) return previous.terminal;
+    const at = Date.now();
+    if (previous && at - previous.at < 120_000) return null;
+    save(probe, { at });
+    try {
+      const { stdout } = await promisify(execFile)('gh', ['run', 'view', number, '--repo', repo, '--json', 'headSha,status,conclusion'], { cwd, timeout: 30_000 });
+      const terminal = actionsTerminal(JSON.parse(stdout), sha);
+      if (terminal) save(probe, { at, terminal });
+      return terminal;
+    } catch (error) {
+      if (!error.code && !error.killed && !(error instanceof SyntaxError)) throw error;
+      return null;
+    }
+  }
   if (kind === 'cmd') {
     // The runner polls at 250ms, but command probes never run more than once per two minutes.
-    const previous = readJSON(pathFor(id, 'probe.json'));
-    if (previous?.condition === condition && Date.now() - previous.at < 120000) return null;
-    save(pathFor(id, 'probe.json'), { condition, at: Date.now() });
-    const logPath = pathFor(id, 'probe.log');
+    const key = probeKey(), path = pathFor(id, key + '.json');
+    const previous = readJSON(path);
+    if (previous && Date.now() - previous.at < 120000) return null;
+    save(path, { at: Date.now() });
+    const logPath = pathFor(id, key + '.log');
     try {
       const output = await promisify(execFile)('/bin/sh', ['-c', value], { cwd, timeout: 30000 });
       writeFileSync(logPath, redactEvidence(output.stdout + output.stderr), { mode: 0o600 });
@@ -168,9 +201,7 @@ export async function localCondition(condition, { id, entry, cwd, replies = [] }
     const registration = readJSON(pathFor(id, 'land.json'))?.[condition];
     return registration?.result || null;
   }
-  // Step 5 owns remote probes; this runner only consumes their explicit terminal record.
-  const wake = readJSON(pathFor(id, 'wake.json'));
-  return wake?.condition === condition && wake.at >= entry.at && ['done', 'failed'].includes(wake.status) ? wake : null;
+  return null;
 }
 export function startBackground(command, cwd = process.cwd()) {
   if (!command.length) throw new Error('用法: fleet bg -- <命令> [参数]');
