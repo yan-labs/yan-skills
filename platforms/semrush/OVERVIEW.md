@@ -23,7 +23,7 @@
 
 1. **一工具一采集者**：任一时刻至多一个 collector 碰 Semrush——包括人肉手动探索。
    手动探索不持锁曾被持锁的批任务合法驱走（2026-08-29 实测）。
-2. **整轮持机器级锁**：`yan-tools-share-semrush.lock`（`backlink/scripts/lib-tools-share.mjs`
+2. **整轮持机器级锁**：`<user>-tools-share-semrush.lock`（`backlink/scripts/lib-tools-share.mjs`
    的 `acquireToolsShareBrowserLocks`），第一条命令前拿、`finally` 里放。
    daemon 的同名会话队列只串行单条批命令，不串行整轮——四次实测接管都发生在
    「以为排队就安全」的轮次里。

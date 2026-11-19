@@ -66,7 +66,7 @@
 | Similarsites Finder | ❌ | 同类站发现走 `similarweb-query.mjs` 的 similar sites 字段，已在脚本里 |
 | Keywords Everywhere | ❌ | 付费按量。其站点确实有 API 与 MCP Server 入口（实测 2026-08-29），但我们的词量口径已经是 Semrush + seo.web.cafe 双源，**第三个付费口径的边际价值为负** |
 | WooRank Extension | ❌ | 同 WooRank 主站 |
-| AITDK Extension | ✅（SEO 标签页）/ ✅（GEO 标签页，2026-09-11 起可脚本化） | AITDK **SEO** 标签页的能力已被 `scripts/seo-audit.mjs` 复刻（它的头部注释就写着「AITDK 相当」），且脚本能跑全站，扩展只能看当前页。**GEO 标签页**（引用 / 表格 / 数字 / 作者 / 日期 / sameAs / H3，2026-09-02 在 vidown 实测 76/100）`seo-audit.mjs` 不覆盖，判据在 `checklists.md` 闸门 4b。**旧结论「报告靠用户贴回」已作废**：2026-09-11 起 `scripts/aitdk-opencli.sh` 用 opencli 直接读面板 iframe，15 个标签页（含 GEO）一次跑完，详见下方「AITDK 面板全自动取数」 |
+| AITDK Extension | ✅（SEO 标签页）/ ✅（GEO 标签页，2026-09-11 起可脚本化） | AITDK **SEO** 标签页的能力已被 `scripts/seo-audit.mjs` 复刻（它的头部注释就写着「AITDK 相当」），且脚本能跑全站，扩展只能看当前页。**GEO 标签页**（引用 / 表格 / 数字 / 作者 / 日期 / sameAs / H3，曾在示例站点实测）`seo-audit.mjs` 不覆盖，判据在 `checklists.md` 闸门 4b。**旧结论「报告靠用户贴回」已作废**：2026-09-11 起 `scripts/aitdk-opencli.sh` 用 opencli 直接读面板 iframe，15 个标签页（含 GEO）一次跑完，详见下方「AITDK 面板全自动取数」 |
 | Wappalyzer | ➕ 能力值得要 | **技术栈识别在段 1 的竞品拆解里有真实用途**（对方用什么建站、挂了哪些分析/广告/支付 → 反推变现方式，直接喂 [`lifecycle/stage-1-research.md`](lifecycle/stage-1-research.md) 1.3 竞品变现分析）。但其 API 是付费 `x-api-key`（实测 2026-08-29），**免费替代见下方「技术栈指纹」一节** |
 
 ### AITDK 面板全自动取数（`scripts/aitdk-opencli.sh`）

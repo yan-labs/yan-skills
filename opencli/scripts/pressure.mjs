@@ -72,7 +72,7 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 
 import { existsSync, realpathSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -94,7 +94,7 @@ export const QUOTA_TAB_LIMIT = 3;
 export const SHARED_SESSIONS = new Map(QUOTA_SITES.map((s) => [`${s.key}-nav`, s.key]));
 
 /** tools-share 锁的目录名形状，来自 backlink/scripts/lib-tools-share.mjs 的 acquireToolsShareLock。 */
-const LOCK_PREFIX = 'yan-tools-share-';
+const LOCK_PREFIX = `${userInfo().username}-tools-share-`;
 const LOCK_SUFFIX = '.lock';
 
 /** 即使当前没有锁目录，这几个工具也要显式报「空闲」——静默的缺席读起来像没查过。 */

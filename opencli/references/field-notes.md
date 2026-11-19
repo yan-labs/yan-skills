@@ -85,7 +85,7 @@ tools-share 锁被谁拿着、那个 pid 还活着吗，然后给 `go` / `wait` 
 同名会话排队意味着两条命令之间的间隙对别人是敞开的：一轮横跨几十条命令的采集
 （poll → 截图 → 滚动循环），任何 poll 间隙里别的工作流都能往同一个固定名标签页
 `open` 自己的 URL。实测 2026-08-29 一天抓到 4 次现行接管。所以整轮采集必须**另持
-机器级工具锁**（`yan-tools-share-<tool>.lock`，`pressure.mjs` 报告的就是它），
+机器级工具锁**（`<user>-tools-share-<tool>.lock`，`pressure.mjs` 报告的就是它），
 整轮持有、结束释放——「排队所以安全」只对单条 batch 成立。完整法律与参考实现见
 backlink Skill 的 `one-collector-per-quota-tool`（`backlink/SKILL.md`，实现在
 `backlink/scripts/ground-truth.mjs`）。

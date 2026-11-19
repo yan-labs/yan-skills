@@ -23,7 +23,7 @@ import {
 import { readFileSync } from 'node:fs';
 import { rmSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 
 export const DEFAULT_DASHBOARD = 'https://dash.3ue.co/zh-Hans/#/page/m/home';
@@ -66,7 +66,7 @@ export async function acquireToolsShareLock(toolKey, {
 } = {}) {
   const key = String(toolKey || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
   if (!key) throw new Error('A tool key is required for the Tools Share lock.');
-  const path = join(lockRoot, `yan-tools-share-${key}.lock`);
+  const path = join(lockRoot, `${userInfo().username}-tools-share-${key}.lock`);
   const deadline = Date.now() + timeoutMs;
   while (true) {
     try {

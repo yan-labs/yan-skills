@@ -508,7 +508,7 @@ own navigation is not a capability inventory.
 <lesson id="topic-research-report-id-has-no-deep-link">
 `/topic-research/&lt;24-hex savedSearchId&gt;/` is the report; the entry form is a
 POST-shaped React form and **no `?q=` deep link was proven this round**. The id
-observed (`6a929f3316989629165fb08b`) came only from clicking a row of
+observed (`<SAVED_SEARCH_ID>`) came only from clicking a row of
 「近期搜索」. `document.title` is identical on entry page and report page, so
 **landing checks read `finalHref`'s path, never the title.** This is the
 biggest open harvesting gap in this section; the next attempt drives the entry
@@ -711,7 +711,7 @@ link can load an empty shell — the collector's hash-aware self-check and
 **Route capability map, round 3 — the whole Keyword Research group (14
 sub-pages), Audience Overlap (3-domain), and Referrals incoming/outgoing.
 17 routes, double-witness, 2026-08-30.** Session `similarweb-nav`, the
-machine-level `yan-tools-share-similarweb` lock held for the entire round,
+machine-level `tools-share-similarweb` lock held for the entire round,
 one <ref file="scripts/ground-truth.mjs"/> run per route. Judge's write-up:
 `backlink/evidence/ground-truth/similarweb-round3-VERDICTS.md` (local,
 gitignored). Markdown manual for every judged route lives in
@@ -825,7 +825,7 @@ half the verdict can still be automated.
 **Round 4 closes the four gaps round 3 left open: the generator's
 Amazon/YouTube dictionaries, `monitorkeywords`, the rankings industry picker,
 and AI Traffic — which turned out to be a WRONGFUL CONVICTION.** Session
-`similarweb-nav`, machine lock `yan-tools-share-similarweb` held per run, one
+`similarweb-nav`, machine lock `tools-share-similarweb` held per run, one
 <ref file="scripts/ground-truth.mjs"/> run per route; the manual probing (CDP
 dropdown clicks, industry search box) ran inside a scratchpad script that
 acquired the same two locks first and released on exit. **Read-only

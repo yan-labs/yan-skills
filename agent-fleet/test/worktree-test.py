@@ -22,7 +22,7 @@ class WorktreeTest(unittest.TestCase):
             run('git', '-C', str(repo), 'config', 'user.name', 'test')
             run('git', '-C', str(repo), 'commit', '--allow-empty', '-m', 'initial')
             run('git', '-C', str(repo), 'push', '-u', 'origin', 'HEAD')
-            p = dict(action='create', repo=str(repo), path=str(root/'repo-wt'/'task'), branch='yan/task-20261112', base=None)
+            p = dict(action='create', repo=str(repo), path=str(root/'repo-wt'/'task'), branch='fleet/task-20261112', base=None)
             p = w.execute(p)
             self.assertEqual(w.execute(p)['path'], p['path'])
             target = Path(p['path'])
@@ -56,8 +56,8 @@ class WorktreeTest(unittest.TestCase):
             run('git', '-C', str(repo), 'push', '-u', 'origin', 'HEAD')
             os.environ['GIT_CONFIG_COUNT'] = '1'; os.environ['GIT_CONFIG_KEY_0'] = 'protocol.file.allow'; os.environ['GIT_CONFIG_VALUE_0'] = 'always'
             try:
-                p = w.execute(dict(action='create', repo=str(repo), path=str(root/'repo-wt'/'t'), branch='yan/t-1', base=None, writes=['sub-b/src/x.py']))
-                p2 = w.execute(dict(action='create', repo=str(repo), path=str(root/'repo-wt'/'u'), branch='yan/u-1', base=None))
+                p = w.execute(dict(action='create', repo=str(repo), path=str(root/'repo-wt'/'t'), branch='fleet/t-1', base=None, writes=['sub-b/src/x.py']))
+                p2 = w.execute(dict(action='create', repo=str(repo), path=str(root/'repo-wt'/'u'), branch='fleet/u-1', base=None))
             finally:
                 for key in ('GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0'): os.environ.pop(key, None)
             target = Path(p['path'])

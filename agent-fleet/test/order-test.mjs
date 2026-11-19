@@ -63,8 +63,8 @@ await test('show:列出生效的令、当前优先;过期的令忽略并提示�
 
 await test('set/clear:只改一行、其余原文保留、只提交这一个文件;未知执行者与状态报错', () => {
   const before = git('rev-list', '--count', 'HEAD').stdout.trim();
-  let r = go(['order', 'set', 'grok', '省着用', '--until', '+3d', '--reason', '用户 2026-11-13：“grok 省着用|只做视频”']); assert.equal(r.status, 0, r.stderr);
-  assert.match(row('grok'), /^\| grok \| 省着用 \| 20\d\d-\d\d-\d\dT\d\d:\d\d[+-]\d\d:\d\d \| 用户 2026-11-13：“grok 省着用\\\|只做视频” \|$/);
+  let r = go(['order', 'set', 'grok', '省着用', '--until', '+3d', '--reason', '测试理由：“grok 省着用|只做视频”']); assert.equal(r.status, 0, r.stderr);
+  assert.match(row('grok'), /^\| grok \| 省着用 \| 20\d\d-\d\d-\d\dT\d\d:\d\d[+-]\d\d:\d\d \| 测试理由：“grok 省着用\\\|只做视频” \|$/);
   assert.ok(text().includes('说明段落,改令时必须原样保留。') && text().includes('表后的文字也要保留。'));
   assert.equal(text().split('\n').filter(l => l.startsWith('| ')).length, 9);
   assert.equal(Number(git('rev-list', '--count', 'HEAD').stdout.trim()), Number(before) + 1);

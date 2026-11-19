@@ -36,7 +36,7 @@
     {
       "id": 4,
       "prompt": "今天要看 Semrush 的 20 个关键词，其中 4 个分析 agent 同时在跑。昨天页面偶尔显示空指标，另有一次 open 超时。给一个可执行的采集与复核顺序。",
-      "expected_output": "先查现有 rankup/backlink 脚本并运行 pressure.mjs --tool semrush；固定站点会话名，每次访问一个原子 batch，整轮持 yan-tools-share-<tool>.lock，顺序采集落盘后分析 agent 只读文件；unknown 不当作空闲；超时在原会话探活，不新建会话；空指标检查 degraded 证据和原文样本，不把 HTTP 200 当成功数据。",
+      "expected_output": "先查现有 rankup/backlink 脚本并运行 pressure.mjs --tool semrush；固定站点会话名，每次访问一个原子 batch，整轮持 <user>-tools-share-<tool>.lock，顺序采集落盘后分析 agent 只读文件；unknown 不当作空闲；超时在原会话探活，不新建会话；空指标检查 degraded 证据和原文样本，不把 HTTP 200 当成功数据。",
       "files": [],
       "checks": [
         "包含 pressure.mjs --tool semrush",

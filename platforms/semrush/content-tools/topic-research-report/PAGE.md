@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：`https://sem.3ue.co/topic-research/<24 位十六进制 savedSearchId>/`
-  - 实测 id 样例：`6a929f3316989629165fb08b`
+  - 实测 id 样例：`<SAVED_SEARCH_ID>`
   - **id 从哪来：只能由入口页「近期搜索」的「查看内容创意」按钮点出来，或提交一次新查询。
     本轮未实证任何 `?q=` 深链写法**——这是本板块最大的采集缺口。
 - `document.title` 与入口页**完全相同**，落点判据只看 `finalHref` 的 path。

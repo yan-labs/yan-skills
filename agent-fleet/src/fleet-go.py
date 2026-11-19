@@ -142,7 +142,7 @@ print(json.dumps({'roots':roots,'writes':rel}))
     if len(roots) != 1: raise ValueError('--worktree 的 --write 必须属于同一个仓库；或在入口写「仓库: <绝对路径>」指定。')
     root = roots[0]
     target = str(Path(root).parent / (Path(root).name + '-wt') / name)
-    data = {'action': 'create', 'repo': root, 'path': target, 'branch': 'yan/' + name + '-' + datetime.date.today().strftime('%Y%m%d'), 'base': base or None, 'writes': found['writes']}
+    data = {'action': 'create', 'repo': root, 'path': target, 'branch': 'fleet/' + name + '-' + datetime.date.today().strftime('%Y%m%d'), 'base': base or None, 'writes': found['writes']}
     return worktree_call(data, location)
 
 
@@ -164,7 +164,7 @@ def recorded_worktree(meta):
     location = meta.get('on') or 'mini'
     convert = mini.remote_path if location == 'mini' else str
     return {'repo': convert(obj['repo']), 'path': convert(str(target)), 'base': None,
-            'branch': 'yan/' + meta['name'] + '-' + datetime.date.today().strftime('%Y%m%d'),
+            'branch': 'fleet/' + meta['name'] + '-' + datetime.date.today().strftime('%Y%m%d'),
             'writes': [str(path.relative_to(target)) for path in writes if target in path.parents]}, location
 
 

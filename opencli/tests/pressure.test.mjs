@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import {
   assessPressure, atLimit, scrubUrl, ownerOf, siteOf, normalizeSessions,
@@ -18,8 +18,8 @@ import {
 const SUFFIX = 'convabc123';
 const mine = (base) => `${base}-${SUFFIX}`;
 const tab = (session, url = '') => ({ session, url });
-const idle = (tool) => ({ tool, held: false, pid: null, startedAt: null, heldMs: null, alive: null, path: `/tmp/yan-tools-share-${tool}.lock`, kind: 'tool' });
-const heldBy = (tool, pid, alive, heldMs = 223_000) => ({ tool, held: true, pid, startedAt: '2026-08-28T10:00:00.000Z', heldMs, alive, path: `/tmp/yan-tools-share-${tool}.lock`, kind: 'tool' });
+const idle = (tool) => ({ tool, held: false, pid: null, startedAt: null, heldMs: null, alive: null, path: `/tmp/${userInfo().username}-tools-share-${tool}.lock`, kind: 'tool' });
+const heldBy = (tool, pid, alive, heldMs = 223_000) => ({ tool, held: true, pid, startedAt: '2026-08-28T10:00:00.000Z', heldMs, alive, path: `/tmp/${userInfo().username}-tools-share-${tool}.lock`, kind: 'tool' });
 
 const assess = (opts) => assessPressure({ suffix: SUFFIX, locks: [idle('semrush'), idle('similarweb')], ...opts });
 const ok = (list) => ({ ok: true, list });
@@ -119,7 +119,7 @@ test('锁被活着的 pid 持有 → wait，并说清持有了多久', () => {
 
 test('pid 已死 → stale-lock，给出人工命令，脚本自己不删锁', async () => {
   const root = await mkdtemp(join(tmpdir(), 'pressure-test-'));
-  const path = join(root, 'yan-tools-share-semrush.lock');
+  const path = join(root, `${userInfo().username}-tools-share-semrush.lock`);
   await mkdir(path);
   await writeFile(join(path, 'owner.json'), JSON.stringify({ pid: 999_001, startedAt: new Date(Date.now() - 60_000).toISOString() }));
 
@@ -142,7 +142,7 @@ test('owner.json 还没写出来的锁不算陈旧锁', async () => {
   // acquireToolsShareLock 是 mkdir 之后再写 owner.json，中间有个短窗口。
   // 把「读不到 pid」当成「pid 已死」会建议人工去删一把刚刚被拿走的锁。
   const root = await mkdtemp(join(tmpdir(), 'pressure-test-'));
-  await mkdir(join(root, 'yan-tools-share-similarweb.lock'));
+  await mkdir(join(root, `${userInfo().username}-tools-share-similarweb.lock`));
   const locks = await gatherLocks({ lockRoot: root, probe: () => false });
   const lock = locks.find((l) => l.tool === 'similarweb');
   assert.equal(lock.held, true);
@@ -154,7 +154,7 @@ test('owner.json 还没写出来的锁不算陈旧锁', async () => {
 
 test('--tool 只看那一个工具，不给就全看', async () => {
   const root = await mkdtemp(join(tmpdir(), 'pressure-test-'));
-  await mkdir(join(root, 'yan-tools-share-semrush.lock'));
+  await mkdir(join(root, `${userInfo().username}-tools-share-semrush.lock`));
   assert.deepEqual((await gatherLocks({ lockRoot: root })).map((l) => l.tool).sort(), ['semrush', 'similarweb']);
   assert.deepEqual((await gatherLocks({ lockRoot: root, tool: 'semrush' })).map((l) => l.tool), ['semrush']);
 });

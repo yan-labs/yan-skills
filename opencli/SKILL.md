@@ -155,7 +155,7 @@ opencli browser captcha-help close
 
 ### 配额站例外
 
-Semrush / Similarweb 等同账号限额站使用固定的站点会话名，并且**一次访问放进一个 batch**；单条 batch 由 daemon 串行，跨多条命令的整轮采集还要持有 `yan-tools-share-<tool>.lock`。不要让多个 agent 并行采集：一个采集者顺序抓取并落盘，分析者读文件。开工前先运行：
+Semrush / Similarweb 等同账号限额站使用固定的站点会话名，并且**一次访问放进一个 batch**；单条 batch 由 daemon 串行，跨多条命令的整轮采集还要持有 `<user>-tools-share-<tool>.lock`。不要让多个 agent 并行采集：一个采集者顺序抓取并落盘，分析者读文件。开工前先运行：
 
 ```bash
 node <opencli-skill-dir>/scripts/pressure.mjs --tool semrush

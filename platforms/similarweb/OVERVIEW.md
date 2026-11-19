@@ -3,7 +3,7 @@
 - **host：`sim.3ue.co`**（唯一合法面板 origin；所有 PAGE.md 的 URL 模板都在它上面）。
 - 共享账号面板，**全站 hash 路由**：`location.pathname` 恒为 `/`，一切路由信息在 `#/…` 里。
   落点自检必须比对 hash 前 3 段；按 pathname 比对的检查对这站全盲。
-- 会话固定 `similarweb-nav`；机器级锁 `yan-tools-share-similarweb.lock`
+- 会话固定 `similarweb-nav`；机器级锁 `<user>-tools-share-similarweb.lock`
   （`backlink/scripts/lib-tools-share.mjs`），整轮持有，不是逐条命令排队。
 - 全部 URL 剥敏：`__gmitm=` 只留键名；Cookie/token/授权头一律不落盘、不进文档。
 

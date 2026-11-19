@@ -76,7 +76,7 @@ platforms/similarweb/rankings/industry-picker/collect.sh [out-dir]
 ## 验证记录
 
 - **2026-08-30** 双证人采集，会话 `similarweb-nav`，机器级
-  `yan-tools-share-similarweb` 锁全程持有；手动探路（CDP 点击、搜索框输入）在
+  `tools-share-similarweb` 锁全程持有；手动探路（CDP 点击、搜索框输入）在
   持同样两把锁的 scratchpad 脚本里完成，退出即释放。
   截图（树全展开态 + 过滤态）⇄ census 一致：`行业 (217)`、两级列表结构、
   9 个渠道 tab、空态文案。

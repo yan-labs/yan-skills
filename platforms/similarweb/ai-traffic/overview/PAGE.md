@@ -67,7 +67,7 @@ platforms/similarweb/ai-traffic/overview/collect.sh [domain] [months] [out-dir]
 ## 验证记录
 
 - **2026-08-30** 双证人采集，域 `openai.com`，全球，6 个月，会话 `similarweb-nav`，
-  机器级 `yan-tools-share-similarweb` 锁全程持有。
+  机器级 `tools-share-similarweb` 锁全程持有。
   截图 ⇄ census deepText 抽查顶部卡数值、堆叠条百分比、平台平均流量、
   落地页表前几行的流量与份额、分页器 `1 / 50` 共 **10 个读数全部命中**。
   证据（本地，gitignore）：

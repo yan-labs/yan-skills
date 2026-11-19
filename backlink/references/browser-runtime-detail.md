@@ -57,7 +57,7 @@ opencli browser recon-sem-rival open "https://..."
 <statement>
 Unique session names buy you concurrent **tabs**, not concurrent **Tools Share
 work**. Every script that goes through `lib-tools-share.mjs` first takes
-`yan-tools-share-&lt;tool&gt;.lock` — a **machine-wide mutex, one per tool, shared
+`&lt;user&gt;-tools-share-&lt;tool&gt;.lock` — a **machine-wide mutex, one per tool, shared
 across every Claude session on the box**. So at any moment exactly one process
 on this machine can drive Semrush, and exactly one can drive Similarweb.
 **Dispatching N agents at the same tool does not parallelise it. It builds a
@@ -96,7 +96,7 @@ Then serialise the work itself, one agent at a time per tool:
   agent C -> offline work        (parsers, fixtures, docs — no lock at all)
 
 Before dispatching, check who holds it:
-  cat "$TMPDIR"/yan-tools-share-semrush.lock/owner.json   # {"pid":...,"startedAt":...}
+  cat "$TMPDIR"/${USER}-tools-share-semrush.lock/owner.json   # {"pid":...,"startedAt":...}
   ps -p <pid> -o etime=,command=                          # dead pid = stale lock
 ]]></correct>
 <wrong><![CDATA[
@@ -2057,7 +2057,7 @@ caught in one recheck session** (2026-08-29, judge's write-up in
     page. "读之前必须持锁" now has two independent live confirmations.
 (b) **A whole run holds the machine-wide tool lock**
     (`acquireToolsShareBrowserLocks` in `scripts/lib-tools-share.mjs`,
-    `yan-tools-share-&lt;tool&gt;.lock`): acquired before the first command,
+    `&lt;user&gt;-tools-share-&lt;tool&gt;.lock`): acquired before the first command,
     held across every poll, screenshot and scroll, released in `finally`.
     <ref file="scripts/ground-truth.mjs"/> is the reference implementation —
     it maps the URL's host to the tool key (non-quota hosts take no lock) and

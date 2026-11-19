@@ -2440,8 +2440,8 @@
         "submitLinks": [
           "https://www.aig123.com/site-submit",
           "https://www.aig123.com/site-submit",
-          "https://wenku.baidu.com/ndlaunch/browse/chat?fr=dist_wk_aiasis&amp;dist_source=kfpt-WD&amp;utm_account=dist&amp;keyword=PPT&amp;searchFr=1&amp;third_id=wkds_c93c033043323968011c92c9_400000336",
-          "https://wenku.baidu.com/ndlaunch/browse/chat?fr=dist_wk_aiasis&amp;dist_source=kfpt-WD&amp;utm_account=dist&amp;keyword=PPT&amp;searchFr=1&amp;third_id=wkds_c93c033043323968011c92c9_400000336"
+          "https://wenku.baidu.com/ndlaunch/browse/chat?fr=dist_wk_aiasis&amp;dist_source=kfpt-WD&amp;utm_account=dist&amp;keyword=PPT&amp;searchFr=1",
+          "https://wenku.baidu.com/ndlaunch/browse/chat?fr=dist_wk_aiasis&amp;dist_source=kfpt-WD&amp;utm_account=dist&amp;keyword=PPT&amp;searchFr=1"
         ],
         "fieldNames": [
           "type",
@@ -13123,7 +13123,7 @@
     },
     {
       "domain": "forms.yandex.ru",
-      "route": "https://forms.yandex.ru/u/668a6578eb61463a1e9843f9/success/?akey=bd6f07a5cc2a47f54b9a0cdcfb04bf434f5c30e2",
+      "route": "https://forms.yandex.ru/",
       "name": "Authorization",
       "kind": "contact-form",
       "gate": "account",
@@ -13136,7 +13136,7 @@
       "priceCheckedAt": null,
       "status": "gated",
       "sourceList": "flaqai/backlink_skills Free-backlink-list.md",
-      "notes": "| 426 | [https://forms.yandex.ru/u/668a6578eb61463a1e9843f9/success/?akey=bd6f07a5cc2a47f54b9a0cdcfb04bf434f5c30e2](<https://forms.yandex.ru/u/668a6578eb61463a1e9843f9/success/?akey=bd6f07a5cc2a47f54b9a0cdcfb04bf434f5c30e2>) | forms.yandex.ru：公开网站或产品发现渠道；当前页面没有足够信息，具体用途与受众需再次核验。当前链接指向网站首页或相关功能页，具体入口",
+      "notes": "| 426 | [https://forms.yandex.ru/](<https://forms.yandex.ru/>) | forms.yandex.ru：公开网站或产品发现渠道；当前页面没有足够信息，具体用途与受众需再次核验。当前链接指向网站首页或相关功能页，具体入口",
       "lastProbedAt": "2026-08-19",
       "evidence": {
         "method": "anonymous-http",
@@ -23833,7 +23833,7 @@
     },
     {
       "domain": "rakutenadvertising.com",
-      "route": "https://rakutenadvertising.com/thanks/?submissionGuid=eac41e5e-f1a4-4f3d-90e1-fd50655b7f72",
+      "route": "https://rakutenadvertising.com/",
       "name": "Thank you for your submission!",
       "kind": "unknown",
       "gate": "open-form",
@@ -23846,13 +23846,13 @@
       "priceCheckedAt": null,
       "status": "usable",
       "sourceList": "flaqai/backlink_skills Free-backlink-list.md",
-      "notes": "| 374 | [https://rakutenadvertising.com/thanks/?submissionGuid=eac41e5e-f1a4-4f3d-90e1-fd50655b7f72](<https://rakutenadvertising.com/thanks/?submissionGuid=eac41e5e-f1a4-4f3d-90e1-fd50655b7f72>) | Elevate Your Affiliate Marketing with the Leading Global Network（rakutenadvertising.com）：是文章、博客、新闻或数字出版",
+      "notes": "| 374 | [https://rakutenadvertising.com/](<https://rakutenadvertising.com/>) | Elevate Your Affiliate Marketing with the Leading Global Network（rakutenadvertising.com）：是文章、博客、新闻或数字出版",
       "lastProbedAt": "2026-08-19",
       "evidence": {
         "method": "anonymous-http",
         "what": "reachable 200, 1 form(s), no CAPTCHA/login/reciprocal signal in raw HTML",
         "httpStatus": 200,
-        "finalUrl": "https://rakutenadvertising.com/thanks/?submissionGuid=eac41e5e-f1a4-4f3d-90e1-fd50655b7f72",
+        "finalUrl": "https://rakutenadvertising.com/",
         "title": "Thank you for your submission!"
       },
       "traffic": {
