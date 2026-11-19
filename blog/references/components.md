@@ -1,6 +1,6 @@
 # 页面组件与数据源（以代码为准）
 
-> 回填于 2026-10-11（ev-article-arch / ev-article-visual / ev-article-fixA）。路径相对 `ai-sites/`；平台代码在 `packages/platform/src/`（下称 `src/`）。字段与校验以 `src/content/article-schema.ts` 为准，本页只是索引。
+> 回填于 2026-10-11（ev-article-arch / ev-article-visual / ev-article-fixA）。路径相对 `example-project/`；平台代码在 `packages/platform/src/`（下称 `src/`）。字段与校验以 `src/content/article-schema.ts` 为准，本页只是索引。
 
 ## 文件与管线
 

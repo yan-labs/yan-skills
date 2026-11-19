@@ -30,7 +30,7 @@
  * the recipe schema, how to add one, and when a recipe goes stale.
  *
  * Usage:
- *   node scripts/submit-known.mjs --domain playlin.io --project crossword-ar \
+ *   node scripts/submit-known.mjs --domain playlin.io --project example-project \
  *     --payload payload.json [--dry-run] [--submit] [--session s]
  *
  *   node scripts/submit-known.mjs --domain projectpedia.net --project my-tool-site \

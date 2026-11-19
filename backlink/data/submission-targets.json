@@ -9317,7 +9317,7 @@
       "priceCheckedAt": null,
       "status": "gated",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": "vertical=games; keyword=\"word games submit your game\"; discovered=footprint/serper 2026-09-12; 2026-09-12 复核（已登录账号，走到表单终点）：这不是外链/目录提交页，而是把整个游戏授权给 Coolmath 收购托管的意向表单（Google Form，已确认已登录，无 CAPTCHA），字段要求 Game Title/游戏引擎/试玩 URL 等；页面正文明确要求 \"The game must be free of any and all external links\" 且 \"no ad for your own site or company\"——即使被采纳也不会产生反链，反而要求提交方放弃站外链接。其他工具类/视频类/测试类站点 根本不是可试玩游戏，crossword-ar/nonogram-jp 虽是拼图类游戏但提交即等于申请被收购托管、放弃外链，与外链目标完全相悖，本轮未对 5 个项目做任何提交。原 form-fields-unverified 标记已解除，实际情况见上。",
+      "notes": "vertical=games; keyword=\"word games submit your game\"; discovered=footprint/serper 2026-09-12; 2026-09-12 复核（已登录账号，走到表单终点）：这不是外链/目录提交页，而是把整个游戏授权给 Coolmath 收购托管的意向表单（Google Form，已确认已登录，无 CAPTCHA），字段要求 Game Title/游戏引擎/试玩 URL 等；页面正文明确要求 \"The game must be free of any and all external links\" 且 \"no ad for your own site or company\"——即使被采纳也不会产生反链，反而要求提交方放弃站外链接。其他工具类/视频类/测试类站点 根本不是可试玩游戏，example-project/example-project 虽是拼图类游戏但提交即等于申请被收购托管、放弃外链，与外链目标完全相悖，本轮未对 5 个项目做任何提交。原 form-fields-unverified 标记已解除，实际情况见上。",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
@@ -32673,7 +32673,7 @@
       "priceCheckedAt": null,
       "status": "gated",
       "sourceList": "footprint-run2 (serper + google footprint sweep, human-reviewed)",
-      "notes": "vertical=games; keyword=\"puzzle games write for us\"; discovered=footprint/serper 2026-09-12; 2026-09-12 复核：无需登录，公开可访问的真实 write-for-us 投稿表单（Name/Email/Proposed Article Title/Describe your article idea），无 CAPTCHA、无付费。编辑范围明确限定为 Wordle/Quordle/Nerdle 等文字猜谜类攻略内容，不是通用目录提交。表单无独立 URL 字段（链接需写在正文里），且有一个标准四字段（url/name/email/description）payload 结构之外的必填 'Article Title' 字段，inspect-page/safe-fill.mjs 的机械 qualifies 判据因此判 false（no_safe_submission_form）——已由 AI 现场核实截图后判定可安全填写，用等价于 safe-fill 安全约束（先查 CAPTCHA/login/fingerprint，装提交守卫，绝不越权）的一次性脚本手填。表单 action 是当前页 URL 本身（POST self, no visible AJAX handler class），真实点击提交后页面发生了完整往返导航（performance navigation entry 更新、字段清空），但页面上没有任何 thank-you/success 文案或反馈组件——服务端是否真正处理/转发了内容无法确认，判定 outcome-unknown，未重试（避免造成重复提交）。crossword-ar/nonogram-jp 与站点主题（拼图攻略）高度相关，已实际提交；其他工具类/视频类/测试类站点 与拼图攻略毫无关联，为避免对同一个小站的联系表单连续投递 5 条几乎全不相关的推介（观感上接近滥用联系表单），本轮判断只投相关的 2 个，另 3 个未提交，已在对应项目 ledger 中记为 rejected 并说明原因。原 form-fields-unverified 标记已解除，实际情况见上。",
+      "notes": "vertical=games; keyword=\"puzzle games write for us\"; discovered=footprint/serper 2026-09-12; 2026-09-12 复核：无需登录，公开可访问的真实 write-for-us 投稿表单（Name/Email/Proposed Article Title/Describe your article idea），无 CAPTCHA、无付费。编辑范围明确限定为 Wordle/Quordle/Nerdle 等文字猜谜类攻略内容，不是通用目录提交。表单无独立 URL 字段（链接需写在正文里），且有一个标准四字段（url/name/email/description）payload 结构之外的必填 'Article Title' 字段，inspect-page/safe-fill.mjs 的机械 qualifies 判据因此判 false（no_safe_submission_form）——已由 AI 现场核实截图后判定可安全填写，用等价于 safe-fill 安全约束（先查 CAPTCHA/login/fingerprint，装提交守卫，绝不越权）的一次性脚本手填。表单 action 是当前页 URL 本身（POST self, no visible AJAX handler class），真实点击提交后页面发生了完整往返导航（performance navigation entry 更新、字段清空），但页面上没有任何 thank-you/success 文案或反馈组件——服务端是否真正处理/转发了内容无法确认，判定 outcome-unknown，未重试（避免造成重复提交）。example-project/example-project 与站点主题（拼图攻略）高度相关，已实际提交；其他工具类/视频类/测试类站点 与拼图攻略毫无关联，为避免对同一个小站的联系表单连续投递 5 条几乎全不相关的推介（观感上接近滥用联系表单），本轮判断只投相关的 2 个，另 3 个未提交，已在对应项目 ledger 中记为 rejected 并说明原因。原 form-fields-unverified 标记已解除，实际情况见上。",
       "lastProbedAt": "2026-09-12",
       "evidence": {
         "method": "anonymous-http",
