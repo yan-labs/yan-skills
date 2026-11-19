@@ -169,7 +169,7 @@ export async function runGrok({ prompt, cwd = process.cwd(), model, review = fal
     if (error && (errorObject?.killed === true || errorObject?.signal === 'SIGTERM' || errorObject?.code === 'ETIMEDOUT' ||
       /timed?\s*out|timeout|ETIMEDOUT|超时/i.test(`${error} ${stderrEvidence}`)) &&
       !['HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'https_proxy', 'http_proxy', 'all_proxy'].some(key => process.env[key]))
-      error += '；终端未设置 HTTPS_PROXY，Grok 需要它联网（Clash 示例为 http://127.0.0.1:7890，请使用实际代理地址）';
+      error += '；终端未设置 HTTPS_PROXY，Grok 需要它联网，请使用本机实际代理地址';
     if (error) appendFileSync(logPath, `\n[grok-cli] ${redactEvidence(error)}\n`);
     writeFileSync(resultPath, result);
     appendFileSync(logPath, `[grok-cli] done ${error || suspectNote ? 'error' : 'ok'}${suspectNote ? ' verdict=suspect' : ''}\n`);
