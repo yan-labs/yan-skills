@@ -16,8 +16,9 @@ import { lint as lintDocs } from "./maintain/doc-lint.mjs";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "4.0.3";
+const expectedVersion = "4.0.4";
 const requiredReferences = [
+  "commands.md",
   "integrations/kie.md",
   "integrations/kie-models.md",
   "registry.md",
@@ -69,23 +70,13 @@ const requiredContent = {
     "npx skills update rankup -g -y",
     ".rankup/skill-state.json",
     "严禁在 Skill、`.rankup/`、Git、测试或回复中保存真实密钥",
-    "## 可复用操作必须落成脚本",
     "三方对账门禁",
     "沉淀义务与是否调用本 Skill 无关",
     "本 Skill 必须保持项目中立与机器中立",
-    "## 跨项目资产登记表",
     "### `rankup init`",
     "### `rankup review`",
     "## 哥飞官方 Skill",
     "disable-model-invocation",
-    "scripts/sessions.mjs",
-    "scripts/indexnow-submit.mjs",
-    "scripts/webmaster-sitemap.mjs",
-    "scripts/rankup-cli.mjs",
-    "npx @yan-labs/rankup audit similarweb",
-    "断言绝不能被 git 追踪",
-    "--new-only",
-    "review-state.json",
     "## 经验库：规划与迭代之前先翻一遍",
     "## 主线：维护 checklist，使用 checklist",
     "### `rankup check`",
@@ -94,13 +85,36 @@ const requiredContent = {
     "图标专项未通过不许上线",
     "上线前与发布后复核入口",
     "references/design-references.md#多功能工具站侧栏统一规范",
-    "npx skills add yan-labs/yan-skills --skill cf-cli -g -y",
     "## 强制流程（先读这张表，再做任何事）",
     "### `rankup doctor`",
     "scripts/maintain/rankup-doctor.mjs",
     "scripts/maintain/rankup-clean.mjs",
     "ref-scan.mjs",
     "SEO/GEO 是主要手段，不是适用边界",
+    "可复用操作必须落成脚本",
+    "## 启动协议",
+    "## 清理",
+    "references/commands.md",
+  ],
+  // 2026-11-20 SKILL.md 精简为路由：命令细则迁到 commands.md，各段脚本速查迁到 lifecycle.md，断言随内容迁移，一条未删。
+  "references/commands.md": [
+    "## `rankup init`",
+    "## `rankup review`",
+    "## 跨项目资产登记表",
+    "scripts/sessions.mjs",
+    "--new-only",
+    "review-state.json",
+    "断言绝不能被 git 追踪",
+    "npx skills add yan-labs/yan-skills --skill rankup -g -y",
+    "npx skills add yan-labs/yan-skills --skill cf-cli -g -y",
+    ".rankup/skill-state.json",
+  ],
+  "references/lifecycle.md": [
+    "## 各段入口与常用脚本速查",
+    "scripts/indexnow-submit.mjs",
+    "scripts/webmaster-sitemap.mjs",
+    "scripts/rankup-cli.mjs",
+    "npx @yan-labs/rankup audit similarweb",
   ],
   "references/maintenance.md": [
     "## 一、什么时候必须走本章",
@@ -326,7 +340,7 @@ const leakScanExcludes = new Set([
 //
 // 两个文件走同一条防线,但泄漏的是不同东西:
 //   registry.md — 项目名与绝对路径
-//   .env        — 第三方工具账号的真实令牌(SKILL.md「令牌统一放 .env」那一节)
+//   .env        — 第三方工具账号的真实令牌(references/discipline.md 十一「令牌统一放 Skill 根目录的 .env」)
 // 后者一旦提交,令牌就进了公开仓库的历史,改密码都追不回来。
 const MUST_STAY_UNTRACKED = [
   {

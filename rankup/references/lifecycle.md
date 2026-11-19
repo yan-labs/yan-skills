@@ -7,6 +7,15 @@
 
 所有输出路径均相对于项目根目录。写入 `.rankup/` 前先遵循项目记忆协议；任何密钥真实值都不得写入 `.rankup/`、Git、日志或命令输出。
 
+## 目录
+
+- 七段文件索引（2026-09-30 拆分：本文件只留总述、映射、通用规则与对账）
+- 各段入口与常用脚本速查
+- 旧阶段号 → 新七段 映射表
+- 每段的「完成门禁」都在 checklist 里有对应条目
+- 通用执行规则
+- 每段开头的固定动作：对账（原阶段 0）
+
 ## 七段文件索引（2026-09-30 拆分：本文件只留总述、映射、通用规则与对账）
 
 一次任务只读对应那一段的文件；每段文件都是「输入 / 必做动作 / 步骤 check / 输出 / 完成门禁 / 交给下一段」的完整结构，硬规则总表（含「为什么」）也在各段文件里，`SKILL.md` 只留摘要。文字里写「`lifecycle.md` 段 N」的指针，一律指下表对应文件。
@@ -20,6 +29,20 @@
 | 5 上线与接入 | [`lifecycle/stage-5-launch.md`](lifecycle/stage-5-launch.md) | [`checklists.md`](checklists.md) 段 5 |
 | 6 外链 | [`lifecycle/stage-6-backlinks.md`](lifecycle/stage-6-backlinks.md) | [`checklists.md`](checklists.md) 段 6 |
 | 7 变现与监控 | [`lifecycle/stage-7-monetize.md`](lifecycle/stage-7-monetize.md) | [`checklists.md`](checklists.md) 段 7 |
+
+## 各段入口与常用脚本速查
+
+跑之前先在这里找现成脚本，不现写等价实现；全量能力底账见 [`capability-map.md`](capability-map.md)。脚本路径相对 Skill 根目录。
+
+| 段 | 判读与方法入口 | 常用脚本与工具 |
+|---|---|---|
+| 1 调研 | 词级先过 [`playbooks/entry.md`](playbooks/entry.md) → [`playbooks/research.md`](playbooks/research.md)（P0 分流：没东西 P1、一个词 P2、一个域名 P4）；历史经验 [`experiences/demand-discovery.md`](experiences/demand-discovery.md)；证据覆盖 [`research-checklist.md`](research-checklist.md)；GT 测量只按 [gpts 基线判读](trends.md#gpts-基线判读到底怎么才算有搜索量唯一判据源)；问法与采样只按 [`seo-geo.md`](seo-geo.md) | `scripts/demand/suggest.mjs`、官方 `gefei-keywords` / `gefei-competitor`、`backlink/scripts/semrush-keyword.mjs`、面板取证 `scripts/rankup-cli.mjs`（`npx @yan-labs/rankup audit similarweb`）、`scripts/gt.py` |
+| 2 立项与定位 | 立项裁决只见 [`playbooks/entry.md`](playbooks/entry.md)；经营经验 [`experiences/zero-to-one.md`](experiences/zero-to-one.md) | — |
+| 3 建站与开发 | [`cloudflare-stack.md`](cloudflare-stack.md)（脚手架、资源选择、静态优先）；三方库优先 [`integrations.md`](integrations.md)；基础控件边界见[纪律十六](discipline.md#十六组件库红线段-3--段-4ui-只准来自组件库不许自己造控件) | `scripts/make-favicons.mjs --src <logo.png> --out <public目录>`、`scripts/cf-zone-setup.mjs`、`scripts/domain-age.mjs` |
+| 4 上线前 SEO/GEO | [`seo-box.md`](seo-box.md)、[`seo-webcafe.md`](seo-webcafe.md)、[`seo-ai-search.md`](seo-ai-search.md) | `scripts/sitemap-lastmod-check.mjs <域名>`、`scripts/seo-audit.mjs --sitemap`、`scripts/pagespeed.mjs collect --strategy both`、`scripts/is-agentic.mjs scan --save`、`scripts/ai-crawler-access.mjs --url <正式域名>`、`scripts/ua-parity.mjs <url>`、`scripts/hcu-audit.mjs <domain>` |
+| 5 上线与接入 | [`search-platforms.md`](search-platforms.md)、[`analytics-platforms.md`](analytics-platforms.md)、[`cloudflare/domain-email.md`](cloudflare/domain-email.md) | `scripts/sitemap-lastmod-check.mjs <域名>`、`scripts/site-onboard.mjs`、`scripts/gsc-domain-verify.mjs`、`scripts/bing-import-from-gsc.mjs`、`scripts/cf-analytics-setup.mjs`、`scripts/indexnow-submit.mjs`、`scripts/webmaster-sitemap.mjs`、`scripts/yandex-setup.mjs`、`scripts/ahrefs-site-audit.mjs`、`scripts/analytics-beacon-check.mjs`、`scripts/verify-live.mjs` |
+| 6 外链 | `backlink` Skill（未装：`npx skills add yan-labs/yan-skills --skill backlink -g -y`）；判据 [`experiences/webcafe-topics.md`](experiences/webcafe-topics.md) 五；发布平台 [`product-launch.md`](product-launch.md) | 见 `backlink` Skill |
+| 7 变现与监控 | [`monetization.md`](monetization.md)、[`experiences/conversion.md`](experiences/conversion.md)、[`evolution.md`](evolution.md)；掉量排查 [`experiences/webcafe-experiences-2.md`](experiences/webcafe-experiences-2.md) 十七～十九 | `scripts/is-agentic.mjs diff`、`scripts/review.mjs`；只读读数：`scripts/gsc-export.mjs`、`scripts/gsc-daily-readback.mjs`、`scripts/ga4-report-readback.mjs`、`scripts/cf-traffic-readback.mjs`、`scripts/clarity-recordings-readback.mjs` |
 
 ## 旧阶段号 → 新七段 映射表
 

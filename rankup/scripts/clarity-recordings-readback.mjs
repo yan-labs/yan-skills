@@ -2,7 +2,7 @@
 /**
  * 只读读取 Microsoft Clarity：仪表盘概览（会话/机器人排除/新老用户/来源/国家设备/热门页/智能事件）+ 录屏列表（解析为 JSON）
  * + 按智能事件过滤的录屏列表（谁触发了 generate_click / buy_click 等）。已登录 Chrome + opencli。
- * 用法：node clarity-recordings-readback.mjs --project ytxts178ng --name effect.video --days 7 --out <目录> \
+ * 用法：node clarity-recordings-readback.mjs --project <project-id> --name example.com --days 7 --out <目录> \
  *          [--events generate_click,login_success,buy_click,pricing_view] [--session ev-clarity-xxx]
  * 输出：<out>/clarity-dashboard-<days>d.txt、clarity-recordings-<days>d.json、clarity-event-<event>-<days>d.json；stdout 摘要。
  * 已知坑（2026-10-30 验证）：

@@ -14,7 +14,7 @@
  * 已知坑：collect 请求可能走 sendBeacon/fetch，靠 Resource Timing 读 URL（请求体里的批量事件读不到，dl/dr 在 URL 上）；
  *         重页面（rapselfie、aivideoraindance）collect 常在 10 秒后才发，脚本每 2 秒轮询直到 --wait 用完；opencli network 抓不到 collect URL，别用。
  *         来源页若有人机验证会停在来源页，此时换 --from。
- * 验证：2026-11-13 在 rapselfie.com / hotellobby.live 等模板站跑通。
+ * 验证：2026-11-13 在两个模板站跑通。
  */
 import { execFileSync } from "node:child_process";
 

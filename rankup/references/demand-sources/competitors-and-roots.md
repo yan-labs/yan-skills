@@ -2,6 +2,16 @@
 
 > 本文件从 [`demand-sources.md`](../demand-sources.md) 拆出（2026-09-30），含原文 第九、九·二、九·三、九·五至九·八节。来源分流、搜索结果页采集入口、令牌与维护契约仍在主文件。
 
+## 目录
+
+- 九、竞品正在往哪儿下注
+- 九·二、一个站背后的整个站群
+- 九·三、平台子域名监控（Certificate Transparency）
+- 九·八、已经有人替你调研过了（哥飞社区）
+- 九·五、从词根出发
+- 九·六、自己扩的词表一定漏了一半：必须反查竞品的实际排名词库
+- 九·七、跨平台自动补全扩词
+
 ## 九、竞品正在往哪儿下注
 
 | 源 | 拿什么 | 取数方式 | 需登录 | 脚本 |
@@ -103,7 +113,7 @@ node scripts/demand/site-network.mjs --domain <种子域名> --confirm --max 10
 脚本：[`../scripts/webcafe-forum.mjs`](../../scripts/webcafe-forum.mjs)，
 完整接口地图与坑见 [`webcafe-forum.md`](../webcafe-forum.md)。
 
-官方能力核对与只读试用（2026-09-30）：`knowledge_search --kind chat` 返回 `docId/title/date/speaker/snippet`，实测 `url=null`，只覆盖哥飞发言节选；目录明确 `knowledge_read` 提供相关段落、群聊去昵称，不是全文，本轮读取试用遇到 TLS 失败，不能视为成功覆盖。官方无论坛全集、悬赏投票榜或完整群聊消息字段的等价工具，因此保留 `webcafe-forum.mjs`：旧 HTTP 悬赏榜实测 20 条，浏览器群聊搜索实测 50 条上限；仍需会员访问权限，未出现工具箱每日配额扣费显示。原文取数与官方知识库积分调用分别记账。
+官方哥飞知识库与 `webcafe-forum.mjs` 的能力边界（哪些只有本地脚本能取、各自的上限与记账）见 [`webcafe-forum.md`](../webcafe-forum.md)「七、站内搜索」末尾的 2026-09-30 核对记录。
 
 | 你要什么 | 命令 |
 |---|---|

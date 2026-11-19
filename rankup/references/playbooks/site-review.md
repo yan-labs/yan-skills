@@ -22,6 +22,23 @@ review/check 均按[建设中红线](../discipline.md#二十一禁止建设中�
 
 ---
 
+## 目录
+
+- 一 · 全站体检
+  - 1. 触发
+  - 2. 产出
+  - 3. 流水线
+  - 4. 判读：每组对照哪个文档的哪一节
+  - 5. 省积分
+  - 6. 收尾：结论写回哪里
+- 二 · rankup check
+  - 1. 触发
+  - 2. 产出
+  - 3. 流水线
+  - 4. 判读：什么时候把 check 升级成全站体检
+  - 5. 省配额
+  - 6. 收尾
+
 ## 一 · 全站体检
 
 ### 1. 触发
@@ -254,8 +271,8 @@ E 组依赖 A/B/D 的事实，先完成这些取数再综合判读。开放 API 
 | C · GEO / AI | [`../seo-ai-search.md`](../seo-ai-search.md)（2026 AI 搜索范式）+ [seo-geo.md](../seo-geo.md)（自然推荐与采样）+ [`../seo-agentic-scan.md`](../seo-agentic-scan.md)（AI Agent 就绪度）；内容形态补 `ai-seo` Skill | 把 AI 就绪度或知情复审当自然推荐；把 AEO/GEO 当成另一套技术——Google 的定论是它就是 SEO；`llms.txt` 已被 Google 明确否定为排名信号（见 `seo-ai-search.md`），别拿它充数；**把缓存报告当即时结果**——`is-agentic scan` 回的是上游缓存，failed 项没用当天的 curl 复核就写成必修项，会凭空造出一条不存在的活 |
 | D · 关键词与长尾 | [entry.md](entry.md#4--判读)两路裁决；[seo-serp.md](../seo-serp.md)逐问法 Google；[stage-2-positioning.md](../lifecycle/stage-2-positioning.md)页面规划 | 把工具分数、历史词龄或收益经验当裁决；只补词而不关联问法、样本与页面 |
 | E · 哥飞开放 API 数据复核 | [`../seo-webcafe.md`](../seo-webcafe.md)；采纳纪律见 [`../checklists.md`](../checklists.md) 闸门 5 | 把接口建议当定论；每条仍要与本地事实对账，采纳或拒绝均留理由 |
-| F · 市场规模 | [`demand-sources/validation-chain.md`](../demand-sources/validation-chain.md) 十·五（能排上去 ≠ 能赚钱）与 [②·六·四](../demand-sources/validation-chain.md#②六四-semrush-的自然流量什么时候不能信先看它的词库分布再决定信不信总数)（模型流量什么时候高估 4–13 倍）；SKILL.md「地理范围 / 面板页面 / 口径定义」三步 | 把 Semrush 的自然流量和 Similarweb 的总访问量相减或相除；把采集失败读成「这个市场没人」 |
-| G · 接入与记忆 | SKILL.md「接入清单跟踪」的平台表 | 采信清单里已有的 ✅ 而没做线上实测 |
+| F · 市场规模 | [`demand-sources/validation-chain.md`](../demand-sources/validation-chain.md) 十·五（能排上去 ≠ 能赚钱）与 [②·六·四](../demand-sources/validation-chain.md#②六四-semrush-的自然流量什么时候不能信先看它的词库分布再决定信不信总数)（模型流量什么时候高估 4–13 倍）；[`webcafe-experiences.md`](../experiences/webcafe-experiences.md) 十六·五「地理范围 / 面板页面 / 口径定义」三步 | 把 Semrush 的自然流量和 Similarweb 的总访问量相减或相除；把采集失败读成「这个市场没人」 |
+| G · 接入与记忆 | [`discipline.md`](../discipline.md) 十「接入看板与线上实测口径」的平台表 | 采信清单里已有的 ✅ 而没做线上实测 |
 
 **要不要加载某个兄弟 Skill**（`ai-seo` / `seo-geo` / `keyword-research` / `deep-research` …），
 判据统一看 [`../skill-ecosystem.md`](../skill-ecosystem.md)——**加载有成本，默认答案是不加载**，

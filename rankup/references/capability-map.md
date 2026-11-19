@@ -152,6 +152,7 @@ SKILL.md 段 6 与取数纪律只一行指回本文件，改脚本入口时只�
 | 面板节点枚举与探测 | 共享账号每个节点是**不同账号**；`list` 只读下拉不消耗配额，`probe` 真启动逐个试 | `backlink/scripts/tools-share-node.mjs list\|probe --tool semrush\|similarweb` | 「配额满了怎么办」「换个节点」 |
 | 四张无导出报表 | 自然排名、主要页面、反链概览、关键词报表 | `backlink/scripts/semrush-report.mjs` | 「他排了哪些词」 |
 | 建站指纹 | 一次 `curl` + grep 看竞品用什么建站、挂了哪些分析/广告/支付 | [`references/seo-box.md`](seo-box.md) 三 | 「他靠什么赚钱」 |
+| 竞品首页截图 | 用用户 Chrome 批量截取竞品营销官网首屏、整页与元信息，可断点续跑并生成对照图 | `scripts/homepage-shots.mjs --urls <…> --out <目录>` | 「把这些竞品首页截下来对比」 |
 
 **两家「流量」口径不同是常态**，对不上先按地理范围 / 面板页面 / 口径定义三步对齐，
 见 [`experiences/webcafe-experiences.md`](experiences/webcafe-experiences.md) 十六·五「对齐口径要对齐三样东西」。
@@ -181,6 +182,10 @@ SKILL.md 段 6 与取数纪律只一行指回本文件，改脚本入口时只�
 | 行为分析 | 在 Microsoft Clarity 建项目拿 project ID（会话录制 / 热图） | `scripts/clarity-setup.mjs` | 「想看用户怎么点的」 |
 | Ahrefs 项目接入 | 建项目、经 GSC 验证所有权、启用 Web Analytics 取回 `data-key` | `scripts/ahrefs-setup.mjs` | 「接下 Ahrefs」 |
 | 分析平台判读 | 各平台读数差异与验证方式 | [`references/analytics-platforms.md`](analytics-platforms.md) | 「两个统计对不上」 |
+| GA4 报表只读读数 | 按日趋势 / 渠道 / 来源媒介 / 着陆页 / 国家 / 实时，驱动已登录 Chrome，不改任何 GA4 设置 | `scripts/ga4-report-readback.mjs` | 「GA 里流量哪来的」「这几天会话数」 |
+| GA4 内部流量过滤 | 读取、建立并激活「内部流量规则 + Internal Traffic 过滤器」，把自己的访问排除出报表 | `scripts/ga4-internal-filter.mjs status\|ensure-rule\|activate` | 「把我自己的访问排除掉」 |
+| Clarity 只读读数 | 仪表盘概览、录屏列表、按智能事件过滤的录屏（谁触发了生成、购买等事件） | `scripts/clarity-recordings-readback.mjs` | 「看看用户录屏」「谁点了购买」 |
+| Cloudflare zone 流量只读 | GraphQL Analytics 读请求数、访客、状态码、国家、路径、浏览器与非浏览器 UA、Verified bot、Web Analytics 入库 | `scripts/cf-traffic-readback.mjs` | 「CF 上看到多少流量」「是不是 bot」 |
 | 接入清单看板 | 已上线站点至少覆盖的平台（域名无关一批 + 域名相关一批）与各自验证方式 | [`lifecycle/stage-5-launch.md`](lifecycle/stage-5-launch.md) 段 5 接入清单 → 项目 `.rankup/integrations.md` | 「还有哪些没接」 |
 | 产品发布平台 | Product Hunt 等发布排期与画廊图上传（**不要点上传按钮**） | [`references/product-launch.md`](product-launch.md) | 「发个 PH」 |
 
@@ -191,6 +196,9 @@ SKILL.md 段 6 与取数纪律只一行指回本文件，改脚本入口时只�
 | 索引主动推送 | 把 URL 推给 IndexNow（Bing/Yandex/Seznam/Naver 共用；Google 不参与）；默认从线上 sitemap 取 | `scripts/indexnow-submit.mjs` | 「新页面怎么快点被收」 |
 | 上线后站点核验 | 上线后一条命令核验 URL 的状态码、title、H1、canonical、robots、JSON-LD、sitemap、og:image，支持 --contains/--not-contains/--json，FAIL 退出码 1 | `scripts/verify-live.mjs` | 「核验线上页面」「检查上线 URL」 |
 | sitemap 读/提交 | GSC、Bing Webmaster **与 Yandex** 三个平台的 `status` / `submit`，驱动已登录浏览器（脚本白名单就是这三个） | `scripts/webmaster-sitemap.mjs gsc\|bing\|yandex` | 「提交下 sitemap」 |
+| GSC 界面数据导出 | 只读导出效果、国家、对比、切片、索引、sitemap、网址检查各表；按页面总行数核对，不把截断写成完整 | `scripts/gsc-export.mjs` | 「导一下 GSC 数据」「哪些词有展示」 |
+| GSC 按日趋势 | 效果报告按日表与汇总卡，可带上一周期对比（补 `gsc-export.mjs` 不读按日趋势的缺口） | `scripts/gsc-daily-readback.mjs` | 「这两天为什么涨」「点击按天怎么走」 |
+| Bing 站长建议 | 只读读取 Bing Webmaster Recommendations；数字是错误数不是问题类型数，`-` 与加载中记未知 | `scripts/bing-recommendations.mjs <host>` | 「Bing 那边报了什么问题」 |
 | 批量移除 URL | GSC「暂时移除网址」批量提交（GSC 没有公开移除 API） | `scripts/gsc-remove-urls.mjs` | 「把废弃页面从谷歌撤下来」 |
 | 批量请求编入索引（可选加速） | 默认流程之外的可选工具：逐个 URL 走 GSC「网址检查」搜索框，未收录的点「请求编入索引」，受每日配额限制、自动断点续跑。**不要让 agent 手工逐页点击，一条命令跑完** | `scripts/gsc-request-indexing.mjs` | 「批量请求收录」「把 sitemap 里的页面都提交一下索引」「催一下收录」 |
 | 韩国市场 | Naver Search Advisor 注册、取验证 meta、提交 sitemap（CAPTCHA 需用户点一下） | `scripts/naver-setup.mjs` | 「做韩国市场」 |
@@ -206,6 +214,7 @@ SKILL.md 段 6 与取数纪律只一行指回本文件，改脚本入口时只�
 | AITDK 面板全自动取数 | 一条命令抓 AITDK 扩展面板 15 个标签页（Overview/Traffic/Backlinks/Adsense/Issues/GEO/SERP/Density/Headings/Images/Links/Social/Hreflangs/Structured/Whois）+ 页面 HTML/robots/sitemap/whois，并检测 `example.com` 占位域名泄漏 | `scripts/aitdk-opencli.sh <url>`，前置条件与输出形状见 [`seo-box.md`](seo-box.md)「AITDK 面板全自动取数」 | 「跑一下 AITDK」「GEO 标签页那半截」 |
 | 重定向链 | 裸域/www 几跳、旧 URL 是 301 还是 302（302/307 不传权重） | `curl -sIL`，判据 [`experiences/webcafe-topics.md`](experiences/webcafe-topics.md) 五 | 「跳转对不对」 |
 | 判据与分级表 | seo-audit 的 error/warning 阈值、Ahrefs 档位实测、第三方工具接不接的对账 | [`references/seo-box.md`](seo-box.md) | 「这条 warning 要紧吗」 |
+| 有用内容静态自检 | 按 sitemap 抓页做 HCU / E-E-A-T 的静态近似检查（不执行 CSS/JS，真实可见性与质量仍由人判读） | `scripts/hcu-audit.mjs <domain>`，判据 [`references/seo-helpful-content.md`](seo-helpful-content.md) | 「内容会不会被判低质」 |
 | 站点打不开类排障 | CF Pages 无效路径返回首页、图片慢、绑域名跳两次 | [`experiences/webcafe-experiences-2.md`](experiences/webcafe-experiences-2.md) 二十四 | 「站打不开」 |
 
 ## 九、AI 搜索与 Agent 就绪度
@@ -237,7 +246,7 @@ rankup 只判「什么时候发、发多少」（SKILL.md 段 6 一行指回这�
 
 ## 十一、社群与经验（判「别人踩过什么坑」）
 
-官方能力核对与只读试用（2026-09-30）：`knowledge_search --kind chat` 返回 `docId/title/date/speaker/snippet`，实测 `url=null`，只覆盖哥飞发言节选；目录明确 `knowledge_read` 提供相关段落、群聊去昵称，不是全文，本轮读取试用遇到 TLS 失败，不能视为成功覆盖。官方无论坛全集、悬赏投票榜或完整群聊消息字段的等价工具，因此保留 `webcafe-forum.mjs`：旧 HTTP 悬赏榜实测 20 条，浏览器群聊搜索实测 50 条上限；仍需会员访问权限，未出现工具箱每日配额扣费显示。原文取数与官方知识库积分调用分别记账。
+官方哥飞知识库与 `webcafe-forum.mjs` 的能力边界（哪些只有本地脚本能取、各自的上限与记账）见 [`webcafe-forum.md`](webcafe-forum.md)「七、站内搜索」末尾的 2026-09-30 核对记录。
 
 | 能力 | 一句话能干什么 | 入口 | 典型触发说法 |
 |---|---|---|---|
@@ -311,22 +320,18 @@ rankup 只判「什么时候发、发多少」（SKILL.md 段 6 一行指回这�
 
 ## 覆盖度自检
 
-盘点时间 2026-08-30，对照磁盘实际文件：
+文件数会变，这里不写死数字；盘点时对照磁盘实际文件：
 
-- `rankup/scripts/` 顶层 **27 个可执行 `.mjs` + `gt.py`**（2026-09-09 复查），另有 4 个不单独作为能力入口的文件：
-  `lib-scene.mjs`、`webcafe-transport.mjs`、`webcafe-rsc.mjs`（库）与 `gt-browser.mjs`（`gt.py` 的取数层，
-  可直接跑但一般由 `gt.py` 转发）；两个 `.browser.js` 是注入页面的载荷，不单独运行；
-  `rankup/scripts/archive/gt-v1/`（旧版 Google Trends 路由，2026-09-09 归档）**不算独立能力
-  入口**，不计入这个数字——新版接口失效时的对拍兜底，见 `trends.md`；
-- `rankup/scripts/demand/` **24 个可执行 + 1 个公共库**（2026-09-02 加 `suggest.mjs`）；
-- `rankup/references/` 顶层 **23 个 md**（3.0 新增 `discipline.md`、`monetization.md`），另加
-  `experiences/` **6 个**（合计 27），
-  外加 `playbooks/` 目录；
-- 生命周期 **七段**（每段开头先对账）× 闸门表——`lifecycle.md` 与 `checklists.md` 段编号一一对应，
-  旧的 0–10 与 7.5 编号见 `lifecycle.md` 顶部映射表；
-- 专项 / 底座 Skill：`backlink`（必要时加载）、`opencli`（浏览器底座）；原 `game-opportunity` 已于 2026-09-28 移除；
-- 兄弟 Skill：判定「值得接」的 12 项见上方 §十四，判定「不接」的与理由见
-  [`skill-ecosystem.md`](skill-ecosystem.md)。
+```bash
+ls scripts/*.mjs scripts/*.py scripts/*.sh scripts/demand/*.mjs   # 可执行入口
+find references -name '*.md' | wc -l                              # 参考文档
+```
+
+- 不单独作为能力入口的文件：`lib-*.mjs`、`kie-lib.mjs`、`webcafe-transport.mjs`、`webcafe-rsc.mjs`、`scripts/demand/_*.mjs`、`scripts/anyway/lib/`（库）；`gt-browser.mjs` 是 `gt.py` 的取数层，一般由 `gt.py` 转发；`.browser.js` 是注入页面的载荷，不单独运行。
+- `scripts/archive/` 是归档（旧版 Google Trends 路由 `gt-v1/`、旧 `aitdk-report.mjs`），不算能力入口；`gt-v1` 只在新版接口失效时作对拍兜底，见 `trends.md`。
+- 生命周期七段（每段开头先对账）与闸门表：`lifecycle.md` 与 `checklists.md` 段编号一一对应，旧的 0–10 与 7.5 编号见 `lifecycle.md` 映射表。
+- 专项 / 底座 Skill：`backlink`（必要时加载）、`opencli`（浏览器底座）；兄弟 Skill 接与不接的判定见上方 §十四与 [`skill-ecosystem.md`](skill-ecosystem.md)。
+- 自检办法：每个可执行脚本的文件名都应能在本文件或某篇 reference 里搜到；搜不到的脚本等于对用户不存在。
 
 新增能力时**同时改三处**：本文件、`SKILL.md` 的总路由表（若产生新意图簇）、
 以及 `SKILL.md` 的 frontmatter `description`（若用户会用新说法触发）。

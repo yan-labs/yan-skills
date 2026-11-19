@@ -2,6 +2,7 @@
 
 > 渐进式加载：本篇只讲 `is-agentic.mjs` 扫描脚本的全套用法。
 
+```bash
 ## 扫描并输出报告
 node <rankup-skill-dir>/scripts/is-agentic.mjs scan <domain>
 

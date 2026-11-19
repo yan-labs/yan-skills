@@ -2,6 +2,16 @@
 
 > 本文件从 [`selection.md`](../selection.md) 拆出（2026-09-30）。本文件只讲采集工具及其边界；来源分流只见 [demand-sources.md](../../demand-sources.md)，主词出现后按 [entry.md](../entry.md)验证和裁决。
 
+## 目录
+
+- 9 · 候选生成器（闸门体系之外）
+  - 领先指标法
+  - App 需求与交付平台
+  - 脚本化工具：`scripts/select/leading-indicator.mjs`（候选生成）+ `scripts/select/gate-runner.mjs`（闸门判定）
+  - 三问链：候选生成之后，先按顺序问完这三句再决定进不进闸门 0
+  - 脚本
+- 12 · 工具清单与可选加速通道（6 个未配 key 均非必需）
+
 ## 9 · 候选生成器（闸门体系之外）
 
 旧标题保留作兼容入口；本节回答候选怎样采集，不设置来源前筛。

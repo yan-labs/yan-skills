@@ -2,6 +2,13 @@
 
 > 本文件从 [`cloudflare-stack.md`](../cloudflare-stack.md) 拆出（2026-09-30），含原 §9「部署」。节号保持不变，文字里的「§9」指针指这里。
 
+## 目录
+
+- 9. 部署
+  - 段 3 建站部署必做清单
+  - 9.1 接入方式：Git 存储库连接 / Workers Builds
+  - 9.2 应急兜底：本地 `wrangler deploy`
+
 ## 9. 部署
 
 **默认方式是 Cloudflare 原生 Git 集成，不写 GitHub Actions 部署 workflow。** 原因：GitHub Actions

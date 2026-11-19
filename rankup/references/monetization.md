@@ -4,6 +4,17 @@
 只写路由与确认项，不写实现——实现分别在 [`integrations.md`](integrations.md)、
 `stripe-best-practices` Skill 和经验库里，本文只指过去。
 
+## 目录
+
+- 零、意图类型决定变现方式
+- 一、Stripe
+- 二、Anyway 与 PayPal：Web/站外直销的可选通道
+- 三、广告
+- 四、订阅与积分定价
+- 五、商店上架（本 Skill 尚无脚本）
+- 六、监控闭环：读数触发回段 1
+- 七、本文不做的事
+
 ## 零、意图类型决定变现方式
 
 产品形态不限，包括macOS、iOS、iPad、网站/SaaS，唯独不做Android App；按用户任务和分发方式选买断、订阅、IAP或广告。

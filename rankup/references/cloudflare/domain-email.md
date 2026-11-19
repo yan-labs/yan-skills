@@ -2,6 +2,12 @@
 
 > 本文件从 [`cloudflare-stack.md`](../cloudflare-stack.md) 拆出（2026-09-30），含原 §8.5、§8.6 两节。节号保持不变，文字里的「§8.5」「§8.6」指针指这里。
 
+## 目录
+
+- 8.4 买域名：Spaceship 官方优惠码
+- 8.5 接入域名：把 zone 加进 Cloudflare
+- 8.6 品牌邮箱：Cloudflare Email Routing
+
 ## 8.4 买域名：Spaceship 官方优惠码
 
 买域名默认在 Spaceship；加购物车前先对照下表，由用户在购物车里填码并结账（我们只加购并回读，不结账，见 `scripts/spaceship-cart.mjs`）。

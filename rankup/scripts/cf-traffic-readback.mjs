@@ -2,7 +2,7 @@
 /**
  * 只读：用 Cloudflare GraphQL Analytics API 读单个 zone 的流量（请求数、访客、状态码、国家、路径、浏览器/非浏览器 UA、
  * Verified bot、Web Analytics(RUM) 入库）。不改任何配置，不打印凭据。
- * 用法：node cf-traffic-readback.mjs --zone effect.video [--days 7] [--rum-site-tag <site_tag>] [--out <目录>]
+ * 用法：node cf-traffic-readback.mjs --zone example.com [--days 7] [--rum-site-tag <site_tag>] [--out <目录>]
  * 注意：--rum-site-tag 要的是 `cf rum site-info list --per-page 100` 里的 site_tag，不是页面 data-cf-beacon 里的 token（site_token）；传 token 会返回空数组，被误判为“未入库”（2026-10-30 实踩）。
  * 凭据：lib-cf-auth.mjs 解析（CLOUDFLARE_API_TOKEN 或 CLOUDFLARE_EMAIL+CLOUDFLARE_API_KEY）。
  * 口径与已知坑：
@@ -11,7 +11,7 @@
  *  - httpRequestsAdaptiveGroups：免费套餐窗口有限（常见仅最近 1~3 天，视账号），超窗口会报错，脚本会降级并在输出里标 error，不静默。
  *  - bot 分数（botScore）需 Bot Management 付费；免费套餐只能用 verifiedBotCategory + UA 家族区分，只能给“浏览器 vs 非浏览器”口径。
  *  - rumPageloadEventsAdaptiveGroups：Web Analytics 入库；空数组 = 未入库（不是 0 访问）。
- * 验证日期：2026-10-30（effect.video）。
+ * 验证日期：2026-10-30。
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'

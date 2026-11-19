@@ -2,6 +2,18 @@
 
 > 本文件是 [`lifecycle.md`](../lifecycle.md) 的段 3 全文（2026-09-30 从单文件拆出）。开工先做[对账](../lifecycle.md#每段开头的固定动作对账原阶段-0)；闸门判据在 [`checklists.md`](../checklists.md) 段 3，本文件只写怎么做。
 
+## 目录
+
+- 段 3：建站与开发
+  - 硬规则（全文，含「为什么」；`SKILL.md` 只留摘要）
+  - 3.1 初始化项目（原阶段 3）
+  - 3.2 建立 Cloudflare 全栈基础（原阶段 4，域名部分已移到段 5）
+  - 3.3 开发与测试（原阶段 5）
+  - 3.4 集成专项能力（原阶段 6）
+  - 输出
+  - 完成门禁
+  - 交给下一段的
+
 ## 段 3：建站与开发
 
 > **动手之前先读** [`experiences/webcafe-topics.md`](../experiences/webcafe-topics.md) 二、九

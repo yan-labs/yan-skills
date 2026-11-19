@@ -2,7 +2,7 @@
 /**
  * 只读读取 GA4 标准报表（已登录 Chrome + opencli）：按日趋势 / 渠道 / 来源媒介 / 着陆页 / 国家 / 实时。
  * 用法：
- *   node ga4-report-readback.mjs --account 284256639 --property 557873305 --from 2026-10-06 --to 2026-10-29 \
+ *   node ga4-report-readback.mjs --account <account-id> --property <property-id> --from 2026-10-06 --to 2026-10-29 \
  *        --mode daily|channel|sourcemedium|landing|country|realtime --out <目录> [--session ga4-readback-xxx] [--rows 50]
  * 输出：<out>/ga4-<mode>-<from>-<to>.json（解析后的行）+ .txt（页面文本原文），stdout 打印摘要。
  * 依赖：Chrome 已登录有权限的 Google 账号；中文界面（"总计""会话数"等关键字）。不改任何 GA4 设置。
@@ -11,7 +11,7 @@
  *  - daily 模式 = 每天一次 landing-page 报表读「总计」行（会话/活跃用户/新用户），一天约 12 秒，24 天约 5 分钟；GA4 标准报表无日期维度表格。
  *  - 切主维度（来源/媒介）靠点维度下拉 + 文本点击；界面改版时可能失效，失败会在 json 里 error 标记，不静默。
  *  - 数据延迟：GA4 当天数据不完整，to 一般取昨天。
- * 验证日期：2026-10-30（effect.video，property 557873305）。
+ * 验证日期：2026-10-30。
  */
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'

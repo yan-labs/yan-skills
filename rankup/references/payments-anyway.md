@@ -10,7 +10,7 @@ Anyway 官方将 Business 定义为 Merchant of Record（MoR）：对其覆盖�
 
 [Merchant API 订单读取文档](https://docs.anyway.sh/fetch-order-361860806e0)列出 `GET /v1/orders/{orderId}`；同站 [Webhook 文档](https://docs.anyway.sh/webhooks-7536990m0)描述支付事件。下述后台 UI、JWT 和 webhook 签名形状来自 2026-09-07 的单次 stg 实测，接入时仍要对照当前后台和真实样本，不能把旧观察当所有环境的保证。该实测的支付链接跳往 Stripe 托管结账页。
 
-## 硬规则：支付链接域名与上线实测（2026-10-06 hotellobby 事故）
+## 硬规则：支付链接域名与上线实测（2026-10-06 线上事故）
 
 - **支付页域名按环境不同**：stg 是 `https://stg.anyway.sh/pay/<linkId>`，**生产是 `https://app.anyway.sh/pay/<linkId>`**。`https://anyway.sh/pay/<linkId>`（以及 `www.anyway.sh` 跳过去的同一地址）在生产一律返回 404「Page not found」，哪怕商品和链接都存在。hotellobby 因为把生产链接写成 `anyway.sh/pay/…`，用户点"支付"全部落到 404；stg 预览用 `stg.anyway.sh` 是对的，所以预览测试漏掉了它。
 - **不要凭记忆或照 stg 改域名拼链接**：Merchant API 的 `paymentLinkUrl` 恒为空，也没有现成完整 URL 字段。用 `node scripts/anyway/anyway.mjs --env prod products links <productId>`，它按环境拼出 `payUrl` 并实际请求，`check` 列必须是 `OK 200`，出现 `FAIL` 就不许写进项目。商品和链接 ID 以该命令输出为准，不手抄。

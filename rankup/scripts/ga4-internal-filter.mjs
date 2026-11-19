@@ -19,7 +19,7 @@
  *
  * 退出码：0 成功/无需改动；2 页面结构读不到（界面改版）；3 规则存在但不含本机 IP；4 激活前置不满足。
  *
- * ── 已知坑（2026-10-30 实测，effect.video）──
+ * ── 已知坑（2026-10-30 实测）──
  *  - 管理首页（#/…/admin）的链接组渲染为空、顶部搜索报「内部错误」，不能点导航；过滤器页只能直链
  *    #/a<acct>p<prop>/admin/datapolicies/datafilters（路由从 GA 前端 JS 里 grep 出来的）。
  *  - 内部流量规则不在管理页里：数据流行 → 抽屉「配置代码设置」→ 跨域 iframe（tagmanager.google.com/lite）里点「展开」→「指定内部流量」。
@@ -29,7 +29,7 @@
  *  - 启用过滤器会弹确认框「启用过滤器？…无法撤销…不具有追溯性」，要再点「启用过滤器」。
  *  - 规则/过滤器生效有延迟（数小时到约 24 小时）；页面显示已启用不等于已排除，别据此推断。
  *  - 不要打开 admin/property/settings（页面上有「移入回收站」/「移动媒体资源」）。
- * 验证日期：2026-10-30（property 557873305；status / ensure-rule(无需改动路径) / activate(无需改动路径) 真实跑过；
+ * 验证日期：2026-10-30（status / ensure-rule(无需改动路径) / activate(无需改动路径) 真实跑过；
  *   新建规则与激活的写路径是同日在 opencli 里手工逐步执行后沉淀的）。
  */
 import { spawnSync, execFileSync } from 'node:child_process'

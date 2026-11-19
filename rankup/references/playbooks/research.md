@@ -219,7 +219,7 @@ node $BACKLINK/scripts/tools-share-node.mjs list --tool similarweb
 
 Stripe 前 20 名、单站与月度概要已迁官方 `stripe_checkout_referrals`（目录与试用：2026-09-30），每次官方业务调用 1 积分。月榜试用 `202608` 覆盖名次、份额、环比、新进/重返、全球排名与访问量（K）；官方 month 分支只返回前 20 名：`top --limit <=20` 且没有 `--new-only` 时走官方；默认 limit 25、limit>20 或 `--new-only` 仍走旧全榜入口，因官方无全榜等价能力。旧全榜沿用原不计每日配额记录，本轮受探测预算限制未重验当前可用性，不能宣称成功或下线；省略 `--m` 另用官方 overview（1 积分）取最新月份。单站 `monthly/stats` 范围为 2024-01 至 2026-08（32 个月），实际在榜月数因站而异（某个试用站点为 8 个月）；`overview` 最近最多 12 个月，不是全历史汇总。`overview.recentTotals` 实测覆盖 month/visits/listedShare/top10Share/longtailShare；只有缺失字段才输出 null/未知，不补 0。
 
-官方能力核对与只读试用（2026-09-30）：`knowledge_search --kind chat` 返回 `docId/title/date/speaker/snippet`，实测 `url=null`，只覆盖哥飞发言节选；目录明确 `knowledge_read` 提供相关段落、群聊去昵称，不是全文，本轮读取试用遇到 TLS 失败，不能视为成功覆盖。官方无论坛全集、悬赏投票榜或完整群聊消息字段的等价工具，因此保留 `webcafe-forum.mjs`：旧 HTTP 悬赏榜实测 20 条，浏览器群聊搜索实测 50 条上限；仍需会员访问权限，未出现工具箱每日配额扣费显示。原文取数与官方知识库积分调用分别记账。
+官方哥飞知识库与 `webcafe-forum.mjs` 的能力边界（哪些只有本地脚本能取、各自的上限与记账）见 [`webcafe-forum.md`](../webcafe-forum.md)「七、站内搜索」末尾的 2026-09-30 核对记录。
 
 ### 判读
 

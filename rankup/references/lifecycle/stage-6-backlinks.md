@@ -2,6 +2,19 @@
 
 > 本文件是 [`lifecycle.md`](../lifecycle.md) 的段 6 全文（2026-09-30 从单文件拆出）。开工先做[对账](../lifecycle.md#每段开头的固定动作对账原阶段-0)；闸门判据在 [`checklists.md`](../checklists.md) 段 6，本文件只写怎么做。
 
+## 目录
+
+- 段 6：外链
+  - 硬规则（全文，含「为什么」；`SKILL.md` 只留摘要）
+  - 什么时候发
+  - 输入
+  - 必做动作
+  - 两个应当最早做、且不花钱的渠道
+  - 步骤 check
+  - 输出
+  - 完成门禁
+  - 交给下一段的
+
 ## 段 6：外链
 
 > **定预算之前先读** [`experiences/webcafe-topics.md`](../experiences/webcafe-topics.md) 五

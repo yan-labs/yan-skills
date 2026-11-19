@@ -2,6 +2,28 @@
 
 > 渐进式加载：本篇讲 AI 搜索范式、官方指南与算法更新，以及 ChatGPT 侧的爬虫与检索证据（三-D）。AI 需求验证与推荐位流程见 [seo-geo.md](seo-geo.md)。
 
+## 目录
+
+- 三-B、2026 AI 搜索范式：引用 > 排名（Google 官方指南 + @googlesearchc 实测）
+  - 核心判断：被 AI 引用比排第一更值钱
+  - Google 官方 AI 优化指南要点（2026-05-15 发布）
+  - Preferred Sources：品牌忠诚度成为 SEO 因子
+  - Search Console 新工具：Generative AI 效果报告（2026-06）
+  - February 2026 Discover Core Update：Discover 独立算法
+  - 2026 算法更新时间线（用于排障定位）
+  - Information Gain：内容独特性成为排名信号
+  - 2026 年 Google 十大排名因素（哥飞解读版）
+  - Back Button Hijacking：新增 Spam 政策（2026-04 发布，06-15 执行）
+  - FAQ Rich Results 下架（2026-05-07 生效）
+  - Information Agents：Google 的后台持续搜索
+  - 落地清单：每轮 SEO 工作流新增检查项
+  - AI Agent 就绪度：让 AI 代理能发现和使用你的站点
+- 三-D、ChatGPT 侧证据（OpenAI 爬虫、JS 渲染、`site:` 与自有索引）
+  - OpenAI 三个爬虫：用途与 UA 官方原文
+  - JS 渲染：证据与它的局限
+  - `site:` 查询与自有索引：证据等级
+  - 与 Google 侧的差异
+
 ## 三-B、2026 AI 搜索范式：引用 > 排名（Google 官方指南 + @googlesearchc 实测）
 
 > **定位**：本节整合 Google Search Central 2026 年全年官方博客、@googlesearchc 推文、

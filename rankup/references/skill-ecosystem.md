@@ -15,6 +15,13 @@
 
 ---
 
+## 目录
+
+- 一、一句话 → 该不该叫兄弟 Skill
+- 二、判定「接」的：分工与加载条件
+- 三、判定「不接」的：以及为什么
+- 四、取舍原则（下次有新 Skill 装进来时按这个判）
+
 ## 一、一句话 → 该不该叫兄弟 Skill
 
 | 用户大概会这么说 | 谁来干 |
@@ -120,7 +127,7 @@
 
 | | |
 |---|---|
-| **能干什么** | effect.video 一类站点的 model 页、blog、模型对比、产品对比：规定谁调研（X 交 Grok）、谁成文（Gemini）、谁 review（Claude Sonnet），资料先落 `sources/`、不自编，并含封面图与评判（哥飞评分、AITDK、ChatGPT 匿名问答） |
+| **能干什么** | AI 视频工具类站点的 model 页、blog、模型对比、产品对比：规定谁调研（X 交 Grok）、谁成文（Gemini）、谁 review（Claude Sonnet），资料先落 `sources/`、不自编，并含封面图与评判（哥飞评分、AITDK、ChatGPT 匿名问答） |
 | **与 rankup 的分工** | rankup 判断做哪一页、段 4 体检与上线；凡要把页面内容写出来，一律先读 [`blog/SKILL.md`](../../blog/SKILL.md) 再动手 |
 | **与 write / gefei / opencli 并列** | 自有联动 Skill：站内英文页面内容走 `/blog`，中文稿走 `/write`；评判阶段调用官方 `gefei-page`，浏览器取数落在 `opencli` |
 | **什么时候加载** | 写页面内容、写文章、model 页、模型对比、产品对比、补参考视频、封面图 |

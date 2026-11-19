@@ -125,7 +125,7 @@
 | 品牌截流词 | 官方 Skill 调用 `keyword_ideas` / `keyword_difficulty` | `[brand] alternative/vs/review`；先看 SERP 是否真有独立站入口 |
 | AppSumo 差评 | AppSumo 公开页面 | 付费用户差评极其具体，Q&A 区有「does it support...」句式 |
 
-官方能力核对与只读试用（2026-09-30）：`knowledge_search --kind chat` 返回 `docId/title/date/speaker/snippet`，实测 `url=null`，只覆盖哥飞发言节选；目录明确 `knowledge_read` 提供相关段落、群聊去昵称，不是全文，本轮读取试用遇到 TLS 失败，不能视为成功覆盖。官方无论坛全集、悬赏投票榜或完整群聊消息字段的等价工具，因此保留 `webcafe-forum.mjs`：旧 HTTP 悬赏榜实测 20 条，浏览器群聊搜索实测 50 条上限；仍需会员访问权限，未出现工具箱每日配额扣费显示。原文取数与官方知识库积分调用分别记账。
+官方哥飞知识库与 `webcafe-forum.mjs` 的能力边界（哪些只有本地脚本能取、各自的上限与记账）见 [`webcafe-forum.md`](webcafe-forum.md)「七、站内搜索」末尾的 2026-09-30 核对记录。
 
 ---
 

@@ -8,7 +8,7 @@
  *  - URL 参数 breakdown=date 直接给按日表；compare_date=PREV 时汇总卡变成“过去 28 天/先前 28 天”两个值。
  *  - GSC 数据滞后约 2 天，最后一行不是今天；站点首次出现数据之前的日期没有行（不是 0）。
  *  - 每日表在中文界面里每个值是独立块：日期、点击、展示、点击率、排名；无数据日显示“—”。
- * 验证：effect.video，2026-10-30。
+ * 验证日期：2026-10-30。
  */
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
