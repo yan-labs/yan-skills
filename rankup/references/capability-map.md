@@ -312,9 +312,8 @@ rankup 只判「什么时候发、发多少」（SKILL.md 段 6 一行指回这�
   的执行纪律冲突。**不要加载那个 Skill**，站点体检走 §八 的脚本链路。
 - **中文写作统一用 `/write`**：它自带起稿、改稿与去 AI 味体检，不依赖别的 Skill。
 
-明确判「与 rankup 无关，不要加载」的：`ops`、`macmini`、`kollab-cli`、`gh-cli`、`skill-creator`、
-`find-skills`、`agent-browser`（会和 `opencli` 撞会话）、`tuner`/`tuner-ci`（付费通道，现有免费通路已覆盖）。
-全局目录下的 `learned` 是**空目录、没有 SKILL.md**，不是能力。
+明确判「与 rankup 无关，不要加载」的：`gh-cli`、`skill-creator`、
+`agent-browser`（会和 `opencli` 撞会话）、`tuner`/`tuner-ci`（付费通道，现有免费通路已覆盖）。
 
 ---
 

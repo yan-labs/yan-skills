@@ -207,9 +207,9 @@ Claude Code 的 prompt cache 最长 1 小时（超额后降到 5 分钟），会
 
 **命名**：小写加连字符；日期一律 `YYYY-MM-DD`，放文件名末尾。**顶层允许上表与目录结构里的文件，以及 `INDEX.md` 文件状态表明确登记职责的项目专属文件或目录**（如设计、上线、文案与非敏感配置；未登记的只列 C 类）；带日期的一次性文件（`launch-queue-<日期>.md` 这类）归入 `research/` 或 `journal/`；证据与备份统一按 [Skill 清理用法](../SKILL.md) 的待确认流程处理；同一职责出现两个文件（例如 `log.md` 与 `journal/`）时合并到规范里的那个。
 
-**`~/.agent-reports` 是临时目录（CRITICAL）**：`~/.agent-reports/` 随时可能被清空，不是持久存储。任务产出的分析报告、执行结果等需要跨会话复用的文档，必须在任务收尾时迁移到项目 `.rankup/reports/`（或 `research/`），并更新引用指针；brief、body、raw data 等过程文件可以留在原处自然清理。`cost-optimization-plan.md` 等汇总文件里引用 `~/.agent-reports` 路径的，一律改为 `.rankup/` 内的相对路径。
+**仓库外的派单报告目录是临时目录**：派单工具的报告目录（例如 agent-fleet 的 `~/.agent-reports/`）随时可能被清空，不是持久存储。任务产出的分析报告、执行结果等需要跨会话复用的文档，必须在任务收尾时迁移到项目 `.rankup/reports/`（或 `research/`），并更新引用指针；brief、body、raw data 等过程文件可以留在原处自然清理。常驻文件里引用这类临时路径的，一律改为 `.rankup/` 内的相对路径。
 
-**工作区根层**：`.rankup/` 可保留 `README.md`（工作区说明）、`portfolio.md`（项目总表）、`projects.json`（登记数据）与 `log.md`（根层历史记录，按 journal 规则压缩）。存在 `portfolio.md` / `projects.json`，或诊断参数指明项目根等于工作区根时按根层识别；普通项目根本身的文件不属于 `.rankup/` 扫描范围。`archive/` 是历史原文，`backlink/` 是脚本产物，均不按常驻文件体积检查。`tasks/briefs/` 收口后只留结论与报告指针。
+**工作区根层**：`.rankup/` 可保留 `README.md`（工作区说明）、`portfolio.md`（项目总表）、`projects.json`（登记数据）与 `log.md`（根层历史记录，按 journal 规则压缩）。根层只做统筹：登记项目指针、阶段和下一步，具体规划、证据与决策留在各项目自己的 `.rankup/`，根层字段是项目层的摘要，两者不一致时以项目层为准并回写根层。项目位置分三种并在登记里写明：就在工作区内、在本机但不在工作区内、只在远端仓库；后两种只登记指针，不自动搬迁。新增项目时在两份登记各加一条再进项目目录 `init`；项目的阶段、上线状态或下一步变化后，同步这两份登记。存在 `portfolio.md` / `projects.json`，或诊断参数指明项目根等于工作区根时按根层识别；普通项目根本身的文件不属于 `.rankup/` 扫描范围。`archive/` 是历史原文，`backlink/` 是脚本产物，均不按常驻文件体积检查。`tasks/briefs/` 收口后只留结论与报告指针。
 
 ## 初始化模板
 

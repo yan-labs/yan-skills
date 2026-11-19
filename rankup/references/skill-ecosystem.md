@@ -199,10 +199,6 @@ rankup 自己只保留 `cf-zone-setup.mjs`（zone onboarding，**Wrangler 没有
 | `find-skills` | **已接入，找 Skill 的默认入口**（原排在 `skillsmp` 之后；`skillsmp` 已于 2026-09-28 移除） | 它已经写在 [`integrations.md`](integrations.md)（安装命令被 `validate-rankup.mjs` 的必需内容断言锁住），是「能力缺口 → 搜 Skill → 记进 `decisions.md`」那条流程的一环，**不要删**。但纯搜索场景 `/skillsmp` 的索引大得多（1.6M SKILL.md），**先 skillsmp 搜、搜到了再按 integrations.md 的流程装与登记** |
 | `agent-browser` | **不接** | 另一套浏览器自动化。rankup 全线绑 `opencli`（会话纪律、落盘 SOP、adapter 都在那）。两套混用会撞标签页与会话名 |
 | `tuner` / `tuner-ci` | **暂不接** | tuner 是按 credit 计费的取数中转（转录、社媒、检索、抓取）。它的检索与抓取能力已被 anysearch（匿名可用）、agent-reach（6 通道零配置）、[SERP 取数路线](seo-serp.md#serp-取数路线)（浏览器默认）覆盖。**触发条件**：上述三条全部不可用，且用户已有 key，才谈 |
-| `macmini` | **与 rankup 无关，不要加载** | 远程 Mac Mini 的 SSH 与 OpenClaw 诊断 |
-| `ops` | **与 rankup 无关，不要加载** | 另一个项目（K12）的服务器运维中枢，含该项目专有的域名、日志通道与 runbook |
-| `kollab-cli` | **与 rankup 无关，不要加载** | 另一个工作区平台的资源管理 CLI |
-| `learned` | **不是能力** | 全局目录下有这个文件夹，但**它是空的，没有 SKILL.md**。别去加载它，也别在文档里当它存在 |
 | `autopilot` / `codex` / `skill-link-check` | **不接（正交）** | 分别是任务编排、图像生成与代码子代理、Skill 链接体检。和网站增长正交，按各自触发词单独使用即可 |
 | `backlink` / `opencli` | **已接入** | 它们不是「兄弟 Skill」而是 rankup 的专项与底座，路由写在 [`capability-map.md`](capability-map.md) §十、§十三和 `SKILL.md`，不重复。原 `game-opportunity` 已于 2026-09-28 移除，见 [`game-sites.md`](game-sites.md) 顶部说明 |
 

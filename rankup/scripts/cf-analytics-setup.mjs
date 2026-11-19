@@ -375,7 +375,7 @@ async function doVerify(domain) {
  * 响应里塞 <script ... beacon.min.js/v… data-cf-beacon>，与站内手嵌的延迟 beacon 并存即一页两份
  * （账号里多个站已是 1/2 并存状态）。可行做法：PUT site_info 的 {auto_install:false, enabled:false}
  * 一并停掉 ruleset（规则随之 is_paused），约 15–30 秒后 HTML 不再有注入；手嵌 beacon 只依赖 site_token，
- * 不依赖 ruleset（dont-look-up 同配置下 beacon 实测 POST 204、GraphQL 有事件）。
+ * 不依赖 ruleset（另一站同配置下 beacon 实测 POST 204、GraphQL 有事件）。
  * 单独暂停规则（rum/v2 rule is_paused）不够，ruleset.enabled 仍为 true 时注入继续。
  * 注意 PUT body 只放这两个字段，多带 zone_tag 会 400。*/
 async function doDisableEdge(domain) {

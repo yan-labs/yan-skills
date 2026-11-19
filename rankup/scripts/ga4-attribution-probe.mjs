@@ -12,7 +12,7 @@
  * 判读：首个命中 dr 为空且 dl 不含 utm → GA4 记 direct。exit 2 = 没抓到 collect 请求（需复查，不算通过）。
  * 依赖：Mac Mini 上 opencli 扩展已连接（opencli doctor）。不注入、不重放分析请求；每次运行 = 目标站 1 次真实访问，注意别刷量。
  * 已知坑：collect 请求可能走 sendBeacon/fetch，靠 Resource Timing 读 URL（请求体里的批量事件读不到，dl/dr 在 URL 上）；
- *         重页面（rapselfie、aivideoraindance）collect 常在 10 秒后才发，脚本每 2 秒轮询直到 --wait 用完；opencli network 抓不到 collect URL，别用。
+ *         重页面 collect 常在 10 秒后才发，脚本每 2 秒轮询直到 --wait 用完；opencli network 抓不到 collect URL，别用。
  *         来源页若有人机验证会停在来源页，此时换 --from。
  * 验证：2026-11-13 在两个模板站跑通。
  */

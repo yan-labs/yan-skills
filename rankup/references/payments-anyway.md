@@ -12,7 +12,7 @@ Anyway 官方将 Business 定义为 Merchant of Record（MoR）：对其覆盖�
 
 ## 硬规则：支付链接域名与上线实测（2026-10-06 线上事故）
 
-- **支付页域名按环境不同**：stg 是 `https://stg.anyway.sh/pay/<linkId>`，**生产是 `https://app.anyway.sh/pay/<linkId>`**。`https://anyway.sh/pay/<linkId>`（以及 `www.anyway.sh` 跳过去的同一地址）在生产一律返回 404「Page not found」，哪怕商品和链接都存在。hotellobby 因为把生产链接写成 `anyway.sh/pay/…`，用户点"支付"全部落到 404；stg 预览用 `stg.anyway.sh` 是对的，所以预览测试漏掉了它。
+- **支付页域名按环境不同**：stg 是 `https://stg.anyway.sh/pay/<linkId>`，**生产是 `https://app.anyway.sh/pay/<linkId>`**。`https://anyway.sh/pay/<linkId>`（以及 `www.anyway.sh` 跳过去的同一地址）在生产一律返回 404「Page not found」，哪怕商品和链接都存在。曾有站点因为把生产链接写成 `anyway.sh/pay/…`，用户点"支付"全部落到 404；stg 预览用 `stg.anyway.sh` 是对的，所以预览测试漏掉了它。
 - **不要凭记忆或照 stg 改域名拼链接**：Merchant API 的 `paymentLinkUrl` 恒为空，也没有现成完整 URL 字段。用 `node scripts/anyway/anyway.mjs --env prod products links <productId>`，它按环境拼出 `payUrl` 并实际请求，`check` 列必须是 `OK 200`，出现 `FAIL` 就不许写进项目。商品和链接 ID 以该命令输出为准，不手抄。
 - **生产切换前必须逐条实测每个生产链接**：对项目里写死的每一条生产支付链接，带上 `?merchant_reference=<任意值>` 请求，要求 HTTP 200 且页面标题不是 `Page not found`。不是只看商品 PUBLISHED / 链接 isActive。
 - **项目侧验收必须从用户视角点一次**：线上页面点"支付"按钮，确认跳到的是 Stripe 托管结账页，而不是 Anyway 的 404。只测 stg 预览、只看 API 里链接存在、只看构建通过，都不算支付可用。

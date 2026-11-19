@@ -827,7 +827,7 @@ function renderMd(s, results) {
       `- 引用来源（cited）：${Object.entries(g.citedDomainFrequency).map(([d, c]) => `${d}×${c}`).join('、') || '（无）'}；有引用的占比 ${g.citedShare}；引用里在 Google 前 10 的：${g.googleOverlap.citedInGoogleTop10.join('、') || '无'}`,
       `- AI 自标类型计数：${JSON.stringify(g.kindsCount)}；推荐名单之外的检索/引用 URL 里博客榜单占比 ${g.listicleShareOfUrls}`, `- 历史兼容字段 slotHint：${g.slotHint}`, '');
   }
-  L.push('## 按问法：首次回答外部产品点名率', '', '只用已有推荐/文本域名解析判断点名（是/否）；引用或检索命中不单独算点名，失败为未知。解析不能识别没有域名的纯名称，须回读原回答。回答中没有任何外部产品时，说明该问法下推荐位不存在（ChatGPT 自己当工具），不等于被筛掉；解析空名单本身不能证明原文没有产品。这是 2026-10-03 oc-maker 试点的实测发现（8 个问法里 6 个无外部推荐）。', '');
+  L.push('## 按问法：首次回答外部产品点名率', '', '只用已有推荐/文本域名解析判断点名（是/否）；引用或检索命中不单独算点名，失败为未知。解析不能识别没有域名的纯名称，须回读原回答。回答中没有任何外部产品时，说明该问法下推荐位不存在（ChatGPT 自己当工具），不等于被筛掉；解析空名单本身不能证明原文没有产品。这是 2026-10-03 一次试点的实测发现（8 个问法里 6 个无外部推荐）。', '');
   for (const q of s.questions) {
     L.push(`- 问法：${q.prompt}；通道 ${q.channel}；样本 ${q.sampleMode}；点名率 ${q.namedCount}/${q.nKnown}（${q.namingRate ?? '未知'}）；95% Wilson 区间 ${q.namingRateWilson95?.join('–') || '未知'}；未知 ${q.nUnknown}`);
     for (const r of q.samples) L.push(`  - ${r.label}：首次回答是否点名外部产品/网站=${r.firstResponseNamesExternalProduct === null ? '未知' : r.firstResponseNamesExternalProduct ? '是' : '否'}`);

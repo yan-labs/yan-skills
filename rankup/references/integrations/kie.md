@@ -84,6 +84,6 @@ node scripts/kie-docs-fetch.mjs --help
 
 ## 来源与复查
 
-官方契约： [余额](https://docs.kie.ai/common-api/get-account-credits.md)、[上传](https://docs.kie.ai/file-upload-api/upload-file-stream.md)、[任务查询](https://docs.kie.ai/market/common/get-task-detail.md)、[索引](https://docs.kie.ai/llms.txt)。方法证据包标识 `kie-20261004`；项目文件/报告绝对路径只留本次交付报告「来源索引」，不写进开源 Skill。取示例时从该索引进入项目 `.rankup/`、后端 generation/lib ops/migrations 和本地 ops-verify；Skill 模板为项目中立提炼版，不能替代原始记录。
+官方契约： [余额](https://docs.kie.ai/common-api/get-account-credits.md)、[上传](https://docs.kie.ai/file-upload-api/upload-file-stream.md)、[任务查询](https://docs.kie.ai/market/common/get-task-detail.md)、[索引](https://docs.kie.ai/llms.txt)。本分支提炼自一次真实接入（2026-10）；原始项目文件与报告留在该项目的 `.rankup/`，不写进开源 Skill。Skill 模板为项目中立提炼版，不能替代原始记录。
 
 模型、参数、价格、促销到期或供应商 schema 更新时复查 [模型目录](kie-models.md) 的口径。公开 Markdown 是 OpenAPI 围栏，按 schema enum/required/default 解析，保留来源和抓取日期；不要从搜索摘要推断参数。
