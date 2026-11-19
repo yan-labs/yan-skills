@@ -163,7 +163,6 @@ node "<rankup-skill-dir>/scripts/maintain/rankup-clean.mjs" --workspace <工作�
 - **浏览器通道与公开页面例外统一按纪律五执行**，以复用登录态与可复现会话；见[纪律五](references/discipline.md#五浏览器与取数规则在-opencli-skill这里只留判据)。
 - **所有 AI 爬虫必须放行**并逐 UA 实测，使公开内容具备被发现与读取的资格；见[基础安全](references/cloudflare-stack.md)与 `checklists.md` 段 5。
 - **部署前必须先把代码合并到对应环境的分支并推送，再经团队流水线部署**，防止别人发布时冲掉我们、或我们覆盖别人；生产线改动另须先发预发、构建带装配检查、发布后自测，测试线通过不代表生产线通过；见[纪律二十二](references/discipline.md#二十二部署红线先合入对应环境分支并推送再部署)。
-- **模型训练与批量评测一律上 GCP GPU（项目 `buildin-480604`，临时实例，用完删并回读），不在 Mac Mini 或 MacBook 上训**（用户 2026-11-18：“以后我们做训练就得上 GCP，又快又好，而且还能做大量训练”）。Mini 只做最终端侧小样本验收和延迟内存实测，一次只跑一个进程；用户真实录音与听写只留本机，不上传云端，云端训练只用公开与合成数据。派训练或批量评测的 brief 必须写明“在 GCP 跑”，并带资源创建、删除回读与费用记录；做法参考 polish-r11-asr 报告（`edge-bench/polish-train`）。
 - **令牌**：第三方工具令牌只有一份，放 Skill 根目录 `.env`，环境变量优先（`discipline.md` 十一）。严禁在 Skill、`.rankup/`、Git、测试或回复中保存真实密钥、token、密码、私钥、webhook secret、支付敏感数据或个人敏感信息。
 - **本 Skill 必须保持项目中立与机器中立**：不带私有出处或身份（站点名、域名、流量数字、account/property ID、本机路径与代理、私有凭据位置）；公开供应商地址与必要的公开来源可保留。回流经验只带走剥离站点后仍成立的规则，由 `scripts/validate-rankup.mjs` 断言。
 - 不记录未验证猜测；旧经验被证伪时修订原条目，不并列保留冲突结论。
