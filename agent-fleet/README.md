@@ -38,7 +38,7 @@ fleet team  # 五产品能力、顺位链与可用性；只显示存在性/登�
 - Claude 额度档：按任务和 Codex 额度规则选择 Claude、Terra 或 Gemini。
 - GPT 档：正常开发默认 Terra→ 非常严谨才用 Sol（medium、不开 fast，默认不派）→ 周用量 ≥ 95% 改 Gemini 4；最简单且可机械验证的子任务用 Luna（`--luna`）。
 
-Codex 周用量取最新 rollout 的 `rate_limits.primary`（`window_minutes=10080`）的 `used_percent`；≥ 95% 或用尽时停派 Codex，改 `fleet-go new --to gemini`，默认 Gemini 4 `gemini-4-argon`（默认 xhigh 推理档），经 Claude Agent SDK，也可编码。非非常重要的编程交 Gemini，非常重要的交 Claude Sonnet，难的 Opus。Gemini 免费额度约 10 万美元、剩约 4–6 万美元且会过期，余额以实际为准；Codex 用尽可让 Kollab 派任务执行充值脚本，付款前须先向用户确认金额。严苛架构或成本收缩、清理每秒 1000 行等硬指标多轮未达标时，派 executor-fable 子代理调研方案，再派执行者。
+Codex 周用量取最新 rollout 的 `rate_limits.primary`（`window_minutes=10080`）的 `used_percent`；≥ 95% 或用尽时停派 Codex，改 `fleet-go new --to gemini`，默认 Gemini 4 `gemini-4-argon`（默认 xhigh 推理档），经 Claude Agent SDK，也可编码。非非常重要的编程交 Gemini，非常重要的交 Claude Sonnet，难的 Opus。模型额度和到期时间以账户当前状态为准；Codex 用尽可让 Kollab 派任务执行充值脚本，付款前须先向用户确认金额。严苛架构或成本收缩、清理每秒 1000 行等硬指标多轮未达标时，派 executor-fable 子代理调研方案，再派执行者。
 
 ## xAI Grok Build CLI
 
