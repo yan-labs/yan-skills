@@ -15,6 +15,7 @@
 // 之列——它们由段 4 上线前闸门(references/lifecycle/stage-4-prelaunch.md 段 4 C 节「上线前闸门」0–6 + 4b)
 // 覆盖检查,不是本脚本的漏检,是职责分工。
 
+import { experienceEntry } from "./maintain/memory-lint.mjs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import path from "node:path";
@@ -525,13 +526,13 @@ async function commitsSince(projectRoot, since) {
 
 function splitEntries(text) {
   return text
-    .split(/(?=^- \*\*\[20)/m)
-    .filter((block) => block.startsWith("- **["))
+    .split(new RegExp(`(?=${experienceEntry.source})`, "m"))
+    .filter((block) => new RegExp(experienceEntry.source).test(block))
     .map((block) => block.trim());
 }
 
 function headline(entry) {
-  return (entry.match(/^- \*\*\[[^\]]+\]\s*([^*]+)/) ?? [, ""])[1].trim();
+  return (entry.match(/^- \*\*\[[^\]]+\]\s*([^*]+)/) ?? [, entry.split(/(?:[。；][ \t]*|\n[ \t]{2,})适用[：:]/u, 1)[0].slice(2)])[1].trim().replace(/[。；]$/, "");
 }
 
 async function reviewProject(projectRoot, days) {
@@ -750,7 +751,7 @@ function renderText(report, days) {
   lines.push(`- 条目总数：${report.experience.total}`);
   if (report.experience.malformed) {
     lines.push(
-      "- **格式异常**：文件有内容但一条都切不出来。条目必须以 `- **[YYYY-MM-DD] 标题**` 起头,",
+      "- **格式异常**：文件有内容但一条都切不出来。条目使用 `- 规则。适用：条件` 格式,",
       "  用 `## 标题` 分条会让本脚本读出 0 条,重复检测与回流候选因此全部空转。",
     );
   }

@@ -17,7 +17,7 @@
 //   7. rejected.md：理由或复活条件为空的行、旧口径 revived 行；
 //   8. 根层登记（给 --portfolio-root 时）：portfolio.md 表格行数、projects.json 条目数、本项目是否两边都在；
 //   9. 经验分拣候选：experience.md 条目、topics/ 标题、INDEX / plan / decisions / 最近 journal 里的坑与推翻记录；
-//  10. 用户全局层（$RANKUP_HOME，默认 ~/.rankup/）现状，以及当前 Skill 是源码检出还是安装副本（决定 ④ 怎么回流）。
+//  10. 全局层（$RANKUP_HOME，默认 ~/.rankup/）现状，以及当前 Skill 是源码检出还是安装副本（决定如何回流到源码层）。
 // 阈值是【经验·起步阈值】，与 references/maintenance.md「三」一致；改阈值两处一起改。
 // 退出码：0 诊断完成（有无发现都算）；2 参数错误或找不到 .rankup/。
 // 已验证：2026-09-30 在本 Skill 自身 .rankup 与一个项目 .rankup 副本上运行。
@@ -26,6 +26,7 @@ import { readdir, readFile, stat, lstat, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { experienceEntry, lintMemory } from "./memory-lint.mjs";
 import { lint, stripFences } from "./doc-lint.mjs";
 import { formatBytes, planClean } from "./rankup-clean.mjs";
 
@@ -34,7 +35,7 @@ const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
 const RESIDENT = new Set([
   "INDEX.md", "PROJECT.md", "architecture.md", "infrastructure.md", "integrations.md", "secrets.md",
   "skill-state.json", "baseline.md", "keywords.md", "decisions.md", "rejected.md", "competitors.md",
-  "audit.md", "plan.md", "roadmap.md", "iterations.md", "experiments.md", "releases.md", "experience.md",
+  "lessons.md", "preferences.md", "audit.md", "plan.md", "roadmap.md", "iterations.md", "experiments.md", "releases.md", "experience.md",
   "checks.md", "review-state.json", "indexnow-last.json", "backlink-targets.json",
 ]);
 // 脚本产物目录（由 rankup / backlink 脚本写入）也算规范内，只按「证据」规则清旧运行。
@@ -43,12 +44,12 @@ const RESIDENT_DIRS = new Set([
   "demand", "selection", "leading-indicator", "provider-audit", "state", "data", "backlink", "archive",
 ]);
 const TIMELY = ["INDEX.md", "plan.md", "keywords.md", "baseline.md", "integrations.md", "infrastructure.md"];
-// 上限与 references/project-memory.md「目录规范」一致（2026-09-30 以一个用了一个多月的项目为参照定的起步值）。
+// 上限与 references/project-memory.md「目录规范」一致。
 const LIMITS = {
   indexLines: 60, indexKb: 6, relayLines: 20, relayKb: 2, lineChars: 400,
-  journalLines: 200, journalKb: 16, userLines: 200, userKb: 16,
+  journalLines: 200, journalKb: 16,
   perFile: {
-    "PROJECT.md": [120, 12], "plan.md": [100, 10], "roadmap.md": [150, 16], "decisions.md": [150, 16],
+    "PROJECT.md": [60, 12], "plan.md": [100, 10], "roadmap.md": [150, 16], "decisions.md": [150, 16],
     "rejected.md": [200, 20], "keywords.md": [300, 32], "checks.md": [300, 32],
   },
   resident: [300, 24],
@@ -123,6 +124,23 @@ export async function diagnose({ rankupDir, portfolioRoot, staleDays = 30, now =
   const mdFiles = await walkMd(rankupDir, backups);
   for (const file of backups) add("C", "备份副本", path.relative(rankupDir, file), "待确认；按 rankup-clean 清单核查并取得用户同意后显式纳入");
 
+  const memoryWarnings = [];
+  const checkMemory = async (dir, name, options) => {
+    const content = await readText(path.join(dir, name));
+    if (content === null) return;
+    for (const warning of lintMemory(content, options)) {
+      memoryWarnings.push({ ...warning, where: path.join(dir, name) });
+    }
+  };
+  for (const name of ["experience.md", "lessons.md", "preferences.md", "decisions.md", "PROJECT.md", "INDEX.md"]) {
+    const index = ["PROJECT.md", "INDEX.md"].includes(name);
+    await checkMemory(rankupDir, name, { maxLines: index ? 60 : name === "experience.md" ? 300 : 150, decisions: name === "decisions.md", index });
+  }
+  if (rootLayer) await checkMemory(rankupDir, "README.md", { maxLines: 60, index: true });
+  for (const file of await walkMd(path.join(rankupDir, "topics"))) {
+    await checkMemory(rankupDir, path.relative(rankupDir, file));
+  }
+
   // 1 & 2 目录外文件、备份
   for (const e of top) {
     const name = e.name;
@@ -140,7 +158,7 @@ export async function diagnose({ rankupDir, portfolioRoot, staleDays = 30, now =
     const indexKb = Buffer.byteLength(index) / 1024;
     if (lines.length > LIMITS.indexLines || indexKb > LIMITS.indexKb) add("A", "INDEX 超长", "INDEX.md", `${lines.length} 行 / ${indexKb.toFixed(1)} KB > ${LIMITS.indexLines} 行 / ${LIMITS.indexKb} KB：事实移回专题文件，最近变化只留 5 条`);
     const longLines = lines.filter((l) => [...l].length > LIMITS.lineChars);
-    if (longLines.length) add("A", "单行塞太多", "INDEX.md", `${longLines.length} 行超过 ${LIMITS.lineChars} 字：一行一件事，坑与经验按四层归属分拣出去`);
+    if (longLines.length) add("A", "单行塞太多", "INDEX.md", `${longLines.length} 行超过 ${LIMITS.lineChars} 字：一行一件事，坑与经验按三层归属分拣出去`);
     for (const field of ["当前阶段", "上一个完成的关卡", "下一步动作", "当前阻塞"]) {
       if (!lines.some((line) => new RegExp(`^\\s*-\\s*(?:\\*\\*)?${field}(?:\\*\\*)?[：:]`).test(line))) add("A", "INDEX 缺导航字段", "INDEX.md", `缺「${field}」`);
     }
@@ -303,7 +321,10 @@ export async function diagnose({ rankupDir, portfolioRoot, staleDays = 30, now =
   const experiences = [];
   const pushExp = (source, text) => experiences.push({ source, text: text.trim().slice(0, 200) });
   const expText = await readText(path.join(rankupDir, "experience.md"));
-  for (const m of (expText ?? "").matchAll(/^- \*\*\[[^\]]+\][^\n]*/gm)) pushExp("experience.md", m[0]);
+  const experienceLines = stripFences(expText ?? "").join("\n");
+  for (const match of experienceLines.matchAll(new RegExp(experienceEntry.source + "[^\\n]*", "gm"))) {
+    pushExp("experience.md", match[0]);
+  }
   for (const file of await walkMd(path.join(rankupDir, "topics"))) {
     for (const m of ((await readText(file)) ?? "").matchAll(/^#{2,3} .*/gm)) pushExp(path.relative(rankupDir, file), m[0]);
   }
@@ -319,17 +340,18 @@ export async function diagnose({ rankupDir, portfolioRoot, staleDays = 30, now =
     for (const line of ((await readText(file)) ?? "").split("\n")) if (keyword.test(line) && line.trim().length > 8) pushExp(path.relative(rankupDir, file), line);
   }
 
-  // 10 用户全局层（③）与 Skill 回流方式（④）
+  // 10 全局层与 Skill 回流方式
   const userHome = process.env.RANKUP_HOME ? path.resolve(process.env.RANKUP_HOME) : path.join(homedir(), ".rankup");
   const userLayer = { dir: userHome, exists: false, files: [] };
-  for (const name of ["preferences.md", "lessons.md", "upstream-candidates.md", "config.json"]) {
+  for (const name of ["README.md", "preferences.md", "lessons.md", "upstream-candidates.md", "config.json"]) {
     const t = await readText(path.join(userHome, name));
     if (t === null) continue;
     userLayer.exists = true;
-    const n = t.split("\n").length;
-    const kb = Buffer.byteLength(t) / 1024;
-    userLayer.files.push({ name, lines: n });
-    if (name.endsWith(".md") && (n > LIMITS.userLines || kb > LIMITS.userKb)) add("B", "用户全局层超标", `${userHome}/${name}`, `${n} 行 > ${LIMITS.userLines}：按清理判据压缩`);
+    userLayer.files.push({ name, lines: t.trimEnd().split("\n").length });
+    if (name.endsWith(".md")) {
+      const index = name === "README.md";
+      await checkMemory(userHome, name, { maxLines: index ? 60 : 150, index });
+    }
   }
   let sourceCheckout = false;
   for (let dir = skillRoot; ; dir = path.dirname(dir)) {
@@ -343,6 +365,7 @@ export async function diagnose({ rankupDir, portfolioRoot, staleDays = 30, now =
     rankupDir,
     staleDays,
     findings,
+    memoryWarnings,
     cleanSummary: {
       cleanFilesCount: cleanPlan.cleanFilesCount,
       cleanBytes: cleanPlan.cleanBytes,
@@ -358,6 +381,10 @@ export async function diagnose({ rankupDir, portfolioRoot, staleDays = 30, now =
 
 function render(r) {
   const out = [`rankup doctor（只读诊断）：${r.findings.length} 条发现`];
+  out.push(`记忆 lint（仅警告）：${r.memoryWarnings.length} 条`);
+  for (const { where, line, check, detail } of r.memoryWarnings) {
+    out.push(`  [${check}] ${where}${line ? `:${line}` : ""} — ${detail}`);
+  }
   const names = { A: "A 安全直接改", B: "B 下沉并保留证据", C: "C 需要用户决定（只列不动）" };
   for (const bucket of ["A", "B", "C"]) {
     const list = r.findings.filter((f) => f.bucket === bucket);
@@ -369,11 +396,11 @@ function render(r) {
     const p = r.portfolio;
     out.push(`\n根层登记：portfolio.md 表格 ${p.portfolioRows ?? "未知"} 行；projects.json ${p.projectsCount ?? "未知"} 条（回写前后必须相等）`);
   }
-  out.push(`\n经验分拣候选：${r.experiences.length} 条（逐条按 maintenance.md「七」判去向：① 项目 / ② 项目稳定经验 / ③ 用户全局层 / ④ Skill 源码 / ⑤ 别的 Skill 或全局规则 / 待观察）`);
+  out.push(`\n经验分拣候选：${r.experiences.length} 条（逐条按 maintenance.md「七」判去向：项目层 / 全局层 / 源码层 / 不归本 Skill / 待观察）`);
   for (const e of r.experiences.slice(0, 40)) out.push(`  [${e.source}] ${e.text}`);
   if (r.experiences.length > 40) out.push(`  …另有 ${r.experiences.length - 40} 条，用 --json 看全部`);
-  out.push(`\n用户全局层（③）：${r.userLayer.dir}${r.userLayer.exists ? `，已有 ${r.userLayer.files.map((f) => `${f.name}（${f.lines} 行）`).join("、")}` : "：还没有 preferences.md / lessons.md（首次写入时再按需创建，不预建空文件）"}`);
-  out.push(`回流到 Skill（④）：${r.sourceCheckout ? "当前是源码检出；先查已有规则，任务允许时按晋升门改现有文件，否则只列候选或写允许的 upstream-candidates.md" : "当前是安装副本，只追加到用户全局层的 upstream-candidates.md，不改安装副本"}`);
+  out.push(`\n全局层：${r.userLayer.dir}${r.userLayer.exists ? `，已有 ${r.userLayer.files.map((f) => `${f.name}（${f.lines} 行）`).join("、")}` : "：还没有 preferences.md / lessons.md（首次写入时再按需创建，不预建空文件）"}`);
+  out.push(`回流到源码层：${r.sourceCheckout ? "当前是源码检出；先查已有规则，任务允许时按晋升门改现有文件，否则只列候选或写允许的 upstream-candidates.md" : "当前是安装副本，只在全局层维护的 upstream-candidates.md，不改安装副本"}`);
   out.push("\n下一步：按 references/maintenance.md「六」出整理计划 → 经验分拣与回流 → 执行 A、B → 再跑本脚本与 doc-lint 回读校验 → journal 写一行。");
   return out.join("\n");
 }

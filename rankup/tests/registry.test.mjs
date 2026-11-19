@@ -52,7 +52,7 @@ async function makeProject(root, name, { script, entries = 0 } = {}) {
   if (entries > 0) {
     const body = Array.from(
       { length: entries },
-      (_, index) => `- **[2026-08-0${index + 1}] 结论 ${index}**:证据。`,
+      (_, index) => index === 0 ? "- 核对发布结果。适用：发布后。" : `- **[2026-08-0${index + 1}] 结论 ${index}**:证据。`,
     ).join("\n");
     await writeFile(path.join(rankupDir, "experience.md"), `${body}\n`);
   }

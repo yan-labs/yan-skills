@@ -13,6 +13,7 @@
 // 名单是扫描生成的,不靠手工维护——手写的索引一定会过期(这是本 Skill 经验库里
 // 反复验证过的结论),所以每次 scan 都整表重建,读到的永远是磁盘上的当前事实。
 
+import { experienceEntry } from "./maintain/memory-lint.mjs";
 import { mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -83,7 +84,7 @@ async function describeScript(file) {
 async function countEntries(file) {
   try {
     const text = await readFile(file, "utf8");
-    return (text.match(/^- \*\*\[20/gm) ?? []).length;
+    return [...text.matchAll(new RegExp(experienceEntry.source, "gm"))].length;
   } catch {
     return 0;
   }

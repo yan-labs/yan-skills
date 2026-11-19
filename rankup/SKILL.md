@@ -2,7 +2,7 @@
 name: rankup
 description: 独立开发者的项目全生命周期管理：需求验证、选词选品、建站或做原生 App、上线接入、SEO/GEO 获客、支付变现、监控迭代与跨会话接力。以下情况使用：用户提到 rankup 或 /rankup（check、review、init；doctor 仅指整理项目 .rankup 记录）；当前目录或工作区有 .rankup/，或要读取、续做、整理项目计划、路线图、待办、PRD、交接或进度文档；在这些项目记录上下文里说「继续」「接着做」「上次做到哪」「下一步做什么」；精简、压缩 Agent 记忆文件（memory 太大、清理记忆）；说“清理一下”“清理 N 天/一周之前的日志/报告/截图”来清理项目过程数据；以及项目规划、需求验证、关键词调研与 SERP、独立 Google Trends 热度查询或对比、AI 搜索推荐（GEO）、网站体检、sitemap/IndexNow/Search Console、流量、建站、上线、支付（Stripe、Anyway、PayPal）、变现与增长。SEO/GEO 是主要手段，不是适用边界，非 SEO 的项目计划与 macOS、iOS、iPad 原生 App 同样适用。纯文案（含 SEO 趋势博客等主题写作）、纯视觉设计、与项目管理无关的通用开发及基础设施排错（含 Cloudflare 部署报错、普通 CLI doctor）不触发；目录内有 .rankup/ 时仅叠加项目记录维护义务；外链执行交 backlink，浏览器驱动交 opencli，配图生成交 imagegen，多模型派单交 agent-fleet。
 metadata:
-  version: "4.0.4"
+  version: "4.1.0"
 ---
 
 # Rankup
@@ -12,6 +12,26 @@ metadata:
 每个项目的 `.rankup/` 记录长远规划与当前进展，负责跨会话接力。本文件只做入口与路由，细节在 `references/`，一次任务只读需要的那部分。
 
 三条贯穿始终的口径，因为下一个会话会把记录当事实用：取不到的数据写「未知 / 不可用」，不写 0；区分「官方要求」「工具建议」「项目经验」；阶段性汇报不等于完成。
+
+## 启动协议
+
+每次使用 rankup 先读全局层索引，再读当前项目索引。以下命令按此顺序注入，缺文件即跳过：
+
+!`node "${CLAUDE_SKILL_DIR}/scripts/maintain/read-memory-index.mjs"`
+
+未展开命令的客户端，开工先用实际 Skill 路径运行 `node "<rankup-skill-dir>/scripts/maintain/read-memory-index.mjs" [<项目目录>]`。工作目录与目标项目不一致时显式传入项目目录。按索引读取相关全局规则，再进入项目接力与任务路由。[三层归属与项目记忆维护规范](references/maintenance.md#七三层归属与项目记忆维护规范)定义写入与整理方式。
+
+1. **版本**：常规执行读 `skill.json`，跑 `node "<rankup-skill-dir>/scripts/check-version.mjs" --project-root . --apply`；网络失败保留当前版本，不得伪称已更新。doctor 只整理记录，免版本更新与线上三方对账；任务明确禁止联网、Git 或改动时遵守其范围。
+2. **三方对账门禁**：回答「接下来做什么」或宣称执行进度前，核对 `git log --oneline -25`、真实路由与线上 `sitemap.xml` 全量 `<loc>`；按任务适用面核对，记录与现实不一致先回写。只读问答只核对所问事实，不为此制造状态变化。
+3. 其余读取、接力与收尾只按上表指针执行。**沉淀义务与是否调用本 Skill 无关**，细则见 [`project-memory.md`](references/project-memory.md#沉淀义务)。
+
+## 收尾协议
+
+- 规则被证伪：当场原地修订或删除。
+- 用户纠正做法：当场按规范蒸馏，原话存记录。
+- 用户改调度：用 `fleet-go order set` 更新调度状态。
+- 同一坑多花一轮以上：收尾时蒸馏。
+- 每次收尾自问「这单改变了哪条规则」。没有就不写。
 
 ## 强制流程（先读这张表，再做任何事）
 
@@ -25,13 +45,6 @@ metadata:
 | 「继续」「接着做」「上次做到哪」「开始执行这个项目的计划」，或读计划 / 交接 / 进度文档 | 同上「新会话怎么接」 | 定位项目 → 读接力（无 `.rankup/` 用 `HANDOFF.md`）→ 核对后台产物与改动 → 直接执行下一步 | 下一步已有执行证据 |
 
 需要登录态的验收先按[测试身份与登录通路](references/discipline.md#测试身份与登录通路)复用已有身份、自查通路并遵守测试边界。
-
-## 启动协议
-
-1. **版本**：常规执行读 `skill.json`，跑 `node "<rankup-skill-dir>/scripts/check-version.mjs" --project-root . --apply`；网络失败保留当前版本，不得伪称已更新。doctor 只整理记录，免版本更新与线上三方对账；任务明确禁止联网、Git 或改动时遵守其范围。
-2. **三方对账门禁**：回答「接下来做什么」或宣称执行进度前，核对 `git log --oneline -25`、真实路由与线上 `sitemap.xml` 全量 `<loc>`；按任务适用面核对，记录与现实不一致先回写。只读问答只核对所问事实，不为此制造状态变化。
-3. **用户全局层**：开工读 `$RANKUP_HOME`（默认 `~/.rankup/`）的 `preferences.md` 与 `lessons.md`，不存在就跳过（[维护「七」](references/maintenance.md#七经验分层与回流四层归属唯一判定表)）。
-4. 其余读取、接力与收尾只按上表指针执行。**沉淀义务与是否调用本 Skill 无关**，细则见 [`project-memory.md`](references/project-memory.md#沉淀义务)。
 
 ## 命令
 
@@ -54,7 +67,7 @@ metadata:
 「/rankup doctor」「整理一下项目记录」「.rankup 太乱了」「整理一下 rankup」「把这个项目的 .rankup 重新整理」。只整理项目记录，不碰站点代码与线上，免版本更新与线上对账。按 [`maintenance.md`「六」](references/maintenance.md#六rankup-doctor整理-rankup-的显式入口)与[目录规范](references/project-memory.md#目录规范常驻文件保留什么去哪里多大)执行：
 
 1. 只读诊断：`node "<rankup-skill-dir>/scripts/maintain/rankup-doctor.mjs" --project-root . [--portfolio-root <工作区根>]`。
-2. **经验分拣与回流**：按四层归属（项目 / 用户全局层 / Skill 源码 / 别的 Skill，判定见「七」）逐条判去向。
+2. **经验分拣与回流**：按三层归属（源码层 / 全局层 / 项目层，其他经验归对应 Skill）逐条判去向。
 3. 分三类出计划：A 安全直接改、B 下沉并保留证据、C 需要用户决定。执行 A、B，C 类与别的 Skill 的经验只列给用户，拿不准的不删。
 4. 回读校验（含根层 `portfolio.md` 与 `projects.json` 条目数），输出整理报告：改了、删了（从哪找回）、留了、经验分拣表、待用户决定。
 
@@ -101,7 +114,7 @@ node "<rankup-skill-dir>/scripts/maintain/rankup-clean.mjs" --workspace <工作�
 | 「做个好看的页面」「Hero 怎么设计」「找个组件参考」、任何整站设计或改版 | **走 `/design` 并逐字带上获奖标准 prompt**（全文在 `stage-3-build.md` 硬规则「设计一律走 `/design`」），再用 [`design-references.md`](references/design-references.md) 选 2–3 个案例后实现 | — |
 | 「做网站时需要 AI 视频/图片生成」「接 Kie」「Kie 音频可不可以用」 | [Kie 可选分支](references/integrations/kie.md) → [模型快照](references/integrations/kie-models.md)、[登记](references/registry.md)。按能力选供应商，Kie 不是必选 | — |
 | 写页面内容、写文章、写 blog、「写这个模型页」、模型对比、产品对比、补参考视频、封面图、「写一下这页的文案」 | 站内英文页面内容一律走 [`blog`](../blog/SKILL.md)，不自己编内容；中文稿走 `/write`；内容形状按 `/ai-seo`（[`skill-ecosystem.md`](references/skill-ecosystem.md)） | sources、成文、review、评判、回读证据齐全 |
-| 做内页、「把这个词做成页面」「关键词没问题了，做成内页」 | [`stage-4-prelaunch.md`「新增内页随手清单」](references/lifecycle/stage-4-prelaunch.md#新增内页--新模板的随手清单2026-09-12-回流)；页面映射按[段 2 §2.3](references/lifecycle/stage-2-positioning.md#23-问法簇--页面--faqdescription与站点结构)；目标词登记到 `keywords.md`；核建设中红线 | `checks.md` 记 ✅ 与证据 |
+| 做内页、「把这个词做成页面」「关键词没问题了，做成内页」 | [`stage-4-prelaunch.md`「新增内页随手清单」](references/lifecycle/stage-4-prelaunch.md#新增内页--新模板的随手清单)；页面映射按[段 2 §2.3](references/lifecycle/stage-2-positioning.md#23-问法簇--页面--faqdescription与站点结构)；目标词登记到 `keywords.md`；核建设中红线 | `checks.md` 记 ✅ 与证据 |
 | 「能不能上线」「看一下 SEO / GEO 有没有问题」「TDK」「密度」 | `checklists.md` 段 4 + [`stage-4-prelaunch.md`](references/lifecycle/stage-4-prelaunch.md) + [`seo-box.md`](references/seo-box.md)。全套体检（AITDK、PageSpeed、图标专项、占位专项），重跑不采信上一轮；第三方复核加载官方 `gefei-page`（[`seo-webcafe.md`](references/seo-webcafe.md)） | 段 4 闸门全绿，或写明改不动的理由 |
 | 「谷歌质量」「HCU」「E-E-A-T」「AI 内容会不会被打」「内容 review」「垃圾内容政策」 | [`seo-helpful-content.md`](references/seo-helpful-content.md)，`scripts/hcu-audit.mjs`；区分官方口径与业内推断 | 对应自检表通过且无红线 |
 | 「怎么被 AI 引用」「llms.txt」「对 AI 代理友好吗」 | [`seo-ai-search.md`](references/seo-ai-search.md)、[`seo-agentic-scan.md`](references/seo-agentic-scan.md)；推荐位做法见 `seo-geo.md` | — |
@@ -140,7 +153,7 @@ node "<rankup-skill-dir>/scripts/maintain/rankup-clean.mjs" --workspace <工作�
 |---|---|---|
 | 1 调研 | [stage-1](references/lifecycle/stage-1-research.md) | 顺序与两路判读只按入口环节；GT 测量只按 gpts 基线判读；ChatGPT 问法链路只按 `seo-geo.md` |
 | 2 立项与定位 | [stage-2](references/lifecycle/stage-2-positioning.md) | 主词出现后先读 `entry.md`；市场选择、产品形态及问法簇到页面的移交在本段 |
-| 3 建站与开发 | [stage-3](references/lifecycle/stage-3-build.md) | shadcn、TanStack、Cloudflare 与段 4–6 的网页规则只约束 Web 面；macOS 按 `build-macos-apps` 专项 Skill，iOS/iPad 按对应原生工具，商店分发读 `monetization.md` 五，只有 App 时网页项标 N/A。**品牌图标在开发当天做齐**。新站内容页一律构建时预渲染成静态资产，Worker 只管 API 与必须动态的页面，每页都 SSR 需写明原因（[静态优先](references/cloudflare-stack.md#20-默认静态优先2026-10-27-cpu-降耗回流)）。建站、上线前与每次 review 必查 [Cloudflare 循环消耗与账单熔断](references/cloudflare-stack.md#89-循环消耗与账单熔断红线)：不能证明有界的付费后台触发不得启用，预算告警不当消费硬顶 |
+| 3 建站与开发 | [stage-3](references/lifecycle/stage-3-build.md) | shadcn、TanStack、Cloudflare 与段 4–6 的网页规则只约束 Web 面；macOS 按 `build-macos-apps` 专项 Skill，iOS/iPad 按对应原生工具，商店分发读 `monetization.md` 五，只有 App 时网页项标 N/A。**品牌图标在开发当天做齐**。新站内容页一律构建时预渲染成静态资产，Worker 只管 API 与必须动态的页面，每页都 SSR 需写明原因（[静态优先](references/cloudflare-stack.md#20-默认静态优先)）。建站、上线前与每次 review 必查 [Cloudflare 循环消耗与账单熔断](references/cloudflare-stack.md#89-循环消耗与账单熔断红线)：不能证明有界的付费后台触发不得启用，预算告警不当消费硬顶 |
 | 4 上线前 SEO/GEO | [stage-4](references/lifecycle/stage-4-prelaunch.md) | 每次改动后按段 4 全套验收重跑，因为 TDK、布局与性能会相互影响。**图标专项未通过不许上线**。上线前与发布后复核入口：`checklists.md` D1 / D4 / D12 / D13 / P3（索引水合、Schema 语义、网格与键盘、SSR 可达性、分析去重与真实上报） |
 | 5 上线与接入 | [stage-5](references/lifecycle/stage-5-launch.md) | 以真实线上证据收口，不用勾选代替生效状态 |
 | 6 外链 | [stage-6](references/lifecycle/stage-6-backlinks.md) | 执行归 `backlink` Skill；范围圈定与证据台账在本段 |

@@ -17,7 +17,7 @@ import { lint as lintDocs } from "./maintain/doc-lint.mjs";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "4.0.4";
+const expectedVersion = "4.1.0";
 const requiredReferences = [
   "commands.md",
   "integrations/kie.md",
@@ -94,6 +94,8 @@ const requiredContent = {
     "SEO/GEO 是主要手段，不是适用边界",
     "可复用操作必须落成脚本",
     "## 启动协议",
+    "## 收尾协议",
+    "scripts/maintain/read-memory-index.mjs",
     "## 清理",
     "references/commands.md",
   ],
@@ -127,7 +129,7 @@ const requiredContent = {
     "scripts/maintain/ref-scan.mjs",
     "rankup-clean.mjs",
     "不能丢的东西",
-    "## 七、经验分层与回流：四层归属（唯一判定表）",
+    "## 七、三层归属与项目记忆维护规范",
     "RANKUP_HOME",
     "upstream-candidates.md",
   ],

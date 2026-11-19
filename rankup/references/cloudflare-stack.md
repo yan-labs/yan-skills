@@ -16,7 +16,7 @@
 - [8.9 循环消耗与账单熔断红线](#89-循环消耗与账单熔断红线)
 - [9. 部署（已下沉）](#9-部署已下沉)
 - [10. Live verification：真实线上验证](#10-live-verification真实线上验证)
-- [11. 已验证的部署陷阱(2026-08 回流)](#11-已验证的部署陷阱2026-08-回流)
+- [11. 已验证的部署陷阱](#11-已验证的部署陷阱)
 - [12. 匿名页面 HTML 边缘缓存（Cache API）](#12-匿名页面-html-边缘缓存cache-api)
 
 本文件定义 `rankup` 新网站的默认运行平台和资源选择方法。Cloudflare-first 的含义是：没有已批准的例外时，公开内容页静态优先，Worker 承载 API 与必须动态的页面，数据、对象存储、异步任务和部署统一使用 Cloudflare；它不意味着预先创建全部 Cloudflare 产品。每项资源都必须由当前需求驱动，并在目标环境完成真实验证。
@@ -36,7 +36,7 @@ pnpm dlx shadcn@latest init --preset b1D0eCA4 --template start --monorepo --rtl 
 
 ## 2. 页面渲染与 API：静态优先，Worker 只管动态
 
-### 2.0 默认静态优先（2026-10-27 CPU 降耗回流）
+### 2.0 默认静态优先
 
 **公开内容页（首页、列表/分类、内页、说明/法律页、工具落地页、sitemap/robots/llms.txt、OG 图）默认在构建时预渲染成静态资产，由 Workers Static Assets 直接返回，不经过 Worker 代码。** 每次请求都 SSR 的 Worker 会把 CPU 花在每个访客、每只爬虫、每次扫描上，而内容页的 HTML 在两次发版之间根本不变；2026-10-27 把 22 个站点改成静态优先后，同一小时的账号 CPU 下降约 71%（见 `.rankup/` 的 `cf-cpu-fix` 报告）。
 
@@ -339,7 +339,7 @@ DO 官方保证至少执行一次，异常自动重试有限；**应用重新 `s
 
 构建成功、测试环境通过、Worker 上传成功、控制台显示 Ready 或健康检查 `200` 都不能单独满足此门禁。
 
-## 11. 已验证的部署陷阱(2026-08 回流)
+## 11. 已验证的部署陷阱
 
 - **Worker 部署下,仓库根的 `_redirects` 完全不生效**:那是 Cloudflare Pages 的约定,Worker 只跑你的入口代码,没有任何东西会去读它。站点从 Pages 迁到 Worker 后,这类文件会安静地留在仓库里,让人以为重定向还在工作——实测表现为一批 404 长期被误判成"搜索引擎还没重爬"。重定向规则必须写进 Worker 入口的路由函数;迁移后要 grep 并删掉 `_redirects`、`functions/` 等 Pages 时代的残留,否则它们会持续误导后来者。
 - **自定义 Worker 入口必须在 `wrangler.jsonc` 里声明 `main`**,否则 Cloudflare Vite 插件会打包它自己的默认入口:dev 下一切正常,线上 Worker 却不含你的任何逻辑。判据是**同一路径在 dev 与 `wrangler preview` 下状态码不一致**——出现这个差异就先查 `main`,别去调业务代码。
