@@ -138,7 +138,7 @@ Similarweb 不同口径，不要并列」。那句话**对的是自然搜索口�
 | **节点 5，后续实测** | **同样 850 个非空单元格**（前 6 格：`主页` / `39.47%` / `按「Tab」启用图形图表访问模块。` / `4.1亿` / `1.1亿` / `3.1亿`，页头确认 `canva.com`） |
 
 **收尾 2026-08-28（node 8 复测回来之后）：这条现在两边都测过了。** 两个节点是**两个不同的
-共享账号**（页头首字母 node 5 = `H`、node 8 = `B`），`top-pages` 两边**都是 850 格，
+共享账号**（页头账号首字母不同；哪个节点对应哪个账号记在本机 `$RANKUP_HOME/provider-accounts.md`），`top-pages` 两边**都是 850 格，
 前 5 格逐字相同**（`主页 / 39.47% / 按「Tab」启用图形图表访问模块。 / 4.1亿 / 1.1亿`）。
 sweep 文件末尾那行 node 8 读到 `no-table / 0 格 / innerText 353` 的记录，成因也定下来了：
 **目标未生效**——换节点后旧 `lid=` 不认，页面静默落回空态落地页，而当时的目标校验
@@ -358,7 +358,7 @@ node backlink/scripts/tools-share-node.mjs probe --tool semrush --nodes 1,2,3 # 
 ## 三、Similarweb：23 个能用的模块 + 5 个买不起的
 
 **这里有个坑，先说**：Similarweb 不是一个产品，是**一堆分开卖**的产品。
-当前共享账号只有 **Web Intelligence（网站情报）** 这一档。
+能用哪些模块取决于共享账号买了哪一档。下面的模块数按测绘时的档位（只有 **Web Intelligence（网站情报）**）统计；当前档位以本机 `$RANKUP_HOME/provider-accounts.md` 为准，档位变了先重测再引用这张表。
 
 模块逐项表、买不起的 5 个产品与操作坑见 [`provider-capabilities/similarweb.md`](provider-capabilities/similarweb.md)。
 
@@ -515,7 +515,7 @@ node backlink/scripts/tools-share-node.mjs probe --tool semrush --nodes 1,2,3 # 
 |---|---|---|---|
 | Semrush Analytics API v3/v4 | SEO **Business** 档 + **另行购买** units 包 | **不能** | 官方原文：升级到 Business 后 units 仍为 0；key 只在账号 Subscription Info 页取，且只显示一次 |
 | Semrush Projects API v3 | Business + units + API key | **不能** | 同上 |
-| **Semrush MCP** | 与 HTTP **共用同一份 units** | **不能** | 仓库实测 `units=0`。**这不是"MCP 坏了"，是这个共享账号根本没买 unit 包**——换客户端、换传输、重连 OAuth 都不会改变 |
+| **Semrush MCP** | 与 HTTP **共用同一份 units** | **不能** | 测绘时实测 `units=0`。**这不是"MCP 坏了"，是共享账号没买 unit 包**（当前状态记在本机 `$RANKUP_HOME/provider-accounts.md`）——换客户端、换传输、重连 OAuth 都不会改变 |
 | Semrush Trends API | 独立订阅 | **不能** | 本项目无该订阅 |
 | Similarweb Data API（REST / Batch v4） | **Business / Enterprise / API-only** 档 | **不能** | API key 从账号 dashboard 自取，面板不给 |
 | **Similarweb MCP** | 同上，且与标准 API **共用 data credits** | **不能** | 官方原文 |

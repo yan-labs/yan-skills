@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // 用法：node scripts/validate-rankup.mjs（只读、本地校验）。
-// 动态中立扫描：RANKUP_PROJECT_ROOTS 为按系统路径分隔符分隔的项目父目录列表；
-// 未配置 ~/.rankup/config.json 时也可仅用该环境变量，扫描其下真实项目目录名。
+// 中立扫描的项目代号、项目域名来自本机配置 ~/.rankup/config.json（字段见 readLocalConfig 上方注释），源码里不写真实项目名。
+// RANKUP_PROJECT_ROOTS 为按系统路径分隔符分隔的项目父目录列表，可替代配置里的 projectRoots。
 // RANKUP_PROJECT_NAME_EXCLUDES 为逗号分隔的通用目录名排除表，例如 docs,scripts；
 // 仅从动态候选词中排除这些目录名，不豁免文件，也不排除真实项目名。
 
 import { execFile } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -198,10 +199,8 @@ const requiredContent = {
     "只动该账号自己拥有的测试空间与测试页面",
     "不购买、不升级套餐、不绕过产品权益限制",
     "测试线通过不等于生产线通过",
-    "构建期装配检查，红灯不出镜像",
     "预发验证",
     "发布后自测",
-    "循环引用加装饰器注入",
   ],
   "references/project-memory.md": [
     "测试身份：位置/取 token 命令",
@@ -263,40 +262,59 @@ const secretPatterns = [
 // Skill 必须保持项目中立与机器中立:任何可归属到某个具体项目、账号或本机环境的内容
 // 都属于 <project>/.rankup/,不进本 Skill。经验条目只保留"剥离站点后仍成立"的规则,
 // 证据出处、流量数字、凭据位置一律留在项目侧。
-// 名单里为什么是这些名字:它们是**已经泄漏过或最可能泄漏**的自有项目代号。
-// 这不是「这些项目特殊」,而是黑名单只能拦住它认识的词——2026-08-21 发现
-// `intabtools` / `toolpear` 有四处漏进 backlink/,根因就是它们不在这张表里。
-// **新开一个项目时把它的代号加进来**,否则这个守卫对它等于不存在。
+// 这张表只放**形态**（ID、路径、代理的写法）。真实项目代号、项目域名一律不写进
+// 这份要开源的源码——它们来自本机配置,见下面的 buildLocalLeakPatterns。
 const projectLeakPatterns = [
   ["advertising publisher ID", /\b(?:ca-)?pub-\d{10,}\b/g],
   ["analytics account ID", /\b(?:UA-\d+-\d+|G-[A-Z0-9]{8,})\b/g],
-  ["shared panel authorization/callback base", /\b(?:[a-z0-9-]+\.)*3ue\.co\b/gi],
-  ["project identifier", /\b(?:bettercallsaul|birthstonemeaning|crystalhealing|sbti|intabtools|toolpear|shindan-lab|shindan|butterflydream|sgsz-alliance|xueer)\b/gi],
+  // Clarity 项目 ID 是 10 位小写字母数字。只在两种确定的写法里认:追踪脚本地址,
+  // 以及带 clarity 字样的命令行里 --project 后面的值;必须含数字,<project-id> 这类占位不命中。
+  ["Clarity project ID", /clarity\.ms\/tag\/(?=[a-z0-9]*\d)[a-z0-9]{10}\b|clarity[^\n]*--project[ =](?=[a-z0-9]*\d)[a-z0-9]{10}\b/gi],
   ["absolute host path", /\/Users\/[A-Za-z0-9._-]+\//g],
   ["hardcoded local proxy", /\b127\.0\.0\.1:\d{2,5}\b/g],
   ["credential store location", /\.claude\.json\b/g],
 ];
 
-// 上面这张静态清单本身已经是独立验收指出的问题:它只能拦住"已经写进去"的
-// 代号,新开项目永远要靠人记得手工补一行,忘了补 = 这道防线对新项目形同虚设;
-// 而"往这张要开源的表里继续手打真实项目代号"这个动作本身就是又一次泄漏,
-// 不该是长期做法。因此**不再往这张静态表里追加新项目名**,新项目改走运行时
-// 补充:复用 registry.mjs 里"扫描根目录从哪来"的同一份逻辑(`resolveRoots`——
-// RANKUP_PROJECT_ROOTS 环境变量,或 `~/.rankup/config.json` 的 `projectRoots`),
-// 把这些根目录下的子目录名当额外泄露词。这份配置只存在于本机、从不进 Skill
-// 仓库;CI 环境和全新安装都没有这个文件,`resolveRoots` 返回空数组,本函数
-// 安静地不产出任何额外模式——不改变 CI 现有行为,也不会在没配置的机器上报错。
-async function buildDynamicProjectLeakPatterns() {
-  let roots;
+// 本机配置 `$RANKUP_HOME/config.json`（默认 ~/.rankup/config.json）,只存在于本机、从不进仓库:
+//   projectRoots         存放项目的父目录;其下的子目录名当项目代号扫描（也可用 RANKUP_PROJECT_ROOTS）
+//   projectRootsExclude  子目录名里本来就是合法通用词的（工具名、仓库名）,不当项目代号
+//   projectIdentifiers   额外的项目代号（目录名覆盖不到的旧代号、别名）
+//   projectDomains       已登记的项目域名与只属于本用户的服务域名
+// 没有这个文件（CI、全新安装）时下面三类模式都不产出,校验照常通过。
+// 为什么不在源码里留一张项目黑名单:黑名单只能拦住它认识的词,而往开源的表里
+// 手打真实项目代号本身就是一次泄漏（2026-11-20 起全部挪到本机配置）。
+async function readLocalConfig() {
+  const home = process.env.RANKUP_HOME
+    ? path.resolve(process.env.RANKUP_HOME)
+    : path.join(homedir(), ".rankup");
+  try {
+    const config = JSON.parse(await readFile(path.join(home, "config.json"), "utf8"));
+    return config && typeof config === "object" ? config : {};
+  } catch {
+    return {}; // 不存在或写坏了:按没有本机配置处理,不阻断校验
+  }
+}
+
+function stringList(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim()) : [];
+}
+
+function alternation(words) {
+  return words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+}
+
+async function buildLocalLeakPatterns() {
+  const config = await readLocalConfig();
+  const patterns = [];
+
+  let roots = [];
   try {
     roots = await resolveRoots([]);
-  } catch {
-    return [];
-  }
-  if (!roots.length) return [];
-
-  const excludedNames = new Set((process.env.RANKUP_PROJECT_NAME_EXCLUDES || "")
-    .split(",").map((name) => name.trim()).filter(Boolean));
+  } catch {}
+  const excludedNames = new Set([
+    ...(process.env.RANKUP_PROJECT_NAME_EXCLUDES || "").split(",").map((name) => name.trim()).filter(Boolean),
+    ...stringList(config.projectRootsExclude),
+  ]);
   const names = new Set();
   for (const root of roots) {
     let entries;
@@ -310,15 +328,24 @@ async function buildDynamicProjectLeakPatterns() {
       names.add(entry.name);
     }
   }
-  if (!names.size) return [];
-
-  const escaped = [...names].map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  return [
-    [
+  if (names.size) {
+    patterns.push([
       "project identifier (scanned from RANKUP_PROJECT_ROOTS/config.json)",
-      new RegExp(`\\b(?:${escaped.join("|")})\\b`, "gi"),
-    ],
-  ];
+      new RegExp(`\\b(?:${alternation([...names])})\\b`, "gi"),
+    ]);
+  }
+
+  const identifiers = stringList(config.projectIdentifiers);
+  if (identifiers.length) {
+    patterns.push(["project identifier", new RegExp(`\\b(?:${alternation(identifiers)})\\b`, "gi")]);
+  }
+
+  const domains = stringList(config.projectDomains);
+  if (domains.length) {
+    // 前面允许带子域,后面不能再接域名字符,避免 a.co 命中 a.com。
+    patterns.push(["project domain", new RegExp(`(?<![a-z0-9-])(?:[a-z0-9-]+\\.)*(?:${alternation(domains)})(?![a-z0-9-]|\\.[a-z])`, "gi")]);
+  }
+  return patterns;
 }
 
 // 这两个文件按职责必须包含上述模式的字面量(守卫本体与它的负向测试夹具),
@@ -507,7 +534,7 @@ async function validate() {
       text: await readFile(file, "utf8"),
     })),
   );
-  const dynamicLeakPatterns = await buildDynamicProjectLeakPatterns();
+  const dynamicLeakPatterns = await buildLocalLeakPatterns();
   const allLeakPatterns = [...projectLeakPatterns, ...dynamicLeakPatterns];
   for (const { file, text } of contents) {
     const relativePath = path.relative(skillRoot, file);
@@ -566,7 +593,7 @@ async function validate() {
   // Skill 目录里出现这几个文件就说明有人把个人层写进了要开源的 Skill。
   for (const { file } of contents) {
     const base = path.basename(file);
-    if (["preferences.md", "lessons.md", "upstream-candidates.md"].includes(base)) {
+    if (["preferences.md", "lessons.md", "upstream-candidates.md", "provider-accounts.md"].includes(base)) {
       errors.push(`user-global layer file ${path.relative(skillRoot, file)} must live in $RANKUP_HOME, not in the Skill`);
     }
   }

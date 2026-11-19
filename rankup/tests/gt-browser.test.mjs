@@ -51,9 +51,12 @@ appendFileSync(process.env.GT_FAKE_LOG, JSON.stringify(args) + "\\n");
 
 if (args.includes("close")) process.exit(0);
 
-const sub = args[2]; // browser <session> <sub> ...
+// OpenCLI 2 的调用形状是 browser --session <名> <sub> ...；旧形状是 browser <名> <sub> ...，两种都认。
+const si = args.indexOf("--session");
+const rest = si >= 0 ? args.slice(si + 2) : args.slice(2);
+const sub = rest[0];
 if (sub === "eval") {
-  const js = args[3] || "";
+  const js = rest[1] || "";
 
   // 1) REST 主路
   if (js.includes("widgetdata/")) {
@@ -71,8 +74,8 @@ if (sub === "eval") {
   process.exit(0);
 }
 if (sub === "screenshot") {
-  writeFileSync(args[3], "");
-  console.log("Screenshot saved to: " + args[3]);
+  writeFileSync(rest[1], "");
+  console.log("Screenshot saved to: " + rest[1]);
   process.exit(0);
 }
 console.log("{}");

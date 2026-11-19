@@ -153,6 +153,7 @@ SKILL.md 段 6 与取数纪律只一行指回本文件，改脚本入口时只�
 | 四张无导出报表 | 自然排名、主要页面、反链概览、关键词报表 | `backlink/scripts/semrush-report.mjs` | 「他排了哪些词」 |
 | 建站指纹 | 一次 `curl` + grep 看竞品用什么建站、挂了哪些分析/广告/支付 | [`references/seo-box.md`](seo-box.md) 三 | 「他靠什么赚钱」 |
 | 竞品首页截图 | 用用户 Chrome 批量截取竞品营销官网首屏、整页与元信息，可断点续跑并生成对照图 | `scripts/homepage-shots.mjs --urls <…> --out <目录>` | 「把这些竞品首页截下来对比」 |
+| 竞品词缺口 | 竞品有、我们没有的词：零网络配额，只读已有取数文件（哥飞 `site_keywords`、Semrush `organic-positions`、可选 GSC 导出）加我方 sitemap，按量与难度排序；覆盖判定是粗判，结论前人眼过一遍 | `scripts/competitor-keyword-gap.mjs --ours <域名> --gefei <文件> --semrush <文件>` | 「竞品排了哪些词我们没做」「还能补哪些内页」 |
 
 **两家「流量」口径不同是常态**，对不上先按地理范围 / 面板页面 / 口径定义三步对齐，
 见 [`experiences/webcafe-experiences.md`](experiences/webcafe-experiences.md) 十六·五「对齐口径要对齐三样东西」。

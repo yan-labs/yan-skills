@@ -131,7 +131,7 @@
 |---|---|---|---|---|
 | ① 项目事实 | `<project>/.rankup/` 各专题文件 | 本项目的事实、决策、证据与数字 | 可跨项目复用的规则 | 见[目录规范](project-memory.md#目录规范常驻文件保留什么去哪里多大) |
 | ② 项目稳定经验 | `<project>/.rankup/topics/`、`experience.md` | 在本项目多次复用有效、但未证明跨项目成立的规则 | 只发生一次的操作细节（→ `journal/`） | 见目录规范（300 行 / 24 KB） |
-| ③ 用户全局层 | `~/.rankup/`（环境变量 `RANKUP_HOME` 可覆盖）：`preferences.md`（个人默认与偏好：目标市场与语种默认、常用工具与会话约定、跨项目通用的个人决策口径）、`lessons.md`（只在这台机器或这个账号上成立的环境坑）、`upstream-candidates.md`（等维护者回流 Skill 的候选）；已有的 `config.json`（`projectRoots`）保留 | 只对这个用户或这台机器成立、跨项目通用、且与 rankup 相关的规则 | 某个项目的事实；Agent 通用行为规则；任何密钥 | 每个 `.md` ≤ 200 行 / 16 KB，同样适用「三」的清理判据 |
+| ③ 用户全局层 | `~/.rankup/`（环境变量 `RANKUP_HOME` 可覆盖）：`preferences.md`（个人默认与偏好：目标市场与语种默认、常用工具与会话约定、跨项目通用的个人决策口径）、`lessons.md`（只在这台机器或这个账号上成立的环境坑）、`upstream-candidates.md`（等维护者回流 Skill 的候选）、`provider-accounts.md`（共享面板账号的当前档位、节点与账号的对应，不含凭据）；`config.json`（`projectRoots` 与中立性校验用的项目代号、项目域名、目录名排除表，字段见 `scripts/validate-rankup.mjs`） | 只对这个用户或这台机器成立、跨项目通用、且与 rankup 相关的规则 | 某个项目的事实；Agent 通用行为规则；任何密钥 | 每个 `.md` ≤ 200 行 / 16 KB，同样适用「三」的清理判据 |
 | ④ Skill 源码 | `rankup/references/`（方法层与 `experiences/` 经验层）、`scripts/`（脚本头部「已知坑」） | 与 rankup 的流程、链路、章节、判据或 rankup 自己的脚本相关，别的用户和项目也会遇到，且通过 [`evolution.md` 晋升门](evolution.md#7-通用规则晋升门) 的规则 | 站点名、账号、本机路径、个人偏好 | 单文件 600 行 / 80 KB |
 | ⑤ 别的 Skill 或 Agent 全局规则 | 对应 Skill（浏览器驱动与会话 → `opencli`；多模型派单与后台任务 → `agent-fleet`；外链执行 → `backlink`……）或用户的 Agent 全局规则与记忆 | 不属于 rankup 链路的经验 | —— rankup 不收；doctor 只在分拣表写去向与候选文字，**不改别的 Skill 文件或全局规则文件**，由用户或对应 Skill 的维护流程处理 | — |
 

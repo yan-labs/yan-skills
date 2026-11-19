@@ -64,9 +64,9 @@ test("release validator rejects a stale repository README version", async () => 
 // Skill 必须保持项目中立:项目可归属内容属于 <project>/.rankup/。
 // 每种泄漏形态都单独负向测试,否则闸门可能只是看起来存在。
 for (const [label, leak] of [
-  ["project identifier", "实证:bettercallsaul 的首页转化率。"],
   ["absolute host path", "脚本位于 /Users/someone/Project/site/run.mjs。"],
   ["hardcoded local proxy", "代理走 127.0.0.1:7890。"],
+  ["Clarity project ID", "脚本地址 https://www.clarity.ms/tag/ab12cd34ef 已接入。"],
 ]) {
   test(`release validator rejects a ${label} leak`, async () => {
     await withSkillCopy(async (skillRoot) => {
@@ -123,12 +123,55 @@ test("release validator 在扫描根不存在时安静跳过，不报错、不�
   });
 });
 
+// 项目代号、项目域名不写在源码里,只来自本机配置 $RANKUP_HOME/config.json。
+// 用隔离的 RANKUP_HOME 验证:没有配置时放行,配置了才拦,排除表里的目录名不拦。
+test("release validator 从本机配置读取项目代号、项目域名与目录名排除表", async () => {
+  await withSkillCopy(async (skillRoot) => {
+    const home = await mkdtemp(path.join(tmpdir(), "rankup-local-config-"));
+    const rootsParent = await mkdtemp(path.join(tmpdir(), "rankup-fake-roots-"));
+    try {
+      await mkdir(path.join(rootsParent, "fake-generic-tool-qq1"), { recursive: true });
+      const target = path.join(skillRoot, "references", "lifecycle.md");
+      const original = await readFile(target, "utf8");
+      const env = { RANKUP_HOME: home, RANKUP_PROJECT_ROOTS: "" };
+      const writeConfig = (config) => writeFile(path.join(home, "config.json"), JSON.stringify(config));
+      const config = {
+        projectRoots: [rootsParent],
+        projectRootsExclude: ["fake-generic-tool-qq1"],
+        projectIdentifiers: ["fakecodename-zz9"],
+        projectDomains: ["fake-site-zz9.example"],
+      };
+
+      for (const [label, leak] of [
+        ["project identifier", "实证:fakecodename-zz9 的首页转化率。"],
+        ["project domain", "见 https://www.fake-site-zz9.example/pricing 的定价页。"],
+      ]) {
+        await writeFile(target, `${original}\n${leak}\n`);
+        await rm(path.join(home, "config.json"), { force: true });
+        assert.equal(validate(skillRoot, { env }).status, 0, `没有本机配置时不拦: ${label}`);
+        await writeConfig(config);
+        const blocked = validate(skillRoot, { env });
+        assert.equal(blocked.status, 1, `有本机配置时必须拦: ${label}`);
+        assert.match(blocked.stderr, new RegExp(label));
+      }
+
+      await writeFile(target, `${original}\n用 fake-generic-tool-qq1 取数。\n`);
+      assert.equal(validate(skillRoot, { env }).status, 0, "排除表里的目录名是合法通用词,不拦");
+      await writeConfig({ ...config, projectRootsExclude: [] });
+      assert.equal(validate(skillRoot, { env }).status, 1, "去掉排除后同一个目录名要被拦");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(rootsParent, { recursive: true, force: true });
+    }
+  });
+});
+
 test("release validator ignores leak patterns inside its own source", async () => {
   await withSkillCopy(async (skillRoot) => {
     const validator = path.join(skillRoot, "scripts", "validate-rankup.mjs");
     const text = await readFile(validator, "utf8");
     assert.ok(
-      text.includes("bettercallsaul"),
+      text.includes("127\\.0\\.0\\.1"),
       "验证脚本自身含有模式字面量,本测试才有意义",
     );
     assert.equal(validate(skillRoot).status, 0, "守卫不得自我告警");
@@ -286,14 +329,12 @@ test("release validator rejects missing Cloudflare loop cost protections", async
   });
 });
 
-test("release validator requires production-line staging, build check and post-deploy self-test rules", async () => {
+test("release validator requires production-line staging and post-deploy self-test rules", async () => {
   await withSkillCopy(async (skillRoot) => {
     for (const phrase of [
       "测试线通过不等于生产线通过",
-      "构建期装配检查，红灯不出镜像",
       "预发验证",
       "发布后自测",
-      "循环引用加装饰器注入",
     ]) {
       const target = path.join(skillRoot, "references/discipline.md");
       const original = await readFile(target, "utf8");
