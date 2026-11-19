@@ -286,7 +286,7 @@ the mechanism, which keeps `status` at `ok-unverified` rather than `ok` even
 when everything else checks out.
 
 **2026-09-13 fourth review (live, Chrome exclusive; ≤6 verification runs on
-howolddoyoulook.com plus one read-only comparison-domain check, not persisted
+example.com plus one read-only comparison-domain check, not persisted
 in this repo).** The real scroll container is now confirmed:
 `.sw-layout-scrollable-element` (non-hashed class, present on
 performance/audience-geo/audience-interests/channels), not `window` — this
@@ -330,7 +330,7 @@ indicator this round.
 `audience-interests` (the `.swReactTable-column` family) turned out to
 paginate too, once past roughly 100 rows — an "out of N" footer
 (`SWReactTableWrapperFooter-*` hashed class, stable "out of \d+" text) rather
-than Ant Design's pager. Every `howolddoyoulook.com` table stayed ≤52 rows so
+than Ant Design's pager. Every `example.com` table stayed ≤52 rows so
 this never surfaced before; a large comparison domain checked read-only this
 round had 38,818 interest-graph rows against ~100 rendered per page, and the
 old `RENDER_SIGNAL` (`rowsRead >= totalRowsOnPage`, where the total is the
@@ -343,7 +343,7 @@ not "still loading"), OR'd into all three affected `RENDER_SIGNAL` functions.
 not persisted here or in any repo file; fixtures use `example-site.test`).**
 `crossVisit` is a percentage (`"86.51%"`), not a plain number as assumed last
 round — fixed to parse with `{percent: true}`. `AdSense` is a conditional
-column present only on some sites (7 headers on howolddoyoulook.com, 6 on the
+column present only on some sites (7 headers on example.com, 6 on the
 comparison domain) — moved out of the required `wanted` map into a standalone
 optional lookup so its absence no longer produces a false `missingColumns`
 alarm.
@@ -373,7 +373,7 @@ constructing the destination URL directly with
 entirely, confirmed for both `total` (pre-existing) and `organic` (this
 round) staying at the requested `1m`. `paid` is the one genuine exception:
 even a direct URL requesting `1m` gets silently upgraded to `6m` by the page
-itself, every time (howolddoyoulook.com has no paid keywords at all, so the
+itself, every time (example.com has no paid keywords at all, so the
 result is that report's own legitimate "似乎没有足够的数据" empty-state text,
 not an error) — rather than surface that as a `scope-mismatch` on every paid
 run, the script's requested window for `paid` is itself set to `6m`, so
@@ -399,7 +399,7 @@ all now requires a confirmed stopped-at-bottom-and-visible read.
 
 **All four entries are now `concluded: true` / `'not-needed'`**, switched
 after a real `similarweb-scroll-ab.mjs --activate-chrome true` run against
-howolddoyoulook.com for each report: zero-scroll and scrolled-to-bottom
+example.com for each report: zero-scroll and scrolled-to-bottom
 returned identical row counts and `scrollHeight` in all four cases (11/51/
 19/75 rows; 2004/2898/1581/3837px), so content does not gate on scroll
 position for this site. Explicitly logged sample limitation (in each entry's
@@ -427,7 +427,7 @@ Verdicts are never written back automatically — the table above was edited by
 hand after reading each run's output.
 
 **Live-run confirmation, same session, official `similarweb-query.mjs`
-against howolddoyoulook.com (global scope):** `channels` and `site-keywords`
+against example.com (global scope):** `channels` and `site-keywords`
 now come back `status: "ok"` with zero warnings — the scroll dimension was
 their only remaining gap. `audience-geo` and `audience-interests` still come
 back `ok-unverified`, but for reasons unrelated to scrolling:
@@ -546,7 +546,7 @@ dropdown.
 (canva.com — user's own suggestion, named directly in this task, not a
 privately-chosen comparison domain that needs scrubbing; unlike the earlier
 round-4 domain it is used directly in code/tests here, the same way
-howolddoyoulook.com already is).** The round-5 offline blocks had never been
+example.com already is).** The round-5 offline blocks had never been
 checked against a site large enough to actually populate the "only ever seen
 empty" widgets or trigger real pagination. They now have been (9 page reads +
 9 script runs; one extra page read and one extra script re-run beyond the
@@ -891,7 +891,7 @@ id 为 `hidden-tabs-do-not-hydrate` 的那条 law，要改就改在那儿。
 是实测查过、且查到的证据不足以支撑一个可信的接口见证——细节如下，供以后想再尝试的人
 不用重新踩一遍。
 
-**实测怎么做的**：查询对象固定 `howolddoyoulook.com` / 关键词 `how old do i look`，不传
+**实测怎么做的**：查询对象固定 `example.com` / 关键词 `sample keyword`，不传
 `--session`（用固定 `semrush-nav`），前台窗口、每次落地后 settle 15 秒。接口证据抓两路：
 ① `armNetworkCapture()`/`drainRpcWitness()`（lib 原样复用，导航前布防+落地后 drain，自带
 navStart 过滤）拿 CDP 捕获到的响应体；② 额外在页面里装了一个只读的自定义钩子，专门摘

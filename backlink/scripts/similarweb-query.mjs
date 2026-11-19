@@ -321,7 +321,7 @@ const TRAFFIC_TABS = new Set(['total', 'organic', 'paid']);
  * site-keywords 报表「总流量/自然流量/付费流量」子 tab 的纯函数决策——单独拆
  * 出来是为了能在 --self-test 里覆盖，不用连真浏览器跑一遍主流程才能验证。
  *
- * 2026-09-13 第四轮实测确认（howolddoyoulook.com，直接构造 URL 冷启动，不点击）：
+ * 2026-09-13 第四轮实测确认（example.com，直接构造 URL 冷启动，不点击）：
  *   - total/organic 两个子 tab 带 1m 冷启动都能正常渲染 75 行关键词表；
  *   - **paid 子 tab 就算 URL 显式传 1m，页面自己也会把窗口悄悄升级成 6m**——
  *     请求 1m，落地渲染 "Mar 2026 - Aug 2026 (6 月)"，这是一个确认过的、每次都
@@ -530,13 +530,13 @@ function resolveWindowMode({ windowFlag, activateChrome, report: r }) {
  *     `decideScopeStatus` 这一步就说明这一次真的在底部、真的可见，不再是
  *     "没做成对照实验"意义上的 unverified。
  * **2026-09-13 第五轮实测已切换全部四个报表为 `concluded:true`/`'not-needed'`**
- * ——用 `similarweb-scroll-ab.mjs --activate-chrome true` 对 howolddoyoulook.com
+ * ——用 `similarweb-scroll-ab.mjs --activate-chrome true` 对 example.com
  * 实跑（真实前台窗口，不是 Claude in Chrome 探索工具），四张报表的"零滚动"
  * 组行数/scrollHeight 都跟"滚到底"组完全一致（11/51/19/75 行，
  * 2004/2898/1581/3837 像素，两组分毫不差），`channels` 那次 `hidden:false`，
  * `audience-interests` 那次两组都是 `hidden:true`（前台窗口没能真正抢到焦点，
  * 但恰好提供了一次意外的"隐藏也一样"佐证——不是刻意安排的对照）。
- * **样本局限（写在这里，不是揣着）**：只测了 howolddoyoulook.com 一个站，
+ * **样本局限（写在这里，不是揣着）**：只测了 example.com 一个站，
  * 行数都在 11~75 之间，远低于这四张表各自约 100 行才会切换到分页/下一页的
  * 阈值（audience-geo/channels/audience-interests 是"out of N" footer，
  * site-keywords 是 Ant Design 分页器）——**没有测过大站点单页内是否会出现
@@ -553,19 +553,19 @@ function resolveWindowMode({ windowFlag, activateChrome, report: r }) {
 const SCROLL_AB_CONCLUSIONS = {
   'audience-geo': {
     concluded: true, verdict: 'not-needed', date: '2026-09-13',
-    notes: '实跑 howolddoyoulook.com：零滚动/滚到底两组均 51 行、scrollHeight 2898、hidden:false。样本局限：只测了 1 个小站（51 行，远低于约 100 行的分页阈值），未测大站点单页内是否有虚拟列表/懒挂载——若未来发现某大站点单页读数不完整，优先怀疑这条结论对该规模不成立，回退为 concluded:false 并换一个数据量更大但仍在单页阈值内的站点重测。',
+    notes: '实跑 example.com：零滚动/滚到底两组均 51 行、scrollHeight 2898、hidden:false。样本局限：只测了 1 个小站（51 行，远低于约 100 行的分页阈值），未测大站点单页内是否有虚拟列表/懒挂载——若未来发现某大站点单页读数不完整，优先怀疑这条结论对该规模不成立，回退为 concluded:false 并换一个数据量更大但仍在单页阈值内的站点重测。',
   },
   channels: {
     concluded: true, verdict: 'not-needed', date: '2026-09-13',
-    notes: '实跑 howolddoyoulook.com：零滚动/滚到底两组均 11 行、scrollHeight 2004、hidden:false。这张表的渠道分类是固定小枚举（最多十来项，不随站点流量规模变化），"单站点样本"这条局限对这张表基本不成立——结论置信度高于另外三张会变长的表。',
+    notes: '实跑 example.com：零滚动/滚到底两组均 11 行、scrollHeight 2004、hidden:false。这张表的渠道分类是固定小枚举（最多十来项，不随站点流量规模变化），"单站点样本"这条局限对这张表基本不成立——结论置信度高于另外三张会变长的表。',
   },
   'audience-interests': {
     concluded: true, verdict: 'not-needed', date: '2026-09-13',
-    notes: '实跑 howolddoyoulook.com：零滚动/滚到底两组均 19 行、scrollHeight 1581，**两组都是 hidden:true**（--activate-chrome true 没能真正抢到前台焦点，意外提供了一次"隐藏也读到完整内容"的佐证，不是刻意安排）。样本局限同 audience-geo：只测了 1 个小站，未测大站点单页内是否有懒挂载。',
+    notes: '实跑 example.com：零滚动/滚到底两组均 19 行、scrollHeight 1581，**两组都是 hidden:true**（--activate-chrome true 没能真正抢到前台焦点，意外提供了一次"隐藏也读到完整内容"的佐证，不是刻意安排）。样本局限同 audience-geo：只测了 1 个小站，未测大站点单页内是否有懒挂载。',
   },
   'site-keywords': {
     concluded: true, verdict: 'not-needed', date: '2026-09-13',
-    notes: '实跑 howolddoyoulook.com：零滚动/滚到底两组均 75 行、scrollHeight 3837、hidden:false。样本局限同 audience-geo：75 行接近但仍低于约 100 行的 Ant Design 分页阈值，未测多页场景下单页内部是否有懒挂载。',
+    notes: '实跑 example.com：零滚动/滚到底两组均 75 行、scrollHeight 3837、hidden:false。样本局限同 audience-geo：75 行接近但仍低于约 100 行的 Ant Design 分页阈值，未测多页场景下单页内部是否有懒挂载。',
   },
 };
 
@@ -1030,7 +1030,7 @@ try {
   // `.swReactTable-column` 结构，**2026-09-13 第三轮实测发现它们也分页**——
   // 总行数超过约 100 时出现一个"1 out of N"的自定义 footer（不是 Ant Design
   // 分页，class 是 `SWReactTableWrapperFooter-*` 哈希后缀，纯文本 "out of \d+"
-  // 是稳定锚点）。howolddoyoulook.com 所有表都 ≤52 行从未触发过，第二轮因此
+  // 是稳定锚点）。example.com 所有表都 ≤52 行从未触发过，第二轮因此
   // 没发现——**这是一个真实缺口**：旧版 RENDER_SIGNAL 硬要求
   // `rowsRead >= totalRowsOnPage` 才放行，totalRowsOnPage 是全站表头总数
   // （对照的大流量域名表头总数是 5 位数），只读到第 1 页的 ~100 行永远追不上，
@@ -1830,7 +1830,7 @@ function runSelfTest() {
   // ---------- 滚动 A/B 结论表（scrollGateSatisfied + SCROLL_AB_CONCLUSIONS） ----------
   // 2026-09-13 第五轮：先用离线断言确认两条切换分支都有代码路径 + 测试
   // （scrollGateSatisfied 那几条），第五轮后半段用 similarweb-scroll-ab.mjs
-  // 对 howolddoyoulook.com 实跑之后，四个报表都已经切到 concluded:true。
+  // 对 example.com 实跑之后，四个报表都已经切到 concluded:true。
   // 这条回归测试改成守住"切换过的条目形状必须完整"——不能有
   // concluded:true 但 verdict/date/notes 是 null 的半成品条目（那样
   // scrollUnverified 会悄悄变 false，却没有任何可追溯的实测依据）。

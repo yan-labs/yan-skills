@@ -18,7 +18,7 @@
  *      deriveSiteKeywordRows 现在会把 partialLossColumns 真的返回出去
  *      （旧版计算了但漏在返回对象外，调用方拿到的永远是 undefined）。
  *
- * 2026-09-13 第二轮更新：用 Claude in Chrome 对 howolddoyoulook.com 实测后，
+ * 2026-09-13 第二轮更新：用 Claude in Chrome 对 example.com 实测后，
  * 上一轮标为「推断」的方向判据已经证实是**两套不同的真实机制**，不是同一套
  * 的两种写法——夹具已经按实测形态重写，不再用旧的 `{dataIcon, color}` 猜测
  * 形状（那是套在错误机制上的猜测）：
@@ -118,7 +118,7 @@ test('parseSignedPercentCell: hint.special === "new"（site-keywords 实测的 "
   assert.deepEqual(result, { value: null, directionUnknown: false });
 });
 
-test('parseSignedPercentCell: "LOST"（2026-09-13 第二轮实跑 howolddoyoulook.com 实测到的第二个特殊值，词丢失了排名/点击数据）—— 直接查文本就能识别，不依赖 hint 打没打标签', () => {
+test('parseSignedPercentCell: "LOST"（2026-09-13 第二轮实跑 example.com 实测到的第二个特殊值，词丢失了排名/点击数据）—— 直接查文本就能识别，不依赖 hint 打没打标签', () => {
   // 实跑当场抓到过一次真实回归：这个值原来只在 hint.special 里认，
   // dirHintOf 从来没打过 'lost' 标签，8/23 行的 "LOST" 被 partialLossColumns
   // 当成解析失败报了出去——这条测试锁住"查文本本身"这条不依赖 hint 的路径。
@@ -249,7 +249,7 @@ test('deriveSiteKeywordRows: "NEW"（2026-09-13 实测的新词特殊值）不�
   assert.equal(result.suspectColumns.includes('点击量变动'), false);
 });
 
-test('deriveSiteKeywordRows: 回归——"LOST" 混在多行真实数据里时不会被 partialLossColumns 计入丢失（2026-09-13 实跑 howolddoyoulook.com 抓到的真实 bug：8/23 行的 "LOST" 被误报成解析失败）', () => {
+test('deriveSiteKeywordRows: 回归——"LOST" 混在多行真实数据里时不会被 partialLossColumns 计入丢失（2026-09-13 实跑 example.com 抓到的真实 bug：8/23 行的 "LOST" 被误报成解析失败）', () => {
   // 5 行：3 行正常有方向、2 行是 "LOST"（不带 hint，模拟提取器没打上 special 标签
   // 的情况——这正是实跑当时的真实状态）。
   const rows = [
@@ -267,7 +267,7 @@ test('deriveSiteKeywordRows: 回归——"LOST" 混在多行真实数据里时�
   assert.deepEqual(result.directionUnknownColumns, []);
 });
 
-test('deriveSiteKeywordRows: 回归——suspectColumns:["点击量"] 的根因("< 0.01%" 份额)已修复（2026-09-13 第三轮离线排查，实跑 howolddoyoulook.com 75 行里超过一半是这个形态）', () => {
+test('deriveSiteKeywordRows: 回归——suspectColumns:["点击量"] 的根因("< 0.01%" 份额)已修复（2026-09-13 第三轮离线排查，实跑 example.com 75 行里超过一半是这个形态）', () => {
   // 真实形态："< 50\n< 0.01%"——点击量和份额都用"低于下限"写法，旧正则的份额
   // 分组只认纯数字，"<" 前缀让整行匹配失败，退到把原始多行文本整段扔给
   // swCell()（必然解析不出来），点击量整列被判 suspectColumns。
@@ -817,12 +817,12 @@ test('deriveAudienceDemographicsSignal: 章节标题都没读到——三态里�
  * 8. deriveOverviewSupplementalBlocks / deriveAudienceInterestsSupplemental
  *    —— 2026-09-13 第五轮离线补抓（不许开浏览器）："网站表现"页 + 受众兴趣
  *    tab 里此前记在 NOT_COVERED 里的区块，全部用本轮之前实跑
- *    howolddoyoulook.com 时已经拿到的真实 rawText 片段还原。每个区块四态之一：
+ *    example.com 时已经拿到的真实 rawText 片段还原。每个区块四态之一：
  *    data / legit-empty / locked / confirmed-absent / unresolved（找到锚点
  *    但形状对不上任何已知态时如实报，不猜）。
  * ------------------------------------------------------------------ */
 
-// 下面这段是 howolddoyoulook.com 网站表现页 2026-09-13 实跑抓到的真实 rawText
+// 下面这段是 example.com 网站表现页 2026-09-13 实跑抓到的真实 rawText
 // （按 \n+ 切分、trim、filter(Boolean) 之后的形态，跟 similarweb-query.mjs
 // 实际喂给这些函数的输入一致）——不是编的，是从会话记录里原样复制的。
 const PERF_LINES = `快速搜索
@@ -833,7 +833,7 @@ CTRL+K
 受众
 显示广告
 社交
-howolddoyoulook.com
+example.com
 添加要比较的网站
 网站表现
 PDF
@@ -916,7 +916,7 @@ Aug 2026
 Aug 2026
 全球
 所有流量
-how old do i lookAds
+sample keywordAds
 age guesserAds
 how old am i photoAds
 whats my age pictureAds
@@ -1021,7 +1021,7 @@ test('deriveOverviewSupplementalBlocks: 回归——2026-09-13 第五轮实测�
 
   assert.equal(r.topOrganicKeywords.status, 'data');
   assert.equal(r.topOrganicKeywords.keywords.length, 5);
-  assert.equal(r.topOrganicKeywords.keywords[0].keyword, 'how old do i look', 'Ads 后缀应该被剥掉');
+  assert.equal(r.topOrganicKeywords.keywords[0].keyword, 'sample keyword', 'Ads 后缀应该被剥掉');
   assert.equal(r.topOrganicKeywords.keywords[0].sharePercent, 52.3);
   assert.equal(r.topOrganicKeywords.keywords[0].changePercent, 10.6);
   assert.equal(r.topOrganicKeywords.keywords[0].changePercentDirectionUnknown, true, '文本卡片没有配色/箭头证据，不能默认当正数');
@@ -1093,7 +1093,7 @@ test('deriveOverviewSupplementalBlocks: 命中解锁/付费墙提示——locked
 
 // 受众兴趣 tab 的行业分布/话题词云——同样是 2026-09-13 第五轮实测确认的真实
 // rawText（脱敏说明见 deriveAudienceDemographicsSignal 旁边的历史注释：这次
-// 用的是本站自己的域名 howolddoyoulook.com，不是对照域名，不需要脱敏）。
+// 域名与关键词已替换为示例）。
 const INTERESTS_SUPPLEMENTAL_LINES = `受众
 Mar 2026 - Aug 2026 (6 月)
 全球
@@ -1102,7 +1102,7 @@ Mar 2026 - Aug 2026 (6 月)
 受众人口特征
 受众兴趣
 受众重叠
-howolddoyoulook.com的访问者的浏览习惯
+example.com的访问者的浏览习惯
 所有行业
 行业分布
 计算机电子技术 > 社交网络和在线社区
@@ -1111,7 +1111,7 @@ howolddoyoulook.com的访问者的浏览习惯
 计算机电子技术 > 电子邮件
 AI Chatbots and Tools
 其它
-howolddoyoulook.com
+example.com
 30.70%
 18.43%
 14.53%
@@ -1146,7 +1146,7 @@ article
   .split(/\n+/).map((l) => l.trim()).filter(Boolean);
 
 test('deriveAudienceInterestsSupplemental: 回归——行业分布(带 domain 精确定位)+ 话题词云', () => {
-  const r = deriveAudienceInterestsSupplemental(INTERESTS_SUPPLEMENTAL_LINES, { domain: 'howolddoyoulook.com' });
+  const r = deriveAudienceInterestsSupplemental(INTERESTS_SUPPLEMENTAL_LINES, { domain: 'example.com' });
   assert.equal(r.industryDistribution.status, 'data');
   assert.deepEqual(r.industryDistribution.industries, [
     { category: '计算机电子技术 > 社交网络和在线社区', percent: 30.7 },
@@ -1164,7 +1164,7 @@ test('deriveAudienceInterestsSupplemental: 回归——行业分布(带 domain �
 });
 
 test('deriveAudienceInterestsSupplemental: 不传 domain 时走位置退化路径，跟带 domain 的结果一致', () => {
-  const withDomain = deriveAudienceInterestsSupplemental(INTERESTS_SUPPLEMENTAL_LINES, { domain: 'howolddoyoulook.com' });
+  const withDomain = deriveAudienceInterestsSupplemental(INTERESTS_SUPPLEMENTAL_LINES, { domain: 'example.com' });
   const withoutDomain = deriveAudienceInterestsSupplemental(INTERESTS_SUPPLEMENTAL_LINES);
   assert.deepEqual(withoutDomain.industryDistribution, withDomain.industryDistribution);
 });

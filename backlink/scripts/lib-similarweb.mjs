@@ -113,7 +113,7 @@ function isPlaceholder(value) {
  * site-keywords「变动」列实测到的两个非数字特殊值——**不是占位符（页面明说
  * 没有），也不是解析失败，是第三种合法状态**：
  *   - "NEW"：新词，没有上一期数据可比。
- *   - "LOST"：2026-09-13 第二轮实跑 howolddoyoulook.com 实测到的第二个特殊
+ *   - "LOST"：2026-09-13 第二轮实跑 example.com 实测到的第二个特殊
  *     值——这个词丢失了排名/点击数据，跟"NEW"是同一类"没有可比较的变化量"，
  *     只是方向相反。**实跑当场抓到过一次真实回归**：这两个值原来只在
  *     `hint.special` 里认，而 dirHintOf 从来没打过 'lost' 标签，于是 8/23 行
@@ -305,7 +305,7 @@ export function deriveChannels(lines) {
  * "网站表现"页 notCovered 区块的离线补抓——2026-09-13 第五轮。
  *
  * 背景：协调者要求"完全离线，用已保存的实跑输出/DOM 记录实现"，不许开
- * 浏览器、不许猜结构。下面这批函数全部只依据本轮之前实跑 howolddoyoulook.com
+ * 浏览器、不许猜结构。下面这批函数全部只依据本轮之前实跑 example.com
  * 时**已经拿到、已经在会话记录里**的真实 rawText 片段写成——不是凭印象编的
  * 形状。每个函数吃的 `lines` 跟 `deriveMetrics` 一样：已经按 `\n+` 切分、
  * trim 过、`filter(Boolean)` 去掉空行的 bodyText。
@@ -437,7 +437,7 @@ function deriveOverviewBrandShare(lines) {
 /**
  * 热门自然/付费非品牌搜索词 Top5。实测原文（自然，有数据）：
  *   热门自然非品牌搜索词 / Aug 2026 / 全球 / 所有流量 /
- *   how old do i lookAds / age guesserAds / ... （5 个，"Ads" 是页面自己拼接
+ *   sample keywordAds / age guesserAds / ... （5 个，"Ads" 是页面自己拼接
  *   的徽标文字后缀，不是关键词本身的一部分，剥掉） /
  *   52.30% / 12.97% / 4.95% / 3.01% / 2.59% （份额，5 个）/
  *   10.60% / 494.59% / 154.55% / - / - （变动，5 个，"-" 表示无可比数据）/
@@ -635,7 +635,7 @@ function deriveOverviewChannelSummary(lines) {
 
 /**
  * 「社交」区块的平台细分列表——2026-09-13 第六轮用 canva.com 实测确认
- * 真实结构（之前只见过 howolddoyoulook.com 的空态样本）：
+ * 真实结构（之前只见过 example.com 的空态样本）：
  *   社交流量构成网站流量的 6.21% / Last 28 days.. / 全球 / 所有流量 /
  *   Youtube / Facebook / Facebook Messenger / Instagram / Pinterest / Other /
  *   0% / 50% / 100% （坐标轴刻度）/
@@ -801,7 +801,7 @@ export function deriveTrendGraph(entry, { primaryDomain } = {}) {
  *   行业分布 / 计算机电子技术 > 社交网络和在线社区 / 计算机电子技术 > 搜索引擎 /
  *   艺术与娱乐 > 电视、电影和流媒体 / 计算机电子技术 > 电子邮件 /
  *   AI Chatbots and Tools / 其它 （6 个分类名，自由文本，没有固定词表）/
- *   howolddoyoulook.com （查询域名自己的图例行）/
+ *   example.com （查询域名自己的图例行）/
  *   30.70% / 18.43% / 14.53% / 12.09% / 10.99% / 13.26% （6 个百分比）/
  *   话题分布
  * 分类名是自由文本，不能像 channelSummary 那样靠"已知词表数出 n"，但域名
@@ -930,7 +930,7 @@ function buildColumnIndex(headers, wanted) {
  * **现在认不出方向必须是 null，不能默认正数。**
  *
  * `hint` 由 SW_ROW_MAJOR_TABLE_CELLS / SW_GEO_TABLE_CELLS 在页面里跟 innerText
- * 一起提取。2026-09-13 第二轮用 Claude in Chrome 对 howolddoyoulook.com 的
+ * 一起提取。2026-09-13 第二轮用 Claude in Chrome 对 example.com 的
  * performance/channels/audience-geo(+demographics/interests/overlap)/
  * site-keywords 实测，**证实这是两套完全不同的机制，不是同一套的两种写法**：
  *
@@ -1178,7 +1178,7 @@ export const SW_ROW_MAJOR_TABLE_CELLS = `(() => {
     const valueEl = td.querySelector('[data-automation="cell-value"]');
     const raw = valueEl ? valueEl.getAttribute('data-automation-value') : null;
     if (raw !== null && /^new$/i.test(raw)) return { direction: null, special: 'new' };
-    // "LOST"（词丢失了排名/点击数据）——2026-09-13 第二轮实跑 howolddoyoulook.com
+    // "LOST"（词丢失了排名/点击数据）——2026-09-13 第二轮实跑 example.com
     // 实测到的第二个特殊值，跟 "NEW" 是同一类"没有可比较的变化量"，猜它的
     // data-automation-value 也是 "Lost"（跟 "New" 是同一套命名风格），但这一条
     // 本身没有像 "New" 那样从真实 DOM 里读到确认——lib-similarweb.mjs 里
@@ -1528,7 +1528,7 @@ export function deriveGeoRows(cells) {
  * 「流量来源渠道」页下方那张更细的明细表——2026-09-13 第二轮 Claude in Chrome
  * 实测确认：跟 audience-geo 的地理表是**同一套** `.swReactTable-column` 结构
  * （复用 SW_GEO_TABLE_CELLS 这个通用提取器即可，不用再抄一份），列是（隐式排名）/
- * 流量来源(N)/流量份额/变动/来源类型/全球排名，共 6 列（实测 howolddoyoulook.com
+ * 流量来源(N)/流量份额/变动/来源类型/全球排名，共 6 列（实测 example.com
  * 是 14 行）。这张表把 `deriveChannels` 的 10 大类渠道进一步拆到"具体来源"粒度
  * （比如把「自然搜索」拆成 Google Search / Bing Search 等，各带自己的全球排名），
  * 之前完全没有脚本碰过，记在 backlink 审计的 notCovered 里。
@@ -1633,7 +1633,7 @@ export function deriveChannelDetailRows(cells) {
  * confirmed 的两个字段，2026-09-13 第三轮用一个数据更丰富的对照域名只读实测
  * 确认（只读查看一次，未落盘该域名的任何具体数据/名称到仓库，只把结论写下来）：
  *   - `crossVisit`：是**百分比**（实测 "86.51%"），已改用 `swCell({percent:true})`。
- *   - `AdSense`：**这一列不是每个站点都有**——howolddoyoulook.com 的表头有
+ *   - `AdSense`：**这一列不是每个站点都有**——example.com 的表头有
  *     这一列（7 列），对照的大流量站点反而没有（6 列）。这不是
  *     解析失败，是页面按站点条件决定要不要渲染这一列，所以 `adsense` 不放进
  *     `wanted`/`missingColumns` 的常规校验里（那套校验假设"列消失=结构变了"，
@@ -1739,7 +1739,7 @@ export function deriveAudienceInterestsRows(cells) {
  * 「受众重叠」tab（selectedTab=overlap）——**不是表格**，是文本区块：
  * 「平均独立访客数」标签后跟着「域名/数字」交替对，直到「独立受众总数」标签，
  * 后面紧跟一个总数。2026-09-13 第二轮实测原文（已脱敏域名）：
- *   平均独立访客数 / howolddoyoulook.com / 51,025 / veriff.com / 462,211 /
+ *   平均独立访客数 / example.com / 51,025 / veriff.com / 462,211 /
  *   faceage.ai / 62,062 / 独立受众总数 / 564,238
  * 默认（没有手动添加对比站点）时页面会自动配几个相似站点做对比，实测确实
  * 显示了真实数字，不是要求先添加站点的空态——但**没有实测到"完全没有可比较
@@ -1970,7 +1970,7 @@ export function deriveAudienceDemographicsSignal(lines) {
  * 就是拿它累加的——调用方不该自己再拆一遍这个格式。
  *
  * **2026-09-13 第三轮离线排查：`suspectColumns` 里"点击量"整列可疑的根因**。
- * 实跑 howolddoyoulook.com 的 site-keywords，75 行里超过一半是长尾词，点击量
+ * 实跑 example.com 的 site-keywords，75 行里超过一半是长尾词，点击量
  * 格子实测是 `"< 50\n< 0.01%"` 这种形态——份额部分也会用「< 下限值」写法（跟
  * audience-geo 的 `< 0.01%` 是同一种惯例），旧正则的份额分组只认纯数字
  * `[\d.]+`，"<" 前缀让整行匹配失败，退到把原始多行文本整段扔给 `swCell()`
@@ -2125,7 +2125,7 @@ export function deriveSiteKeywordRows(cells) {
     const clicksChangeHint = clicksChangeIdx >= 0 ? (rawDirHints[i]?.[clicksChangeIdx] ?? null) : null;
     const clicksChange = parseSignedPercentCell(cellAt(row, clicksChangeIdx), clicksChangeHint);
     // "NEW"/"LOST"（新词没有上一期数据可比 / 词丢失了排名数据，2026-09-13 第
-    // 二轮实跑 howolddoyoulook.com 两个都实测到了）不算丢数据——它们是合法的
+    // 二轮实跑 example.com 两个都实测到了）不算丢数据——它们是合法的
     // 第三态，不是占位符也不是解析失败，不能被 partialLossColumns/
     // suspectColumns 当成"这一格解析不出来"报出去。查文本本身而不是只查
     // hint.special——实跑证明了 hint 不一定打得上标签，文本判断更不会漏。
