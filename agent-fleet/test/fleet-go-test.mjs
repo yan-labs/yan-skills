@@ -43,7 +43,14 @@ if(args[0]==='code' && process.env.QUEUE_RESULT) {
     fs.writeFileSync(process.env.QUEUE_RESULT,JSON.stringify({admitted,row:queueRecord('restarted')}));
     process.exit(7);
   })().catch(e=>{console.error(e);process.exit(1)});
-} else if(['code','openai','copy','bulk','grok-cli','haiku','sonnet','opus','fable','judge'].includes(args[0])) process.exit(7);
+} else if(['code','openai','copy','bulk','grok-cli','haiku','sonnet','opus','fable','judge'].includes(args[0])) {
+  if (!args.includes('runtime-retry')) {
+    const runs=process.env.AGENT_FLEET_RUNS_DIR || process.env.HOME+'/.agent-fleet/runs';
+    fs.mkdirSync(runs,{recursive:true});
+    fs.writeFileSync(runs+'/fixture-'+process.pid+'.queue.json',JSON.stringify({briefPath:args[1],createdAt:Date.now()}));
+  }
+  process.exit(7);
+}
 `, { mode: 0o755 });
 writeFileSync(join(bin, 'pgrep'), '#!/bin/sh\nif [ -n "${RESIDUAL:-}" ]; then\n printf "%s\\n" "$RESIDUAL"\n exit 0\nfi\nexit 1\n', { mode: 0o755 });
 const env = { ...process.env, FLEET_DEFAULT_ON: 'local', HOME: home, PATH: bin + ':' + process.env.PATH, CALLS: calls, STATES: states };
@@ -105,10 +112,17 @@ try {
   // 使用输出的 REPORT 路径，避免日期 locale 与时区差异。
   const report = brief.match(/^REPORT: (.+)$/m)[1];
   const path = report.replace(/\.md$/,'.brief.md');
-  test('new 前台 exec、参数正确、退出码透传', () => {
+  test('启动器运行时失败后允许同名重试并记录退出码', () => {
+    const args=['new','runtime-retry','--to','gpt','--goal','retry'];
+    assert.equal(run(args).status,7);
+    const metaPath=join(home,'.agent-fleet/reports',report.split('/').at(-2),'runtime-retry.brief.json');
+    assert.equal(JSON.parse(readFileSync(metaPath,'utf8')).launch_exit,7);
+    assert.equal(run(args).status,7);
+  });
+  test('new 前台启动、参数正确、退出码透传', () => {
     const r=run(['new','--to','gpt','one','--goal','独有目标']);
     assert.equal(r.status,7,r.stderr);
-    assert.equal(history().at(-1).pid,r.pid);
+    assert.notEqual(history().at(-1).pid,r.pid);
     assert.deepEqual(history().at(-1).args,['code',path,'--name','one','--report',report,'--simple']);
     assert.ok(existsSync(path));
     const metadata=JSON.parse(readFileSync(path.replace(/\.md$/,'.json'),'utf8'));

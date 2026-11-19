@@ -195,13 +195,12 @@ try {
   if (saved !== undefined) process.env.TYPESAFE_API_KEY = saved;
 }
 
-finish();
 
 const { acceptanceResult, outcomeFor } = await import('../src/verdict.mjs');
 const named = '## 验收\nV1 核验｜owner：本单\n## 授权覆盖\n回滚条件：异常时回原版本';
 for (const [status, verdict, pending] of [
-  ['已过', 'ok', 'none'], ['未过', 'partial', 'none'], ['等外部', 'ok', 'external'],
-  ['待下游', 'ok', 'downstream'], ['已回滚', 'ok', 'rolled-back'], ['不适用', 'ok', 'none'],
+  ['已过', 'ok', 'none'], ['未过', 'partial', 'none'], ['等外部', 'needs-review', 'external'],
+  ['待下游', 'needs-review', 'downstream'], ['已回滚', 'ok', 'rolled-back'], ['不适用', 'ok', 'none'],
 ]) {
   const result = acceptanceResult(named, `## 结论\nV1｜${status}｜证据\n## 偏差\n无`);
   if (result.verdict !== verdict || result.pending !== pending) throw new Error(`wrong acceptance status: ${status}`);
@@ -209,3 +208,8 @@ for (const [status, verdict, pending] of [
 if (acceptanceResult(named.split('## 授权')[0], '## 结论\nV1｜已回滚｜无授权').verdict !== 'needs-review') throw new Error('rollback needs a brief exit');
 if (acceptanceResult('## 验收\n旧验收', '## 结论\n部分完成') !== null) throw new Error('legacy brief must fall through');
 if (outcomeFor('ok', 'external') !== 'external') throw new Error('external outcome');
+
+for (const report of ['V1｜等外部｜等待', 'V1｜已过｜无', 'V1｜已过｜\nV2｜等外部｜服务', 'V2｜等外部｜等待']) {
+  if (acceptanceResult(named + '\nV2 外部｜owner：外部：服务', '## 结论\n' + report, { external: true }).verdict === 'ok') throw new Error('owned acceptance must have evidence: ' + report);
+}
+finish();

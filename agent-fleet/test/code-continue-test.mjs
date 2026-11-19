@@ -418,7 +418,7 @@ try {
     process.env.FLEET_DETACHED_RUN_ID = mode;
     process.env.TRACE = join(scratch, mode + '.trace');
     process.env.REPORT_FILE = join(scratch, mode + '.md');
-    const result = await runCode({ prompt: `REPORT: ${process.env.REPORT_FILE}\n## 验收\nV1 fixture｜owner：本单`, cwd: scratch, codexBin: mock });
+    const result = await runCode({ prompt: `REPORT: ${process.env.REPORT_FILE}\n## 验收\nV1 fixture｜owner：${mode === 'named-external' ? '外部：服务' : '本单'}`, cwd: scratch, codexBin: mock });
     assert.equal(result.continueCount, wanted, mode);
     assert.equal(buildBrief(result).verdict, verdict, mode);
     if (wanted) assert.match(result.continueStop, /无新证据/);

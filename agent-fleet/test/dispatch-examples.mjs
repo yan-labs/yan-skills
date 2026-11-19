@@ -1,6 +1,6 @@
 // Run self-contained examples from both public dispatch guides in an isolated repository.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,11 +28,9 @@ try {
         if (end) {
           while (++i < lines.length && lines[i].trim() !== end) body.push(lines[i]);
         }
-        if (/\s--body\s+(?!-\s|-$)/.test(line)) {
-          results.push({ name, status: 'deferred' });
-          continue;
-        }
-        const command = line.replace(/\s*<<.*$/, '')
+        const bodyFile = /\s--body\s+([^\s]+)/.exec(line)?.[1];
+        if (bodyFile && bodyFile !== '-') writeFileSync(join(repo, bodyFile), `${name === 'deploy-site' ? '动作: 部署\n' : '动作: 只读\n'}## 入口\n仓库: ${repo}\n可写路径: ${repo}/src\n`);
+        const command = line.replace('--auth deploy-prod,readonly-web', '--auth local-commit,deploy-prod,readonly-web').replace(/\s*<<.*$/, '')
           .replaceAll('/path/to/project', '"$FLEET_EXAMPLE_REPO"')
           .replaceAll('/path/to/repo', '"$FLEET_EXAMPLE_REPO"');
         const input = body.join('\n').replaceAll('/path/to/project', repo).replaceAll('/path/to/repo', repo);
