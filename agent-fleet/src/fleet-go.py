@@ -393,10 +393,29 @@ def launch(meta):
         meta['execution'] = 'local'
         meta['watch_seat'] = watch_seat(meta)
         Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
+        started = int(time.time() * 1000)
         try:
-            os.execvpe('fleet', command(meta), {**os.environ, 'FLEET_SEAT': meta['watch_seat'] or ''})
-        except OSError:
+            result = subprocess.run(command(meta), env={**os.environ, 'FLEET_SEAT': meta['watch_seat'] or ''})
+            runs = Path(os.environ.get('AGENT_FLEET_RUNS_DIR') or Path.home() / '.agent-fleet/runs')
+            admitted = False
+            if result.returncode:
+                for row_path in runs.glob('*.queue.json'):
+                    try:
+                        row = json.loads(row_path.read_text())
+                        if row.get('briefPath') == meta['brief'] and row.get('createdAt', 0) >= started:
+                            admitted = True
+                            break
+                    except (OSError, ValueError, TypeError):
+                        admitted = True
+                        break
+                if not admitted:
+                    meta['execution'] = 'failed'
+                    meta['launch_exit'] = result.returncode
+                    Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
+            sys.exit(result.returncode)
+        except OSError as error:
             meta['execution'] = 'failed'
+            meta['launch_error'] = str(error)
             Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
             raise
     reason = 'Mini 不可达' if not mini.available() else mini.preflight(meta, meta.get('paths', []))

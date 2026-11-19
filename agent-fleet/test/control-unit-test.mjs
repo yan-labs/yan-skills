@@ -352,7 +352,6 @@ assert(wallClockDurationMs('bad', 10) === 0, '非法 startedAt 墙钟为 0');
   }
 }
 
-finish();
 
 
 // Two live tasks may declare their report directory without reserving it.
@@ -381,3 +380,5 @@ try {
   else process.env.AGENT_FLEET_RUNS_DIR = oldRuns;
   remove(reportFixture, { recursive: true, force: true });
 }
+
+finish();

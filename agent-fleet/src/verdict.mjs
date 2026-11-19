@@ -102,7 +102,7 @@ export function acceptanceResult(brief = '', report = '', yielded = null) {
   if (handoff) return { verdict: 'ok', pending: 'handoff', unmet: [], table: '' };
   if (!items.size) return null;
   const rows = new Map();
-  for (const [, id, status, evidence] of conclusion.matchAll(/^[ \t]*(?:- )?(V\d+)[ \t]*[｜|][ \t]*(已过|未过|等外部|待下游|已回滚|不适用)[ \t]*[｜|][ \t]*(\S[^\r\n]*)/gm)) {
+  for (const [, id, status, evidence] of conclusion.matchAll(/^[ \t]*(?:- )?(V\d+)[ \t]*[｜|][ \t]*(已过|未过|等外部|待下游|已回滚|不适用)[ \t]*[｜|][ \t]*([^\s\r\n][^\r\n]*)/gm)) {
     rows.set(id, { status, evidence: evidence.trim() });
   }
   const rollback = /^(?:[- ]*回滚(?:条件|出口|方案)[：:] *[^\s]|授权块：[^\r\n]*deploy-prod\b)|正文没写回滚条件时，用/m.test(brief);
@@ -112,7 +112,7 @@ export function acceptanceResult(brief = '', report = '', yielded = null) {
     const status = rows.get(id)?.status;
     if (owner === '本单') {
       if (status === '未过') unmet.push(id);
-      else if (!status || (status === '已回滚' && !rollback)) missing.push(id);
+      else if (!status || status === '等外部' || status === '待下游' || (status === '已回滚' && !rollback) || (status === '已过' && (!rows.get(id)?.evidence || rows.get(id).evidence === '无'))) missing.push(id);
     }
     if (status === '等外部' || (!status && owner.startsWith('外部'))) pending = 'external';
     else if ((status === '待下游' || (!status && owner.startsWith('下游'))) && pending !== 'external') pending = 'downstream';
@@ -120,7 +120,7 @@ export function acceptanceResult(brief = '', report = '', yielded = null) {
   }
   if (yielded?.external || yielded?.type === 'park') pending = 'external';
   return {
-    verdict: unmet.length ? 'partial' : missing.length && !yielded?.external ? 'needs-review' : 'ok',
+    verdict: unmet.length ? 'partial' : missing.length ? 'needs-review' : 'ok',
     pending, unmet, table: JSON.stringify([...items.keys()].sort().map(id => [id, rows.get(id)])),
   };
 }
