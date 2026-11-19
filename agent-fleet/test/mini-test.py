@@ -14,6 +14,37 @@ root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / 'src'))
 import mini
 
+# Run the exact doctor payload locally with a distinct execution-machine home and ledger.
+with tempfile.TemporaryDirectory() as tmp:
+    local, remote = Path(tmp) / 'local', Path(tmp) / 'remote'
+    repo = remote / 'source'
+    binary = repo / 'agent-fleet/bin/fleet'
+    binary.parent.mkdir(parents=True)
+    binary.touch()
+    project = remote / 'project'
+    scene = local / 'project/.agent-fleet/scenes/remote-used.md'
+    scene.parent.mkdir(parents=True)
+    scene.write_text('---\n{}\n---\n规则\n')
+    os.utime(scene, (1, 1))
+    ledger = remote / '.agent-fleet/ledger.jsonl'
+    ledger.parent.mkdir()
+    ledger.write_text(json.dumps({'project': str(project), 'scenes': ['remote-used'], 'startedAt': '2099-01-01T00:00:00Z'}))
+    def run_remote(script, payload, **kwargs):
+        data = base64.b64encode(json.dumps(payload).encode()).decode()
+        return subprocess.run([sys.executable, '-c', script, data],
+                              env={**os.environ, 'HOME': str(remote), 'AGENT_FLEET_LEDGER': str(ledger)},
+                              capture_output=True, text=True, **kwargs)
+    spec = importlib.util.spec_from_file_location('fleet_doctor', root / 'src/fleet-go.py')
+    go = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(go)
+    out = io.StringIO()
+    with patch.dict(os.environ, {'HOME': str(local), 'AGENT_FLEET_LEDGER': str(local / 'missing-ledger')}), \
+         patch.multiple(mini, on_mini=lambda: False, call=run_remote, REMOTE_BIN=str(binary),
+                        LOCAL_HOME=str(local.resolve()), REMOTE_HOME=str(remote.resolve())), redirect_stdout(out):
+        go.doctor(scene.parents[2].resolve())
+    assert '## 远端执行机\n源码仓：未取到' in out.getvalue(), out.getvalue()
+    assert '候选删除场景 remote-used' not in out.getvalue(), out.getvalue()
+
 # Empty environment overrides must not mask configured Mini paths.
 with tempfile.TemporaryDirectory() as home:
     config = Path(home) / '.agent-fleet/mini.json'
@@ -109,14 +140,14 @@ with tempfile.TemporaryDirectory() as d:
         (local / 'local.json').write_text(json.dumps({'runId':'local-id','name':'unit','status':'running','startedAt':'2026-11-10T10:00:00.000Z'}))
         assert mini.find('unit')['id'] == 'run-123'
         assert mini.find('run-123')['id'] == 'run-123'
-    # fleet-go read 只读取 Mini；最新同名记录在本机时不向 Mini 查询它。
+    # fleet-go read 最新同名记录在本机且没有报告时，不向 Mini 查询旧任务。
     local_home = tmp / 'cli-home'
     mini_records = local_home / '.agent-fleet/mini-runs'; mini_records.mkdir(parents=True)
     (mini_records / 'old.json').write_text(json.dumps({'id':'2026-11-10T10-00-00-000Z-detach-old','name':'same','report':'/home/a/r'}))
     (local / 'same.json').write_text(json.dumps({'runId':'2026-11-10T12-00-00-000Z-detach-new','name':'same','startedAt':'2026-11-10T12:00:00.000Z'}))
     env = dict(os.environ, HOME=str(local_home), AGENT_FLEET_RUNS_DIR=str(local))
     result = subprocess.run([str(root/'bin/fleet-go'), 'read', 'same'], env=env, text=True, capture_output=True)
-    assert result.returncode == 1 and '最新同名任务可能在本机' in result.stderr
+    assert result.returncode == 1 and '找不到唯一的本机报告' in result.stderr
     pulled = tmp/'pulled.md'
     row = {'status':'done', 'verdict':'ok', 'resultPath':'/home/b/.agent-fleet/runs/run-123.result.md'}
     data = base64.b64encode('/home/b/result\nsecond\nthird\n'.encode()).decode()
@@ -251,12 +282,12 @@ pathlib.Path(canonical(p['path'])).write_text(canonical(p['text']))
     env['PYTHONPATH'] = str(tmp)
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','fallback','--to','gpt','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
     assert proc.returncode != 0 and 'Mini 不可达' in proc.stderr and '补齐' in proc.stderr
-    assert not next((tmp/'.agent-reports').glob('*/fallback.md'), None)
+    assert not next((tmp/'.agent-fleet/reports').glob('*/fallback.md'), None)
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','missing-reason','--to','gpt','--on','local','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
     assert proc.returncode != 0 and '--local-reason' in proc.stderr
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','local-only','--to','gpt','--on','local','--local-reason','测试','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
     assert proc.returncode == 0 and 'Mini 不可达' not in proc.stdout
-    local_meta = next((tmp/'.agent-reports').glob('*/local-only.brief.json'))
+    local_meta = next((tmp/'.agent-fleet/reports').glob('*/local-only.brief.json'))
     assert json.loads(local_meta.read_text())['local_reason'] == '测试'
     assert '本机执行偏差：测试' in local_meta.with_suffix('.md').read_text()
     proc = subprocess.run([str(root/'bin/fleet-go'),'relaunch','local-only'], env=env, text=True, capture_output=True)
@@ -280,7 +311,7 @@ fi
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','recheck','--to','gpt','--sol','--read','/home/a/original','--goal','x','--no-lint','--no-launch'], env=env, text=True, capture_output=True)
     assert proc.returncode == 0, proc.stderr
     # 原 brief 标记 Mini，但最新同名 run 在本机时 amend 不应同步到 Mini。
-    metadata_path = next((tmp/'.agent-reports').glob('*/recheck.brief.json'))
+    metadata_path = next((tmp/'.agent-fleet/reports').glob('*/recheck.brief.json'))
     metadata = json.loads(metadata_path.read_text()); metadata['execution'] = 'mini'
     metadata_path.write_text(json.dumps(metadata))
     local_state = tmp / '.agent-fleet/runs'; local_state.mkdir(parents=True, exist_ok=True)
@@ -289,10 +320,10 @@ fi
     (remote_state / 'recheck.json').write_text(json.dumps({'id':'2026-11-10T10-00-00-000Z-detach-mini','name':'recheck','report':'/home/a/r','brief':'/home/a/b'}))
     proc = subprocess.run([str(root/'bin/fleet-go'),'amend','recheck','读取 /home/a/revised\n\n另读 /home/a/second','--on','local'], env=env, text=True, capture_output=True)
     assert proc.returncode == 0, proc.stderr
-    assert json.loads(next((tmp/'.agent-reports').glob('*/recheck.brief.json')).read_text())['on'] == 'local'
+    assert json.loads(next((tmp/'.agent-fleet/reports').glob('*/recheck.brief.json')).read_text())['on'] == 'local'
     proc = subprocess.run([str(root/'bin/fleet-go'),'relaunch','recheck','--on','mini'], env=env, text=True, capture_output=True)
     assert proc.returncode != 0 and '补齐' in proc.stderr, proc.stderr
-    metadata = json.loads(next((tmp/'.agent-reports').glob('*/recheck.brief.json')).read_text())
+    metadata = json.loads(next((tmp/'.agent-fleet/reports').glob('*/recheck.brief.json')).read_text())
     assert '/home/a/original' in metadata['paths'] and '/home/a/revised' not in metadata['paths'] and '/home/a/second' not in metadata['paths']
 spec = importlib.util.spec_from_file_location('fleet_go_tools', root / 'src/fleet-go.py')
 fg = importlib.util.module_from_spec(spec); spec.loader.exec_module(fg)

@@ -24,6 +24,6 @@ export function recordQuotaOrder(rec, row) {
     let codexQuota = null;
     try { codexQuota = JSON.parse(readFileSync(join(runsDir(), 'codex-quota.json'), 'utf8')); } catch { /* 没有就不用 */ }
     const input = JSON.stringify({ runId: rec.runId, name: row.name, route: rec.model, finishedAt: rec.finishedAt, text: quotaEvidence(rec), codexQuota });
-    spawnSync('python3', [fileURLToPath(new URL('./order.py', import.meta.url)), 'auto'], { input, timeout: 15000, stdio: ['pipe', 'ignore', 'ignore'] });
+    spawnSync('python3', [fileURLToPath(new URL('./order.py', import.meta.url)), 'auto'], { input, timeout: 40000, stdio: ['pipe', 'ignore', 'inherit'] });
   } catch { /* 记不了不影响任务 */ }
 }

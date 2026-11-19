@@ -1,6 +1,6 @@
 """调遣令：全局唯一的临时调度令（dispatch-order.md）的读写、派单闸门与额度类失败自动记账。
 
-文件默认 ~/.agents/dispatch-order.md（AGENT_FLEET_ORDER_FILE 可改），主体是一张表：
+文件默认 ~/.agent-fleet/dispatch-order.md（AGENT_FLEET_ORDER_FILE 可改），主体是一张表：
 执行者 | 状态 | 有效至 | 原因与用户原话。fleet-go order / new / relaunch 与 run 结束钩子都走这里。
 """
 import argparse
@@ -53,7 +53,12 @@ class OrderError(ValueError):
 
 
 def order_path():
-    return Path(os.environ.get('AGENT_FLEET_ORDER_FILE') or (Path.home() / '.agents' / 'dispatch-order.md'))
+    override = os.environ.get('AGENT_FLEET_ORDER_FILE')
+    if override:
+        return Path(override).expanduser()
+    current = Path.home() / '.agent-fleet/dispatch-order.md'
+    legacy = Path.home() / '.agents/dispatch-order.md'
+    return legacy if not current.exists() and legacy.exists() else current
 
 
 def now_local():
@@ -146,7 +151,7 @@ def load(path=None, now=None):
     return orders, bad
 
 
-def show_text(path=None, now=None):
+def show_text(path=None, now=None, compact=False):
     path = path or order_path()
     now = now or now_local()
     try:
@@ -166,6 +171,8 @@ def show_text(path=None, now=None):
     for o in live:
         if o.state == '正常' and o.reason:
             out.append(f'- 正常 {o.executor}：{o.reason}')
+    if compact:
+        return '\n'.join(out)
     first = [o.executor for o in live if o.state == '优先']
     out.append('当前优先：' + ('、'.join(first) if first else '无'))
     for o in expired:
@@ -219,36 +226,69 @@ def git(top, *args, timeout=30):
     return subprocess.run(['git', '-C', str(top), *args], capture_output=True, text=True, timeout=timeout)
 
 
-def commit_file(target, message, background=False, warn=lambda m: print(m, file=sys.stderr)):
-    """只提交调遣令这一个文件；有远端就推，失败只警告。不在 git 仓库里就什么都不做。"""
+def git_ok(top, *args, timeout=5):
     try:
-        top = git(target.parent, 'rev-parse', '--show-toplevel')
-        if top.returncode:
-            return
-        top = top.stdout.strip()
-        if not git(top, 'status', '--porcelain', '--', str(target)).stdout.strip():
-            return
-        if git(top, 'add', '--', str(target)).returncode or git(top, 'commit', '-m', message, '--', str(target)).returncode:
-            warn('警告：调遣令已改，但提交失败，请手动提交 ' + str(target))
-            return
-        if not git(top, 'remote').stdout.strip():
-            return
-        if background:
-            subprocess.Popen(['git', '-C', top, 'push'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, start_new_session=True)
-        elif git(top, 'push', timeout=30).returncode:
-            warn('警告：调遣令已提交但推送失败，请稍后手动 git push。')
-    except (OSError, subprocess.SubprocessError) as error:
-        warn(f'警告：调遣令提交/推送出错（{type(error).__name__}），请手动处理。')
+        return git(top, *args, timeout=timeout).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
-def write_order(executor, build, message, background=False, warn=lambda m: print(m, file=sys.stderr)):
+def repository(target):
+    try:
+        result = git(target.parent, 'rev-parse', '--show-toplevel', timeout=2)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return Path(result.stdout.strip()) if result.returncode == 0 else None
+
+
+def pull_for_show(path):
+    target = path.resolve()
+    if path.absolute() != target and target.is_file():
+        # Bound the entire Git operation, including repository and upstream discovery.
+        git_ok(target.parent, 'pull', '--ff-only', timeout=3)
+
+
+def commit_order(top, target, message):
+    if git_ok(top, 'ls-files', '--error-unmatch', '--', str(target)) and git_ok(top, 'diff', '--quiet', 'HEAD', '--', str(target)):
+        return True
+    if not git_ok(top, 'add', '--', str(target)):
+        return False
+    return git_ok(top, 'commit', '-m', message, '--', str(target))
+
+
+def push_order(top, can_rebase):
+    if git_ok(top, 'push'):
+        return True
+    # Rebase only when the command started from the upstream tip.
+    if can_rebase:
+        try:
+            state = git(top, 'rev-parse', '--absolute-git-dir', timeout=2)
+            directory = Path(state.stdout.strip())
+            def rebasing():
+                return any((directory / name).exists() for name in ('rebase-merge', 'rebase-apply'))
+            if state.returncode == 0 and not rebasing():
+                if not git_ok(top, 'pull', '--rebase', '--no-autostash') and rebasing():
+                    git_ok(top, 'rebase', '--abort')
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return git_ok(top, 'push')
+
+
+def write_order(executor, build, message, warn=lambda m: print(m, file=sys.stderr)):
     """改/加一行，其余内容原样保留。build(旧令或 None) 返回要写的 Order，返回 None 表示放弃。"""
     with locked():
         path = order_path()
         target = Path(os.path.realpath(path))
         if not target.exists():
             raise OrderError('调遣令文件不存在：' + str(path))
+        top = repository(target)
+        remote = top and (git_ok(top, 'rev-parse', '--verify', '@{upstream}')
+                          or git_ok(top, 'remote', 'get-url', 'origin'))
+        sync = remote and path.absolute() != target
+        pulled = not sync or git_ok(top, 'pull', '--ff-only')
+        if not pulled:
+            pulled = git_ok(top, 'pull', '--ff-only')
+        can_rebase = sync and pulled and git_ok(top, 'merge-base', '--is-ancestor', 'HEAD', '@{upstream}')
         lines = target.read_text().splitlines()
         row = next((i for i, line in enumerate(lines) if (c := split_row(line)) and c[0] == executor), None)
         order = build(load_one(lines[row]) if row is not None else None)
@@ -262,7 +302,11 @@ def write_order(executor, build, message, background=False, warn=lambda m: print
         tmp = target.with_name(target.name + '.tmp')
         tmp.write_text('\n'.join(lines) + '\n')
         os.replace(tmp, target)
-        commit_file(target, message, background, warn)
+        if top:
+            committed = commit_order(top, target, message) or commit_order(top, target, message)
+            pushed = committed and (not remote or push_order(top, can_rebase))
+            if not (pulled and pushed):
+                warn('警告：调遣令已在本地生效，未同步。请检查调遣令仓库的 git status 和上游分支。')
         return order
 
 
@@ -385,7 +429,7 @@ def detect_quota(route, text, codex_quota=None, now=None):
     return {'executor': executor, 'until': until, 'estimated': estimated, 'basis': basis, 'summary': summary, 'label': rule['label']}
 
 
-def auto_record(info, now=None, warn=lambda m: None):
+def auto_record(info, now=None, warn=lambda m: print(m, file=sys.stderr)):
     """run 失败结束时调用：额度类就写「停用 + 重置时间」。人工写的有效令不覆盖停用；返回一行结果说明。"""
     now = now or now_local()
     hit = detect_quota(info.get('route'), info.get('text') or '', info.get('codexQuota'), now)
@@ -419,7 +463,7 @@ def auto_record(info, now=None, warn=lambda m: None):
         return Order(executor, '停用', format_until(until), text, now)
 
     written = write_order(executor, build, f'chore(order): 自动停用 {executor}' + (f' 至 {format_until(until)}' if until else ''),
-                          background=True, warn=warn)
+                          warn=warn)
     return (f'已记入调遣令：{executor} 停用，有效至 {written.until_raw}' if written else '调遣令已有更强或人工的令，未改。')
 
 
@@ -441,6 +485,7 @@ def add_parser(sub):
 
 def main(args):
     if args.order_action == 'show':
+        pull_for_show(order_path())
         print(show_text())
     elif args.order_action == 'set':
         order = set_order(args.executor, args.state, args.until, args.reason)

@@ -580,7 +580,7 @@ agent-fleet 会把 `CLAUDE_CONFIG_DIR` 指向自己专属的 `~/.agent-fleet/cla
 
 `fleet-go new fix-card --to gpt --auth local --goal "修复窄屏卡片溢出" --write /path/to/project --body task.md` 按产品自动拼标准块、lint、写 brief 并前台执行 fleet；也支持 heredoc 正文。`--dry-run` 只打印，`--no-launch` 只落盘。块在 `skill/templates/blocks/`，可直接编辑；`--budget` 可选，用户给了预算才写进 brief，没给不写、不设默认值，生产目标与回滚条件写在独有正文。
 
-修订用 `fleet-go amend fix-card "补充要求"`；优先 `--say`，不支持插话则保留修订并提示，确需重来才用 `--restart`（先 stop 并核验残留）。`fleet-go lint brief.md` 检查格式与启动禁令；`fleet-go status` 给运行摘要。brief 和用于恢复命令的 `.brief.json` 放在 `~/.agent-reports/<日期>/`，同名拒绝覆盖。启动仍用工具 `run_in_background:true`，脚本不后台化。需要 Python 3，无新增 npm 依赖。
+修订用 `fleet-go amend fix-card "补充要求"`；优先 `--say`，不支持插话则保留修订并提示，确需重来才用 `--restart`（先 stop 并核验残留）。`fleet-go lint brief.md` 检查格式与启动禁令；`fleet-go status` 给运行摘要。新报告、brief 和用于恢复命令的 `.brief.json` 默认放在 `~/.agent-fleet/reports/<日期>/`，同名拒绝覆盖。仍可读取和清理旧报告目录。启动仍用工具 `run_in_background:true`，脚本不后台化。需要 Python 3，无新增 npm 依赖。
 
 补扫漏归档线程：`node bin/fleet-archive-sweep.mjs [--dry-run] [--json] [--min-idle-minutes 10]`。派单前及 Codex 完成后运行；派单入口也会后台补扫（不等待、失败不阻断），`FLEET_NO_ARCHIVE_SWEEP=1` 可关闭自动扫描。
 

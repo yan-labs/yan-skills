@@ -12,6 +12,15 @@ PRESERVE = {'ledger.jsonl', 'dispatch-order.md', 'patrol-brief.md', '.env', 'con
 TERMINAL = {'done', 'failed', 'stopped', 'blocked', 'completed', 'cancelled'}
 
 
+def report_roots(home=None):
+    home = Path(home or Path.home())
+    return home / '.agent-fleet/reports', home / '.agent-reports'
+
+
+def symlink_path(path):
+    return any(part.is_symlink() for part in (path, *path.parents))
+
+
 def age_seconds(value):
     if not re.fullmatch(r'[1-9]\d*[dw]', value):
         raise ValueError('--older-than 需要正整数 Nd 或 Nw')
@@ -30,12 +39,14 @@ def files(root, skipped):
         return []
     out = []
     for p in sorted(root.iterdir()):
-        if p.is_symlink() or not p.is_dir():
+        if p.is_symlink():
+            skipped.append({'path': str(p), 'reason': 'symlink'})
+        elif not p.is_dir():
             out.append(p)
         else:
             children = files(p, skipped)
             out.extend(children)
-            if not children and sensitive(p):
+            if not children and sensitive(p) and not any(p.iterdir()):
                 skipped.append({'path': str(p), 'reason': '待确认：空证据/备份目录'})
     return out
 
@@ -151,11 +162,19 @@ def clean_local(older_than='7d', dry_run=False, home=None, runs=None, location='
     home = Path(home or Path.home())
     fleet = home / '.agent-fleet'
     runs = Path(runs or os.environ.get('AGENT_FLEET_RUNS_DIR', fleet / 'runs'))
-    reports = home / '.agent-reports'
+    reports = report_roots(home)
     cutoff = time.time() - age_seconds(older_than)
     skipped, deleted, worktrees = [], [], []
-    run_files = files(runs, skipped)
-    report_files = files(reports, skipped)
+    roots = (runs, *reports)
+    entries_by_root = {}
+    for root in roots:
+        if symlink_path(root):
+            skipped.append({'path': str(root), 'reason': 'symlink root'})
+            entries_by_root[root] = []
+        else:
+            entries_by_root[root] = files(root, skipped)
+    run_files = entries_by_root[runs]
+    report_files = [p for root in reports for p in entries_by_root[root]]
     protected, active_ids, active_names = set(), set(), set(peer_active_names or [])
     run_set = set(run_files)
     rows = [(p, read_json(p)) for p in run_files + report_files if p.suffix == '.json' and (p in run_set or p.name.endswith('.brief.json')) and not p.is_symlink()]
@@ -184,7 +203,7 @@ def clean_local(older_than='7d', dry_run=False, home=None, runs=None, location='
                 if isinstance(row.get(key), str) and row[key].startswith('/'):
                     protected.add(Path(row[key]))
     for p in list(protected):
-        if p.name.endswith('.md') and p.is_file() and not p.is_symlink():
+        if p.name.endswith('.md') and p.is_file() and not symlink_path(p):
             for report in re.findall(r'^REPORT:\s*(/.+)$', p.read_text(), re.M):
                 protected.add(Path(report.strip()))
     approved = [Path(p).absolute() for p in (include_backups or [])]
@@ -206,7 +225,7 @@ def clean_local(older_than='7d', dry_run=False, home=None, runs=None, location='
     def active(p):
         return any(p == q or q in p.parents for q in protected) or any(part == i or part.startswith(i + '.') for i in active_ids for part in p.parts)
     def eligible(p):
-        if config_or_state(p) or whitelisted(p, keep_rules) or p.name.startswith('.queue-lock'):
+        if symlink_path(p) or config_or_state(p) or whitelisted(p, keep_rules) or p.name.startswith('.queue-lock'):
             skipped.append({'path': str(p), 'reason': 'preserved'})
             return False
         if sensitive(p) and not included(p):
@@ -225,7 +244,7 @@ def clean_local(older_than='7d', dry_run=False, home=None, runs=None, location='
         if not isinstance(wt, dict) or row.get('worktree_location', 'local') != location:
             continue
         target = Path(wt.get('path', ''))
-        if str(target) in seen or not target.is_dir():
+        if str(target) in seen or symlink_path(target) or not target.is_dir():
             continue
         seen.add(str(target))
         try:
@@ -243,6 +262,8 @@ def clean_local(older_than='7d', dry_run=False, home=None, runs=None, location='
             git(target, 'merge-base', '--is-ancestor', 'HEAD', base)
             worktree_skipped = []
             children = files(target, worktree_skipped)
+            if any(item['reason'].startswith('symlink') for item in worktree_skipped):
+                raise ValueError('symlink in worktree')
             worktree_rules = keep_rules + keep_data_rules(children)
             preserved = [c for c in children if config_or_state(c) or whitelisted(c, worktree_rules) or c.name.startswith('.queue-lock')]
             if preserved:
@@ -266,8 +287,9 @@ def clean_local(older_than='7d', dry_run=False, home=None, runs=None, location='
             protected.add(p)
             skipped.append({'path': str(target), 'reason': str(e) if not isinstance(e, subprocess.CalledProcessError) else 'not merged or git refused'})
     locations = []
-    for root, entries in [(runs, run_files), (reports, report_files)]:
+    for root, entries in entries_by_root.items():
         count, size = 0, 0
+        emptied = set()
         for p in entries:
             if eligible(p):
                 size += p.lstat().st_size
@@ -275,20 +297,22 @@ def clean_local(older_than='7d', dry_run=False, home=None, runs=None, location='
                 deleted.append(str(p))
                 if not dry_run:
                     p.unlink()
-        if not dry_run and root.exists() and not root.is_symlink():
+                    emptied.update(p.parents)
+        if not dry_run and root.exists() and not symlink_path(root):
             for directory, _, _ in os.walk(root, topdown=False, followlinks=False):
                 d = Path(directory)
-                if d == root or (sensitive(d) and not included(d)) or active(d):
+                if d in roots or symlink_path(d) or (sensitive(d) and not included(d)) or active(d):
                     continue
-                if d.lstat().st_mtime < cutoff or re.fullmatch(r'\d{4}-\d{2}-\d{2}', d.name):
+                if d in emptied or d.lstat().st_mtime < cutoff or re.fullmatch(r'\d{4}-\d{2}-\d{2}', d.name):
                     try:
                         d.rmdir()
+                        emptied.add(d.parent)
                     except OSError:
                         pass
         locations.append({'path': str(root), 'files': count, 'bytes': size})
     return {'dryRun': dry_run, 'olderThan': older_than, 'locations': locations, 'worktrees': worktrees,
             'files': sum(r['files'] for r in locations + worktrees), 'bytes': sum(r['bytes'] for r in locations + worktrees),
-            'pendingGroups': group_pending(pending, [runs, reports, *[Path(row['worktree']['path']) for _, row in rows if isinstance(row.get('worktree'), dict) and row['worktree'].get('path')]]), 'pendingConfirmation': pending, 'skipped': skipped, 'activeNames': sorted(active_names)}
+            'pendingGroups': group_pending(pending, [runs, *reports, *[Path(row['worktree']['path']) for _, row in rows if isinstance(row.get('worktree'), dict) and row['worktree'].get('path')]]), 'pendingConfirmation': pending, 'skipped': skipped, 'activeNames': sorted(active_names)}
 
 
 def print_result(row, detailed):

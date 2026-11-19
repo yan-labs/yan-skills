@@ -43,7 +43,8 @@ try {
   process.env.AGENT_FLEET_LEDGER = keepLedger;
 
   const localBrief = join(scratch, 'local.brief.md');
-  writeFileSync(localBrief.replace(/\.md$/, '.json'), JSON.stringify({local_reason:'测试理由',fallback_deviation:'额度用完自动改派'}));
+  writeFileSync(localBrief.replace(/\.md$/, '.json'), JSON.stringify({ scenes: ['test-scene'], project: scratch,local_reason:'测试理由',fallback_deviation:'额度用完自动改派'}));
+  assert(L.buildRow(rec({briefPath:localBrief}), new L.LedgerIndex()).scenes[0] === 'test-scene', '场景进入账本');
   assert(L.buildRow(rec({briefPath:localBrief}), new L.LedgerIndex()).localReason === '测试理由', '本机理由进入账本');
   assert(L.buildRow(rec({briefPath:localBrief}), new L.LedgerIndex()).fallbackDeviation === '额度用完自动改派', '自动改派偏差进入账本');
   const yieldedRun = rec();

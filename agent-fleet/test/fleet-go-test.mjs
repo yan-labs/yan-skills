@@ -75,7 +75,7 @@ try {
     assert.match(brief,/NODE_USE_ENV_PROXY=1/);
     assert.match(brief,/规则回执/);
     assert.equal(history().length,0);
-    assert.ok(!existsSync(join(home,'.agent-reports')));
+    assert.ok(!existsSync(join(home,'.agent-fleet/reports')));
     const globalRules = join(home, '.claude/CLAUDE.md');
     const legacy = readFileSync(globalRules, 'utf8');
     writeFileSync(globalRules, rule);
@@ -186,6 +186,79 @@ try {
     writeBody('## 验收环境\n- 账号：测试身份\n- 免费空间：fixture-a\n- 付费空间：fixture-b\n- 开关：0%\n- 夹具：fixture\n- 性能闸门：计划 §3\n');
     r = preview('--scene', 'editor');
     assert.equal(r.status, 0, r.stderr);
+  });
+  test('context、项目总则、声明闸门、新旧场景、doctor 与两代报告', () => {
+    const project = join(temp, 'layers-project');
+    const layer = join(project, '.agent-fleet');
+    const old = join(project, '.rankup/dispatch-scenes');
+    mkdirSync(old, { recursive: true });
+    mkdirSync(join(layer, 'scenes'), { recursive: true });
+    const scene = (dir, name, description) => writeFileSync(join(dir, name + '.md'),
+      '---\n' + JSON.stringify({ description, keywords: [], acceptance: [] }) + '\n---\n内容\n');
+    scene(old, 'old-scene', '旧目录条目');
+    scene(old, 'new-scene', '已被覆盖');
+    scene(join(layer, 'scenes'), 'new-scene', '新目录条目');
+    for (let i = 0; i < 19; i++) scene(join(layer, 'scenes'), 'extra-' + i, '场景');
+    const global = join(home, '.agent-fleet');
+    mkdirSync(global, { recursive: true });
+    writeFileSync(join(global, 'README.md'), '全局规则夹具');
+    const reportMarker = '项目规则夹具';
+    writeFileSync(join(layer, 'README.md'), [reportMarker, ...Array(59).fill('普通文字'), '截断标记'].join('\n'));
+    writeFileSync(join(layer, 'project.json'), JSON.stringify({ briefGates: [
+      { when: { action: '改代码' }, section: '现场', fields: ['入口.地址'], hint: '填写真实入口' }
+    ] }));
+    const r = run(['context', '--project', join(layer, 'scenes')]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /调遣令[\s\S]*全局规则夹具[\s\S]*项目规则夹具[\s\S]*新目录条目[\s\S]*旧目录条目[\s\S]*优先级/);
+    assert.doesNotMatch(r.stdout, /已被覆盖|截断标记/);
+    assert.match(r.stderr, /迁到/);
+    const body = join(temp, 'layers-body.md');
+    const newArgs = ['new', 'layers-report', '--to', 'gpt', '--body', body, '--scene', 'new-scene', '--action', '改代码'];
+    writeFileSync(body, `## 入口\n仓库: ${project}\n可写路径: ${layer}\n## 现场\n入口X地址: 无效`);
+    let out = run([...newArgs, '--dry-run']);
+    assert.equal(out.status, 1);
+    assert.match(out.stderr, /入口\.地址.*填写真实入口/);
+    writeFileSync(body, `## 入口\n仓库: ${project}\n可写路径: ${layer}\n## 现场\n- 入口.地址: 夹具`);
+    out = run([...newArgs, '--no-launch']);
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(out.stderr, /超过 60 行，已截断/);
+    const brief = out.stdout.match(/已生成：(.+)/)[1];
+    const meta = JSON.parse(readFileSync(brief.replace(/\.md$/, '.json'), 'utf8'));
+    assert.deepEqual(meta.scenes, ['new-scene']);
+    assert.match(readFileSync(brief, 'utf8'), /项目规则夹具/);
+    assert.doesNotMatch(readFileSync(brief, 'utf8'), /截断标记/);
+    writeFileSync(meta.report, '新报告\n第二行\n');
+    assert.equal(run(['read', 'layers-report', '--head', '1']).stdout, '新报告\n');
+    const oldReport = join(home, '.agent-reports/2001-02-03');
+    mkdirSync(oldReport, { recursive: true });
+    writeFileSync(join(oldReport, 'legacy.brief.md'), '旧 brief');
+    writeFileSync(join(oldReport, 'legacy.brief.json'), JSON.stringify({ to: 'gpt', report: join(oldReport, 'legacy.md') }));
+    writeFileSync(join(oldReport, 'legacy.md'), '旧报告');
+    assert.equal(run(['read', 'legacy']).stdout, '旧报告');
+    const envFile = join(layer, '.env');
+    const git = (...args) => spawnSync('git', ['-C', project, ...args], { encoding: 'utf8' });
+    assert.equal(git('init', '-q').status, 0);
+    writeFileSync(envFile, 'FIXTURE=1');
+    const secret = 'sk-' + 'x'.repeat(24);
+    writeFileSync(join(global, 'lessons.md'), [
+      '- 用户 10-12 说过', '- 10-13', '- 10-14', '- 这条派单规则一律在进入任务时执行',
+      '- 这条派单规则一律在进入任务前执行', '“' + '原话'.repeat(25) + '”', secret,
+    ].join('\n'));
+    const ago = new Date(Date.now() - 91 * 86400 * 1000);
+    for (const file of [join(old, 'old-scene.md'), join(layer, 'scenes/new-scene.md')]) utimesSync(file, ago, ago);
+    writeFileSync(join(global, 'ledger.jsonl'), JSON.stringify({ project, scenes: ['new-scene'], startedAt: new Date().toISOString() }));
+    writeFileSync(join(global, 'dispatch-order.md'), '| codex | 停用 | 2000-01-01 | fixture |\n');
+    const doctorEnv = { AGENT_FLEET_LEDGER: join(global, 'ledger.jsonl'), FLEET_MINI_BIN: '/missing/fleet', FLEET_MINI_MM: '/missing/mm' };
+    const doctor = run(['doctor', '--project', project], doctorEnv);
+    assert.equal(doctor.status, 0, doctor.stderr);
+    for (const message of ['疑似原话', '日期密度', '超过 60 行', '近似重复', '补充「适用」',
+      '超过 20 个', '候选删除场景 old-scene', '过期调遣令', '未被 Git 忽略', '疑似密钥', 'Skill agent-fleet']) {
+      assert.ok(doctor.stdout.includes(message), message);
+    }
+    assert.ok(!doctor.stdout.includes(secret) && !doctor.stderr.includes(secret));
+    assert.doesNotMatch(doctor.stdout, /候选删除场景 new-scene/);
+    writeFileSync(join(project, '.gitignore'), '/.agent-fleet/.env\n');
+    assert.doesNotMatch(run(['doctor', '--project', project], doctorEnv).stdout, /未被 Git 忽略/);
   });
   test('多仓聚合根拦截入口和 --write，允许具体仓库和子目录', () => {
     const workspace = join(temp, 'aggregate-workspace');
@@ -514,7 +587,7 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
     assert(normal.stderr.includes('--simple'));
     const simple = run(['new','simple-mode','--to','gpt','--simple','--low','--goal','x','--no-launch']);
     assert.equal(simple.status, 0, simple.stderr);
-    const simplePath = join(home,'.agent-reports', report.split('/').at(-2), 'simple-mode.brief.md');
+    const simplePath = join(home,'.agent-fleet/reports', report.split('/').at(-2), 'simple-mode.brief.md');
     const simpleMetaPath = simplePath.replace(/\.md$/,'.json');
     const oldMeta = JSON.parse(readFileSync(simpleMetaPath,'utf8'));
     assert.equal(oldMeta.simple, true);
@@ -586,7 +659,7 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
   });
   test('luna 新建、重派和修订保留模型及冲突限制', () => {
     assert.equal(run(['new','luna-mode','--to','gpt','--luna','--low','--goal','x','--no-launch']).status, 0);
-    const metaPath = join(home,'.agent-reports', report.split('/').at(-2), 'luna-mode.brief.json');
+    const metaPath = join(home,'.agent-fleet/reports', report.split('/').at(-2), 'luna-mode.brief.json');
     assert.equal(JSON.parse(readFileSync(metaPath,'utf8')).luna, true);
     assert.equal(JSON.parse(readFileSync(metaPath,'utf8')).low, true);
     for (const args of [['relaunch','luna-mode'], ['amend','luna-mode','继续','--say']]) {
@@ -621,7 +694,7 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
   test('显式模型和推理档位覆盖并保存旧值', () => {
     for (const action of ['relaunch', 'amend']) {
       const name = 'switch-' + action;
-      const metaPath = join(home,'.agent-reports', report.split('/').at(-2), name + '.brief.json');
+      const metaPath = join(home,'.agent-fleet/reports', report.split('/').at(-2), name + '.brief.json');
       const invoke = (...flags) => action === 'relaunch' ? run([action,name,...flags]) : run([action,name,'切换档位',...flags,'--say']);
       assert.equal(run(['new',name,'--to','gpt','--simple','--low','--goal','x','--no-launch']).status,0);
       reset(); let r = invoke('--luna','--high'); assert.equal(r.status,7,r.stderr);
@@ -727,7 +800,7 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
     const blocked=run(['relaunch','route-relaunch','--simple']);
     assert.equal(blocked.status,7,blocked.stderr);assert.match(blocked.stderr,/先查 brief/);
     assert.equal(run(['relaunch','route-relaunch']).status,7);
-    const metaPath=join(home,'.agent-reports',report.split('/').at(-2),'route-relaunch.brief.json');
+    const metaPath=join(home,'.agent-fleet/reports',report.split('/').at(-2),'route-relaunch.brief.json');
     const meta=JSON.parse(readFileSync(metaPath,'utf8'));meta.simple=true;meta.tier='terra';writeFileSync(metaPath,JSON.stringify(meta));
     assert.equal(run(['relaunch','route-relaunch']).status,7);
     assert.equal(run(['relaunch','route-relaunch','--luna']).status,7);
@@ -750,7 +823,7 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
     r=run(['batch',manifest,'--dry-run']);assert.equal(r.status,0,r.stderr);assert.match(r.stdout,/X/);assert.equal(history().length,0);
     r=run(['batch',manifest]);assert.equal(r.status,1,r.stderr); // fake fleet deliberately exits 7
     assert.deepEqual(history().filter(c=>c.args[0]==='code').map(c=>c.args[c.args.indexOf('--name')+1]),['batch-a','batch-b']);
-    const aMeta=JSON.parse(readFileSync(join(home,'.agent-reports',report.split('/').at(-2),'batch-b.brief.json'),'utf8'));
+    const aMeta=JSON.parse(readFileSync(join(home,'.agent-fleet/reports',report.split('/').at(-2),'batch-b.brief.json'),'utf8'));
     assert.equal(aMeta.after,'batch-a');assert.deepEqual(aMeta.object.writes,[temp+'/a/src']);
     writeFileSync(manifest,JSON.stringify([job('cycle-a',temp+'/a','cycle-b'),job('cycle-b',temp+'/a','cycle-a')]));
     assert.match(run(['batch',manifest,'--dry-run']).stderr,/循环依赖/);
@@ -820,7 +893,7 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
     git('-C',repo,'commit','--allow-empty','-m','initial'); git('-C',repo,'push','-u','origin','HEAD');
     const r=run(['new','wt-test','--to','gpt','--on','local','--goal','test','--write',repo,'--worktree','--no-launch']);
     assert.equal(r.status,0,r.stderr);
-    const bp=join(home,'.agent-reports',new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}),'wt-test.brief.md');
+    const bp=join(home,'.agent-fleet/reports',new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}),'wt-test.brief.md');
     const body=readFileSync(bp,'utf8'); const meta=JSON.parse(readFileSync(bp.replace(/\.md$/,'.json'),'utf8'));
     assert.ok(body.includes(meta.worktree.path)); assert.ok(body.includes(meta.worktree.branch)); assert.ok(body.includes('origin/')); assert.ok(body.includes('worktree remove')); assert.ok(body.includes('branch -D'));
     assert.equal(meta.object.writes[0],meta.worktree.path);
@@ -889,7 +962,7 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
     rmSync(legacyBody);
   });
   test('跨日期重名给出可复制的路径命令，路径可直接 relaunch', () => {
-    const bp=join(home,'.agent-reports',new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}),'refresh.brief.md');
+    const bp=join(home,'.agent-fleet/reports',new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}),'refresh.brief.md');
     const old=join(home,'.agent-reports','2000-01-01'); mkdirSync(old,{recursive:true});
     writeFileSync(join(old,'refresh.brief.md'),readFileSync(bp,'utf8')); writeFileSync(join(old,'refresh.brief.json'),readFileSync(bp.replace(/\.md$/,'.json'),'utf8'));
     let r=run(['relaunch','refresh']); assert.equal(r.status,1); assert.ok(r.stderr.includes('fleet-go relaunch '+bp),r.stderr);
@@ -904,7 +977,7 @@ with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'
     git('-C',repo,'commit','--allow-empty','-m','initial'); git('-C',repo,'push','-u','origin','HEAD');
     const r=spawnSync(script,['new','wt-entry','--to','gpt','--on','local','--goal','t','--write',outside,'--worktree','--no-launch','--no-lint'],{encoding:'utf8',env,cwd:outside,input:`## 入口\n仓库: ${repo}\n可写路径: ${repo}/src\n`});
     assert.equal(r.status,0,r.stderr);
-    const bp=join(home,'.agent-reports',new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}),'wt-entry.brief.md');
+    const bp=join(home,'.agent-fleet/reports',new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}),'wt-entry.brief.md');
     const meta=JSON.parse(readFileSync(bp.replace(/\.md$/,'.json'),'utf8')); const text=readFileSync(bp,'utf8');
     assert.ok(existsSync(meta.worktree.path)); assert.match(meta.worktree.path,/wt2-repo-wt\/wt-entry$/);
     assert.ok(text.includes('仓库: '+meta.worktree.path)); assert.ok(text.includes('可写路径: '+meta.worktree.path+'/src'));

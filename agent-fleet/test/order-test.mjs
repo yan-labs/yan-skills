@@ -1,7 +1,7 @@
 // 调遣令:order show/set/clear、派单闸门(new/relaunch)、额度类失败自动记账(order auto、run 结束钩子、Mini 派单机路径)。
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '..');
@@ -217,6 +217,70 @@ mini.record_quota_order({'id': 'm3', 'name': 'ok'}, {'verdict': 'ok', 'status': 
   const r = sh('python3', ['-I', '-c', py]); assert.equal(r.status, 0, r.stderr);
   assert.match(row('grok'), /^\| grok \| 停用 .*自动：mini-job 2026-11-13 \d\d:01 报/);
   reset();
+});
+
+await test('默认新旧路径与软链 Git 同步：show 快进、set/clear/auto 推送、失败重试及本地回退', () => {
+  const userDir = join(home, '.agent-fleet');
+  const oldDir = join(home, '.agents');
+  mkdirSync(userDir, { recursive: true });
+  mkdirSync(oldDir, { recursive: true });
+  const legacy = join(oldDir, 'dispatch-order.md');
+  writeFileSync(legacy, seed.replace('仍只做文案', '旧路径独有'));
+  const automatic = { AGENT_FLEET_ORDER_FILE: '' };
+  assert.match(go(['order', 'show'], automatic).stdout, /旧路径独有/);
+
+  const remote = join(temp, 'remote.git'), peer = join(temp, 'peer');
+  const ok = result => { assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); };
+  ok(git('commit', '--allow-empty', '-am', 'reset fixture'));
+  ok(sh('git', ['init', '--bare', remote]));
+  const branch = ok(git('branch', '--show-current'));
+  ok(git('remote', 'add', 'origin', remote));
+  ok(git('push', '-u', 'origin', branch));
+  ok(sh('git', ['clone', '-b', branch, remote, peer]));
+  const cfg = join(userDir, 'dispatch-order.md');
+  symlinkSync(orderFile, cfg);
+  const updatePeer = (before, after) => {
+    ok(sh('git', ['-C', peer, 'pull', '--ff-only']));
+    const file = join(peer, 'dispatch-order.md');
+    writeFileSync(file, readFileSync(file, 'utf8').replace(before, after));
+    ok(sh('git', ['-C', peer, 'commit', '-am', 'peer change']));
+    ok(sh('git', ['-C', peer, 'push']));
+  };
+  updatePeer('仍只做文案', '远端先改');
+  assert.match(go(['order', 'show'], automatic).stdout, /远端先改/);
+  assert.doesNotMatch(go(['order', 'show'], automatic).stdout, /旧路径独有/);
+  updatePeer('远端先改', '保留远端改动');
+
+  const gitHook = join(repo, '.git/hooks/pre-push');
+  const concurrent = join(temp, 'concurrent.sh');
+  writeFileSync(concurrent, `#!/bin/sh
+set -e
+git -C "$FLEET_TEST_PEER" pull --ff-only
+printf '\n并发远端说明\n' >> "$FLEET_TEST_PEER/dispatch-order.md"
+git -C "$FLEET_TEST_PEER" commit -am 'concurrent change'
+git -C "$FLEET_TEST_PEER" push
+`);
+  writeFileSync(gitHook, '#!/bin/sh\nif [ ! -f .git/retry-marker ]; then touch .git/retry-marker; sh "$FLEET_TEST_SCRIPT" && exit 1; exit 2; fi\n', { mode: 0o755 });
+  const set = go(['order', 'set', 'codex', '正常', '--reason', '手动恢复'], { ...automatic, FLEET_TEST_PEER: peer, FLEET_TEST_SCRIPT: concurrent });
+  assert.equal(set.status, 0, set.stderr);
+  assert.doesNotMatch(set.stderr, /未同步/);
+  assert.match(text(), /保留远端改动/);
+  assert.match(text(), /并发远端说明/);
+  const remoteHead = () => ok(sh('git', ['--git-dir', remote, 'rev-parse', branch]));
+  const head = () => ok(git('rev-parse', 'HEAD'));
+  assert.equal(remoteHead(), head());
+  ok(go(['order', 'clear', 'codex'], automatic));
+  assert.equal(remoteHead(), head());
+  const auto = spawnSync(script, ['order', 'auto'], { encoding: 'utf8', env: { ...env, ...automatic },
+    input: JSON.stringify({ name: 'sync-quota', route: 'grok-cli', text: 'usage balance exhausted' }) });
+  ok(auto);
+  assert.equal(remoteHead(), head());
+  writeFileSync(gitHook, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  const failed = go(['order', 'set', 'codex', '省着用'], automatic);
+  assert.equal(failed.status, 0, failed.stderr);
+  assert.match(failed.stderr, /本地生效，未同步/);
+  assert.match(row('codex'), /省着用/);
+  assert.notEqual(remoteHead(), head());
 });
 
 console.log(`\n调遣令测试全部通过(${checks} 组)。`);

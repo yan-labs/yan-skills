@@ -3,6 +3,8 @@ import argparse
 import base64
 import datetime
 import errno
+import difflib
+import inspect
 import json
 import os
 from pathlib import Path
@@ -180,15 +182,7 @@ def entry_write_paths(entry):
             if (path := re.split(r'[（(]', value, maxsplit=1)[0].strip()).startswith(('/', '~/', '$HOME/'))]
 
 
-def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lint=False, project=None):
-    errors = []
-    first = text.splitlines()[0] if text else ''
-    if not no_lint and (not first.startswith('归类：') or '理由：' not in first):
-        errors.append('第一行必须以「归类：」开头并含「理由：」。')
-    if not no_lint and not re.search(r'^REPORT: /[^\n]+$', text, re.M):
-        errors.append('缺少 REPORT: <绝对路径> 行。')
-    if not no_lint and rule() not in text and LEGACY_RULE not in text and EARLY_RULE not in text:
-        errors.append('缺少逐字规则句。')
+def secret_findings(text):
     secret_rules = [
         ('sk-token', r'(?<![A-Za-z0-9_/.-])sk-[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_/-]|\.[A-Za-z0-9])'),
         ('aws-access-key-id', r'(?<![A-Za-z0-9])AKIA[A-Z0-9]{16}(?![A-Za-z0-9])'),
@@ -199,7 +193,19 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
     for name, pattern in secret_rules:
         for match in re.finditer(pattern, text):
             number = text.count('\n', 0, match.start()) + 1
-            errors.append(f'第 {number} 行：发现疑似密钥字面量；规则 {name}（已隐藏）。')
+            yield f'第 {number} 行：发现疑似密钥字面量；规则 {name}（已隐藏）。'
+
+
+def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lint=False, project=None):
+    errors = []
+    first = text.splitlines()[0] if text else ''
+    if not no_lint and (not first.startswith('归类：') or '理由：' not in first):
+        errors.append('第一行必须以「归类：」开头并含「理由：」。')
+    if not no_lint and not re.search(r'^REPORT: /[^\n]+$', text, re.M):
+        errors.append('缺少 REPORT: <绝对路径> 行。')
+    if not no_lint and rule() not in text and LEGACY_RULE not in text and EARLY_RULE not in text:
+        errors.append('缺少逐字规则句。')
+    errors.extend(secret_findings(text))
     for line in text.splitlines():
         # 只检查启动命令；禁令和标明的错误示范是说明文字。
         if re.search(r'禁止|不加|不要|错误示范|绝不|不得', line):
@@ -291,18 +297,8 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
                 elif not Path(repo_path).is_dir(): errors.append('执行机器上的入口仓库不存在。')
             if actions - {'只读'} and not entry_writes:
                 errors.append('入口缺少可写路径。')
-            if '改代码' in actions:
-                root = project_root(project or entry_repo(text) or Path.cwd())
-                guide = root / 'AGENTS.md' if root else None
-                if guide and guide.is_file() and '# nextspace / Buildin 项目规则' in guide.read_text():
-                    environment = re.search(r'^## 验收环境[ \t]*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
-                    fields = ('账号', '免费空间', '付费空间', '开关', '夹具', '性能闸门')
-                    details = environment.group(1) if environment else ''
-                    missing = [field for field in fields
-                               if not re.search(r'^\s*(?:- )?' + field + r'[:：][ \t]*\S+', details, re.M)]
-                    if missing:
-                        errors.append('nextspace 改代码单须在派单前填好「## 验收环境」；缺：'
-                                      + '、'.join(missing) + '。逐项写明已就绪的入口或值；性能闸门引用计划原文，不适用的写原因。')
+            root = resolve_project(project, entry_repo(text))
+            errors.extend(brief_gate_errors(root, actions, text))
         if to == 'gpt' and not sol and re.search(r'未知|自己找', entry):
             hit = re.search(r'未知|自己找', entry)
             number = text.count('\n', 0, entry_match.start(1) + hit.start()) + 1
@@ -426,12 +422,21 @@ def running(active_only=True, status_timeout=None, recent_seconds=None):
     return rows
 
 
+def report_matches(filename):
+    matches = {}
+    for root in clean.report_roots():
+        for path in root.glob('*/' + filename):
+            if path.is_file():
+                matches.setdefault(path.resolve(), path)
+    return sorted(matches.values(), key=lambda p: (p.parent.name, str(p)), reverse=True)
+
+
 def locate(name):
     if name.endswith('.brief.md'):
         path = Path(name).expanduser()
         if not path.is_file(): raise ValueError(f'找不到 brief：{name}')
     else:
-        matches = sorted((Path.home() / '.agent-reports').glob('*/' + name + '.brief.md'), reverse=True)
+        matches = report_matches(name + '.brief.md')
         if not matches:
             raise ValueError(f'找不到 brief：{name}。新派单用 fleet-go new {name} --to <产品> ...')
         if len(matches) > 1:
@@ -492,18 +497,243 @@ def ensure_principles(text):
 
 def project_root(path):
     path = Path(path).expanduser().resolve()
-    return next((root for root in (path, *path.parents) if (root / '.rankup').is_dir()), None)
+    return next((root for root in (path, *path.parents)
+                 if any((root / marker).is_dir() for marker in ('.agent-fleet', '.rankup'))), None)
+
+
+def resolve_project(explicit=None, repo=None):
+    if explicit:
+        return project_root(explicit)
+    return (project_root(repo) if repo else None) or project_root(Path.cwd())
+
+
+def brief_gate_errors(root, actions, text):
+    if not root:
+        return
+    config = root / '.agent-fleet/project.json'
+    guide = root / 'AGENTS.md'
+    if config.is_file():
+        gates = json.loads(config.read_text()).get('briefGates', [])
+    elif ('改代码' in actions and guide.is_file()
+          and '# nextspace / Buildin 项目规则' in guide.read_text()):
+        gates = [{'when': {'action': '改代码'}, 'section': '验收环境',
+                  'fields': ['账号', '免费空间', '付费空间', '开关', '夹具', '性能闸门'],
+                  'hint': '逐项写明已就绪的入口或值；性能闸门引用计划原文，不适用的写原因。'}]
+    else:
+        return
+    for gate in gates:
+        if gate['when']['action'] not in actions:
+            continue
+        section = gate['section']
+        match = re.search(r'^## ' + re.escape(section) + r'[ 	]*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
+        missing = [field for field in gate.get('fields', [])
+                   if not re.search(r'^[ 	]*(?:- )?' + re.escape(field) + r'[ 	]*[:：][ 	]*\S+',
+                                    match.group(1) if match else '', re.M)]
+        if not match or missing:
+            yield f'须填好「## {section}」' + ('；缺：' + '、'.join(missing) if missing else '') + '。' + gate.get('hint', '')
+
+
+def scene_paths(root, warn=False):
+    if not root:
+        return {}
+    paths = {path.stem: path for path in (root / '.rankup/dispatch-scenes').glob('*.md')}
+    paths.update({path.stem: path for path in (root / '.agent-fleet/scenes').glob('*.md')})
+    if warn and any(path.parent.name == 'dispatch-scenes' for path in paths.values()):
+        print('警告：请将旧场景从 .rankup/dispatch-scenes/ 迁到 .agent-fleet/scenes/。', file=sys.stderr)
+    return dict(sorted(paths.items()))
 
 
 def dispatch_scenes(root):
     scenes = {}
-    if root:
-        for path in sorted((root / '.rankup/dispatch-scenes').glob('*.md')):
-            sections = re.split(r'^---[ \t]*$\n', path.read_text(), maxsplit=2, flags=re.M)
-            if len(sections) != 3 or sections[0]:
-                raise ValueError(f'{path} 缺少 JSON 场景文件头。')
-            scenes[path.stem] = (json.loads(sections[1]), sections[2].strip())
+    for name, path in scene_paths(root, warn=True).items():
+        sections = re.split(r'^---[ 	]*$\n', path.read_text(), maxsplit=2, flags=re.M)
+        if len(sections) != 3 or sections[0]:
+            raise ValueError(f'{path} 缺少 JSON 场景文件头。')
+        scenes[name] = (json.loads(sections[1]), sections[2].strip())
     return scenes
+
+
+def context(root):
+    path = order.order_path()
+    if path.is_file():
+        order.pull_for_show(path)
+        try:
+            print(order.show_text(path, compact=True))
+        except (OSError, ValueError):
+            print('警告：调遣令无法读取，请运行 fleet-go doctor。', file=sys.stderr)
+    for layer, directory in [('全局层', Path.home() / '.agent-fleet'),
+                             ('项目层', root / '.agent-fleet' if root else None)]:
+        if directory and (directory / 'README.md').is_file():
+            print(f'## {layer}')
+            print('\n'.join((directory / 'README.md').read_text().splitlines()[:60]))
+    scenes = dispatch_scenes(root)
+    if scenes:
+        print('## 项目场景')
+        for name, (data, _) in scenes.items():
+            print(f"- {name} · {data['description']}")
+    print('优先级：用户当场指令 > 调遣令 > 项目层 > 全局层 > 源码默认。授权红线不被任何层放宽。')
+
+
+def memory_findings(paths):
+    entries = []
+    for path in paths:
+        if not path.is_file():
+            continue
+        lines = path.read_text().splitlines()
+        limit = 60 if path.name == 'README.md' else 150
+        if len(lines) > limit:
+            yield '警告', path, f'超过 {limit} 行；合并或精简规则'
+        dated = 0
+        for n, line in enumerate(lines, 1):
+            if re.search(r'用户\s*(?:\d{4}[-/])?\d{1,2}[-/]\d{1,2}|[“「『"‘][^”」』"’\n]{40,}[”」』"’]', line):
+                yield '警告', path, f'第 {n} 行疑似原话；提炼规则，原话移到记录'
+            dated += bool(re.search(r'(?<!\d)(?:\d{4}[-/])?\d{1,2}[-/]\d{1,2}(?!\d)|\d{1,2}月\d{1,2}日', line))
+            if re.search(r'禁止|一律|从不', line) and '适用' not in line:
+                yield '警告', path, f'第 {n} 行使用绝对词；补充「适用」条件'
+            item = re.match(r'^\s*(?:[-*+] |\d+[.)、] )(.+)', line)
+            if item:
+                normalized = re.sub(r'[\W_]+', '', item[1].split('适用', 1)[0].casefold())
+                if len(normalized) >= 8:
+                    earlier = next(((p, i) for p, i, other in entries
+                                    if difflib.SequenceMatcher(None, normalized, other).ratio() >= .85), None)
+                    if earlier:
+                        yield '警告', path, f'第 {n} 行近似重复于 {earlier[0]}:{earlier[1]}；合并条目'
+                    entries.append((path, n, normalized))
+        if dated >= 3 and dated * 5 >= len(lines):
+            yield '警告', path, '日期密度过高；将事件移到记录'
+        for finding in secret_findings('\n'.join(lines)):
+            yield '错误', path, finding + '从规则移出并轮换凭据'
+
+
+def machine_checks(source, config):
+    def git(repo, *args):
+        try:
+            result = subprocess.run(['git', '-C', str(repo), *args], capture_output=True, text=True, timeout=5,
+                                    env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
+            return result.stdout.strip() if result.returncode == 0 else ''
+        except (OSError, subprocess.SubprocessError):
+            return ''
+
+    def main_clone(repo):
+        common = git(repo, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+        return Path(common).parent if common else repo
+
+    source = main_clone(Path(source))
+    for name, repo, remote_ref in [('源码仓', source, 'refs/heads/main'), ('全局配置仓', Path(config), 'HEAD')]:
+        head = git(repo, 'rev-parse', 'HEAD') if repo.is_dir() else ''
+        if not head:
+            print(f'{name}：未取到；请检查安装和 Git 路径')
+            continue
+        remote = git(repo, 'ls-remote', 'origin', remote_ref).split()
+        if not remote:
+            print(f'{name}：远端未取到；运行 git -C {shlex.quote(str(repo))} ls-remote origin {remote_ref}')
+        elif head != remote[0] or git(repo, 'status', '--porcelain'):
+            print(f'{name}：与远端有差异；先运行 git -C {shlex.quote(str(repo))} status')
+        else:
+            print(f'{name}：与远端一致（{head[:12]}）')
+
+    for name, expected in [('agent-fleet', source / 'agent-fleet/skill'), ('rankup', source / 'rankup')]:
+        link = Path.home() / '.agents/skills' / name
+        if link.is_symlink() and expected.is_dir() and link.resolve() == expected.resolve():
+            print(f'Skill {name}：软链指向主克隆')
+        else:
+            dest = shlex.quote(str(link))
+            print(f'Skill {name}：未指向主克隆；移走旧安装后修复：test ! -e {dest} && test ! -L {dest} && '
+                  f'ln -s {shlex.quote(str(expected))} {dest}')
+
+    script = Path(config) / 'link.sh'
+    if script.is_file():
+        try:
+            result = subprocess.run(['bash', str(script), '--check'], capture_output=True, timeout=5, cwd=config)
+            print('全局软链：' + ('通过' if result.returncode == 0 else
+                                  f'有差异；运行 bash {shlex.quote(str(script))} --check 检查'))
+        except (OSError, subprocess.SubprocessError):
+            print('全局软链：未取到')
+
+
+def recently_used_scenes(root, cutoff):
+    if not root:
+        return set()
+    try:
+        _, rows = ledger_rows()
+    except ValueError:
+        return set()
+    recent = set()
+    for row in rows:
+        if not isinstance(row, dict) or not row.get('project') or Path(row['project']).expanduser().resolve() != root:
+            continue
+        try:
+            stamp = (row.get('startedAt') or row['date']).replace('Z', '+00:00')
+            date = datetime.datetime.fromisoformat(stamp).timestamp()
+        except (KeyError, TypeError, ValueError):
+            continue
+        if date >= cutoff:
+            recent.update(row.get('scenes', []))
+    return recent
+
+
+def doctor(root):
+    global_layer = Path.home() / '.agent-fleet'
+    scenes = scene_paths(root, warn=True)
+    layers = [(global_layer, sorted((global_layer / 'scenes').glob('*.md')))]
+    if root:
+        layers.append((root / '.agent-fleet', list(scenes.values())))
+    for directory, paths in layers:
+        for level, path, message in memory_findings([*(directory / name for name in
+                                                       ('README.md', 'lessons.md', 'patrol-brief.md')), *paths]):
+            print(f'{level} {path}：{message}；编辑：${{EDITOR:-vi}} {shlex.quote(str(path))}')
+    if root:
+        if len(scenes) > 20:
+            print('警告 项目场景超过 20 个；运行 fleet-go scenes 后合并或归档')
+        env_file = root / '.agent-fleet/.env'
+        if env_file.exists() and not order.git_ok(root, 'check-ignore', '-q', '--', str(env_file)):
+            print(f'错误 {env_file} 未被 Git 忽略；在项目 .gitignore 加入 /.agent-fleet/.env，再运行 git check-ignore .agent-fleet/.env（已跟踪的文件需先移出索引）')
+    path = order.order_path()
+    if path.is_file():
+        try:
+            orders, _ = order.load(path)
+            for executor, item in orders.items():
+                if not item.active(order.now_local()):
+                    print(f'过期调遣令 {executor}；修复：fleet-go order clear {executor}')
+        except (ValueError, OSError):
+            print(f'警告 调遣令无法读取；检查：${{EDITOR:-vi}} {shlex.quote(str(path))}')
+
+    source = Path(__file__).resolve().parents[2]
+    print('## 本机')
+    target = path.resolve()
+    config = order.repository(target) if target.parent.is_dir() else None
+    machine_checks(source, config or global_layer)
+    cutoff = time.time() - 90 * 86400
+    recent = recently_used_scenes(root, cutoff) if scenes else set()
+    if not mini.on_mini():
+        print('## 远端执行机')
+        fetched = False
+        if mini.REMOTE_BIN:
+            script = mini.PATH_FIX + 'import base64,datetime,json,os,shlex,subprocess,sys\nfrom pathlib import Path\n'
+            script += '\n'.join(inspect.getsource(fn) for fn in (machine_checks, recently_used_scenes, ledger_rows))
+            script += """
+bin_path, config, project, cutoff = json.loads(base64.b64decode(sys.argv[1]))
+binary = Path(bin_path)
+binary = (binary / 'fleet' if binary.is_dir() else binary).resolve(strict=True)
+machine_checks(binary.parents[2], config)
+print(json.dumps(sorted(recently_used_scenes(Path(project).resolve() if project else None, cutoff))))
+"""
+            try:
+                remote_project = mini.remote_path(str(root)) if scenes else None
+                result = mini.call(script, [mini.REMOTE_BIN, mini.remote_path(str(config or global_layer)),
+                                            remote_project, cutoff], timeout=25)
+                if result.returncode == 0:
+                    checks, used = result.stdout.rstrip().rsplit('\n', 1)
+                    recent.update(json.loads(used))
+                    print(checks)
+                    fetched = True
+            except (OSError, ValueError, subprocess.SubprocessError):
+                pass
+        if not fetched:
+            print('未取到；检查远端连接和 FLEET_MINI_BIN 后重跑 fleet-go doctor')
+    for name, path in scenes.items():
+        if name not in recent and path.stat().st_mtime < cutoff:
+            print(f'候选删除场景 {name}：已取得的账本中 90 天内无使用记录；先查看：cat {shlex.quote(str(path))}')
 
 
 def select_scenes(args, body, project):
@@ -1052,7 +1282,7 @@ def new(args, prepare=False):
     if not args.goal and not body.strip():
         raise ValueError('请提供 --goal、--body 或 stdin 正文。')
     args.write = [mini.expand_path(path) for path in mini.split_paths(args.write or [])]
-    project = project_root(args.project or entry_repo(body) or Path.cwd())
+    project = resolve_project(args.project, entry_repo(body))
     scenes = select_scenes(args, body, project)
     if args.auth is None:
         args.auth = scene_default(scenes, 'auth') or 'local'
@@ -1095,9 +1325,9 @@ def new(args, prepare=False):
     if args.for_name and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.for_name):
         raise ValueError('--for 需要被复核的任务名（字母、数字、下划线与连字符）。')
     day = datetime.date.today().isoformat()
-    folder = Path.home() / '.agent-reports' / day
+    folder = clean.report_roots()[0] / day
     path = folder / (args.name + '.brief.md')
-    if path.exists() and not args.dry_run:
+    if any((root / day / path.name).exists() for root in clean.report_roots()) and not args.dry_run:
         raise ValueError(f'同名 brief 已存在，拒绝覆盖：{path}\n改需求后重派：fleet-go amend {args.name} "<修订说明>" --say\n原样重派（--body 文件改过会自动换进 brief）：fleet-go relaunch {args.name}\n另起一单：把名字换成 {args.name}-2 重跑原命令')
     report = str(Path(args.report).expanduser().absolute()) if args.report else str(folder / (args.name + '.md'))
     auth = args.auth.split(',')
@@ -1127,6 +1357,14 @@ def new(args, prepare=False):
         parts.append('## 目标\n' + args.goal)
     if body.strip():
         parts.append(body.strip())
+    if project:
+        general = project / '.agent-fleet/README.md'
+        if general.is_file():
+            lines = general.read_text().splitlines()
+            if len(lines) > 60:
+                print(f'警告：{general} 超过 60 行，已截断。', file=sys.stderr)
+            # Quote project guidance so its headings and fields cannot satisfy brief gates.
+            parts.append('## 项目派单总则\n' + '\n'.join('> ' + line for line in lines[:60]))
     if args.make:
         parts.append('## 产物要求\n' + block('make-' + args.make, {'OUTDIR': '/tmp/' + args.name + '/'}))
         if args.make == 'image':
@@ -1176,6 +1414,8 @@ def new(args, prepare=False):
             'on': args.on or 'mini', 'local_reason': args.local_reason, 'pull': args.pull, 'object': object_ if object_['repo'] else None, 'after': args.after, 'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
     if project:
         meta['project'] = str(project)
+    if scenes:
+        meta['scenes'] = [name for name, _, _ in scenes]
     if args.worktree is not None:
         wt = prepare_worktree(args.name, object_['writes'], args.worktree, location, object_['repo'] or None)
         text = rewrite_worktree(text, meta, wt, location)
@@ -1301,8 +1541,9 @@ def build_parser():
     group = p.add_mutually_exclusive_group()
     group.add_argument('--dry-run', action='store_true')
     group.add_argument('--no-launch', action='store_true')
-    p = sub.add_parser('scenes', help='列出项目派单场景')
-    p.add_argument('--project', default='.')
+    for action, help_text in [('scenes', '列出项目派单场景'), ('context', '输出两层派单上下文'),
+                              ('doctor', '检查两层规则和安装状态')]:
+        sub.add_parser(action, help=help_text).add_argument('--project', default='.')
     p = sub.add_parser('batch', help='JSON 数组，每项为 new 的参数数组；先打印重叠矩阵')
     p.add_argument('manifest')
     p.add_argument('--dry-run', action='store_true')
@@ -1392,6 +1633,10 @@ def main():
         raise ValueError('名称只能包含字母、数字、下划线与连字符。')
     if args.action == 'new':
         new(args)
+    elif args.action == 'context':
+        context(project_root(args.project))
+    elif args.action == 'doctor':
+        doctor(project_root(args.project))
     elif args.action == 'scenes':
         for name, (data, _) in dispatch_scenes(project_root(args.project)).items():
             print(f"{name}\t{data['description']}")
@@ -1434,7 +1679,22 @@ def main():
             print(f"已重建 worktree：{created['path']}（{created['branch']}）")
     elif args.action == 'read':
         rec = mini.find(args.name)
-        if not rec or rec.get('local'): raise ValueError('找不到 Mini 任务；最新同名任务可能在本机。')
+        if not rec or rec.get('local'):
+            if args.log or args.result or args.pull:
+                raise ValueError('找不到 Mini 任务，无法读取日志、结果或拉回文件。')
+            name = (rec.get('name') if rec else None) or args.name
+            briefs = report_matches(name + '.brief.md')
+            reports = report_matches(name + '.md')
+            if briefs:
+                _, meta = locate(name)
+                path = Path(meta['report'])
+            elif len(reports) == 1:
+                path = reports[0]
+            else:
+                raise ValueError('找不到唯一的本机报告；请检查报告目录。')
+            content = path.read_text()
+            print(''.join(content.splitlines(keepends=True)[:args.head]), end='')
+            return
         sys.exit(mini.read(rec, 'log' if args.log else 'result' if args.result else 'report', args.head, args.pull))
     elif args.action in ('say', 'stop'):
         os.execvp('fleet', ['fleet', args.action, args.name] + ([args.message] if args.action == 'say' else []))

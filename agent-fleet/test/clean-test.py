@@ -15,7 +15,7 @@ import clean
 class CleanTest(unittest.TestCase):
     def test_age_and_retention(self):
         with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
+            home = Path(tmp).resolve()
             runs, reports = home / '.agent-fleet/runs', home / '.agent-reports'
             old = time.time() - 15 * 86400
             def put(root, name, text='fixture', aged=True):
@@ -52,9 +52,43 @@ class CleanTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     clean.age_seconds(bad)
 
+    def test_removes_empty_history_directories_but_preserves_roots_and_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve()
+            runs = home / '.agent-fleet/runs'
+            new, old = clean.report_roots(home)
+            external = home / 'external'
+            external.mkdir()
+            target = external / 'untouched'
+            target.write_text('fixture')
+            aged = time.time() - 15 * 86400
+            os.utime(target, (aged, aged))
+            directories = [runs / 'old-run/screenshots', new / '2020-01-02', old / '2020-01-03']
+            for directory in directories:
+                directory.mkdir(parents=True)
+                file = directory / 'old.txt'
+                file.write_text('fixture')
+                os.utime(file, (aged, aged))
+            link = runs / 'retained-link'
+            link.symlink_to(target)
+            (runs / 'retained-directory').symlink_to(external, target_is_directory=True)
+            (runs / 'dangling-link').symlink_to(external / 'missing')
+            clean.clean_local('7d', True, home, runs)
+            self.assertTrue(all(directory.is_dir() for directory in directories))
+            clean.clean_local('7d', False, home, runs)
+            self.assertTrue(all(not directory.exists() for directory in [*directories, runs / 'old-run']))
+            self.assertTrue(all(directory.is_dir() for directory in [runs, new, old]))
+            self.assertTrue(target.is_file() and link.is_symlink())
+            self.assertTrue((runs / 'retained-directory').is_symlink())
+            self.assertTrue((runs / 'dangling-link').is_symlink())
+            new.rmdir()
+            new.symlink_to(external, target_is_directory=True)
+            clean.clean_local('7d', False, home, runs)
+            self.assertTrue(new.is_symlink() and target.is_file())
+
     def test_merged_worktrees_only(self):
         with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
+            home = Path(tmp).resolve()
             repo, runs = home / 'repo', home / '.agent-fleet/runs'
             runs.mkdir(parents=True)
             repo.mkdir()
@@ -97,7 +131,7 @@ class CleanTest(unittest.TestCase):
 
     def test_ignored_worktree_config_and_whitelist_are_preserved(self):
         with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
+            home = Path(tmp).resolve()
             repo, runs = home / 'repo', home / '.agent-fleet/runs'
             repo.mkdir()
             runs.mkdir(parents=True)
@@ -125,7 +159,7 @@ class CleanTest(unittest.TestCase):
 
     def test_pending_and_explicit_approval(self):
         with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
+            home = Path(tmp).resolve()
             runs, reports = home / '.agent-fleet/runs', home / '.agent-reports'
             runs.mkdir(parents=True)
             reports.mkdir()
@@ -159,7 +193,7 @@ class CleanTest(unittest.TestCase):
 
     def test_config_state_and_whitelist_survive_apply(self):
         with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
+            home = Path(tmp).resolve()
             runs, reports = home / '.agent-fleet/runs', home / '.agent-reports'
             runs.mkdir(parents=True)
             reports.mkdir()

@@ -168,6 +168,7 @@ export function buildRow(rec, index, { useReport = true, backfilled = false } = 
     executor, family: rec.family ?? brief.family ?? executor, model: brief.resolvedModel ?? rec.resolvedModel ?? rec.model, route: rec.model,
     effort: rec.tier ?? brief.effort ?? (rec.max || meta.max ? 'max' : rec.xhigh || meta.xhigh ? 'xhigh' : rec.high || meta.high ? 'high' : rec.low || meta.low ? 'low' : executor === 'gemini' ? 'xhigh' : null),
     level: meta.level ?? null,
+    ...(meta.scenes?.length ? { scenes: meta.scenes, project: tilde(meta.project) } : {}),
     orderOverride: meta.order_override ?? null,
     fallbackDeviation: meta.fallback_deviation ?? null,
     localReason: meta.local_reason ?? null,

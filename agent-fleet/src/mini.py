@@ -1,6 +1,7 @@
 """Mac Mini transport for detached fleet runs."""
 from contextlib import contextmanager
 import base64
+from clean import report_roots
 import json
 import os
 import re
@@ -153,14 +154,14 @@ def referenced_paths(text):
     return list(dict.fromkeys(paths))
 
 def sync_reports(meta, paths):
-    """把本机 ~/.agent-reports 下的输入同步到 Mini：缺的补齐；已有文件本机较新且内容不同就覆盖。"""
-    root = Path(LOCAL_HOME) / '.agent-reports'
+    """把本机新旧报告目录下的输入同步到 Mini：缺的补齐；已有文件本机较新且内容不同就覆盖。"""
+    roots = report_roots(LOCAL_HOME)
     declared = split_paths([*meta.get('writes', []), *(meta.get('object') or {}).get('writes', [])])
     writes = {expand_path(p.strip()) for part in declared for p in expand_braces(part)}
     targets = []
     for value in dict.fromkeys(paths):
         path = Path(expand_path(value))
-        if not path.is_relative_to(root): continue
+        if not any(path.is_relative_to(root) for root in roots): continue
         if not path.exists():
             if str(path) not in writes: continue
             path.mkdir(parents=True, exist_ok=True)
@@ -467,7 +468,8 @@ print(json.dumps({'text':tail(p['log'],6000)+'\\n'+tail(p['result'],3000),'codex
         data = json.loads(p.stdout)
         import order
         order.auto_record({'runId': rec['id'], 'name': rec.get('name'), 'route': row.get('model'), 'finishedAt': row.get('finishedAt'),
-                           'text': data.get('text', ''), 'codexQuota': data.get('codexQuota')})
+                           'text': data.get('text', ''), 'codexQuota': data.get('codexQuota')},
+                          warn=lambda message: print(message, file=sys.stderr))
     except Exception:
         pass
 
