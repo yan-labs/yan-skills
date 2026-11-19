@@ -59,7 +59,7 @@ Semrush 已把内容工具组整体重做成 **Content Toolkit，并从套餐里
 ## 项目门 2 条：转 `../site-audit/`
 
 `/siteaudit/` 与 `/on-page-seo-checker/` 在**无项目**时只有空态或引导页。
-勘测当天账号里 0 个 SEO 项目，之后建了一个（campaign `31025602`）——
+勘测当天账号里 0 个 SEO 项目，之后建了一个（campaign `<CAMPAIGN_ID>`）——
 现在的形状、建项目配方与报告路由全部在 **`../site-audit/OVERVIEW.md`**。
 无项目时的原始形状（含 `/on-page-seo-checker/` 的促销插画坑）也留档在那份 OVERVIEW 里。
 

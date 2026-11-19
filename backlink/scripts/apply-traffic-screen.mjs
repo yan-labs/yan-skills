@@ -32,7 +32,7 @@
  *         [--file <targets.json>] [--strip-legacy-verdicts] [--dry]
  */
 import fs from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { helpGuard } from './opencli-core.mjs';
 import { isRowComplete } from './lib-batch-evidence.mjs';
@@ -117,7 +117,7 @@ for (const t of doc.targets) {
       windowLabel: r.windowLabel ?? null,
       screenshot: r.evidence?.screenshot ?? null,
       raw: r.evidence?.raw ?? null,
-      jsonl: jsonlOf.get(r.domain) ?? null,
+      jsonl: jsonlOf.has(r.domain) ? basename(jsonlOf.get(r.domain)) : null,
     },
   };
   applied++;

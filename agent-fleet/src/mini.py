@@ -61,7 +61,8 @@ def rewrite_brief(text):
     return re.sub(PATH_PATTERN, lambda m: remote_path(m.group(0)), text) if LOCAL_HOME and REMOTE_HOME else text
 
 def on_mini():
-    return socket.gethostname().lower().split('.')[0] == 'yandemac-mini'
+    name = os.environ.get('FLEET_MINI_HOSTNAME') or CONFIG.get('hostname', '')
+    return os.environ.get('FLEET_MACHINE') == 'mini' or bool(name and socket.gethostname().lower().split('.')[0] == name.lower().split('.')[0])
 
 def available():
     try:

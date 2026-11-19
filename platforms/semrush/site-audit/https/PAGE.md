@@ -37,7 +37,7 @@ platforms/semrush/site-audit/https/collect.sh [campaign-id] [out-dir]
 
 ```sh
 node backlink/scripts/ground-truth.mjs \
-  --url "https://sem.3ue.co/siteaudit/campaign/31025602/review/https" \
+  --url "https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/https" \
   --out <dir> --budget 120 --max-screens 8 \
   --ready-text "分数："
 ```
@@ -54,11 +54,11 @@ node backlink/scripts/ground-truth.mjs \
 
 ## 验证记录
 
-- **2026-08-30** 双证人采集（`route-https-v2/`），campaign `31025602`，会话 `semrush-nav`。
+- **2026-08-30** 双证人采集（`route-https-v2/`），campaign `<CAMPAIGN_ID>`，会话 `semrush-nav`。
   census 的「HTTPS 实施 / 分数：」+ 11 条检查项 ↔ `shot-s2.png` 三组卡片
   （安全证书 2 / 服务器 4 / 网站架构 5）逐项一致。
   前一轮的失败样本 `route-https/`（`finalHref=/`、`deepTextLength=88`）**保留在证据目录里
   作为「导航瞬时失败 vs hijack」的反例证据**，别删。
   证据（本地，gitignore）：
-  `backlink/evidence/ground-truth/semrush-siteaudit-shindan/route-https-v2/`。
+  `backlink/evidence/ground-truth/semrush-siteaudit-example/route-https-v2/`。
 - 截图档案：`assets/loaded.png`。

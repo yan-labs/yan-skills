@@ -72,7 +72,7 @@ BRIEF
 
 ## 执行位置与读回
 
-默认远端执行，参数仍用 `--on mini`。远端不可用时补齐路径、同步或工具。确需本机用 `--on local` 并传 `--local-reason`。配置用 `FLEET_MINI_HOME` 和 `FLEET_MINI_BIN`，或在 `~/.agent-fleet/mini.json` 用 `remote_home`、`bin`、`local_home`、`mm`。环境变量优先。
+默认远端执行，参数仍用 `--on mini`。远端不可用时补齐路径、同步或工具。确需本机用 `--on local` 并传 `--local-reason`。配置用 `FLEET_MINI_HOME` 和 `FLEET_MINI_BIN`，或在 `~/.agent-fleet/mini.json` 用 `remote_home`、`bin`、`local_home`、`mm`、`hostname`。环境变量优先。远端执行机设置 `FLEET_MACHINE=mini`，或设置 `FLEET_MINI_HOSTNAME` / 配置 `hostname` 以识别本机。
 
 `fleet-go status` 默认显示非终态和最近一小时任务，`--all` 看全部历史。远端状态取不到时检查 stderr。`fleet-go read` 按任务名读取报告，选 `--report`、`--result` 或 `--log`，可加 `--head` 或 `--pull`。机器汇总看 `fleet status --running --json`，历史汇总看 [账本](ledger.md)。
 

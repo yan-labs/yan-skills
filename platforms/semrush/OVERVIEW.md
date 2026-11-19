@@ -65,4 +65,4 @@
 | Backlink Analytics + 竞对监控 | `backlink-analytics/` | ✅ 7 页（overview、backlinks、refdomains、anchors、indexed-pages、backlink-gap 六桶已勘、competitor-monitoring 像素-only） |
 | Keyword Research（关键词研究） | `keyword-research/` | ✅ 3/3 页（keyword-overview、keyword-magic、keyword-strategy-builder 只读）；`/keyword-manager/` 旧路由证伪 |
 | 内容工具组（Content） | `content-tools/` | ✅ 14 条路由全判决（2026-08-30）：**读层 3 页有 PAGE.md**（topic-research、topic-research-report、swa）；**做层 7 条是真付费墙**（Content Toolkit $60/月单独订阅，本账号未买，不建目录）；死路由 2 条留档 |
-| Site Audit（网站检测） | `site-audit/` | ✅ 5/5 报告页有 PAGE.md（overview、issues、pagereport、crawlability、https）+ 两段式建项目配方；路由绑 campaign id，无无状态入口；已建项目 `31025602`（占 15 个 Projects 名额之一，**复用不新建**） |
+| Site Audit（网站检测） | `site-audit/` | ✅ 5/5 报告页有 PAGE.md（overview、issues、pagereport、crawlability、https）+ 两段式建项目配方；路由绑 campaign id，无无状态入口；复用账号已有项目 |

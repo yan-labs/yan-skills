@@ -46,9 +46,9 @@ platforms/semrush/site-audit/pagereport/collect.sh [campaign-id] [out-dir]
 
 ```sh
 node backlink/scripts/ground-truth.mjs \
-  --url "https://sem.3ue.co/siteaudit/campaign/31025602/review/pagereport" \
+  --url "https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/pagereport" \
   --out <dir> --budget 180 --max-screens 16 \
-  --accept-redirect "/siteaudit/campaign/31025602/review/pagereport/pages"
+  --accept-redirect "/siteaudit/campaign/<CAMPAIGN_ID>/review/pagereport/pages"
 ```
 
 行数多于 100 时走翻页批采，配方见
@@ -66,9 +66,9 @@ node backlink/scripts/ground-truth.mjs \
 
 ## 验证记录
 
-- **2026-08-30** 双证人采集（`route-pagereport-v2/`），campaign `31025602`，会话 `semrush-nav`。
+- **2026-08-30** 双证人采集（`route-pagereport-v2/`），campaign `<CAMPAIGN_ID>`，会话 `semrush-nav`。
   census 的 URL 行 ↔ `shot-s1.png` 表首行（站点首页，ILR 100）一致；
   s12 复核仍是同样的行数，**确认前一轮没有漏行**。
   证据（本地，gitignore）：
-  `backlink/evidence/ground-truth/semrush-siteaudit-shindan/route-pagereport-v2/`。
+  `backlink/evidence/ground-truth/semrush-siteaudit-example/route-pagereport-v2/`。
 - 截图档案：`assets/loaded.png`。

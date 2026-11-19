@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 // 回归测试：2026-09-12 发现 ledger.mjs 的 upsert/transition 是"整文件读出→内存里
 // 改→整文件写回"，没有锁也不在写入前重新合并。多个 subagent 并发对同一个项目的
-// ledger.json 调用 upsert 时，后写入的完整覆盖先写入的，丢过 6 条记录（videocatch）。
+// ledger.json 调用 upsert 时，后写入的完整覆盖先写入的，丢过 6 条记录（example-product）。
 // 这里起一批并发子进程各自 upsert 一条不同的记录，验证修好之后全部记录都在，
 // 一条都不丢。
 

@@ -45,7 +45,7 @@ fleet media run generate_image --model gpt-image-2 \
   --out <outdir>
 ```
 
-生成后保留原始 GIF 和提示词到 `<project>/design/imagegen/<batch>/`，发布版本放 `<project>/public/images/<section>/`；网页动图目标尽量小于 2 MB，超出先缩尺寸或帧数。已有 `gifsicle` 或 `ffmpeg` 时再压缩，并检查循环、帧时长和画质；MacBook 不安装软件。保留 GIF 格式，不用静图压缩命令覆盖。
+生成后保留原始 GIF 和提示词到 `<project>/design/imagegen/<batch>/`，发布版本放 `<project>/public/images/<section>/`；网页动图目标尽量小于 2 MB，超出先缩尺寸或帧数。已有 `gifsicle` 或 `ffmpeg` 时再压缩，并检查循环、帧时长和画质；派单机不安装软件。保留 GIF 格式，不用静图压缩命令覆盖。
 
 三道验收用于动图：逐帧抽查并看完整循环（含首尾衔接），将代表帧缩到 120px 做接触印相；透明主体逐帧量 alpha 包围盒占比（不透明图不适用）；独立盲评播放结果和代表帧，对照提示词检查连贯、主体不跳及风格。单一方案无对照时如实记录盲评未做。
 

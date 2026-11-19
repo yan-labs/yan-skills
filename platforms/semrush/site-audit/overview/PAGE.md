@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：`https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/overview`
-  - `<CAMPAIGN_ID>`：项目 id，**没有按域名查的无状态入口**（本仓已有 `31025602` = `shindan.co`）
+  - `<CAMPAIGN_ID>`：项目 id，**没有按域名查的无状态入口**
   - 面板会附加 `__gmitm=`（剥敏，只留键名），不需要手传
 - 落点：**原样**，不重定向
 - 上级：`../OVERVIEW.md`（建项目配方、板块坑）
@@ -41,7 +41,7 @@ AI 搜索健康、Top 问题清单、7 项主题得分。要具体是哪些页�
 
 ```sh
 platforms/semrush/site-audit/overview/collect.sh [campaign-id] [out-dir]
-# 默认 campaign-id=31025602
+# 传入 campaign ID，或设置 SEMRUSH_CAMPAIGN_ID
 ```
 
 内部是一条 `node backlink/scripts/ground-truth.mjs --url … --out … --budget 180`：
@@ -59,8 +59,8 @@ platforms/semrush/site-audit/overview/collect.sh [campaign-id] [out-dir]
 
 ## 验证记录
 
-- **2026-08-30**（周日，抓取完成 23:23）双证人采集，campaign `31025602`，会话 `semrush-nav`。
+- **2026-08-30**（周日，抓取完成 23:23）双证人采集，campaign `<CAMPAIGN_ID>`，会话 `semrush-nav`。
   census 的 deepText 与 `shot-s1.png` 中央仪表盘读数逐项对质一致。
-  证据（本地，gitignore）：`backlink/evidence/ground-truth/semrush-siteaudit-shindan/route-overview/`；
+  证据（本地，gitignore）：`backlink/evidence/ground-truth/semrush-siteaudit-example/route-overview/`；
   判决书 `…/semrush-siteaudit-VERDICTS.md`。
 - 截图档案：`assets/loaded.png`（渲染完成的首屏）。

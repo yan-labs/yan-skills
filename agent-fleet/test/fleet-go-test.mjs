@@ -423,7 +423,7 @@ assert before == [__import__('pathlib').Path(sys.argv[2]).read_bytes(), __import
 from unittest.mock import patch
 sys.path.insert(0, __import__('os').path.dirname(sys.argv[1]))
 spec=importlib.util.spec_from_file_location('fg',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-with patch.object(m.mini.socket,'gethostname',return_value='YandeMac-mini.local'), patch.object(sys,'argv',['fleet-go','amend','one','--say','x','--on','mini']):
+with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch.object(m.mini.socket,'gethostname',return_value='remote-host.local'), patch.object(sys,'argv',['fleet-go','amend','one','--say','x','--on','mini']):
  try: m.main()
  except ValueError as e: assert '已在 Mini 上' in str(e) and '--on local' in str(e)
  else: raise AssertionError('expected failure')

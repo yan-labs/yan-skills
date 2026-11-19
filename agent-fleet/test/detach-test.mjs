@@ -117,7 +117,7 @@ assert.equal((await cliRun(['wait',code])).code,0);
 assert.equal(state(code).status,'done');assert.equal(state(code).brief.verdict,'ok');
 assert.match((await cliRun(['tail','--follow'])).stdout,/stub log/);
 assert.match((await cliRun(['status'])).stdout,/done/);
-const warning=await launch('code',{FLEET_FALLBACK_WARNING:'警告：Mini 不可达，已在 MacBook 执行'});
+const warning=await launch('code',{FLEET_FALLBACK_WARNING:'警告：Mini 不可达，已在 派单机 执行'});
 assert.equal((await cliRun(['wait',warning])).code,0);
 assert.match(readFileSync(state(warning).resultPath,'utf8'), /警告：Mini 不可达/);
 const fail=await launch('code',{FLEET_TEST_EXIT:'1'});
@@ -484,7 +484,7 @@ else {
     delete process.env.FLEET_LIGHT_CAPACITY; delete process.env.FLEET_CODE_CAPACITY;
     const six=[];
     for(let i=0;i<6;i++)six.push(await start('book-'+i,[],null,'local'));
-    for(const id of six)await until(()=>began(id),'MacBook six start');
+    for(const id of six)await until(()=>began(id),'派单机 six start');
     const book7=await start('book-7',[],null,'local');assert(!began(book7));
     for(const id of [...six,book7])release(id);
     for(const id of [...six,book7])await waitDetached(id);

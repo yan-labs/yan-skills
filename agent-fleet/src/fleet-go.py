@@ -865,7 +865,7 @@ def quota_fallback(target, review, original):
     order.gate('openai')
     if review:
         raise ValueError('Codex 订阅额度用完，但 OpenAI API 不支持 --review，无法自动改派。')
-    note = f'Codex 订阅额度用完，按用户 2026-11-19 授权自动改派 OpenAI API；原档位及参数：{original}。报告「偏差」一节须记录。'
+    note = f'Codex 订阅额度用完，按本地配置自动改派 OpenAI API；原档位及参数：{original}。报告「偏差」一节须记录。'
     print('警告：' + note, file=sys.stderr)
     return note
 

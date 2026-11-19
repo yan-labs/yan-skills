@@ -2,7 +2,9 @@
 
 任务名额分为轻量池（Luna、Gemini/copy/bulk、Haiku、JEV，默认 10）和编码池（其他模型，默认 4），分别排队；只读任务不占名额。`FLEET_LIGHT_CAPACITY` / `FLEET_CODE_CAPACITY` 可分别调整，`FLEET_SLOT_CAPACITY` 则覆盖为全局总名额。
 
-Mini 同步：在本仓将目标提交用 `git archive HEAD` 解包到临时目录，再用 `rsync -a` 覆盖 Mini 的 `~/PROJECT/kcsx/macmini/yan-skills/`；保留远端未跟踪的配置和依赖。
+`launchd/dev.agent-fleet.watch.plist` 是模板：安装前将 `/ABSOLUTE/PATH/TO/yan-skills` 和 `/ABSOLUTE/PATH/TO/.agent-fleet` 替换为本机绝对路径。
+
+Mini 同步：在本仓将目标提交用 `git archive HEAD` 解包到临时目录，再用 `rsync -a` 覆盖 Mini 的 远端的仓库目录；保留远端未跟踪的配置和依赖。
 
 槽位扫描所用的 PID 记录以临时文件原子替换，避免并发更新时读到空 JSON；损坏记录的错误包含文件路径。Mini 通道预检单次最多 60 秒（传输等待 75 秒），超时自动重试一次；两次超时报告「Mini 环境检查超时（负载高）」，不等同于通道不可用。
 

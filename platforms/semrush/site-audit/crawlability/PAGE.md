@@ -44,7 +44,7 @@ platforms/semrush/site-audit/crawlability/collect.sh [campaign-id] [out-dir]
 
 ```sh
 node backlink/scripts/ground-truth.mjs \
-  --url "https://sem.3ue.co/siteaudit/campaign/31025602/review/crawlability" \
+  --url "https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/crawlability" \
   --out <dir> --budget 120 --max-screens 8 \
   --ready-text "分数："
 ```
@@ -61,9 +61,9 @@ node backlink/scripts/ground-truth.mjs \
 
 ## 验证记录
 
-- **2026-08-30** 双证人采集，campaign `31025602`，会话 `semrush-nav`。
+- **2026-08-30** 双证人采集，campaign `<CAMPAIGN_ID>`，会话 `semrush-nav`。
   census 的可索引性 / 预算浪费 / 点击深度 / 状态码四组读数 ↔ `shot-s1.png`
   的甜甜圈中央数字与右侧条形图逐项一致。
   证据（本地，gitignore）：
-  `backlink/evidence/ground-truth/semrush-siteaudit-shindan/route-crawlability/`。
+  `backlink/evidence/ground-truth/semrush-siteaudit-example/route-crawlability/`。
 - 截图档案：`assets/loaded.png`。

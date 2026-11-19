@@ -1,7 +1,7 @@
 ---
 name: blog
 description: |
-  effect.video（及同模板站点）文章类页面的书写与上线流程：模型页 /models/<slug>、blog、模型对比、产品对比。
+  示例站点（及同模板站点）文章类页面的书写与上线流程：模型页 /models/<slug>、blog、模型对比、产品对比。
   这不是通用写作 Skill，它把我们已定的分工（X 调研交 Grok、成文交 Gemini 3.8 Flash、review 交 Claude Sonnet、设计与实现交 Claude）、
   资料采集规范（只拼别人的资料、来源可核实）、页面组件标准（YouTube iframe、X 评论墙、Prompt 集合卡、参数表/对比表、shadcn 图表、引导 card）、
   以及最后的评判阶段（哥飞 AI 评分、AITDK 的 SEO/关键词密度/GEO 监测、ChatGPT 匿名问答）串在一起，并和 rankup、agent-fleet、write、gefei、opencli、design 联动。
@@ -11,7 +11,7 @@ description: |
 
 # blog · 我们自己的文章流程
 
-这个 Skill 记录用户（2026-10-11）定下的文章类页面做法，只服务 effect.video 一类站点。它不重复别的 Skill 的内容，只规定“谁做什么、按什么顺序、哪些不许做”，细节指到对应 Skill 去读。
+这个 Skill 记录文章类页面做法，只服务 示例站点 一类站点。它不重复别的 Skill 的内容，只规定“谁做什么、按什么顺序、哪些不许做”，细节指到对应 Skill 去读。
 
 配图（封面图）与正文同等重要，是写文章的一部分：每篇文章都要有一张海报式封面，走 `/imagegen`，见 `references/cover.md`。
 

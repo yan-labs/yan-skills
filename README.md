@@ -2,7 +2,7 @@
 
 给做 SEO 和独立开发的人用的 Agent Skills。**建站、选词、发外链、查数据、复盘迭代**，一整条链路都在这个仓库里，装完就能跑。
 
-作者 [Yan](https://github.com/yan-labs)，自用打磨，实测可跑。兼容 Claude Code、Codex CLI、Cursor，以及任何读 `SKILL.md` 的平台。MIT 协议，随便拿去用。
+兼容多种 Agent 平台，实测可跑。兼容 Claude Code、Codex CLI、Cursor，以及任何读 `SKILL.md` 的平台。MIT 协议，随便拿去用。
 
 ```bash
 npx skills add yan-labs/yan-skills -g --all
@@ -61,7 +61,7 @@ npx skills add yan-labs/yan-skills -g --all
 | 「生成 logo / 吉祥物 / og 图 / 内页配图 / 用户场景图 / 手绘插画」 | [`imagegen`](imagegen/) |
 | 「让 Codex 在后台跑一轮」 | [`codex`](codex/) |
 | 「写文章 / 改稿 / 写文案 / 写脚本 / 去 AI 味 / 翻译 / 摘要 / 排版」 | [`write`](write/) |
-| 「effect.video 的 model 页 / blog / 模型对比 / 产品对比，把页面内容写出来」 | [`blog`](blog/) |
+| 「示例站点 的 model 页 / blog / 模型对比 / 产品对比，把页面内容写出来」 | [`blog`](blog/) |
 | 「skill 没生效 / 目录重复 / 链接坏了」 | [`skill-link-check`](skill-link-check/) |
 
 三条容易走错的边界：
@@ -415,7 +415,7 @@ KD 与 SERP、用 Semrush 核对搜索量、检查可玩供给，结果统一写
 `node game-opportunity/scripts/game-opportunity.mjs daily`，最终生成带候选链接和
 `develop / research / watch` 决策的 `latest.md` 与 `latest.json`。
 
-### [`blog`](blog/) — effect.video 文章类页面流程（非通用）
+### [`blog`](blog/) — 示例站点 文章类页面流程（非通用）
 
 我们自己的文章做法：X 调研交 Grok、资料采集交 Claude、成文交 Gemini 3.8 Flash、review 交 Claude Sonnet；不自编、只拼有出处的资料；页面必备 YouTube iframe、X 评论墙、参数/对比表、Prompt 集合卡与引导 card；最后用哥飞评分、AITDK、ChatGPT 匿名问答评判。与 `rankup`、`agent-fleet`、`write`、`gefei`、`opencli`、`design` 联动。
 

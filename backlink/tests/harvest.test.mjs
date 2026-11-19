@@ -10,7 +10,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -267,12 +267,8 @@ test("merge 没有输入时失败而不是产出空文件", async () => {
 // 模式与 rankup/scripts/validate-rankup.mjs 的 projectLeakPatterns 保持一致。
 // ─────────────────────────────────────────────────────────────────────────
 
-// 名单里为什么是这些名字:它们是**已经泄漏过或最可能泄漏**的自有项目代号。
-// 这不是「这些项目特殊」,而是黑名单只能拦住它认识的词——2026-08-21 发现
-// `intabtools` / `toolpear` 有四处漏进 backlink/,根因就是它们不在这张表里。
-// **新开一个项目时把它的代号加进来**,否则这个守卫对它等于不存在。
+// 项目标识从本机 rankup 配置读取，避免把私有名称写进公开仓库。
 const projectLeakPatterns = [
-  ["project identifier", /\b(?:bettercallsaul|birthstonemeaning|crystalhealing|sbti|intabtools|toolpear|shindan-lab|butterflydream|sgsz-alliance|xueer)\b/gi],
   ["absolute host path", /\/Users\/[A-Za-z0-9._-]+\//g],
   ["hardcoded local proxy", /\b127\.0\.0\.1:\d{2,5}\b/g],
   ["credential store location", /\.claude\.json\b/g],
@@ -301,6 +297,11 @@ test("Skill 内容保持项目中立", async () => {
   assert.ok(files.length >= 4, "扫描必须真的看到文件,空扫等于没测");
 
   const findings = [];
+  const configPath = path.join(process.env.RANKUP_HOME || path.join(homedir(), ".rankup"), "config.json");
+  let config = {};
+  try { config = JSON.parse(await readFile(configPath, "utf8")); } catch {}
+  const identifiers = [...(Array.isArray(config.projectIdentifiers) ? config.projectIdentifiers : []), ...(Array.isArray(config.projectDomains) ? config.projectDomains : [])].filter((v) => typeof v === "string" && v.trim());
+  if (identifiers.length) projectLeakPatterns.push(["project identifier", new RegExp(identifiers.map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "gi")]);
   for (const absolute of files) {
     const relative = path.relative(skillRoot, absolute);
     if (leakScanExcludes.has(relative)) continue;

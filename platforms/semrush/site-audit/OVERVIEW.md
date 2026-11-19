@@ -15,7 +15,7 @@ https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/<route>
 
 - `<CAMPAIGN_ID>` 只能**建完项目后从地址栏读回**：列表行是 DIV、`href=null`、
   类名是 hash 化的 CSS module，拿不到链接。任何脚本都要把它参数化。
-- 本仓已有的项目：`shindan.co` → campaign **`31025602`**（2026-08-30 建）。
+- 使用自己的 campaign ID。
 
 ## 已判决路由
 
@@ -34,7 +34,7 @@ https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/<route>
 ## 建项目配方（消耗性操作，读完再动）
 
 ⚠️ **一个账号 Projects 名额只有 15 个，本轮已占 1 个。**
-再勘测请复用 campaign `31025602`，**不要新建第二个项目**。下面这份配方记录一次即可，
+再勘测请复用 campaign `<CAMPAIGN_ID>`，**不要新建第二个项目**。下面这份配方记录一次即可，
 存在的意义是「下次真需要建时不用重新摸」，不是「可以随便跑」。
 
 ### 全景：**两段式，不是一个多步向导**

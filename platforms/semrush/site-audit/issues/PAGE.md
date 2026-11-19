@@ -46,7 +46,7 @@ platforms/semrush/site-audit/issues/collect.sh [campaign-id] [out-dir]
 
 ```sh
 node backlink/scripts/ground-truth.mjs \
-  --url "https://sem.3ue.co/siteaudit/campaign/31025602/review/issues" \
+  --url "https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/issues" \
   --out <dir> --budget 120 --max-screens 8 \
   --ready-text "如何解决"
 ```
@@ -63,9 +63,9 @@ node backlink/scripts/ground-truth.mjs \
 
 ## 验证记录
 
-- **2026-08-30** 双证人采集（`route-issues-v2/`），campaign `31025602`，会话 `semrush-nav`。
+- **2026-08-30** 双证人采集（`route-issues-v2/`），campaign `<CAMPAIGN_ID>`，会话 `semrush-nav`。
   census 的三档分组文本 ↔ `shot-s2.png` 的红条/橙条同名条目逐条一致。
   失败样本 `route-issues/`（无 ready-text + 带空格 regex，`budget/exit 2`）**保留在证据目录里
   作为「就绪判据盲区」的反例**，别删。
-  证据（本地，gitignore）：`backlink/evidence/ground-truth/semrush-siteaudit-shindan/route-issues-v2/`。
+  证据（本地，gitignore）：`backlink/evidence/ground-truth/semrush-siteaudit-example/route-issues-v2/`。
 - 截图档案：`assets/loaded.png`。

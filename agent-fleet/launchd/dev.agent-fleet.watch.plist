@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>dev.yan.agent-fleet.watch</string>
+  <string>dev.agent-fleet.watch</string>
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/python3</string>
-    <string>/Users/yan/PROJECT/kcsx/macmini/yan-skills/agent-fleet/bin/fleet-watch.py</string>
+    <string>/ABSOLUTE/PATH/TO/yan-skills/agent-fleet/bin/fleet-watch.py</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -21,8 +21,8 @@
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/Users/yan/.agent-fleet/watch/supervisor.log</string>
+  <string>/ABSOLUTE/PATH/TO/.agent-fleet/watch/supervisor.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/yan/.agent-fleet/watch/supervisor.err</string>
+  <string>/ABSOLUTE/PATH/TO/.agent-fleet/watch/supervisor.err</string>
 </dict>
 </plist>

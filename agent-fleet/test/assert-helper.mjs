@@ -57,7 +57,7 @@ if (process.argv[2] === '--isolated') {
   writeFileSync(sentinel, 'untouched');
   const env = { ...process.env, HOME: home, TMPDIR: temp, AGENT_FLEET_RUNS_DIR: runs,
     AGENT_FLEET_LEDGER: join(root, 'ledger.jsonl'), FLEET_NO_ARCHIVE_SWEEP: '1' };
-  for (const key of ['FLEET_DETACHED_RUN_ID', 'FLEET_DETACHED_BATCH', 'FLEET_SLOT_RUN_ID', 'FLEET_PARENT_RUN_ID', 'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT']) delete env[key];
+  for (const key of ['FLEET_DETACHED_RUN_ID', 'FLEET_DETACHED_BATCH', 'FLEET_SLOT_RUN_ID', 'FLEET_PARENT_RUN_ID', 'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'FLEET_CODE_CAPACITY', 'FLEET_LIGHT_CAPACITY', 'FLEET_SLOT_CAPACITY', 'FLEET_MACHINE', 'FLEET_MINI_HOSTNAME']) delete env[key];
   const child = spawn(process.argv[3], process.argv.slice(4), { env, stdio: 'inherit' });
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
   const clean = readFileSync(sentinel, 'utf8') === 'untouched' &&

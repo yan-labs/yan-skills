@@ -443,9 +443,6 @@ opencli browser <session> javascript_tool 'document.cookie'
 
 | 产品 | Listing ID | 邮箱 | 日期 | 状态 | 方案 |
 |---|---|---|---|---|---|
-| intabtools | #187490 | - | 2026-09-11 | 已提交 | 免费 |
-| shindan | #187491 | - | 2026-09-11 | 已提交 | 免费 |
-| videocatch | #187492 | - | 2026-09-11 | 已提交 | 免费 |
 
 ---
 

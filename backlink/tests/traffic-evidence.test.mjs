@@ -135,7 +135,7 @@ test('apply-traffic-screen writes numbers + evidence and never a verdict; incomp
   assert.ok(!('verdict' in kept.traffic), 'no verdict may be written');
   assert.equal(kept.traffic.evidence.stopReason, 'stable');
   assert.equal(kept.traffic.evidence.screenshot, 'sw.jsonl.evidence/kept.com.png');
-  assert.equal(kept.traffic.evidence.jsonl, jsonl);
+  assert.equal(kept.traffic.evidence.jsonl, 'sw.jsonl');
   // 未完成的行：清掉同源旧测量（旧的 fail 判决不能冒充已测）。
   assert.equal(stale.traffic, undefined, 'incomplete capture must clear the stale same-source measurement');
   // 异源不清：similarweb 这次没测成，否定不了 semrush 的数字。

@@ -521,7 +521,7 @@ form with the React controlled-combobox recipe (`el.focus()` +
 <summary>
 **Site Audit is the one Semrush module with no stateless entry: every route is
 bound to a project id.** One project was created this round (user's own site,
-campaign `31025602`), consuming 1 of the account's 15 Projects slots — the
+campaign `<CAMPAIGN_ID>`), consuming 1 of the account's 15 Projects slots — the
 create recipe below is therefore recorded once and **must be reused, not
 repeated**. 6 report routes judged double-witness, 2026-08-30. Judge's
 write-up: `backlink/evidence/ground-truth/semrush-siteaudit-VERDICTS.md`
