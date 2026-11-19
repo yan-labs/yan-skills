@@ -1,6 +1,6 @@
 # Organic Research + Keyword Gap（抄竞品链路）板块索引
 
-host: sem.3ue.co。6 条路由已于 2026-08-29 双证人判决（目标域名 canva.com，db=us），
+host: sem.proxy.example.com。6 条路由已于 2026-08-29 双证人判决（目标域名 canva.com，db=us），
 判决书见 `backlink/SKILL.md` 的 `<semrush-organic-route-capabilities>` 块；本地全文在
 `backlink/evidence/ground-truth/semrush-organic-VERDICTS.md`（gitignore）。
 

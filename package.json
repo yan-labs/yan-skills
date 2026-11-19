@@ -1,5 +1,5 @@
 {
-  "name": "@yan-labs/rankup",
+  "name": "@example-owner/rankup",
   "version": "2.62.0",
   "type": "module",
   "bin": {

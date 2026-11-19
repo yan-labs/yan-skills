@@ -549,7 +549,7 @@ async function main() {
   const maxScreens = Math.max(1, Number(flags['max-screens']) || 12);
   const acceptRedirects = parseAcceptRedirects(flags['accept-redirect']);
   const readyText = resolveReadyText(flags);
-  // 打开即刷新（2026-08-30 用户令）：3ue.co 镜像抖动频发，首开常见白屏/空响应/
+  // 打开即刷新（2026-08-30 用户令）：proxy.example.com 镜像抖动频发，首开常见白屏/空响应/
   // 「出错了」组件页，等 stall 判定（3 轮不变）才刷太慢——open 后无条件先 reload
   // 一次再进轮询，刷新即愈。`--no-eager-reload` 可关（非镜像站点或调试用）。
   const eagerReload = !flags['no-eager-reload'];
@@ -564,7 +564,7 @@ async function main() {
   // 整轮持机器级工具锁（one-collector-per-quota-tool）：daemon 只串行化单条
   // batch，本脚本一轮横跨几十条命令，poll 间隙别的工作流可以 open 自己的 URL
   // ——2026-08-29 复核抓到 4 次现行接管。锁按 url 的 host 映射工具 key
-  // （sem.3ue.co→semrush、sim.3ue.co→similarweb），非配额站不加锁。
+  // （sem.proxy.example.com→semrush、sim.proxy.example.com→similarweb），非配额站不加锁。
   // 等锁超时沿用 lib-tools-share 的默认；锁等待不计入采集预算。
   const quotaSite = quotaSiteOf(url);
   let locks = null;

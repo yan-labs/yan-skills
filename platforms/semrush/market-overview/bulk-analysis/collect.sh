@@ -12,7 +12,7 @@ ROOT="$(cd "$SCRIPT_DIR" && git rev-parse --show-toplevel)"
 
 OUT="$ROOT/backlink/evidence/ground-truth/semrush-bulk-analysis-$(date +%Y%m%d-%H%M%S)"
 
-URL="https://sem.3ue.co/analytics/traffic/industry-and-bulk-analysis/"
+URL="https://sem.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/analytics/traffic/industry-and-bulk-analysis/"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

@@ -385,7 +385,7 @@ export function die(msg) {
  *             挡住一个本来可能能跑的调用。
  *
  * 判据只认 `[OK] Connectivity`，不认 "Everything looks good"：doctor 只要有
- * 任何一条 Issue（哪怕只是「扩展版本比 yan-labs 构建旧」这种纯建议）就不再
+ * 任何一条 Issue（哪怕只是「扩展版本比 example-owner 构建旧」这种纯建议）就不再
  * 打印那句话，但桥其实完全可用。这个坑 reddit-wishes.mjs 已经踩过一次
  * （2026-08-23），这里直接复用同一条判据，不再各写各的。
  */

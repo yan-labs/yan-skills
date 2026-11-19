@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：
-  `https://sim.3ue.co/#/organicsearch/pageAnalysis/website-keyword-v2/<域>/999/3m?webSource=Total&selectedPageTab=Total&key=<域>`
+  `https://sim.proxy.example.com/#/organicsearch/pageAnalysis/website-keyword-v2/<域>/999/3m?webSource=Total&selectedPageTab=Total&key=<域>`
   - **`&key=<域>` 必带**（同板块通则）
 
 ## 回答什么业务问题

@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：
-  `https://sim.3ue.co/#/organicsearch/pageAnalysis/ranking-distribution-v2/<域>/840/<YYYY.MM-YYYY.MM>?webSource=Total&key=<域>`
+  `https://sim.proxy.example.com/#/organicsearch/pageAnalysis/ranking-distribution-v2/<域>/840/<YYYY.MM-YYYY.MM>?webSource=Total&key=<域>`
   - **`&key=<域>` 必带**；国家段实测被面板自动跳 840（美国）——模板以落地 href 为准
 
 ## 回答什么业务问题

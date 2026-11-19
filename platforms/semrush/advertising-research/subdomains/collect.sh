@@ -13,7 +13,7 @@ DB="${2:-us}"
 SLUG="${DOMAIN//./-}"
 OUT="$ROOT/backlink/evidence/ground-truth/semrush-adwords-subdomains-${SLUG}-$(date +%Y%m%d-%H%M%S)"
 
-URL="https://sem.3ue.co/analytics/adwords/subdomains/?db=${DB}&q=${DOMAIN}&searchType=domain"
+URL="https://sem.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/analytics/adwords/subdomains/?db=${DB}&q=${DOMAIN}&searchType=domain"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

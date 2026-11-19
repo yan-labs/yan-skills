@@ -8,7 +8,7 @@
 #
 #   source <opencli-skill-dir>/scripts/session.sh
 #   S=$(oc_session backlink-probe)      # 同一轮对话里稳定不变
-#   S=$(oc_session_for "https://sem.3ue.co/...")   # 配额站自动收敛成固定名
+#   S=$(oc_session_for "https://sem.proxy.example.com/...")   # 配额站自动收敛成固定名
 #
 # 后缀解析顺序与 defaultSession() 保持一致：
 #   OPENCLI_SESSION_SUFFIX -> CLAUDE_CODE_SESSION_ID -> CLAUDE_CODE_HOST_SESSION_ID -> p<PPID>
@@ -31,9 +31,15 @@ oc_session() {
 # 规则和 opencli-core.mjs 的 QUOTA_SITES 必须一致，改一处要同步另一处。
 oc_session_for() {
   local url="$1" base="$2"
+  if [ -n "${TOOLS_SHARE_DOMAIN:-}" ]; then
+    case "$url" in
+      *"sem.${TOOLS_SHARE_DOMAIN}"*) printf 'semrush-nav'; return 0 ;;
+      *"sim.${TOOLS_SHARE_DOMAIN}"*) printf 'similarweb-nav'; return 0 ;;
+    esac
+  fi
   case "$url" in
-    *sem.3ue.co*|*semrush.com*)    printf 'semrush-nav';    return 0 ;;
-    *sim.3ue.co*|*similarweb.com*) printf 'similarweb-nav'; return 0 ;;
+    *semrush.com*)    printf 'semrush-nav';    return 0 ;;
+    *similarweb.com*) printf 'similarweb-nav'; return 0 ;;
   esac
   oc_session "$base"
 }

@@ -92,7 +92,7 @@ Ranked by how much they help:
 ## How to submit
 
 ```bash
-git clone https://github.com/yan-labs/yan-skills
+git clone $SKILLS_REPO_URL
 cd yan-skills/backlink
 
 # edit data/free-channels.json or data/paid-platforms.json

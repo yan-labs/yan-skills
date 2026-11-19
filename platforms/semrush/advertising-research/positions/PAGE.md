@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/analytics/adwords/positions/?db=us&q=<domain>&searchType=domain`
+- URL 模板：`https://sem.proxy.example.com/analytics/adwords/positions/?db=us&q=<domain>&searchType=domain`
   - `q`：目标域名（如 `canva.com`）；`searchType`：固定 `domain`
   - `db`：数据库（`us`）。落地后 db 被吃进 UI 的「数据库: 美国」选择器，页内 href 不再保留 db
   - 面板可能自动附加 `__gmitm=`（剥敏，只留键名），不需要手动传

@@ -303,7 +303,7 @@ test('dedupeRows 跨页去重并数出重复条数', () => {
 test('manifest 形状：no silent caps —— notice / capped / coverage 必须在', () => {
   const plan = planPages({ total: 1430, maxPages: 5 });
   const manifest = buildPaginatedManifest({
-    url: 'https://sem.3ue.co/analytics/traffic/top-pages/?q=canva.com&__gmitm=SECRET',
+    url: 'https://sem.proxy.example.com/analytics/traffic/top-pages/?q=canva.com&__gmitm=SECRET',
     session: 'semrush-nav', startedAt: 'a', finishedAt: 'b',
     mechanism: { kind: 'client' }, pager: { total: 1430 }, plan,
     pages: [], failures: [], rowsPerPage: 50, totalPages: 1430,

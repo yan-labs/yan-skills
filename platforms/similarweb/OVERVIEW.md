@@ -1,13 +1,13 @@
 # Similarweb 平台总览
 
-- **host：`sim.3ue.co`**（唯一合法面板 origin；所有 PAGE.md 的 URL 模板都在它上面）。
+- **host：`sim.proxy.example.com`**（唯一合法面板 origin；所有 PAGE.md 的 URL 模板都在它上面）。
 - 共享账号面板，**全站 hash 路由**：`location.pathname` 恒为 `/`，一切路由信息在 `#/…` 里。
   落点自检必须比对 hash 前 3 段；按 pathname 比对的检查对这站全盲。
 - 会话固定 `similarweb-nav`；机器级锁 `<user>-tools-share-similarweb.lock`
   （`backlink/scripts/lib-tools-share.mjs`），整轮持有，不是逐条命令排队。
 - 全部 URL 剥敏：`__gmitm=` 只留键名；Cookie/token/授权头一律不落盘、不进文档。
 
-## 配额纪律（碰任何 sim.3ue.co 页面之前必读）
+## 配额纪律（碰任何 sim.proxy.example.com 页面之前必读）
 
 1. **web 配额与 API 配额是两个池子**。面板卡片上的进度条是 API 配额，对网页使用配额全盲——
    卡片显示 100% 剩余时网页侧照样可能被封锁（2026-08-30 实证）。
@@ -18,13 +18,13 @@
 3. **配额探针 SOP**（先于一切采集）：`node backlink/scripts/tools-share-open.mjs --tool similarweb
    --goto <任一已知报表深链>`，15s settle 后仍在目标路由 = 有配额；< 3s 弹回 dash + referrer 带
    msg = 配额耗尽,当日收工。`pressure.mjs` 只数标签页和锁,不碰配额池,裁决 go ≠ 有配额。
-4. 无 token 裸开 `https://sim.3ue.co/...` 也 302 回 dash,与配额耗尽长得一样——判别子:无 token
+4. 无 token 裸开 `https://sim.proxy.example.com/...` 也 302 回 dash,与配额耗尽长得一样——判别子:无 token
    弹回**没有 msg 参数**。启动必须走 launcher（tools-share-open.mjs）。
 5. 一工具一采集者;手动探路也要在持锁的脚本内完成。
 
 ## 镜像抖动刷新法则（与配额无关，别混）
 
-白屏 / 几十字节空响应 / 「出错了…请稍后重试」错误组件页 = **3ue.co 镜像瞬时抖动或 SPA 冷载壳**
+白屏 / 几十字节空响应 / 「出错了…请稍后重试」错误组件页 = **proxy.example.com 镜像瞬时抖动或 SPA 冷载壳**
 （top document 停在 ~258 节点、body 0 字、五个 0×0 hook iframe），`location.reload()` 一次即愈。
 ground-truth.mjs 的 stall-refresh 分支已内置。**连刷 3 次仍坏才暂记待重测**。
 它与真空态（svgText=0 且 deepText 无数、无「无数据」文案）、假付费墙（升级弹窗，先查自己的 URL）

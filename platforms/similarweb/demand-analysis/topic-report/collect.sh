@@ -11,7 +11,7 @@ TOPIC="${1:-image editor}"
 TOPIC_ENC="$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$TOPIC")"
 OUT="${2:-$ROOT/backlink/evidence/ground-truth/similarweb-demand-topic-$(date +%Y%m%d-%H%M%S)}"
 
-URL="https://sim.3ue.co/#/digitalsuite/marketresearch/keywordmarketanalysissearch/demand-search-trends?country=999&webSource=Total&duration=12m&id=AiTopic%3B${TOPIC_ENC}%3B999"
+URL="https://sim.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/#/digitalsuite/marketresearch/keywordmarketanalysissearch/demand-search-trends?country=999&webSource=Total&duration=12m&id=AiTopic%3B${TOPIC_ENC}%3B999"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

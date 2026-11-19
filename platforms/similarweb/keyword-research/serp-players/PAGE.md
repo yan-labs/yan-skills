@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：
-  `https://sim.3ue.co/#/digitalsuite/acquisition/keyword/organic/search/999/28d/keywordAnalysis_2?keyword=<URL编码词>&tab=0&mtd=false&webSource=Desktop&selectedPageTab=Total&graphDuration=28d&timeGranularity=Weekly`
+  `https://sim.proxy.example.com/#/digitalsuite/acquisition/keyword/organic/search/999/28d/keywordAnalysis_2?keyword=<URL编码词>&tab=0&mtd=false&webSource=Desktop&selectedPageTab=Total&graphDuration=28d&timeGranularity=Weekly`
   - 关键词只在 `?keyword=`；时长段本例 `28d`（也接受月段）
 
 ## 回答什么业务问题

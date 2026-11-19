@@ -1,3 +1,5 @@
+安装前在本机设置 `SKILLS_SOURCE`（仓库的 GitHub owner/repository）、`SKILLS_REPO_URL`（克隆地址）、`RANKUP_PACKAGE`（发布的 npm 包名）和 `OPENCLI_PACKAGE_URL`（OpenCLI 安装包地址）。示例中的 `example-owner` 和 `proxy.example.com` 是占位符，按本机配置替换。
+
 # yan-skills
 
 给做 SEO 和独立开发的人用的 Agent Skills。**建站、选词、发外链、查数据、复盘迭代**，一整条链路都在这个仓库里，装完就能跑。
@@ -5,7 +7,7 @@
 兼容多种 Agent 平台，实测可跑。兼容 Claude Code、Codex CLI、Cursor，以及任何读 `SKILL.md` 的平台。MIT 协议，随便拿去用。
 
 ```bash
-npx skills add yan-labs/yan-skills -g --all
+npx skills add $SKILLS_SOURCE -g --all
 ```
 
 ---
@@ -81,9 +83,9 @@ npx skills add yan-labs/yan-skills -g --all
 登录态数据平台可以直接走薄 CLI，把一次探路沉淀成可续跑清单：
 
 ```bash
-npx @yan-labs/rankup catalog semrush --json
-npx @yan-labs/rankup capture semrush keyword-overview --keyword "photo signature resizer" --db us --out-dir .rankup/provider-audit/keyword-us
-npx @yan-labs/rankup audit similarweb --manifest .rankup/provider-audit/similarweb.json --out-dir .rankup/provider-audit/live/similarweb --resume
+npx --package $RANKUP_PACKAGE rankup catalog semrush --json
+npx --package $RANKUP_PACKAGE rankup capture semrush keyword-overview --keyword "photo signature resizer" --db us --out-dir .rankup/provider-audit/keyword-us
+npx --package $RANKUP_PACKAGE rankup audit similarweb --manifest .rankup/provider-audit/similarweb.json --out-dir .rankup/provider-audit/live/similarweb --resume
 ```
 
 ### 3.31 改了什么
@@ -374,7 +376,7 @@ candidate → qualified → filled → submitted → public → indexed@<engine>
 
 版本 `1.8.2`。**用其它 Skill 之前先装它**——`rankup` 和 `backlink` 的浏览器动作全部落在这一层，规则集中在这里，那两个 Skill 只留判据和指针。
 
-配套的 OpenCLI 本体也是我们自己维护的构建（[yan-labs/OpenCLI](https://github.com/yan-labs/OpenCLI)，Apache-2.0），**不要用 Chrome 应用商店那个版本**，理由见[前置依赖](#装-opencli-cli--浏览器扩展)。
+配套的 OpenCLI 本体也是我们自己维护的构建（example-owner/OpenCLI（地址见本机配置），Apache-2.0），**不要用 Chrome 应用商店那个版本**，理由见[前置依赖](#装-opencli-cli--浏览器扩展)。
 
 它管的是**用户本机那个真实的、已登录的 Chrome**——通过浏览器扩展加一个本地守护进程。这一个事实决定了几乎所有规则：沙箱浏览器没有 cookie，它对需要登录的目标会返回**看起来正常但内容不同**的结果（配额更低、字段更少、国家库不同），而这种失败会伪装成「这个工具没有这项数据」。
 
@@ -454,7 +456,7 @@ Skill 装多了以后，「为什么这个 Skill 没生效」十次里有八次�
 前置：`codex` CLI 已装并登录（`codex --version`），ImageMagick 可选（透明抠底与占比修正）。
 
 ```bash
-npx skills add yan-labs/yan-skills --skill imagegen -g -y
+npx skills add $SKILLS_SOURCE --skill imagegen -g -y
 ```
 
 2026-09-02 实跑：一张 1024×1024 透明 logo 加一张 1200×630 og 图，约 5 分钟，原图落 `~/.codex/generated_images/`，压缩后 og 图 JPEG 92 KB / WebP 27 KB。
@@ -467,22 +469,22 @@ npx skills add yan-labs/yan-skills --skill imagegen -g -y
 
 ```bash
 # 0) 先装这个：其余 Skill 的浏览器动作都依赖它
-npx skills add yan-labs/yan-skills --skill opencli -g -y
+npx skills add $SKILLS_SOURCE --skill opencli -g -y
 
 # 交互式选择要装哪些
-npx skills add yan-labs/yan-skills
+npx skills add $SKILLS_SOURCE
 
 # 全局装齐全部
-npx skills add yan-labs/yan-skills -g --all
+npx skills add $SKILLS_SOURCE -g --all
 
 # 只要 rankup
-npx skills add yan-labs/yan-skills --skill rankup -g -y
+npx skills add $SKILLS_SOURCE --skill rankup -g -y
 
 # 只要 backlink
-npx skills add yan-labs/yan-skills --skill backlink -g -y
+npx skills add $SKILLS_SOURCE --skill backlink -g -y
 
 # Cloudflare 新版 CLI 的使用规范
-npx skills add yan-labs/yan-skills --skill cf-cli -g -y
+npx skills add $SKILLS_SOURCE --skill cf-cli -g -y
 
 # 更新
 npx skills update rankup -g -y
@@ -508,18 +510,18 @@ rankup review
 |---|---|---|
 | Node.js 18+ | 两个 Skill 都要 | 全部脚本的运行时 |
 | Python 3.10+ | `rankup` 的 `gt.py`、`skill-link-check` | 首次运行 `gt.py` 自动建 venv |
-| [OpenCLI](https://github.com/yan-labs/OpenCLI) CLI + 浏览器扩展 | `opencli` / `backlink` / `rankup` 的全部浏览器动作 | 复用你自己已登录的 Chrome。**必须装我们的构建，不是 Chrome 应用商店那个**，见下 |
+| OpenCLI（地址见本机配置） CLI + 浏览器扩展 | `opencli` / `backlink` / `rankup` 的全部浏览器动作 | 复用你自己已登录的 Chrome。**必须装我们的构建，不是 Chrome 应用商店那个**，见下 |
 | [cf CLI](https://blog.cloudflare.com/cloudflare-cf-cli-launch/) | `rankup` 的 Web / Cloudflare 路径 | `npm i -g cf`；账号级资源和 API 命令按 [`cf-cli`](cf-cli/) 核对。安装 Skill 不会安装 CLI |
 | Wrangler / Stripe CLI | 按任务 | 现有 Worker 项目用锁定的 Wrangler 版本；Stripe 只在支付阶段需要 |
 
 ### 装 OpenCLI（CLI + 浏览器扩展）
 
 两半都要装**我们的构建**，来源是
-[yan-labs/OpenCLI 的 Release](https://github.com/yan-labs/OpenCLI/releases/latest)：
+example-owner/OpenCLI 的 Release（地址见本机配置）：
 
 ```bash
 # 1) CLI
-npm i -g https://github.com/yan-labs/OpenCLI/releases/download/v1.8.7-yan.2/opencli-cli-1.8.7-yan.2.tgz
+npm i -g "$OPENCLI_PACKAGE_URL"
 ```
 
 **2) 浏览器扩展** —— 下载 Release 里的 `opencli-extension-v*.zip`，解压到一个不会随手删掉的目录，
@@ -540,7 +542,7 @@ opencli doctor
 >
 > `opencli doctor` 打印的扩展版本就是判据——它显示什么，加载的就是什么。
 
-源码、完整差异清单与 issue 都在 [yan-labs/OpenCLI](https://github.com/yan-labs/OpenCLI)
+源码、完整差异清单与 issue 都在 example-owner/OpenCLI（地址见本机配置）
 （Apache-2.0，fork 自 [jackwener/opencli](https://github.com/jackwener/opencli)）。
 
 `backlink` 的任何浏览器任务开始之前，先跑一次健康检查：
@@ -660,7 +662,7 @@ python3 -m unittest discover -s skill-link-check/tests -v
 要改这些 Skill 本身，把全局技能目录直接链接到本仓库，让全局只存在一份真源：
 
 ```bash
-git clone https://github.com/yan-labs/yan-skills.git
+git clone $SKILLS_REPO_URL
 cd yan-skills
 
 # 建立或修复链接（把被替换掉的实体目录先备份，不直接删）

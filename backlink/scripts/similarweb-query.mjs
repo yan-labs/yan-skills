@@ -793,8 +793,8 @@ const evidenceDir = typeof flags['evidence-dir'] === 'string'
 // 面板入口已硬编码(公开 URL,账号在浏览器会话里),环境变量仍可覆盖。
 // 面板地址与登录流程都在 lib-tools-share.mjs 里，这里不再重复一份。
 // 面板点开之后跳转到的应用域名与入口面板不是同一个 host,推导不出来,只能写死或由环境变量给。
-// Similarweb 卡片落在 sim.3ue.co(Semrush 是 sem.3ue.co)。见 references/authorized-data-sources.md。
-const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN || 'https://sim.3ue.co').replace(/\/+$/, '');
+// Similarweb 卡片落在 sim.proxy.example.com(Semrush 是 sem.proxy.example.com)。见 references/authorized-data-sources.md。
+const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN || (process.env.TOOLS_SHARE_DOMAIN ? `https://sim.${process.env.TOOLS_SHARE_DOMAIN}` : '')).replace(/\/+$/, '');
 if (!appOrigin) {
   throw new Error(
     'TOOLS_SHARE_APP_ORIGIN is not set. Point it at the origin the dashboard launches into (e.g. https://app.example.com).',
@@ -1735,7 +1735,7 @@ try {
  * 换行分隔），下面的 fixture 已经按检查报告里给出的真实形态改过。
  */
 function runSelfTest() {
-  if (!gatewayError({title:'3ue.co | 502: Bad gateway'}) || gatewayError({title:'查找关键词',bodyText:'关键词 502'}))
+  if (!gatewayError({title:'proxy.example.com | 502: Bad gateway'}) || gatewayError({title:'查找关键词',bodyText:'关键词 502'}))
     throw new Error('gateway error must stop polling without treating a metric as an error');
   const assertEqual = (label, actual, expected) => {
     const a = JSON.stringify(actual);

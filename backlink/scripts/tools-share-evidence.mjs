@@ -115,7 +115,7 @@ export async function validReceipt(outDir, expectedRequest, acceptBounded = fals
   } catch { return false; }
 }
 function originFor(tool) {
-  return new URL(tool === 'semrush' ? (process.env.TOOLS_SHARE_APP_ORIGIN_SEMRUSH || 'https://sem.3ue.co') : (process.env.TOOLS_SHARE_APP_ORIGIN || 'https://sim.3ue.co')).origin;
+  return new URL(tool === 'semrush' ? (process.env.TOOLS_SHARE_APP_ORIGIN_SEMRUSH || (process.env.TOOLS_SHARE_DOMAIN ? `https://sem.${process.env.TOOLS_SHARE_DOMAIN}` : '')) : (process.env.TOOLS_SHARE_APP_ORIGIN || (process.env.TOOLS_SHARE_DOMAIN ? `https://sim.${process.env.TOOLS_SHARE_DOMAIN}` : ''))).origin;
 }
 function normalizeDomain(value) {
   const input = String(value || '');
@@ -235,13 +235,13 @@ export async function selfTest() {
   const { mkdtemp, rm } = await import('node:fs/promises');
   const temporary = await mkdtemp(path.join(process.env.TMPDIR || '/tmp', 'tools-share-evidence-test-'));
   try {
-    const request = requestIdentity({ tool: 'semrush', report: 'organic-pages', target: 'example.com', db: 'us', url: 'https://sem.3ue.co/analytics/?q=example.com&__gmitm=secret' });
+    const request = requestIdentity({ tool: 'semrush', report: 'organic-pages', target: 'example.com', db: 'us', url: 'https://sem.proxy.example.com/analytics/?q=example.com&__gmitm=secret' });
     for (const name of ARTIFACTS) await writeArtifact(temporary, name, name);
     const artifacts = Object.fromEntries(await Promise.all(ARTIFACTS.map(async (name) => [name, { sha256: await fileHash(path.join(temporary, name)) }])));
     await writeReceipt(temporary, { bundleComplete: true, resumeEligible: true, request, artifacts, captureStatus: 'captured', sources: { dom: 'available', ax: 'available', parsed: 'available', network: 'available', html: 'available' }, dataCompleteness: { status: 'not_applicable' } });
     if (!(await validReceipt(temporary, request))) throw new Error('matching receipt should resume');
     if (await validReceipt(temporary, { ...request, target: 'other.example' })) throw new Error('different domain resumed');
-    if (await validReceipt(temporary, { ...request, url: 'https://sem.3ue.co/other' })) throw new Error('different URL resumed');
+    if (await validReceipt(temporary, { ...request, url: 'https://sem.proxy.example.com/other' })) throw new Error('different URL resumed');
     await writeFile(path.join(temporary, 'page.txt'), 'changed');
     if (await validReceipt(temporary, request)) throw new Error('hash mismatch resumed');
     console.log('tools-share-evidence self-test: PASS');

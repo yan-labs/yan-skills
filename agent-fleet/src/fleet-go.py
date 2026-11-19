@@ -566,7 +566,7 @@ def brief_gate_errors(root, actions, text):
     if config.is_file():
         gates = json.loads(config.read_text()).get('briefGates', [])
     elif ('改代码' in actions and guide.is_file()
-          and '# nextspace / Buildin 项目规则' in guide.read_text()):
+          and re.search(r'^# [^\n]+ / Buildin 项目规则$', guide.read_text(), re.M)):
         gates = [{'when': {'action': '改代码'}, 'section': '验收环境',
                   'fields': ['账号', '免费空间', '付费空间', '开关', '夹具', '性能闸门'],
                   'hint': '逐项写明已就绪的入口或值；性能闸门引用计划原文，不适用的写原因。'}]

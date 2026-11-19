@@ -5,6 +5,8 @@ metadata:
   version: "1.8.2"
 ---
 
+安装前在本机设置 `SKILLS_SOURCE`（仓库来源）和 `OPENCLI_PACKAGE_URL`（OpenCLI 安装包地址）。共享工具地址示例使用 `proxy.example.com` 占位；运行前在本机环境设置 `TOOLS_SHARE_DOMAIN` 为实际服务域名，backlink 脚本也可写入本机 `backlink/.env`。
+
 # OpenCLI
 
 OpenCLI 把任意网站、Electron 桌面应用和外部 CLI 收敛成一条 `opencli <site> <command>`，
@@ -13,7 +15,7 @@ OpenCLI 把任意网站、Electron 桌面应用和外部 CLI 收敛成一条 `op
 它走的是**用户本机那个真实的、已登录的 Chrome**（浏览器扩展 + 本地守护进程），
 不是无痕实例、不是沙箱。这一个事实决定了本 Skill 里几乎所有规则。
 
-本 Skill 面向的是我们自己维护的 fork（`yan-labs/OpenCLI`），和上游 `jackwener/opencli`
+本 Skill 面向的是我们自己维护的 fork（`example-owner/OpenCLI`），和上游 `jackwener/opencli`
 有差异，差异清单见 [`references/our-fork.md`](references/our-fork.md)。
 
 ---
@@ -79,9 +81,9 @@ opencli doctor
 | 观察到 | 该做什么 |
 |---|---|
 | 命令成功但窗口/焦点行为与本文档不符 | 跑 `opencli doctor`，看 `Extension` 那行的版本 |
-| 版本 < 1.0.33 | **告诉用户他装的是应用商店版**，需要换成 [yan-labs 的 Release](https://github.com/yan-labs/OpenCLI/releases/latest) 里的 zip，并把商店版移除或停用 |
+| 版本 < 1.0.33 | **告诉用户他装的是应用商店版**，需要换成 example-owner 的 Release（地址见本机配置） 里的 zip，并把商店版移除或停用 |
 | `doctor` 自己就报了这条 | 照它说的做——它会打印下载地址和加载步骤 |
-| `frames` 对明明存在的跨源 iframe 返回 `[]`，不报错 | 扩展 < 1.1.0 没有 OOPIF 支持。已随 v1.9.0-yan.2 发布，装新 Release 的 tgz 并 reload 扩展即可，见第十节 |
+| `frames` 对明明存在的跨源 iframe 返回 `[]`，不报错 | 扩展 < 1.1.0 没有 OOPIF 支持。已随 v1.9.0-custom.2 发布，装新 Release 的 tgz 并 reload 扩展即可，见第十节 |
 | `frames`/`contexts` 正常，但 `eval --frame`/`--context` 面板开合几次后静默读到主页面 | 扩展 1.1.0 的已知回归，1.1.1 已修复（`frame_not_attached` 错误码判据）。见 [`references/our-fork.md`](references/our-fork.md) |
 
 `doctor` 会在扩展低于 1.0.33 时主动报这个问题，**不要跳过它的输出**。
@@ -560,16 +562,16 @@ node <opencli-skill-dir>/scripts/receiver.mjs --root . --out data/<主题>/raw
 ## 十、安装与更新
 
 ```bash
-npx skills add yan-labs/yan-skills --skill opencli -g -y
+npx skills add $SKILLS_SOURCE --skill opencli -g -y
 npx skills update opencli -g -y
 ```
 
 OpenCLI 本体分两半，**两半都要装我们的构建**，来源是
-[yan-labs/OpenCLI 的 Release](https://github.com/yan-labs/OpenCLI/releases/latest)：
+example-owner/OpenCLI 的 Release（地址见本机配置）：
 
 ```bash
 # 1) CLI
-npm i -g https://github.com/yan-labs/OpenCLI/releases/download/v1.9.0-yan.3/opencli-cli-1.9.0-yan.3.tgz
+npm i -g "$OPENCLI_PACKAGE_URL"
 
 # 2) 浏览器扩展：下载 opencli-extension-v*.zip 解压，
 #    chrome://extensions → 开启开发者模式 → 加载已解压的扩展程序
@@ -587,7 +589,7 @@ browser 与 adapter 默认用不抢焦点的专用窗口、不切走用户活动
 
 **CLI 1.9.0 / 扩展 1.1.1**（跨源 iframe 支持、`frames --debug`、`browser <会话> clipboard`，
 以及扩展 1.1.1 修复的 OOPIF eval 路由——面板反复开合后 `eval` 静默落回主页面的已知回归）
-已随 **v1.9.0-yan.3** 发布，见 [`references/our-fork.md`](references/our-fork.md)。如果
+已随 **v1.9.0-custom.3** 发布，见 [`references/our-fork.md`](references/our-fork.md)。如果
 `frames --debug` 报 `unknown option`，说明全局装的还是旧 tgz，`npm i -g` 上面那个新 URL
 即可；扩展侧记得在 `chrome://extensions` reload，装好后照第 3 步验证 `doctor` 打出的版本号。
 

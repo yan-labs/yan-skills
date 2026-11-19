@@ -93,7 +93,7 @@ test('census 指纹不含时间戳：同一画面两次读，when 不同不影�
 
 test('manifest 形状：顶层键齐全，步与轮各带承重字段', () => {
   const manifest = buildManifest({
-    url: 'https://sem.3ue.co/analytics/traffic/top-pages/?q=canva.com&searchType=domain&__gmitm=SECRET123',
+    url: 'https://sem.proxy.example.com/analytics/traffic/top-pages/?q=canva.com&searchType=domain&__gmitm=SECRET123',
     session: 'semrush-nav',
     startedAt: '2026-08-29T06:40:25.000Z',
     finishedAt: '2026-08-29T06:43:00.000Z',
@@ -134,7 +134,7 @@ test('manifest 形状：顶层键齐全，步与轮各带承重字段', () => {
 
 test('URL 剥敏：__gmitm 留空值键名，token/jwt/auth 类参数整个删除，普通参数保留', () => {
   const out = sanitizeUrlString(
-    'https://sem.3ue.co/analytics/traffic/top-pages/?q=canva.com&searchType=domain&__gmitm=abc123def456&access_token=tok999&jwt=eyJx&auth=1',
+    'https://sem.proxy.example.com/analytics/traffic/top-pages/?q=canva.com&searchType=domain&__gmitm=abc123def456&access_token=tok999&jwt=eyJx&auth=1',
   );
   assert.ok(out.includes('q=canva.com'));
   assert.ok(out.includes('searchType=domain'));
@@ -165,7 +165,7 @@ test('eval 载荷剥敏：cookie / authorization / bearer 形状替换为 [REDAC
 });
 
 test('eval 载荷剥敏：__gmitm 值经 redactSecrets 一并抹掉', () => {
-  const clean = scrubEvalPayload('failed at https://sem.3ue.co/home/?__gmitm=abc123def456');
+  const clean = scrubEvalPayload('failed at https://sem.proxy.example.com/home/?__gmitm=abc123def456');
   assert.ok(!clean.includes('abc123def456'));
 });
 
@@ -205,7 +205,7 @@ test('manifest：refreshes / refreshCount 进 manifest —— 「刷了 2 次没
     { refresh: 1, at: '2026-08-29T07:00:30.000Z', afterPoll: 3, reason: 'stalled: 3 consecutive polls with identical census and filledCells=0', lastCensus: { filledCells: 0, deepTextLength: 1_599_006, lightTextLength: 59 } },
   ];
   const manifest = buildManifest({
-    url: 'https://sem.3ue.co/x', session: 'semrush-nav',
+    url: 'https://sem.proxy.example.com/x', session: 'semrush-nav',
     startedAt: 'a', finishedAt: 'b', readyAfterMs: null,
     polls: [], steps: [], stopReason: 'budget', budgetSeconds: 180, maxScreens: 12,
     refreshes,
@@ -231,7 +231,7 @@ test('manifest：refreshes / refreshCount 进 manifest —— 「刷了 2 次没
 // path/hash 全程没变，落点自检看不见。manifest 必须把最后的 href 摆到表面，
 // 否则 AI 要发现域名漂移只能自己翻 census。**只摆事实，不判断。**
 test('manifest 记录最终 href，未就绪时也记', () => {
-  const base = { url: 'https://sem.3ue.co/analytics/traffic/top-pages/?q=canva.com', session: 'semrush-nav', startedAt: 'a', finishedAt: 'b', readyAfterMs: 1, polls: [], steps: [], stopReason: 'stable', budgetSeconds: 180, maxScreens: 12 };
+  const base = { url: 'https://sem.proxy.example.com/analytics/traffic/top-pages/?q=canva.com', session: 'semrush-nav', startedAt: 'a', finishedAt: 'b', readyAfterMs: 1, polls: [], steps: [], stopReason: 'stable', budgetSeconds: 180, maxScreens: 12 };
   const drifted = buildManifest({ ...base, finalHref: '/analytics/traffic/top-pages/?q=canva.com&lid=1234971' });
   assert.equal(drifted.finalHref, '/analytics/traffic/top-pages/?q=canva.com&lid=1234971');
   // 没读到任何 census 时是 null，而不是缺字段——「没记到」要能和「记到了空」分开。
@@ -299,7 +299,7 @@ test('疑似空态打标：svgText>0 / 文本仍在变 / 有 filledCells / 不�
 
 test('manifest：readyBranch 与 suspectedEmptyState 进 manifest，缺省为 null / false', () => {
   const base = {
-    url: 'https://sem.3ue.co/x', session: 'semrush-nav', startedAt: 'a', finishedAt: 'b',
+    url: 'https://sem.proxy.example.com/x', session: 'semrush-nav', startedAt: 'a', finishedAt: 'b',
     readyAfterMs: 30_000, polls: [], steps: [], stopReason: 'stable', budgetSeconds: 240, maxScreens: 12,
   };
   const chart = buildManifest({ ...base, readyBranch: 'chart' });
@@ -353,7 +353,7 @@ test('落点自检：目标 path 为根或空 → 判不了，不误报', () => 
 
 test('manifest：lockHeld / lockWaitMs / hijacked / hijackedHref 进 manifest，缺省 false/null', () => {
   const base = {
-    url: 'https://sem.3ue.co/x', session: 'semrush-nav', startedAt: 'a', finishedAt: 'b',
+    url: 'https://sem.proxy.example.com/x', session: 'semrush-nav', startedAt: 'a', finishedAt: 'b',
     readyAfterMs: 30_000, polls: [], steps: [], stopReason: 'stable', budgetSeconds: 240, maxScreens: 12,
   };
   const plain = buildManifest(base);
@@ -528,7 +528,7 @@ test('假到底：census 在变 / md5 有重复 / 不足 3 步 都不命中', ()
 
 test('manifest：acceptRedirects / readyTextPattern / scrollMode / scrolls 进 manifest，缺省齐全', () => {
   const base = {
-    url: 'https://sim.3ue.co/x', session: 'similarweb-nav', startedAt: 'a', finishedAt: 'b',
+    url: 'https://sim.proxy.example.com/x', session: 'similarweb-nav', startedAt: 'a', finishedAt: 'b',
     readyAfterMs: 23_000, polls: [], steps: [], stopReason: 'stable', budgetSeconds: 240, maxScreens: 12,
   };
   const plain = buildManifest(base);

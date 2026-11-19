@@ -81,7 +81,7 @@ if (!TABS.has(tab)) {
   process.exit(2);
 }
 
-const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN || 'https://sim.3ue.co').replace(/\/+$/, '');
+const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN || (process.env.TOOLS_SHARE_DOMAIN ? `https://sim.${process.env.TOOLS_SHARE_DOMAIN}` : '')).replace(/\/+$/, '');
 const country = String(flags.country || '999');
 const settle = Number(flags.settle || 18);
 const timeoutMs = Number(flags.timeout || 120) * 1000;

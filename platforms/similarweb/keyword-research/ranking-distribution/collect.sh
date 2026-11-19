@@ -12,7 +12,7 @@ MONTHS="${2:-2026.07-2026.07}"
 SLUG="${DOMAIN//./-}"
 OUT="${3:-$ROOT/backlink/evidence/ground-truth/similarweb-ranking-distribution-${SLUG}-$(date +%Y%m%d-%H%M%S)}"
 
-URL="https://sim.3ue.co/#/organicsearch/pageAnalysis/ranking-distribution-v2/${DOMAIN}/840/${MONTHS}?webSource=Total&key=${DOMAIN}"
+URL="https://sim.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/#/organicsearch/pageAnalysis/ranking-distribution-v2/${DOMAIN}/840/${MONTHS}?webSource=Total&key=${DOMAIN}"
 
 node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

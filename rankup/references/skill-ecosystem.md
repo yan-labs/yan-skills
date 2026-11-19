@@ -188,7 +188,7 @@ rankup 自己只保留 `cf-zone-setup.mjs`（zone onboarding，**Wrangler 没有
 按名字搜索并安装（它会给出 `npx skills add <owner/repo> --skill <name> -g -y` 这类命令），装完再继续。
 为什么写死：每台机器、每个用户装的 Skill 集合都不一样，本文件只能保证「该用什么」，不能保证「已经装了」；
 遇缺就跳过会让流水线静默少一条腿（社区验证没跑、文案没去 AI 味），现写替代又回到「重造轮子」。
-装完的 Skill 若是 yan-labs 自家的，`node scripts/link-skills.mjs` 会把它链回仓库真源。
+装完的 Skill 若是 example-owner 自家的，`node scripts/link-skills.mjs` 会把它链回仓库真源。
 
 ### 其余：明确不接的清单
 

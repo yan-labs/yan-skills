@@ -690,19 +690,19 @@ test('deriveAudienceOverlapDetailRows: 短名反查不到 knownDomains——原�
 
 test('findTrendGraphNetworkEntry: 从一批网络捕获里挑出趋势图那一条，不认无关的条目', () => {
   const entries = [
-    { key: 'GET sim.3ue.co/api/WebsiteOverview/retailIntelligenceUpsell', url: 'https://sim.3ue.co/api/WebsiteOverview/retailIntelligenceUpsell?domain=canva.com' },
-    { key: 'GET sim.3ue.co/widgetApi/WebsiteOverview/EngagementVisits/Graph#2', url: 'https://sim.3ue.co/widgetApi/WebsiteOverview/EngagementVisits/Graph?keys=canva.com,adobe.com&latest=28d', body: { Data: {} } },
+    { key: 'GET sim.proxy.example.com/api/WebsiteOverview/retailIntelligenceUpsell', url: 'https://sim.proxy.example.com/api/WebsiteOverview/retailIntelligenceUpsell?domain=canva.com' },
+    { key: 'GET sim.proxy.example.com/widgetApi/WebsiteOverview/EngagementVisits/Graph#2', url: 'https://sim.proxy.example.com/widgetApi/WebsiteOverview/EngagementVisits/Graph?keys=canva.com,adobe.com&latest=28d', body: { Data: {} } },
   ];
   const found = findTrendGraphNetworkEntry(entries);
   assert.ok(found);
-  assert.equal(found.key, 'GET sim.3ue.co/widgetApi/WebsiteOverview/EngagementVisits/Graph#2');
+  assert.equal(found.key, 'GET sim.proxy.example.com/widgetApi/WebsiteOverview/EngagementVisits/Graph#2');
   assert.equal(findTrendGraphNetworkEntry([]), null);
   assert.equal(findTrendGraphNetworkEntry(null), null);
 });
 
 test('deriveTrendGraph: 实测响应体形态——逐日 {Key,Value}，求和跟页面图例的期间总访问量一致（在这条测试里核对内部自洽：totalsByDomain 就是 series 求和）', () => {
   const entry = {
-    url: 'https://sim.3ue.co/widgetApi/WebsiteOverview/EngagementVisits/Graph?keys=canva.com,adobe.com&latest=28d',
+    url: 'https://sim.proxy.example.com/widgetApi/WebsiteOverview/EngagementVisits/Graph?keys=canva.com,adobe.com&latest=28d',
     body: {
       Data: {
         'canva.com': { Total: [[{ Key: '2026-08-15', Value: 19689933.217545487 }, { Key: '2026-08-16', Value: 22654117.29636067 }]] },

@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板（以落地 href 为准）：
-  `https://sim.3ue.co/#/digitalsuite/acquisition/keyword/organic/search/999/<YYYY.MM-YYYY.MM>/overview_2?keyword=<URL编码词>&tab=0&mtd=false&webSource=Total&graphGranularity=Weekly&graphDuration=1m&keywordIdeasTab=relatedKeywords`
+  `https://sim.proxy.example.com/#/digitalsuite/acquisition/keyword/organic/search/999/<YYYY.MM-YYYY.MM>/overview_2?keyword=<URL编码词>&tab=0&mtd=false&webSource=Total&graphGranularity=Weekly&graphDuration=1m&keywordIdeasTab=relatedKeywords`
   - 路径段 `/keyword/organic/search/` 是**固定字面量**，关键词只在 `?keyword=` 里
   - `999`=全球；`<YYYY.MM-YYYY.MM>` 月段如 `2026.07-2026.07`
 - 把词写进路径段 → 静默重定向到 `ai-brand-visibility/home`（hijack，exit 3）

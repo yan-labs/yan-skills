@@ -12,7 +12,7 @@ ROOT="$(cd "$SCRIPT_DIR" && git rev-parse --show-toplevel)"
 CID="${1:-${SEMRUSH_CAMPAIGN_ID:?传入 campaign ID 或设置 SEMRUSH_CAMPAIGN_ID}}"
 OUT="${2:-$ROOT/backlink/evidence/ground-truth/semrush-siteaudit-pagereport-$(date +%Y%m%d-%H%M%S)}"
 
-URL="https://sem.3ue.co/siteaudit/campaign/${CID}/review/pagereport"
+URL="https://sem.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/siteaudit/campaign/${CID}/review/pagereport"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

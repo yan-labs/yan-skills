@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/analytics/keywordoverview/?db=us&q=<kw>`
+- URL 模板：`https://sem.proxy.example.com/analytics/keywordoverview/?db=us&q=<kw>`
   - `q`：种子关键词，**多词用 `+` 连接**（如 `graphic+design`）
   - `db`：数据库（`us`）；落点 href 原样保留 `db=us`
   - 面板可能自动附加 `__gmitm=`（剥敏，只留键名），不需要手动传

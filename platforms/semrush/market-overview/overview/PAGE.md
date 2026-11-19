@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- **结果页可 URL 直达**：`https://sem.3ue.co/analytics/traffic/market-overview/?lid=<listId>`
+- **结果页可 URL 直达**：`https://sem.proxy.example.com/analytics/traffic/market-overview/?lid=<listId>`
   - `lid`：**市场列表 id，页面身份所在**（本轮实测 lid=1234565，由表单喂 canva.com
     + 点「分析」生成）。`q=` 参数**不被吃**——想换市场只能换 lid 或走表单
 - **入口表单**：`/analytics/traffic/market-overview/`。**注意**：开过一次后该裸路径会

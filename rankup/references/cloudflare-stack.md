@@ -127,7 +127,7 @@ Web 项目的 Cloudflare 工具链需要 `cf` CLI。它覆盖账号级 API（包
 
 ```bash
 npm i -g cf
-npx skills add yan-labs/yan-skills --skill cf-cli -g -y
+npx skills add $SKILLS_SOURCE --skill cf-cli -g -y
 npx skills add cloudflare/skills --skill wrangler -g -y
 npx skills add cloudflare/skills --skill workers-best-practices -g -y
 ```

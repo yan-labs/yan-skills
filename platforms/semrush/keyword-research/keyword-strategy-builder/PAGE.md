@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/analytics/keywordmanager/?db=us&q=<kw>`
+- URL 模板：`https://sem.proxy.example.com/analytics/keywordmanager/?db=us&q=<kw>`
   - 落点 href 变为 `?q=<kw>&owning=all`；左侧导航「关键词研究」组第三项
   - 面板可能自动附加 `__gmitm=`（剥敏，只留键名），不需要手动传
 - **feature-map 旧路由 `/keyword-manager/` 是 404 死路由**（「我们迷路了」页，

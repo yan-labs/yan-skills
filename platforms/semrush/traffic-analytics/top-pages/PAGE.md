@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/analytics/traffic/top-pages/?q=<domain>&searchType=domain`
+- URL 模板：`https://sem.proxy.example.com/analytics/traffic/top-pages/?q=<domain>&searchType=domain`
   - `q`：目标域名（如 `canva.com`）
   - `searchType`：固定 `domain`
   - 面板可能自动附加 `lid=<列表id>`（「未命名列表」）与 `__gmitm=`（剥敏，只留键名）——两者都不需要手动传

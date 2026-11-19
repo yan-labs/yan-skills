@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：
-  `https://sim.3ue.co/#/digitalsuite/markets/webmarketanalysis/mapping/<大类~子类>/<国>/1m?webSource=Total`
+  `https://sim.proxy.example.com/#/digitalsuite/markets/webmarketanalysis/mapping/<大类~子类>/<国>/1m?webSource=Total`
   - 行业 slug 可读可猜（`~` 分层级），猜测深链成功且 hash 不漂移
   - 国家段 999=全球、840=美国，但**深链改国家段会被静默改写回 999**——换国走 UI 下拉
 

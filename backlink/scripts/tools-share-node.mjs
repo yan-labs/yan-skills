@@ -396,7 +396,7 @@ function runSelfTest() {
   assertEqual('parseNodeOptions[1] unknown stays null-fielded', batch[1], { node: null, multiplier: null, label: null, raw: 'garbage' });
 
   // 核心诚实性断言 1：读不出来必须是 unknown，绝不能是 ok。
-  assertEqual('buildProbeResult ok', buildProbeResult(2, { ok: true, subscription: { expiry: '2027-01-01', daysLeft: 10, quotas: ['50%'] }, landedUrl: 'https://sem.3ue.co/x', title: 't', via: 'panel-node-select' }).status, 'ok');
+  assertEqual('buildProbeResult ok', buildProbeResult(2, { ok: true, subscription: { expiry: '2027-01-01', daysLeft: 10, quotas: ['50%'] }, landedUrl: 'https://sem.proxy.example.com/x', title: 't', via: 'panel-node-select' }).status, 'ok');
   assertEqual('buildProbeResult unreadable -> unknown, not ok', buildProbeResult(3, { ok: false, message: 'timed out' }).status, 'unknown');
   assertEqual('buildProbeResult empty outcome -> unknown', buildProbeResult(4, {}).status, 'unknown');
   assertEqual('buildProbeResult blocked', buildProbeResult(5, { blocked: true, message: 'Tools Share session is expired, frozen, or cooling down' }).status, 'blocked');
@@ -413,7 +413,7 @@ function runSelfTest() {
   assert('a direct-token launch carries an explanatory error, not silence', /bypassed/.test(buildProbeResult(7, directTokenOutcome).error));
 
   // redactSecrets 必须在这个脚本自己拼的错误消息路径上依旧生效（不是重新实现一份）。
-  assert('redactSecrets strips gmitm', !redactSecrets('failed at https://sem.3ue.co/home/?__gmitm=abc123def456').includes('abc123def456'));
+  assert('redactSecrets strips gmitm', !redactSecrets('failed at https://sem.proxy.example.com/home/?__gmitm=abc123def456').includes('abc123def456'));
 
   process.stdout.write('tools-share-node self-test: PASS\n');
 }

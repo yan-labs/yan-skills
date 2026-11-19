@@ -299,7 +299,7 @@ const GLOBAL_TREND_ROWS = [
 
 test('readRpcWitness merges the CDP drain and the hook capture into one witness (no stale entries in play)', async () => {
   const { readRpcWitness, calls } = makeReadRpcWitness({
-    networkRawEntries: [{ url: 'https://sem.3ue.co/dpa/rpc', status: 200, timestamp: 1000, body: JSON.stringify([{ id: 1, result: [COUNTRIES_ROW, COUNTRIES_ROW_DE] }]) }],
+    networkRawEntries: [{ url: 'https://sem.proxy.example.com/dpa/rpc', status: 200, timestamp: 1000, body: JSON.stringify([{ id: 1, result: [COUNTRIES_ROW, COUNTRIES_ROW_DE] }]) }],
     hookEntries: [{ via: 'hook', url: '/dpa/rpc', status: 200, body: JSON.stringify([{ id: 2, result: GLOBAL_TREND_ROWS }]) }],
   });
   const { witness, rpcEvidence } = await readRpcWitness('');
@@ -338,9 +338,9 @@ test('readRpcWitness ignores a stale CDP entry from a previous domain\'s navigat
     netProbe: { timeOrigin: 2_000_000, rtCount: 1, rtBeforeHook: null },   // current document's nav started at t=2,000,000
     networkRawEntries: [
       // Left over from the PREVIOUS domain — timestamped well before this navigation's timeOrigin.
-      { url: 'https://sem.3ue.co/dpa/rpc', status: 200, timestamp: 1_000_000, body: JSON.stringify([{ id: 1, result: [STALE_DE_ROW] }]) },
+      { url: 'https://sem.proxy.example.com/dpa/rpc', status: 200, timestamp: 1_000_000, body: JSON.stringify([{ id: 1, result: [STALE_DE_ROW] }]) },
       // This domain's own response, timestamped after timeOrigin.
-      { url: 'https://sem.3ue.co/dpa/rpc', status: 200, timestamp: 2_000_050, body: JSON.stringify([{ id: 2, result: [CURRENT_US_ROW] }]) },
+      { url: 'https://sem.proxy.example.com/dpa/rpc', status: 200, timestamp: 2_000_050, body: JSON.stringify([{ id: 2, result: [CURRENT_US_ROW] }]) },
     ],
     hookEntries: [],
   });
@@ -365,7 +365,7 @@ test('readRpcWitness: an entry within the 5ms grace window of navStart is still 
   const { readRpcWitness } = makeReadRpcWitness({
     netProbe: { timeOrigin: 2_000_000, rtCount: 1, rtBeforeHook: null },
     networkRawEntries: [
-      { url: 'https://sem.3ue.co/dpa/rpc', status: 200, timestamp: 1_999_998, body: JSON.stringify([{ id: 1, result: [COUNTRIES_ROW] }]) },
+      { url: 'https://sem.proxy.example.com/dpa/rpc', status: 200, timestamp: 1_999_998, body: JSON.stringify([{ id: 1, result: [COUNTRIES_ROW] }]) },
     ],
     hookEntries: [],
   });
@@ -396,7 +396,7 @@ const SEO_CARD_BODY_TEXT = [
 test('readRpcWitness disambiguates two simultaneous trend series via the SEO card text (fixes the old "give up with two series" limitation)', async () => {
   const { readRpcWitness } = makeReadRpcWitness({
     networkRawEntries: [{
-      url: 'https://sem.3ue.co/dpa/rpc', status: 200, timestamp: 1000,
+      url: 'https://sem.proxy.example.com/dpa/rpc', status: 200, timestamp: 1000,
       body: JSON.stringify([
         { id: 1, result: [{ database: 'us', organicTraffic: 7800, rank: 5, positions: 503 }] },
         { id: 2, result: PAGE_TREND_ROWS },
@@ -413,7 +413,7 @@ test('readRpcWitness disambiguates two simultaneous trend series via the SEO car
 test('readRpcWitness: same two-series page but no readable SEO card text falls back to the old single-series rule (honest unverified, not a guess)', async () => {
   const { readRpcWitness } = makeReadRpcWitness({
     networkRawEntries: [{
-      url: 'https://sem.3ue.co/dpa/rpc', status: 200, timestamp: 1000,
+      url: 'https://sem.proxy.example.com/dpa/rpc', status: 200, timestamp: 1000,
       body: JSON.stringify([
         { id: 1, result: [{ database: 'us', organicTraffic: 7800, rank: 5, positions: 503 }] },
         { id: 2, result: PAGE_TREND_ROWS },
@@ -439,7 +439,7 @@ test('readRpcWitness: a broken opencli drain never throws — returns null, judg
 
 test('readRpcWitness with only country rows and no trend series still returns a (mostly empty) witness, not a crash', async () => {
   const { readRpcWitness } = makeReadRpcWitness({
-    networkRawEntries: [{ url: 'https://sem.3ue.co/dpa/rpc', status: 200, timestamp: 1000, body: JSON.stringify([{ id: 1, result: [COUNTRIES_ROW] }]) }],
+    networkRawEntries: [{ url: 'https://sem.proxy.example.com/dpa/rpc', status: 200, timestamp: 1000, body: JSON.stringify([{ id: 1, result: [COUNTRIES_ROW] }]) }],
     hookEntries: [],
   });
   const { witness, rpcEvidence } = await readRpcWitness('');

@@ -193,7 +193,7 @@ try {
     const object = JSON.parse(r.stdout.match(/^对象: (.+)$/m)[1]);
     assert.deepEqual(object.writes, [repo, project]);
     writeBody('');
-    writeFileSync(join(project, 'AGENTS.md'), '# nextspace / Buildin 项目规则\n');
+    writeFileSync(join(project, 'AGENTS.md'), '# example-project / Buildin 项目规则\n');
     r = preview('--scene', 'editor');
     assert.equal(r.status, 1);
     assert.match(r.stderr, /账号、免费空间、付费空间、开关、夹具、性能闸门/);

@@ -75,7 +75,7 @@ const flags = parseFlags(process.argv.slice(2));
 showHelpIfRequested(flags, import.meta.url);
 const outPath = required(flags, 'out');
 const session = resolveSession(flags, 'sw-batch', 'similarweb');
-const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN || 'https://sim.3ue.co').replace(/\/+$/, '');
+const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN || (process.env.TOOLS_SHARE_DOMAIN ? `https://sim.${process.env.TOOLS_SHARE_DOMAIN}` : '')).replace(/\/+$/, '');
 // settle 与超时在 2026-08-24 调大过一次，**不要为了快调回去**：占位值本身是稳定的，
 // 两次快读之间它根本不变，「连读两次一致」这条判据在小 settle 下整个失效
 // （同一天 semrush-batch 就是这么把 3 个正常站的读数读成空的）。

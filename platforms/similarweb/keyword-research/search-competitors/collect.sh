@@ -10,7 +10,7 @@ DOMAIN="${1:-canva.com}"
 SLUG="${DOMAIN//./-}"
 OUT="${2:-$ROOT/backlink/evidence/ground-truth/similarweb-search-competitors-${SLUG}-$(date +%Y%m%d-%H%M%S)}"
 
-URL="https://sim.3ue.co/#/digitalsuite/acquisition/websiteanalysis/website-competitors/${DOMAIN}/999/3m?webSource=Total&selectedPageTab=Organic&key=${DOMAIN}"
+URL="https://sim.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/#/digitalsuite/acquisition/websiteanalysis/website-competitors/${DOMAIN}/999/3m?webSource=Total&selectedPageTab=Organic&key=${DOMAIN}"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

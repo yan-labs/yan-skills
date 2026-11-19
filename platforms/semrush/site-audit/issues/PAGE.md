@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/issues`
+- URL 模板：`https://sem.proxy.example.com/siteaudit/campaign/<CAMPAIGN_ID>/review/issues`
 - 落点：`…/review/issues?restrictions=<base64>&__gmitm=`
   - `restrictions` 是 base64 的 `{"search":"","severity":"all","checks":"nonzero"}`，
     **由页面自己写进 URL**（默认只显示非零检查项）。
@@ -46,7 +46,7 @@ platforms/semrush/site-audit/issues/collect.sh [campaign-id] [out-dir]
 
 ```sh
 node backlink/scripts/ground-truth.mjs \
-  --url "https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/issues" \
+  --url "https://sem.proxy.example.com/siteaudit/campaign/<CAMPAIGN_ID>/review/issues" \
   --out <dir> --budget 120 --max-screens 8 \
   --ready-text "如何解决"
 ```

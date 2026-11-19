@@ -47,7 +47,7 @@ Entry point, hardcoded because it is a public URL and every owner of this Skill
 lands on their **own** account there:
 
 ```
-https://dash.3ue.co/zh-Hans/#/page/m/home
+https://dash.proxy.example.com/zh-Hans/#/page/m/home
 ```
 
 `TOOLS_SHARE_DASHBOARD_URL` still overrides it, for anyone on a different panel.
@@ -60,13 +60,13 @@ two SEO cards, and the card labels describe the *plan*, not the product:
 
 | Card label on the panel | What it actually launches | Origin |
 | --- | --- | --- |
-| `🔖 PRO 全球版` | Similarweb PRO | `https://sim.3ue.co` |
-| `🔖 GURU 地区数据库` | Semrush GURU | `https://sem.3ue.co` |
+| `🔖 PRO 全球版` | Similarweb PRO | `https://sim.proxy.example.com` |
+| `🔖 GURU 地区数据库` | Semrush GURU | `https://sem.proxy.example.com` |
 
 So the mapping is not guessable from the label — verify the landed origin
 rather than trusting the card text, which is what `tools-share-open.mjs` does.
 
-⚠️ **`sem.3ue.co` is the ONLY authorised Semrush base, and typing the wrong host
+⚠️ **`sem.proxy.example.com` is the ONLY authorised Semrush base, and typing the wrong host
 fails SILENTLY onto a sales page.** Measured 2026-08-29: a deep link built on
 `www.semrush.com/analytics/traffic/...` **does not error**. It renders a
 skeleton, bounces to `/analytics/traffic/` — the **public marketing page**
@@ -137,7 +137,7 @@ node scripts/tools-share-open.mjs --tool similarweb --node 5
 ### Three things that will waste an hour if you do not know them
 
 **The launcher is what mints the session.** Navigating straight to
-`https://sem.3ue.co/analytics/...` before clicking `打开` lands on
+`https://sem.proxy.example.com/analytics/...` before clicking `打开` lands on
 **`about:blank`** — not an error page, not a redirect to a login, just blank.
 Launch first, then navigate inside the established session (`--goto` does
 exactly this). A blank page here means "no session yet", not "the tool is down".

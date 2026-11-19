@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/yan-labs/yan-skills/backlink/data/schema/index-submission.schema.json",
+  "$id": "https://github.com/example-owner/yan-skills/backlink/data/schema/index-submission.schema.json",
   "title": "Index submission channels",
   "description": "Search engines that accept a URL for indexing but publish no link. These are NOT placement channels and must never be merged into free-channels.json: nothing here produces a backlink, so anchorRendered and relObserved are meaningless. The file exists because the verify stage of this Skill has to name which index it checked, and because an engine outside the IndexNow membership gets nothing from the usual automated push.",
   "type": "object",

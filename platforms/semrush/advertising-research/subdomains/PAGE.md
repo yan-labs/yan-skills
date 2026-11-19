@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/analytics/adwords/subdomains/?db=us&q=<domain>&searchType=domain`
+- URL 模板：`https://sem.proxy.example.com/analytics/adwords/subdomains/?db=us&q=<domain>&searchType=domain`
   - slug 实证：直开落点确认（真路由，未被 302 回 positions）
   - 落点把 `db` 吃成 `date=YYYYMMDD`（最近数据日）
   - 面板可能自动附加 `__gmitm=`（剥敏，只留键名），不需要手动传

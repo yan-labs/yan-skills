@@ -86,7 +86,7 @@ Collector: <ref file="scripts/ground-truth.mjs"/>, session `semrush-nav`,
 machine lock held for the whole run, strictly serial. Target domain canva.com
 (db=us). Judge's write-up: `backlink/evidence/ground-truth/semrush-organic-VERDICTS.md`
 — **kept local** (the evidence directory is gitignored). This block is the
-durable summary. Host is the authorized panel origin (`sem.3ue.co`); URL
+durable summary. Host is the authorized panel origin (`sem.proxy.example.com`); URL
 templates below are paths on it.
 </summary>
 
@@ -434,7 +434,7 @@ gitignored). Markdown manual: `platforms/semrush/content-tools/` (repo root).
 </summary>
 
 <routes><![CDATA[
-| # | route (sem.3ue.co) | layer | shape | readyBranch / --ready-text | verdict |
+| # | route (sem.proxy.example.com) | layer | shape | readyBranch / --ready-text | verdict |
 |---|---|---|---|---|---|
 | 1 | /topic-research/ | READ | form + 5-row history list; tables=grids=cells=svgText=0 | none of the 3 branches fires → budget/exit 2; MUST pass --ready-text | alive; entry only, the report id is behind a click |
 | 2 | /topic-research/<24hex>/ | READ | CARD report, 10 subtopic cards; cells=0 svgText=0 canvas=0 | `text` — `--ready-text "Volume:"`, ready in 18.9s | **the only content report with real data this round** |
@@ -590,7 +590,7 @@ AFTER 「开始检测」
 ]]></create-recipe>
 
 <routes><![CDATA[
-URL template, uniform:  https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/<route>
+URL template, uniform:  https://sem.proxy.example.com/siteaudit/campaign/<CAMPAIGN_ID>/review/<route>
 There is NO domain-query entry — unlike /analytics/*, every Site Audit route
 binds the project id. Parameterise it in any script.
 
@@ -723,7 +723,7 @@ and the panel card's "API quota" are two separate pools.
 </summary>
 
 <routes><![CDATA[
-| # | route (hash on sim.3ue.co) | shape | readyBranch | measured scale |
+| # | route (hash on sim.proxy.example.com) | shape | readyBranch | measured scale |
 |---|---|---|---|---|
 | 1 | KW home #/organicsearch/websiteanalysis/home | search box + recents + keyword-list cards (no table/svg) | null (machine-blind, exit 2) | 13 sub-page nav; 5 recent domains; 16 keyword lists |
 | 2 | Keyword overview #/digitalsuite/acquisition/keyword/organic/search/999/<YYYY.MM-YYYY.MM>/overview_2?keyword=<kw> | metric cards + SERP-composition ring + trend + top sites/URLs/related | chart (svgText 48, 21s) | image editor: volume 312.6K, clicks 262.2K, zero-click 31%, KD 95, CPC $0.01–6.52 |
@@ -763,7 +763,7 @@ Three template rules worth the whole round:
 </url-template-laws>
 
 <lesson id="mirror-jitter-vs-empty-vs-paywall">
-**Three failure shapes on sim.3ue.co that must never be confused** (mirror
+**Three failure shapes on sim.proxy.example.com that must never be confused** (mirror
 jitter confirmed by the user 2026-08-30, same error page refreshed into full
 data on the Semrush side too):
 - **Mirror jitter / cold SPA shell**: blank page, a few-dozen-byte empty
@@ -841,7 +841,7 @@ the target route and was still there 12s later, `document.referrer` carried no
 </summary>
 
 <routes><![CDATA[
-| # | route (hash on sim.3ue.co) | shape | readyBranch | measured scale |
+| # | route (hash on sim.proxy.example.com) | shape | readyBranch | measured scale |
 |---|---|---|---|---|
 | 18 | AI Traffic #/digitalsuite/ai-traffic/overview/*/999/6m?webSource=Total&key=<domain> | total card + stacked split + area chart w/ 22-platform checklist + REAL table of chatbot landing pages | table (cells 105 / filled 100, svgText 16; ready in 2 polls) | openai.com 6m: total 275.2M, AI share 23%, ChatGPT 96.08%; 22 AI platforms; 999 URLs / 20 per page / pager 1 of 50 |
 | 19 | Keyword generator · YouTube …/keyword-generator-tool/999/28d?searchEngine=youtube&keyword=<kw>&webSource=Total&isWWW=*&tab=phraseMatch | 12-month YouTube trend line + 2 tabs + 5-column board (关键字/规模/流量趋势/点击量/热门国家 地区) | chart (svgText 18, 21s) | `ai image editor`: phrase 106 / related 3,465 — two orders of magnitude below the Google dictionary, which is normal |

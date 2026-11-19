@@ -5,7 +5,7 @@
 结果页可 **URL 直达**，不需要走表单（本板块最硬的产出）。三域名对比模板全文：
 
 ```
-https://sem.3ue.co/analytics/keywordgap/?q=<you>&searchType=domain&rankType=<bucket>&db=us&compareWith=<comp1>%3Adomain%3Aorganic%7C<comp2>%3Adomain%3Aorganic
+https://sem.proxy.example.com/analytics/keywordgap/?q=<you>&searchType=domain&rankType=<bucket>&db=us&compareWith=<comp1>%3Adomain%3Aorganic%7C<comp2>%3Adomain%3Aorganic
 ```
 
 - `q`：「您」的域名；`db`：数据库（us）

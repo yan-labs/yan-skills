@@ -13,7 +13,7 @@ MONTHS="${2:-2026.07-2026.07}"
 KW_ENC="$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$KW")"
 OUT="${3:-$ROOT/backlink/evidence/ground-truth/similarweb-kw-overview-$(date +%Y%m%d-%H%M%S)}"
 
-URL="https://sim.3ue.co/#/digitalsuite/acquisition/keyword/organic/search/999/${MONTHS}/overview_2?keyword=${KW_ENC}&tab=0&mtd=false&webSource=Total&graphGranularity=Weekly&graphDuration=1m&keywordIdeasTab=relatedKeywords"
+URL="https://sim.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/#/digitalsuite/acquisition/keyword/organic/search/999/${MONTHS}/overview_2?keyword=${KW_ENC}&tab=0&mtd=false&webSource=Total&graphGranularity=Weekly&graphDuration=1m&keywordIdeasTab=relatedKeywords"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

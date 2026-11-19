@@ -1,6 +1,6 @@
 # Keyword Research（关键词研究）板块索引
 
-host: sim.3ue.co，全 hash 路由。14 条路由已于 2026-08-30 双证人判决（种子词 image editor /
+host: sim.proxy.example.com，全 hash 路由。14 条路由已于 2026-08-30 双证人判决（种子词 image editor /
 站点 canva.com），判决书见 `backlink/SKILL.md` 的 `<similarweb-round3-capabilities>` 块；
 本地全文 `backlink/evidence/ground-truth/similarweb-round3-VERDICTS.md`（gitignore）。
 

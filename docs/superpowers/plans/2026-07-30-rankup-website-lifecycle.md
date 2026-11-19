@@ -25,7 +25,7 @@
 - Version checks must be rate-limited to once per 24 hours unless explicitly forced.
 - Automatic Skill update must never modify business code, deploy a website, or overwrite a dirty source checkout.
 - Use only Node built-in modules; do not add a repository package manager manifest or runtime dependency.
-- Verify installation from the repository with `npx skills add yan-labs/yan-skills --skill rankup`.
+- Verify installation from the repository with `npx skills add $SKILLS_SOURCE --skill rankup`.
 
 ---
 
@@ -88,7 +88,7 @@ test("isCheckDue enforces a 24 hour interval", () => {
 
 test("createInitialState records project activation metadata", () => {
   const state = createInitialState(
-    { name: "rankup", version: "2.0.0", source: "yan-labs/yan-skills" },
+    { name: "rankup", version: "2.0.0", source: "example-owner/yan-skills" },
     {
       scope: "global",
       now: new Date("2026-07-30T12:00:00.000Z"),
@@ -138,8 +138,8 @@ Create `rankup/skill.json` with:
   "name": "rankup",
   "version": "2.0.0",
   "releasedAt": "2026-07-30T00:00:00.000Z",
-  "source": "yan-labs/yan-skills",
-  "manifestUrl": "https://raw.githubusercontent.com/yan-labs/yan-skills/main/rankup/skill.json"
+  "source": "example-owner/yan-skills",
+  "manifestUrl": "https://raw.githubusercontent.com/example-owner/yan-skills/main/rankup/skill.json"
 }
 ```
 
@@ -299,7 +299,7 @@ Document the exact `.rankup/` tree from the design. Include:
 Include exact install/update commands:
 
 ```bash
-npx skills add yan-labs/yan-skills -g --all
+npx skills add $SKILLS_SOURCE -g --all
 npx skills update rankup -g -y
 npx skills add cloudflare/skills --skill wrangler -g -y
 npx skills add cloudflare/skills --skill workers-best-practices -g -y
@@ -481,7 +481,7 @@ metadata:
 Document:
 
 ```bash
-npx skills add yan-labs/yan-skills --skill rankup -g -y
+npx skills add $SKILLS_SOURCE --skill rankup -g -y
 npx skills update rankup -g -y
 node <rankup-skill-dir>/scripts/check-version.mjs --project-root . --apply
 ```
@@ -571,8 +571,8 @@ The script must:
 Add:
 
 - `rankup 2.0.0` description as the website lifecycle orchestrator;
-- all-Skill install command `npx skills add yan-labs/yan-skills -g --all`;
-- single install command `npx skills add yan-labs/yan-skills --skill rankup -g -y`;
+- all-Skill install command `npx skills add $SKILLS_SOURCE -g --all`;
+- single install command `npx skills add $SKILLS_SOURCE --skill rankup -g -y`;
 - update command `npx skills update rankup -g -y`;
 - note that project memories live in `.rankup/` and real secrets do not.
 
@@ -603,7 +603,7 @@ git commit -m "test(rankup): validate lifecycle release"
 - Modify only if validation exposes an error.
 
 **Interfaces:**
-- The published repository must be discoverable as `yan-labs/yan-skills`.
+- The published repository must be discoverable as `example-owner/yan-skills`.
 - The CLI must identify `rankup` and install its complete directory, including references and scripts.
 
 - [ ] **Step 1: Validate repository discovery**
@@ -611,7 +611,7 @@ git commit -m "test(rankup): validate lifecycle release"
 Run:
 
 ```bash
-npx skills add yan-labs/yan-skills --list
+npx skills add $SKILLS_SOURCE --list
 ```
 
 Expected: output includes `rankup`.
@@ -702,8 +702,8 @@ Run:
 
 ```bash
 curl --fail --silent --show-error \
-  https://raw.githubusercontent.com/yan-labs/yan-skills/main/rankup/skill.json
-npx skills add yan-labs/yan-skills --list
+  https://raw.githubusercontent.com/example-owner/yan-skills/main/rankup/skill.json
+npx skills add $SKILLS_SOURCE --list
 ```
 
 Expected: remote JSON reports `2.0.0`; the listing includes `rankup`.

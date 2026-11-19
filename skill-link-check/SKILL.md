@@ -7,11 +7,11 @@ description: Use when a skill or slash command is missing, duplicated, not loadi
 
 ## 安装与更新
 
-来源：[Skills.sh](https://skills.sh/yan-labs/yan-skills)
+来源：[Skills.sh](https://skills.sh/example-owner/yan-skills)
 
 ```bash
 # 首次全局安装，或更新失败时重新安装
-npx skills add yan-labs/yan-skills --skill skill-link-check -g -y
+npx skills add $SKILLS_SOURCE --skill skill-link-check -g -y
 
 # 更新已安装的全局 Skill
 npx skills update skill-link-check -g -y

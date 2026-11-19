@@ -11,7 +11,7 @@ import { strict as assert } from 'node:assert';
 import test from 'node:test';
 import { REUSE_PROBE, attemptToolSessionReuse, reuseDecision } from '../scripts/lib-tools-share.mjs';
 
-const ORIGIN = 'sem.3ue.co';
+const ORIGIN = 'sem.proxy.example.com';
 const URL_ON_TOOL = `https://${ORIGIN}/analytics/traffic/top-pages/?q=example.com`;
 
 function fakeSession({ vis = 'visible', url = URL_ON_TOOL, bodyText = 'x'.repeat(400), throws = null } = {}) {
@@ -99,7 +99,7 @@ test('restarts are bounded: one probe, at most one close per attempt, no self-re
 });
 
 test('a session parked off the tool origin still falls through to the full launch, without a close', async () => {
-  const s = fakeSession({ url: 'https://dash.3ue.co/zh-Hans/#/page/m/home' });
+  const s = fakeSession({ url: 'https://dash.proxy.example.com/zh-Hans/#/page/m/home' });
   const got = await attemptToolSessionReuse({ ...s, origin: ORIGIN, windowMode: 'foreground' });
   assert.equal(got.reused, false);
   assert.equal(got.closed, false);

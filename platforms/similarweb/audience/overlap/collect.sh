@@ -12,7 +12,7 @@ D2="${2:-figma.com}"
 D3="${3:-adobe.com}"
 OUT="${4:-$ROOT/backlink/evidence/ground-truth/similarweb-audience-overlap-$(date +%Y%m%d-%H%M%S)}"
 
-URL="https://sim.3ue.co/#/digitalsuite/websiteanalysis/website-audience/*/999/6m?webSource=Total&key=${D1},${D2},${D3}&selectedTab=overlap"
+URL="https://sim.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/#/digitalsuite/websiteanalysis/website-audience/*/999/6m?webSource=Total&key=${D1},${D2},${D3}&selectedTab=overlap"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

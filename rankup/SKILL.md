@@ -225,7 +225,7 @@ node "<rankup-skill-dir>/scripts/maintain/rankup-clean.mjs" --workspace <工作�
 ## 安装与版本
 
 ```bash
-npx skills add yan-labs/yan-skills --skill rankup -g -y   # 全局安装
+npx skills add $SKILLS_SOURCE --skill rankup -g -y   # 全局安装
 npx skills update rankup -g -y                            # 全局更新
 ```
 

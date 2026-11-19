@@ -32,7 +32,7 @@ export const DEGRADATION_RULES = [
   {
     kind: 'degraded-render',
     siteKeys: ['semrush'],
-    source: '实测 2026-08-28（sem.3ue.co 降级页抓样，SKILL.md 第七节记录原文）',
+    source: '实测 2026-08-28（sem.proxy.example.com 降级页抓样，SKILL.md 第七节记录原文）',
     detect(text) {
       const hasLeakedKey = /state\.undefined/.test(text);
       const naCount = (text.match(/\bn\/a\b/gi) || []).length;
@@ -667,15 +667,18 @@ export async function closeSession(session) {
  * 就同时拿到了串行、标签页数量上限、以及不会读到别人的页面。
  */
 export const QUOTA_SITES = [
-  { match: /(^|\.)sem\.3ue\.co$/i,      key: 'semrush',    gapMs: 4000 },
   { match: /(^|\.)semrush\.com$/i,      key: 'semrush',    gapMs: 4000 },
-  { match: /(^|\.)sim\.3ue\.co$/i,      key: 'similarweb', gapMs: 4000 },
   { match: /(^|\.)similarweb\.com$/i,   key: 'similarweb', gapMs: 4000 },
 ];
 
 export function quotaSiteOf(url) {
   let host;
   try { host = new URL(String(url)).hostname; } catch { return null; }
+  const domain = process.env.TOOLS_SHARE_DOMAIN?.toLowerCase();
+  for (const [prefix, key] of [['sem', 'semrush'], ['sim', 'similarweb']]) {
+    const target = `${prefix}.${domain}`;
+    if (domain && (host === target || host.endsWith(`.${target}`))) return { key, gapMs: 4000 };
+  }
   return QUOTA_SITES.find((site) => site.match.test(host)) || null;
 }
 

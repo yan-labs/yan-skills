@@ -11,7 +11,7 @@ ROOT="$(cd "$SCRIPT_DIR" && git rev-parse --show-toplevel)"
 SLUG="${1:-Computers_Electronics_and_Technology~Graphics_Multimedia_and_Web_Design}"
 OUT="${2:-$ROOT/backlink/evidence/ground-truth/similarweb-rankings-$(date +%Y%m%d-%H%M%S)}"
 
-URL="https://sim.3ue.co/#/digitalsuite/markets/webmarketanalysis/mapping/${SLUG}/999/1m?webSource=Total"
+URL="https://sim.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/#/digitalsuite/markets/webmarketanalysis/mapping/${SLUG}/999/1m?webSource=Total"
 
 node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

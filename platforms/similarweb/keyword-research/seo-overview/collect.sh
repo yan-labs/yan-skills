@@ -11,7 +11,7 @@ DOMAIN="${1:-canva.com}"
 SLUG="${DOMAIN//./-}"
 OUT="${2:-$ROOT/backlink/evidence/ground-truth/similarweb-seo-overview-${SLUG}-$(date +%Y%m%d-%H%M%S)}"
 
-URL="https://sim.3ue.co/#/organicsearch/pageAnalysis/seo-overview/${DOMAIN}/999/3m?webSource=Total&vennDiagramSourceType=Total&key=${DOMAIN}"
+URL="https://sim.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/#/organicsearch/pageAnalysis/seo-overview/${DOMAIN}/999/3m?webSource=Total&vennDiagramSourceType=Total&key=${DOMAIN}"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

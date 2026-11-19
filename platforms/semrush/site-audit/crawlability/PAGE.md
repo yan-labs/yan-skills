@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/crawlability`
+- URL 模板：`https://sem.proxy.example.com/siteaudit/campaign/<CAMPAIGN_ID>/review/crawlability`
 - 落点：**原样**，不重定向
 - 上级：`../OVERVIEW.md`
 
@@ -44,7 +44,7 @@ platforms/semrush/site-audit/crawlability/collect.sh [campaign-id] [out-dir]
 
 ```sh
 node backlink/scripts/ground-truth.mjs \
-  --url "https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/crawlability" \
+  --url "https://sem.proxy.example.com/siteaudit/campaign/<CAMPAIGN_ID>/review/crawlability" \
   --out <dir> --budget 120 --max-screens 8 \
   --ready-text "分数："
 ```

@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：
-  `https://sim.3ue.co/#/digitalsuite/websiteanalysis/website-audience/*/999/6m?webSource=Total&key=<d1>,<d2>,<d3>&selectedTab=overlap`
+  `https://sim.proxy.example.com/#/digitalsuite/websiteanalysis/website-audience/*/999/6m?webSource=Total&key=<d1>,<d2>,<d3>&selectedTab=overlap`
   - 路径段是字面量 `*`；**域全部走 `&key=`，逗号分隔可带多域**（实测 3 域一次深链直达）
   - `selectedTab=overlap` 小写
 

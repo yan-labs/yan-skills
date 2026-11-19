@@ -1,6 +1,6 @@
 # Website Rankings（站点排名·万域榜）板块索引
 
-host: sim.3ue.co，hash 路由。1 条路由已于 2026-08-29 双证人判决（explore 轮），判决书见
+host: sim.proxy.example.com，hash 路由。1 条路由已于 2026-08-29 双证人判决（explore 轮），判决书见
 `backlink/SKILL.md` 的 `<similarweb-explore-capabilities>` 块；本地全文
 `backlink/evidence/ground-truth/similarweb-explore-VERDICTS.md`（gitignore）。
 

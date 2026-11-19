@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/https`
+- URL 模板：`https://sem.proxy.example.com/siteaudit/campaign/<CAMPAIGN_ID>/review/https`
 - 落点：**原样**（`…/review/https?__gmitm=`），`hijacked=false`
 - 上级：`../OVERVIEW.md`
 
@@ -37,7 +37,7 @@ platforms/semrush/site-audit/https/collect.sh [campaign-id] [out-dir]
 
 ```sh
 node backlink/scripts/ground-truth.mjs \
-  --url "https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/https" \
+  --url "https://sem.proxy.example.com/siteaudit/campaign/<CAMPAIGN_ID>/review/https" \
   --out <dir> --budget 120 --max-screens 8 \
   --ready-text "分数："
 ```

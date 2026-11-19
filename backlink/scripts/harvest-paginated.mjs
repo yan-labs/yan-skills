@@ -421,7 +421,7 @@ async function main() {
   }
 
   try {
-    // ── 1. 打开 + 打开即刷新（3ue.co 镜像抖动，首开常见白屏）────────────
+    // ── 1. 打开 + 打开即刷新（proxy.example.com 镜像抖动，首开常见白屏）────────────
     await batchBrowser(session, [{ cmd: 'open', args: { url } }, sleepStep(3)], { windowMode, timeoutMs: 120_000 });
     await evalPage('(() => { location.reload(); return JSON.stringify({ reload: true }); })()');
     await sleep(3000);

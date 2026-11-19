@@ -26,7 +26,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 
-export const DEFAULT_DASHBOARD = 'https://dash.3ue.co/zh-Hans/#/page/m/home';
+
 
 // 卡片按自己的标签识别，不按位置：面板按订阅顺序渲染，加一个套餐或到期一个就会错位。
 /**
@@ -47,9 +47,11 @@ function loadSkillEnv() {
 }
 loadSkillEnv();
 
+export const DEFAULT_DASHBOARD = process.env.TOOLS_SHARE_DOMAIN ? `https://dash.${process.env.TOOLS_SHARE_DOMAIN}/zh-Hans/#/page/m/home` : '';
+
 export const TOOLS = {
-  similarweb: { label: /PRO\s*全球版|similarweb/i, origin: 'sim.3ue.co', name: 'Similarweb PRO', tokenEnv: 'SIM_GMITM' },
-  semrush:    { label: /GURU|地区数据库|semrush/i,  origin: 'sem.3ue.co', name: 'Semrush GURU', tokenEnv: 'SEM_GMITM' },
+  similarweb: { label: /PRO\s*全球版|similarweb/i, origin: process.env.TOOLS_SHARE_DOMAIN ? `sim.${process.env.TOOLS_SHARE_DOMAIN}` : '', name: 'Similarweb PRO', tokenEnv: 'SIM_GMITM' },
+  semrush:    { label: /GURU|地区数据库|semrush/i,  origin: process.env.TOOLS_SHARE_DOMAIN ? `sem.${process.env.TOOLS_SHARE_DOMAIN}` : '', name: 'Semrush GURU', tokenEnv: 'SEM_GMITM' },
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -285,6 +287,7 @@ async function launchToolInner({
 }) {
   const tool = TOOLS[String(toolKey || '').toLowerCase()];
   if (!tool) throw new Error(`tool must be one of: ${Object.keys(TOOLS).join(', ')}`);
+  if (!tool.origin) throw new Error('Set TOOLS_SHARE_DOMAIN in the environment or backlink/.env before using Tools Share.');
   // 单一入口：foreground/active/background/isolated/dedicated 五档原样透传给 opencli，
   // 不认识的值退回 background（见 opencli-core.mjs 的 normalizeWindowMode 注释）。
   // dedicated 时 opencliEnv 还带着 OPENCLI_WINDOW_SLOT/_DISPLAY，让面板导航、eval 等
@@ -523,6 +526,7 @@ export function toolSession(toolKey, { session, allowParallelSession = false, ba
   const key = String(toolKey || '').toLowerCase();
   const tool = TOOLS[key];
   if (!tool) throw new Error(`tool must be one of: ${Object.keys(TOOLS).join(', ')}`);
+  if (!tool.origin) throw new Error('Set TOOLS_SHARE_DOMAIN in the environment or backlink/.env before using Tools Share.');
   const url = `https://${tool.origin}/`;
   const fallbackBase = base || `tools-share-${key}`;
   const explicit = session ? guardSessionName(String(session)) : null;

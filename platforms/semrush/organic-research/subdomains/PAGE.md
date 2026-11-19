@@ -3,7 +3,7 @@
 ## 页面身份
 
 ```
-https://sem.3ue.co/analytics/organic/subdomains/?db=us&q=<domain>&searchType=domain
+https://sem.proxy.example.com/analytics/organic/subdomains/?db=us&q=<domain>&searchType=domain
 ```
 
 - `q`：目标域名；`searchType`：固定 `domain`；`db`：数据库（us）

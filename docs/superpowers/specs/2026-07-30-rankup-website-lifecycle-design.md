@@ -189,8 +189,8 @@ npx skills find "<需求>"
   "name": "rankup",
   "version": "2.0.0",
   "releasedAt": "2026-07-30T00:00:00Z",
-  "source": "yan-labs/yan-skills",
-  "manifestUrl": "https://raw.githubusercontent.com/yan-labs/yan-skills/main/rankup/skill.json"
+  "source": "example-owner/yan-skills",
+  "manifestUrl": "https://raw.githubusercontent.com/example-owner/yan-skills/main/rankup/skill.json"
 }
 ```
 
@@ -210,7 +210,7 @@ npx skills find "<需求>"
 {
   "schemaVersion": 1,
   "skill": "rankup",
-  "source": "yan-labs/yan-skills",
+  "source": "example-owner/yan-skills",
   "scope": "global",
   "installedVersion": "2.0.0",
   "installedAt": "2026-07-30T00:00:00Z",

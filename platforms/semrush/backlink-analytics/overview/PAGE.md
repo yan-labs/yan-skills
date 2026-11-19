@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/analytics/backlinks/overview/?q=<domain>&searchType=domain`
+- URL 模板：`https://sem.proxy.example.com/analytics/backlinks/overview/?q=<domain>&searchType=domain`
 - 同时是本组的**302 回落汇聚点**：任何未知 backlinks 子路径
   （`/analytics/backlinks/refdomains/`、`/analytics/backlinks/indexed-pages/` 等）都
   302 落回这里——落在本页不代表你到了想去的页。

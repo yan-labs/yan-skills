@@ -63,8 +63,7 @@ import { writeFile } from 'node:fs/promises';
 const flags = parseFlags(process.argv.slice(2));
 showHelpIfRequested(flags, import.meta.url);
 const session = resolveSession(flags, 'semrush-report', 'semrush');
-const APP_ORIGIN = (process.env.TOOLS_SHARE_APP_ORIGIN_SEMRUSH || 'https://sem.3ue.co').replace(/\/+$/, '');
-const APP_HOST = new URL(APP_ORIGIN).host;
+const APP_ORIGIN = (process.env.TOOLS_SHARE_APP_ORIGIN_SEMRUSH || (process.env.TOOLS_SHARE_DOMAIN ? `https://sem.${process.env.TOOLS_SHARE_DOMAIN}` : '')).replace(/\/+$/, '');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** 同一个关键词可以合法地出现在多个落地页上，去重键必须带 URL 与排名，
  *  只用关键词会把 100 行压成 67 行——实测踩过。 */

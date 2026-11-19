@@ -1,6 +1,6 @@
 # Audience（受众）板块索引
 
-host: sim.3ue.co，hash 路由。1 条路由已于 2026-08-30 round3 双证人判决，判决书见
+host: sim.proxy.example.com，hash 路由。1 条路由已于 2026-08-30 round3 双证人判决，判决书见
 `backlink/SKILL.md` 的 `<similarweb-round3-capabilities>` 块（路由 #15）；本地全文
 `backlink/evidence/ground-truth/similarweb-round3-VERDICTS.md`（gitignore）。
 

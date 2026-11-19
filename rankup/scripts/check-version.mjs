@@ -229,12 +229,20 @@ function validateRemoteManifest(remoteManifest, localManifest) {
   return remoteManifest;
 }
 
-async function fetchRemoteManifest(manifest) {
+export async function fetchRemoteManifest(manifest) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   timeout.unref?.();
   try {
-    const response = await fetch(manifest.manifestUrl, {
+    let manifestUrl = manifest.manifestUrl;
+    if (manifestUrl.includes("example-owner")) {
+      const source = process.env.SKILLS_SOURCE || "";
+      if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(source)) {
+        throw new Error("Set SKILLS_SOURCE to the GitHub owner/repository for version checks");
+      }
+      manifestUrl = `https://raw.githubusercontent.com/${source}/main/${encodeURIComponent(manifest.name)}/skill.json`;
+    }
+    const response = await fetch(manifestUrl, {
       headers: { Accept: "application/json" },
       signal: controller.signal,
     });

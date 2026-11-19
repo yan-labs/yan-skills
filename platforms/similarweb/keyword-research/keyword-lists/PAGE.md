@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sim.3ue.co/#/digitalsuite/acquisition/monitorkeywords/home`
+- URL 模板：`https://sim.proxy.example.com/#/digitalsuite/acquisition/monitorkeywords/home`
   - **无域名/关键词上下文参数——这是账号级页面。**
   - 入口 href 是从 KW home 页深穿透抓到的绝对链接，换 host 即可。
 - 上级：`../OVERVIEW.md`

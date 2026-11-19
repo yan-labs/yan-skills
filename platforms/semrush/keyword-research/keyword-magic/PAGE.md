@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/analytics/keywordmagic/?db=us&q=<kw>&type=<tab>[&questions=true]`
+- URL 模板：`https://sem.proxy.example.com/analytics/keywordmagic/?db=us&q=<kw>&type=<tab>[&questions=true]`
   - `q`：种子关键词（多词用 `+`）；`db`：数据库（us）
   - 基准入口 `/analytics/keywordmagic/?db=us&q=<kw>`，落点自动补 `type=all&mode=0`
   - 面板可能自动附加 `__gmitm=`（剥敏，只留键名），不需要手动传

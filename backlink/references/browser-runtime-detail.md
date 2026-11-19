@@ -16,7 +16,7 @@ detailed laws, the measurements behind them, the two other drivers and what they
 cost, and the ordered checklist for diagnosing "something stole my tab" now live in
 the `opencli` Skill — that file points at the exact reference for each, and keeps the
 backlink-specific residue (`scripts/opencli-core.mjs`, subagent session fan-out).
-Load `/opencli` when you need the detail: `npx skills add yan-labs/yan-skills --skill opencli -g -y`.
+Load `/opencli` when you need the detail: `npx skills add $SKILLS_SOURCE --skill opencli -g -y`.
 </summary>
 
 <default-driver>
@@ -1182,7 +1182,7 @@ without the other.
    absent" was read as "not the empty state"** — an unfalsifiable negative, the
    very disease. So markers are **declared per locale**, the page's own locale is
    read from `&lt;html lang&gt;` or from the vendor's own path segment
-   (`dash.3ue.co/zh-Hans/` — both are page output, neither is a guessed
+   (`dash.proxy.example.com/zh-Hans/` — both are page output, neither is a guessed
    selector), and the verdict is three-valued: `yes` / `no` / **`unknown`**.
    A locale we hold no markers for yields `unknown` and `ok: false`. The way
    into a new locale is **to measure its empty-state page and add its marker**,
@@ -1237,7 +1237,7 @@ DOM").
    that separated them was separating noise.
 3. **A wrong deep-link host walks silently onto a sales page.**
    `www.semrush.com/analytics/traffic/...` is **not the authorised base**
-   (`sem.3ue.co` is — see <ref file="references/authorized-data-sources.md"/>).
+   (`sem.proxy.example.com` is — see <ref file="references/authorized-data-sources.md"/>).
    It does not error: skeleton → bounce to `/analytics/traffic/` (the **public
    marketing page**: `innerText` 514, 10 images, title
    `Traffic Analytics: Estimate Any Website's Traffic | Semrush`) → bounce again
@@ -1608,7 +1608,7 @@ const scope = (() => {
   const t = document.body.innerText || '';
   const hit = EMPTY_STATE_MARKERS.find((m) => t.includes(m.marker)) || null;
   // page-produced facts, not guesses: <html lang> and the locale segment this
-  // vendor puts in its own paths (dash.3ue.co/zh-Hans/).
+  // vendor puts in its own paths (dash.proxy.example.com/zh-Hans/).
   const lang = document.documentElement.lang
     || (location.pathname.split('/').find((seg) => /^[a-z]{2}(-[A-Za-z0-9]+)*$/.test(seg)) || '');
   const covered = EMPTY_STATE_MARKERS.some((m) => m.locale === lang.toLowerCase().split(/[-_]/)[0]);
@@ -1880,7 +1880,7 @@ if (noTable && chartHydrated >= 3 && exportBtns >= 1 && onTarget) return 'no-tab
 
 // 12. classifying without asserting where you landed or whose page it is.
 const verdict = classify(probe);   // no route check, no header check
-// FALSE - www.semrush.com is not the authorised base (sem.3ue.co is) and DOES
+// FALSE - www.semrush.com is not the authorised base (sem.proxy.example.com is) and DOES
 // NOT ERROR: skeleton -> /analytics/traffic/ (public marketing page, innerText
 // 514, title "Traffic Analytics: Estimate Any Website's Traffic | Semrush") ->
 // overview, ending on mmradar.gg's domain overview (23 filled cells, AS 22).

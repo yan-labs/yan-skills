@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   checkForUpdate,
+  fetchRemoteManifest,
   compareSemver,
   createInitialState,
   isCheckDue,
@@ -24,10 +25,31 @@ const localManifest = {
   name: "rankup",
   version: "2.0.0",
   releasedAt: "2026-07-30T00:00:00.000Z",
-  source: "yan-labs/yan-skills",
+  source: "example-owner/yan-skills",
   manifestUrl:
-    "https://raw.githubusercontent.com/yan-labs/yan-skills/main/rankup/skill.json",
+    "https://raw.githubusercontent.com/example-owner/yan-skills/main/rankup/skill.json",
 };
+
+test("manifest source comes from configuration and rejects invalid sources", async () => {
+  const priorSource = process.env.SKILLS_SOURCE;
+  const priorFetch = globalThis.fetch;
+  try {
+    process.env.SKILLS_SOURCE = "fixture-owner/fixture-repo";
+    let requested;
+    globalThis.fetch = async (url) => {
+      requested = url;
+      return new Response(JSON.stringify(localManifest), { headers: { "content-type": "application/json" } });
+    };
+    await fetchRemoteManifest(localManifest);
+    assert.equal(requested, "https://raw.githubusercontent.com/fixture-owner/fixture-repo/main/rankup/skill.json");
+    process.env.SKILLS_SOURCE = "fixture-owner/../other";
+    await assert.rejects(fetchRemoteManifest(localManifest), /Set SKILLS_SOURCE/);
+  } finally {
+    globalThis.fetch = priorFetch;
+    if (priorSource === undefined) delete process.env.SKILLS_SOURCE;
+    else process.env.SKILLS_SOURCE = priorSource;
+  }
+});
 
 async function withTempProject(run) {
   const projectRoot = await mkdtemp(path.join(tmpdir(), "rankup-version-test-"));
@@ -54,7 +76,7 @@ test("isCheckDue enforces a 24 hour interval", () => {
 
 test("createInitialState records project activation metadata", () => {
   const state = createInitialState(
-    { name: "rankup", version: "2.0.0", source: "yan-labs/yan-skills" },
+    { name: "rankup", version: "2.0.0", source: "example-owner/yan-skills" },
     {
       scope: "global",
       now: new Date("2026-07-30T12:00:00.000Z"),

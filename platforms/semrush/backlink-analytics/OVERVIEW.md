@@ -1,6 +1,6 @@
 # Backlink Analytics（外链全家桶 + Backlink Gap + 竞争对手监控）板块索引
 
-host：`sem.3ue.co`。7 条路由已于 2026-08-30 用双证人（`backlink/scripts/ground-truth.mjs`，
+host：`sem.proxy.example.com`。7 条路由已于 2026-08-30 用双证人（`backlink/scripts/ground-truth.mjs`，
 整轮持机器级 semrush 锁，会话 `semrush-nav`）全部判决，判决书见 `backlink/SKILL.md` 的
 `<semrush-backlinks-monitoring-capabilities>` 块与本地
 `backlink/evidence/ground-truth/semrush-backlinks-audience-VERDICTS.md`（证据目录 gitignore）。

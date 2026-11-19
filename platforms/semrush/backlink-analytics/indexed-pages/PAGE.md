@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/analytics/backlinks/pages/?q=<domain>&searchType=domain`
+- URL 模板：`https://sem.proxy.example.com/analytics/backlinks/pages/?q=<domain>&searchType=domain`
 - **tab 中文名「编入索引页面」，slug 却是 `pages`**。`/analytics/backlinks/indexed-pages/`
   是死路由，302 回 overview。
 - tab 行不是 `<a href>`（JS router），href 扒不到——本判决是深点 tab 后读 location

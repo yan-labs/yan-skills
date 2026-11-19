@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/swa/`
+- URL 模板：`https://sem.proxy.example.com/swa/`
 - `document.title`：`所有文件：SEO Writing Assistant`
 - **它同时是 `/seo-content-template/` 的 302 落点**——旧 SEO Content Template 已下线，
   直接采这条路由即可；从旧路由进须传 `--accept-redirect /swa/`。
@@ -40,7 +40,7 @@ platforms/semrush/content-tools/swa/collect.sh [out-dir]
 
 ```sh
 node backlink/scripts/ground-truth.mjs \
-  --url "https://sem.3ue.co/swa/" --out <dir> \
+  --url "https://sem.proxy.example.com/swa/" --out <dir> \
   --budget 120 --max-screens 8 --ready-text "质量分数为"
 ```
 

@@ -9,7 +9,7 @@
  * 用法：
  *   node access-report.mjs                    # 全部
  *   node access-report.mjs --since 2h         # 最近两小时（也支持 30m / 3d）
- *   node access-report.mjs --site sem.3ue.co  # 只看一个站
+ *   node access-report.mjs --site sem.proxy.example.com  # 只看一个站
  *   node access-report.mjs --suspicious       # 只列可疑行（失败 / 超时 / 配额站空响应 / 限流降级）
  *   node access-report.mjs --degraded         # 只列 detectDegradation 命中的那一类
  *   node access-report.mjs -f json            # 机器可读

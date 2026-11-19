@@ -5,7 +5,7 @@ single source of truth for OpenCLI mechanics; this file keeps only the part that
 specific to backlink work, plus pointers.
 
 ```bash
-npx skills add yan-labs/yan-skills --skill opencli -g -y   # if not installed
+npx skills add $SKILLS_SOURCE --skill opencli -g -y   # if not installed
 ```
 
 | You need | Read |

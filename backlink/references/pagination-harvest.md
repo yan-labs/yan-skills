@@ -63,7 +63,7 @@
 
 ```sh
 node backlink/scripts/harvest-paginated.mjs \
-  --url 'https://sem.3ue.co/analytics/traffic/top-pages/?q=canva.com&searchType=domain&lid=<lid>' \
+  --url 'https://sem.proxy.example.com/analytics/traffic/top-pages/?q=canva.com&searchType=domain&lid=<lid>' \
   --out backlink/evidence/pagination/probe-top-pages --probe
 ```
 

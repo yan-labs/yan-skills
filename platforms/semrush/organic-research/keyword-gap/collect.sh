@@ -17,7 +17,7 @@ BUCKET="${4:-missing}"
 
 OUT="$ROOT/backlink/evidence/ground-truth/semrush-keywordgap-${YOU//./-}-${BUCKET}-$(date +%Y%m%d-%H%M%S)"
 
-URL="https://sem.3ue.co/analytics/keywordgap/?q=${YOU}&searchType=domain&rankType=${BUCKET}&db=us&compareWith=${COMP1}%3Adomain%3Aorganic%7C${COMP2}%3Adomain%3Aorganic"
+URL="https://sem.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/analytics/keywordgap/?q=${YOU}&searchType=domain&rankType=${BUCKET}&db=us&compareWith=${COMP1}%3Adomain%3Aorganic%7C${COMP2}%3Adomain%3Aorganic"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

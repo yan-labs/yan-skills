@@ -10,7 +10,7 @@
 
 第二种是装了 Chrome 应用商店那个扩展的默认下场。`opencli doctor` 现在会主动报它。
 
-上游是 `jackwener/opencli`，我们的 fork 是 `yan-labs/OpenCLI`。
+上游是 `jackwener/opencli`，我们的 fork 是 `example-owner/OpenCLI`。
 
 ## 上游同步记录
 
@@ -74,11 +74,11 @@ dc992063:src/cli.ts` 核对过，合并前就已存在，不是这 50 个提交�
 
 ## 装哪一个
 
-发布在 [yan-labs/OpenCLI 的 Release](https://github.com/yan-labs/OpenCLI/releases/latest)，
+发布在 example-owner/OpenCLI 的 Release（地址见本机配置），
 CLI 与扩展**两半都要装我们的**：
 
 ```bash
-npm i -g https://github.com/yan-labs/OpenCLI/releases/download/v1.9.0-yan.2/opencli-cli-1.9.0-yan.2.tgz
+npm i -g "$OPENCLI_PACKAGE_URL"
 # 扩展：下载 opencli-extension-v*.zip 解压 →
 #   chrome://extensions → 开发者模式 → 加载已解压的扩展程序
 #   并把 Chrome 应用商店那个 OpenCLI 移除或停用（两个都装会一起连守护进程互相打架）
@@ -133,7 +133,7 @@ git log --oneline origin/main..HEAD   # 我们领先上游的部分
 
 ## CLI 1.9.0 / 扩展 1.1.0 新增（2026-09-11 真机验证）
 
-提交在 `yan-labs/OpenCLI` main 的 `1d18770f` 与 `d2d3a0ec`。
+提交在 `example-owner/OpenCLI` main 的 `1d18770f` 与 `d2d3a0ec`。
 
 | 能力 | 在哪一侧 | 缺了它会怎样 |
 |---|---|---|
@@ -161,12 +161,12 @@ Chrome 站点隔离下，跨源 iframe 是**独立进程的 target**，不在父
 **版本判据：`opencli doctor` 的 Extension 行 ≥ 1.1.0 才有这一组能力。**
 扩展 < 1.1.0 的症状就是 `frames` 返回 `[]` 且不报任何错。
 
-### 已随 v1.9.0-yan.2 发布
+### 已随 v1.9.0-custom.2 发布
 
 上面四条已经进 Release（CLI 1.9.0 / 扩展 1.1.0）。全局装的仍是旧 tgz 时，
 `frames --debug` 会报 `unknown option`，`npm i -g` 上面那个新 URL 即可。
 
-扩展要装 Release 里的 `opencli-extension-v1.1.0-yan.2.zip`（或从仓库的 `extension/dist`
+扩展要装 Release 里的 `opencli-extension-v1.1.0-custom.2.zip`（或从仓库的 `extension/dist`
 加载），并在 `chrome://extensions` 里 reload 一次；`opencli doctor` 的 Extension 行显示
 1.1.0 才算生效。
 
@@ -253,7 +253,7 @@ flatten 子 session；Chrome 每个子 session 的 context 编号独立，面板
 
 ## fork 上打 tag / push 不会自动出 Release
 
-`yan-labs/OpenCLI` fork 上 `push`（含推一个 tag）不会触发 `.github/workflows/release.yml`，
+`example-owner/OpenCLI` fork 上 `push`（含推一个 tag）不会触发 `.github/workflows/release.yml`，
 只有手动 `workflow_dispatch` 能跑通；已诊断确认，原因未查。所以打完 tag 要**本地照抄该
 workflow 的打包步骤**（typecheck → build → manifest drift 校验 → `npm pack` → 打包扩展 →
 zip）再 `gh release create` 手工把产物挂上去，别指望 Actions 自己出 Release。

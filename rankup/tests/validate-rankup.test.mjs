@@ -229,8 +229,8 @@ test("release validator requires the individual backlink install command", async
     await writeFile(
       integrationPath,
       original.replace(
-        "npx skills add yan-labs/yan-skills --skill backlink -g -y",
-        "npx skills add yan-labs/yan-skills -g --all",
+        "npx skills add $SKILLS_SOURCE --skill backlink -g -y",
+        "npx skills add $SKILLS_SOURCE -g --all",
       ),
     );
 

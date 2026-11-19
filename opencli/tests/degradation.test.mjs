@@ -8,7 +8,7 @@ import { detectDegradation } from '../scripts/opencli-core.mjs';
 
 test('semrush 降级渲染：state.undefined + 指标全 n/a 一起出现才命中', () => {
   const text = 'Dashboards\nOrganic traffic: n/a\nPaid traffic: n/a\nBacklinks: n/a\nstate.undefined';
-  const verdict = detectDegradation(text, { url: 'https://sem.3ue.co/analytics/overview/' });
+  const verdict = detectDegradation(text, { url: 'https://sem.proxy.example.com/analytics/overview/' });
   assert.equal(verdict.degraded, true);
   assert.equal(verdict.kind, 'degraded-render');
   assert.ok(verdict.evidence.some((e) => e.includes('state.undefined')));
@@ -17,14 +17,14 @@ test('semrush 降级渲染：state.undefined + 指标全 n/a 一起出现才命�
 
 test('semrush 页面只有零星 n/a、没有泄露的 i18n key，不算降级', () => {
   const text = 'Dashboards\nOrganic traffic: 12,345\nCompetitor rank: n/a\nBacklinks: 8,201';
-  const verdict = detectDegradation(text, { url: 'https://sem.3ue.co/analytics/overview/' });
+  const verdict = detectDegradation(text, { url: 'https://sem.proxy.example.com/analytics/overview/' });
   assert.equal(verdict.degraded, false);
   assert.equal(verdict.kind, null);
 });
 
 test('配额站上出现原生 dialog 判定为设备上限，命中已知措辞时证据里说明', () => {
   const verdict = detectDegradation('Dashboards', {
-    url: 'https://sim.3ue.co/#/digitalsuite',
+    url: 'https://sim.proxy.example.com/#/digitalsuite',
     dialogText: 'You have reached the maximum number of devices for this account.',
   });
   assert.equal(verdict.degraded, true);
@@ -34,7 +34,7 @@ test('配额站上出现原生 dialog 判定为设备上限，命中已知措辞
 
 test('配额站上出现未知措辞的 dialog 依然按设备上限判定，但证据里说明未命中已知列表', () => {
   const verdict = detectDegradation('Dashboards', {
-    url: 'https://sem.3ue.co/analytics/overview/',
+    url: 'https://sem.proxy.example.com/analytics/overview/',
     dialogText: '这是一个从没见过的弹窗文案',
   });
   assert.equal(verdict.degraded, true);
@@ -75,14 +75,14 @@ test('通用登录态失效短语命中', () => {
 
 test('正常页面（无任何信号）不命中任何一类', () => {
   const verdict = detectDegradation('Welcome back! Here is your weekly report with 12 new backlinks.', {
-    url: 'https://sem.3ue.co/analytics/overview/',
+    url: 'https://sem.proxy.example.com/analytics/overview/',
   });
   assert.deepEqual(verdict, { degraded: false, kind: null, evidence: [] });
 });
 
 test('优先级：同时命中 dialog 和限流短语时，device-limit 排在 rate-limit 前面', () => {
   const verdict = detectDegradation("you've reached your daily limit", {
-    url: 'https://sem.3ue.co/analytics/overview/',
+    url: 'https://sem.proxy.example.com/analytics/overview/',
     dialogText: 'maximum number of devices reached',
   });
   assert.equal(verdict.kind, 'device-limit');

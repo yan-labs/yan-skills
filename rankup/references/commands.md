@@ -50,12 +50,12 @@ check 命中下列任一条就明说「这已经不是 check，是 review」并�
 
 ## 安装与版本
 
-先装 `opencli`（`npx skills add yan-labs/yan-skills --skill opencli -g -y`）。OpenCLI 本体装我们自己的构建，不是应用商店版：商店版默认前台抢标签页，失败不报错。`opencli doctor` 报扩展版本过低时照它说的做。浏览器通道及会话规则见 [`discipline.md`](discipline.md) 五。
+先装 `opencli`（`npx skills add $SKILLS_SOURCE --skill opencli -g -y`）。OpenCLI 本体装我们自己的构建，不是应用商店版：商店版默认前台抢标签页，失败不报错。`opencli doctor` 报扩展版本过低时照它说的做。浏览器通道及会话规则见 [`discipline.md`](discipline.md) 五。
 
-Web 项目的 Cloudflare 工具链：`npm i -g cf`、`npx skills add yan-labs/yan-skills --skill cf-cli -g -y`；现有项目继续用项目锁定的 Wrangler。
+Web 项目的 Cloudflare 工具链：`npm i -g cf`、`npx skills add $SKILLS_SOURCE --skill cf-cli -g -y`；现有项目继续用项目锁定的 Wrangler。
 
 ```bash
-npx skills add yan-labs/yan-skills --skill rankup -g -y   # 全局安装
+npx skills add $SKILLS_SOURCE --skill rankup -g -y   # 全局安装
 npx skills update rankup -g -y                            # 全局更新
 npx skills update rankup -p -y                            # 项目级更新
 ```

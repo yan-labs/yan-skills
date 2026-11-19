@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/pagereport`
+- URL 模板：`https://sem.proxy.example.com/siteaudit/campaign/<CAMPAIGN_ID>/review/pagereport`
 - **落点会重定向**：→ `…/review/pagereport/pages?sort=prScore_desc&page=1`
   → 采集必须传 `--accept-redirect "/siteaudit/campaign/<CAMPAIGN_ID>/review/pagereport/pages"`，
   否则被落点自检判 hijack（exit 3）。**这是本板块唯一真正需要 `--accept-redirect` 的路由。**
@@ -46,7 +46,7 @@ platforms/semrush/site-audit/pagereport/collect.sh [campaign-id] [out-dir]
 
 ```sh
 node backlink/scripts/ground-truth.mjs \
-  --url "https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/pagereport" \
+  --url "https://sem.proxy.example.com/siteaudit/campaign/<CAMPAIGN_ID>/review/pagereport" \
   --out <dir> --budget 180 --max-screens 16 \
   --accept-redirect "/siteaudit/campaign/<CAMPAIGN_ID>/review/pagereport/pages"
 ```

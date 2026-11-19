@@ -1,6 +1,6 @@
 # Traffic Analytics（流量与市场）板块索引
 
-URL 基式：`/analytics/traffic/<路由>/?q=<domain>&searchType=domain`（host: sem.3ue.co）。
+URL 基式：`/analytics/traffic/<路由>/?q=<domain>&searchType=domain`（host: sem.proxy.example.com）。
 19 条路由已于 2026-08-29 用双证人（ground-truth.mjs）全部判决，判决书见
 `backlink/SKILL.md` 的 `<semrush-traffic-route-capabilities>` 块（证据目录 gitignore，本地在
 `backlink/evidence/ground-truth/remeasure-*` 与 `recheck-*`）。

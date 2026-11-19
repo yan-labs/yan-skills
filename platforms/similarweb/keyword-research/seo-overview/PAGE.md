@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：
-  `https://sim.3ue.co/#/organicsearch/pageAnalysis/seo-overview/<域>/999/3m?webSource=Total&vennDiagramSourceType=Total&key=<域>`
+  `https://sim.proxy.example.com/#/organicsearch/pageAnalysis/seo-overview/<域>/999/3m?webSource=Total&vennDiagramSourceType=Total&key=<域>`
   - **`&key=<域>` 必带**：只把域写进路径段（无 key）会落「输入查询以查看此报告」空态
     （round3 的 seo-overview 首采就栽在这里，v2 补 key 后成功）
 

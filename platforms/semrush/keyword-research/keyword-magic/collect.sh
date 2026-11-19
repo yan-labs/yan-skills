@@ -17,7 +17,7 @@ Q="${KW// /+}"
 SLUG="${KW// /-}"
 OUT="$ROOT/backlink/evidence/ground-truth/semrush-keywordmagic-${SLUG}-${TYPE}-$(date +%Y%m%d-%H%M%S)"
 
-URL="https://sem.3ue.co/analytics/keywordmagic/?db=${DB}&q=${Q}"
+URL="https://sem.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/analytics/keywordmagic/?db=${DB}&q=${Q}"
 if [ "$TYPE" != "broad" ]; then
   URL="${URL}&type=${TYPE}"
 fi

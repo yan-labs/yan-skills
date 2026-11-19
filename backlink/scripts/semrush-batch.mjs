@@ -144,7 +144,7 @@ if (flags['self-test']) {
 
 const outPath = required(flags, 'out');
 const session = resolveSession(flags, 'sem-batch', 'semrush');
-const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN_SEMRUSH || 'https://sem.3ue.co').replace(/\/+$/, '');
+const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN_SEMRUSH || (process.env.TOOLS_SHARE_DOMAIN ? `https://sem.${process.env.TOOLS_SHARE_DOMAIN}` : '')).replace(/\/+$/, '');
 // 口径：不传 --db = 全球（这张域名概览页有全球选项，与 semrush-overview.mjs 一致）；
 // --db xx = 该国家库。是否真的落在这个口径由每域读数落地时的 scopeEvidence 核对。
 const db = String(flags.db || '').trim().toLowerCase();

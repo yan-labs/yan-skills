@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：
-  `https://sim.3ue.co/#/organicsearch/pageAnalysis/website_ads/false/999/<YYYY.MM-YYYY.MM>?webSource=Desktop&selectedPageTab=Text&key=<域>`
+  `https://sim.proxy.example.com/#/organicsearch/pageAnalysis/website_ads/false/999/<YYYY.MM-YYYY.MM>?webSource=Desktop&selectedPageTab=Text&key=<域>`
   - 路径段 `false` 为字面量；域**只在 `&key=`**（本路由路径里根本没有域段）
 
 ## 回答什么业务问题

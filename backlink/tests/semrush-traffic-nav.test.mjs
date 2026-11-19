@@ -32,14 +32,14 @@ const scriptPath = path.join(here, '..', 'scripts', 'semrush-traffic.mjs');
 const source = await readFile(scriptPath, 'utf8');
 
 test('导航 URL 必须同时带 q= 和 searchType=domain', () => {
-  const url = buildTrafficUrl('https://sem.3ue.co', 'canva.com');
+  const url = buildTrafficUrl('https://sem.proxy.example.com', 'canva.com');
   const parsed = new URL(url);
   assert.equal(parsed.pathname, TRAFFIC_PATH);
   assert.equal(parsed.searchParams.get('q'), 'canva.com');
   assert.equal(parsed.searchParams.get('searchType'), TRAFFIC_SEARCH_TYPE);
   assert.equal(TRAFFIC_SEARCH_TYPE, 'domain');
   // 尾斜杠不许翻倍——`origin` 带不带 `/` 都得拼出同一条 URL。
-  assert.equal(buildTrafficUrl('https://sem.3ue.co/', 'canva.com'), url);
+  assert.equal(buildTrafficUrl('https://sem.proxy.example.com/', 'canva.com'), url);
 });
 
 test('主流程真的把带 query 的深链传给 gotoInTool，而不是裸路由', () => {
@@ -55,15 +55,15 @@ test('主流程真的把带 query 的深链传给 gotoInTool，而不是裸路�
 
 test('落地校验是结构信号：query 被吞掉必须判失败', () => {
   const domain = 'canva.com';
-  const good = buildTrafficUrl('https://sem.3ue.co', domain);
+  const good = buildTrafficUrl('https://sem.proxy.example.com', domain);
   assert.equal(classifyDeepLink({ landedUrl: good, domain }).ok, true);
 
   // `/analytics/traffic/overview/` 会 302 到落地页并把 query 丢掉——正是这一类。
   const cases = {
-    'https://sem.3ue.co/analytics/traffic/traffic-overview/': 'query-dropped',
-    'https://sem.3ue.co/analytics/traffic/traffic-overview/?q=canva.com': 'search-type-dropped',
-    'https://sem.3ue.co/analytics/traffic/': 'path-drift',
-    'https://sem.3ue.co/analytics/traffic/traffic-overview/?q=figma.com&searchType=domain': 'query-target-mismatch',
+    'https://sem.proxy.example.com/analytics/traffic/traffic-overview/': 'query-dropped',
+    'https://sem.proxy.example.com/analytics/traffic/traffic-overview/?q=canva.com': 'search-type-dropped',
+    'https://sem.proxy.example.com/analytics/traffic/': 'path-drift',
+    'https://sem.proxy.example.com/analytics/traffic/traffic-overview/?q=figma.com&searchType=domain': 'query-target-mismatch',
     '': 'unparsable-url',
   };
   for (const [landedUrl, reason] of Object.entries(cases)) {
@@ -74,7 +74,7 @@ test('落地校验是结构信号：query 被吞掉必须判失败', () => {
 
   // 尾斜杠差异不是漂移；页面自己加的额外参数也不是。
   assert.equal(classifyDeepLink({
-    landedUrl: 'https://sem.3ue.co/analytics/traffic/traffic-overview?q=canva.com&searchType=domain&db=us',
+    landedUrl: 'https://sem.proxy.example.com/analytics/traffic/traffic-overview?q=canva.com&searchType=domain&db=us',
     domain,
   }).ok, true);
 });
@@ -86,7 +86,7 @@ test('只有 checkbox 的假页面：不许再报「输入框没出现」', asyn
   // 那句话把「路由不提供表单」说成了「输入框水合慢」，误导了三次实盘。
   const checkboxOnlyPage = {
     title: 'Dashboards',
-    url: 'https://sem.3ue.co/analytics/traffic/traffic-overview/',
+    url: 'https://sem.proxy.example.com/analytics/traffic/traffic-overview/',
     inputs: Array.from({ length: 13 }, () => ({ type: 'checkbox' })),
     bodyText: ['Dashboards', '我的仪表板', '创建新列表'].join('\n'),
   };

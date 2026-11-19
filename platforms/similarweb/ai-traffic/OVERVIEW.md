@@ -1,6 +1,6 @@
 # AI Traffic（AI 流量）板块索引
 
-host：`sim.3ue.co`。2026-08-30 第四轮判决，判决书见 `backlink/SKILL.md` 的
+host：`sim.proxy.example.com`。2026-08-30 第四轮判决，判决书见 `backlink/SKILL.md` 的
 `<similarweb-round4-capabilities>` 块与本地
 `backlink/evidence/ground-truth/similarweb-round4-VERDICTS.md`（证据目录 gitignore）。
 

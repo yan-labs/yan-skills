@@ -14,7 +14,7 @@ MONTHS="${2:-6m}"
 SLUG="${DOMAIN//./-}"
 OUT="${3:-$ROOT/backlink/evidence/ground-truth/similarweb-ai-traffic-${SLUG}-$(date +%Y%m%d-%H%M%S)}"
 
-URL="https://sim.3ue.co/#/digitalsuite/ai-traffic/overview/*/999/${MONTHS}?webSource=Total&key=${DOMAIN}"
+URL="https://sim.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/#/digitalsuite/ai-traffic/overview/*/999/${MONTHS}?webSource=Total&key=${DOMAIN}"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

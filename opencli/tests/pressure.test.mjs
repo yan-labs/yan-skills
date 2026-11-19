@@ -29,7 +29,7 @@ const ok = (list) => ({ ok: true, list });
 test('3 个 semrush 标签页 = 到线，裁决 wait', () => {
   const report = assess({
     sessions: ok([
-      tab('semrush-nav', 'https://sem.3ue.co/analytics/overview/'),
+      tab('semrush-nav', 'https://sem.proxy.example.com/analytics/overview/'),
       tab(mine('tm-a'), 'https://www.semrush.com/analytics/keywordmagic/'),
       tab('sweep2-other', 'https://cdn.semrush.com/x'),
     ]),
@@ -45,7 +45,7 @@ test('3 个 semrush 标签页 = 到线，裁决 wait', () => {
 });
 
 test('1 个 semrush 标签页、没有锁 = go', () => {
-  const report = assess({ sessions: ok([tab(mine('tm-a'), 'https://sem.3ue.co/x')]) });
+  const report = assess({ sessions: ok([tab(mine('tm-a'), 'https://sem.proxy.example.com/x')]) });
   assert.equal(report.verdict, 'go');
   assert.equal(report.tabs.bySite.semrush.total, 1);
   assert.equal(report.tabs.bySite.semrush.atLimit, false);
@@ -57,7 +57,7 @@ test('非配额站的标签页不占配额站的线', () => {
     sessions: ok([
       tab(mine('a'), 'https://example.com/'),
       tab(mine('b'), 'https://not-semrush.com.evil.test/'),
-      tab(mine('c'), 'https://sem.3ue.co/x'),
+      tab(mine('c'), 'https://sem.proxy.example.com/x'),
     ]),
   });
   assert.equal(report.verdict, 'go');
@@ -70,7 +70,7 @@ test('URL 还没出来的固定会话也算进它那个站', () => {
   // 于是「已经有 3 个」被读成 2 个——正好在最该拦住的时刻放行。
   assert.equal(siteOf({ session: 'semrush-nav', url: '' }), 'semrush');
   const report = assess({
-    sessions: ok([tab('semrush-nav'), tab(mine('a'), 'https://sem.3ue.co/x'), tab('b-other', 'https://semrush.com/y')]),
+    sessions: ok([tab('semrush-nav'), tab(mine('a'), 'https://sem.proxy.example.com/x'), tab('b-other', 'https://semrush.com/y')]),
   });
   assert.equal(report.tabs.bySite.semrush.total, 3);
   assert.equal(report.verdict, 'wait');
@@ -97,7 +97,7 @@ test('自己的会话、别人的会话、共享的固定会话能区分开', ()
 
 test('到线时会点名「其中几个不是你的，不要关」', () => {
   const report = assess({
-    sessions: ok([tab(mine('a'), 'https://sem.3ue.co/1'), tab('x-other', 'https://sem.3ue.co/2'), tab('y-other', 'https://sem.3ue.co/3')]),
+    sessions: ok([tab(mine('a'), 'https://sem.proxy.example.com/1'), tab('x-other', 'https://sem.proxy.example.com/2'), tab('y-other', 'https://sem.proxy.example.com/3')]),
   });
   const advice = report.actions.join('\n');
   assert.match(advice, /2 个不是你的/);
@@ -108,7 +108,7 @@ test('到线时会点名「其中几个不是你的，不要关」', () => {
 
 test('锁被活着的 pid 持有 → wait，并说清持有了多久', () => {
   const report = assess({
-    sessions: ok([tab(mine('a'), 'https://sem.3ue.co/x')]),
+    sessions: ok([tab(mine('a'), 'https://sem.proxy.example.com/x')]),
     locks: [heldBy('semrush', 94149, true, 223_000), idle('similarweb')],
   });
   assert.equal(report.verdict, 'wait');
@@ -189,20 +189,20 @@ test('unknown 压过 go：一个空闲的机器 + 拿不到列表，仍然是 un
 /* ── 令牌 ───────────────────────────────────────────────────────────── */
 
 test('URL 的 query 被完全剥掉，令牌不进输出', () => {
-  const dirty = 'https://sem.3ue.co/analytics/overview/?__gmitm=SECRETVALUE123&db=us';
-  assert.equal(scrubUrl(dirty), 'https://sem.3ue.co/analytics/overview/');
+  const dirty = 'https://sem.proxy.example.com/analytics/overview/?__gmitm=SECRETVALUE123&db=us';
+  assert.equal(scrubUrl(dirty), 'https://sem.proxy.example.com/analytics/overview/');
 
   // hash 路由的工具（Similarweb）把 query 放在 # 之后，按第一个 ? 切才盖得住。
   assert.equal(
-    scrubUrl('https://sim.3ue.co/#/digitalsuite/home?__gmitm=SECRETVALUE123'),
-    'https://sim.3ue.co/#/digitalsuite/home',
+    scrubUrl('https://sim.proxy.example.com/#/digitalsuite/home?__gmitm=SECRETVALUE123'),
+    'https://sim.proxy.example.com/#/digitalsuite/home',
   );
 
   const report = assess({ sessions: ok([tab('semrush-nav', dirty)]) });
   const serialized = `${JSON.stringify(report)}\n${renderText(report)}`;
   assert.ok(!serialized.includes('SECRETVALUE123'), '令牌绝不能出现在任何输出里');
   assert.ok(!serialized.includes('__gmitm'), '整个 query 都该没了');
-  assert.ok(serialized.includes('sem.3ue.co/analytics/overview'), '路径要留着，否则报告没用');
+  assert.ok(serialized.includes('sem.proxy.example.com/analytics/overview'), '路径要留着，否则报告没用');
 });
 
 /* ── 杂项 ───────────────────────────────────────────────────────────── */

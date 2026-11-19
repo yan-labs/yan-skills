@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/analytics/refdomains/report/?q=<domain>&searchType=domain`
+- URL 模板：`https://sem.proxy.example.com/analytics/refdomains/report/?q=<domain>&searchType=domain`
 - **不在 `/analytics/backlinks/` 下**。`/analytics/backlinks/refdomains/` 是死路由，
   302 回 `/analytics/backlinks/overview/`（hijack 自检 exit 3 留档）。引荐域名不是
   backlinks 的 tab，是左栏「外链建设」组里的独立工具。

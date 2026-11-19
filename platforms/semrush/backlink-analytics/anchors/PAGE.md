@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/analytics/backlinks/anchors/?q=<domain>&searchType=domain`
+- URL 模板：`https://sem.proxy.example.com/analytics/backlinks/anchors/?q=<domain>&searchType=domain`
 
 ## 回答什么业务问题
 

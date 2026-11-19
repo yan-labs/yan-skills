@@ -14,7 +14,7 @@ ROOT="$(cd "$SCRIPT_DIR" && git rev-parse --show-toplevel)"
 LID="${1:-1234565}"
 OUT="$ROOT/backlink/evidence/ground-truth/semrush-market-overview-lid${LID}-$(date +%Y%m%d-%H%M%S)"
 
-URL="https://sem.3ue.co/analytics/traffic/market-overview/?lid=${LID}"
+URL="https://sem.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/analytics/traffic/market-overview/?lid=${LID}"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

@@ -145,7 +145,7 @@ const keepOpen = Boolean(flags['keep-open']);
 // 说明。跟 similarweb-query.mjs/Semrush 保持同名参数、同样的字符串判定方式。
 const activateChrome = String(flags['activate-chrome'] ?? 'false') === 'true';
 const windowMode = activateChrome ? 'foreground' : 'background';
-const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN || 'https://sim.3ue.co').replace(/\/+$/, '');
+const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN || (process.env.TOOLS_SHARE_DOMAIN ? `https://sim.${process.env.TOOLS_SHARE_DOMAIN}` : '')).replace(/\/+$/, '');
 const evidenceDir = defaultSceneDir({ out: typeof flags.out === 'string' ? flags.out : null, script: 'similarweb-scroll-ab', runTag: `${domain}-${report}` });
 
 let evaluate = null;

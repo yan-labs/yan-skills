@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/overview`
+- URL 模板：`https://sem.proxy.example.com/siteaudit/campaign/<CAMPAIGN_ID>/review/overview`
   - `<CAMPAIGN_ID>`：项目 id，**没有按域名查的无状态入口**
   - 面板会附加 `__gmitm=`（剥敏，只留键名），不需要手传
 - 落点：**原样**，不重定向

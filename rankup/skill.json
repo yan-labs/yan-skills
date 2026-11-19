@@ -3,6 +3,6 @@
   "name": "rankup",
   "version": "4.1.0",
   "releasedAt": "2026-11-16T00:00:00Z",
-  "source": "yan-labs/yan-skills",
-  "manifestUrl": "https://raw.githubusercontent.com/yan-labs/yan-skills/main/rankup/skill.json"
+  "source": "example-owner/yan-skills",
+  "manifestUrl": "https://raw.githubusercontent.com/example-owner/yan-skills/main/rankup/skill.json"
 }

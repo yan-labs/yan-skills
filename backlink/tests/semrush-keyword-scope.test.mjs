@@ -77,8 +77,8 @@ test('explicit --db: numbers pass through untouched, just tagged with volumeScop
 });
 
 test('extractDbFromUrl reads the landed db back from the page URL, diagnostically', () => {
-  assert.equal(extractDbFromUrl('https://sem.3ue.co/analytics/keywordoverview/?q=x&db=kr'), 'kr');
-  assert.equal(extractDbFromUrl('https://sem.3ue.co/analytics/keywordoverview/?q=x'), null);
+  assert.equal(extractDbFromUrl('https://sem.proxy.example.com/analytics/keywordoverview/?q=x&db=kr'), 'kr');
+  assert.equal(extractDbFromUrl('https://sem.proxy.example.com/analytics/keywordoverview/?q=x'), null);
   assert.equal(extractDbFromUrl('not a url'), null);
 });
 

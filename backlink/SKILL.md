@@ -3,6 +3,8 @@ name: backlink
 description: Use for backlink work - finding, qualifying, submitting, analyzing or verifying backlinks, directory and blog-comment placements, competitor link sources, anchors, toxic links and disavow, outreach templates, and reading Ahrefs, Semrush or Similarweb backlink and traffic reports (外链、反链、去哪发、提交目录、评论外链、发出去没有、毒性、disavow、竞品外链、竞品导流、数据面板). This Skill owns what to read from those reports and which placements to pursue. Not for generic logged-in browser driving, sessions or doctor faults (use opencli), and not for sitemap, IndexNow or Search Console indexing operations (use rankup); index-submission here is only a reference kept apart from backlinks.
 ---
 
+共享工具地址示例使用 `proxy.example.com` 占位；运行前在本机环境设置 `TOOLS_SHARE_DOMAIN` 为实际服务域名，backlink 脚本也可写入本机 `backlink/.env`。
+
 <skill name="backlink" version="3.3.1" body-format="xml">
 
 <why-xml>
@@ -586,10 +588,10 @@ months while the #1 site kept its position and lost 87% of its traffic.
 </output-contract>
 
 <install>
-Source: [Skills.sh](https://skills.sh/yan-labs/yan-skills)
+Source: [Skills.sh](https://skills.sh/example-owner/yan-skills)
 <cmd><![CDATA[
-npx skills add yan-labs/yan-skills --skill opencli -g -y    # install this FIRST
-npx skills add yan-labs/yan-skills --skill backlink -g -y   # first install
+npx skills add $SKILLS_SOURCE --skill opencli -g -y    # install this FIRST
+npx skills add $SKILLS_SOURCE --skill backlink -g -y   # first install
 npx skills update backlink -g -y                            # update
 ]]></cmd>
 For a project-level install omit `-g`; update with `npx skills update backlink -p -y`.
@@ -598,7 +600,7 @@ For a project-level install omit `-g`; update with `npx skills update backlink -
 it carries the rules this Skill only summarises.
 
 It also requires the OpenCLI binary **and browser extension** from
-[yan-labs/OpenCLI releases](https://github.com/yan-labs/OpenCLI/releases/latest) —
+example-owner/OpenCLI releases（地址见本机配置） —
 **not the Chrome Web Store build**. The store build defaults to foreground: it raises
 a window and steals the tab the person is reading. That failure is silent — commands
 still succeed, only the behaviour is wrong — so `opencli doctor` flags an extension

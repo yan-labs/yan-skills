@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sim.3ue.co/#/organicsearch/websiteanalysis/home`（无参数）
+- URL 模板：`https://sim.proxy.example.com/#/organicsearch/websiteanalysis/home`（无参数）
 - hash 路由；侧栏「关键词研究」直达。左栏是整组 13 个子页的导航。
 
 ## 回答什么业务问题

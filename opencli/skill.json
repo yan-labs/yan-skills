@@ -3,6 +3,6 @@
   "name": "opencli",
   "version": "1.8.2",
   "releasedAt": "2026-10-03T17:15:27Z",
-  "source": "yan-labs/yan-skills",
-  "manifestUrl": "https://raw.githubusercontent.com/yan-labs/yan-skills/main/opencli/skill.json"
+  "source": "example-owner/yan-skills",
+  "manifestUrl": "https://raw.githubusercontent.com/example-owner/yan-skills/main/opencli/skill.json"
 }

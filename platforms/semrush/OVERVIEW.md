@@ -1,6 +1,6 @@
 # Semrush 平台总览
 
-- **host：`sem.3ue.co`**（唯一合法面板 origin；所有 PAGE.md 里的 URL 模板都是它上面的路径）。
+- **host：`sem.proxy.example.com`**（唯一合法面板 origin；所有 PAGE.md 里的 URL 模板都是它上面的路径）。
 - 共享账号，**GURU 套餐 + .Trends add-on**（Traffic Analytics 22 条路由实测有真数据，证明
   .Trends 已带）。会话固定为 `semrush-nav`。
 - 全部 URL 剥敏：`__gmitm=` 只留空值键名，任何值都不落盘、不进文档。
@@ -19,7 +19,7 @@
 - GURU 没有：**API 访问**（BUSINESS 独占）——所以才要浏览器采集；PLA 分析、SEO Share of Voice 同样没有。
 - Local / Social / App Center 多数应用：各自单独付费，默认当作不可用。
 
-## 配额纪律（碰任何 sem.3ue.co 页面之前必读）
+## 配额纪律（碰任何 sem.proxy.example.com 页面之前必读）
 
 1. **一工具一采集者**：任一时刻至多一个 collector 碰 Semrush——包括人肉手动探索。
    手动探索不持锁曾被持锁的批任务合法驱走（2026-08-29 实测）。

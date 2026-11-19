@@ -26,13 +26,13 @@ Rankup 负责识别需求、选择专项能力和保持项目记录；专项 Ski
 
 ```bash
 # 安装或刷新 yan-skills 仓库中的全部 Skill
-npx skills add yan-labs/yan-skills -g --all
+npx skills add $SKILLS_SOURCE -g --all
 
 # 更新全局安装的 rankup
 npx skills update rankup -g -y
 
 # 外链执行、外链分析，以及登录态后台批量取数（三者已合并为一个 Skill）
-npx skills add yan-labs/yan-skills --skill backlink -g -y
+npx skills add $SKILLS_SOURCE --skill backlink -g -y
 
 # Cloudflare 资源、绑定、迁移、密钥和部署
 npx skills add cloudflare/skills --skill wrangler -g -y

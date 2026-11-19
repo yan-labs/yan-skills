@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/analytics/adwords/changes/?db=us&q=<domain>&searchType=domain`
+- URL 模板：`https://sem.proxy.example.com/analytics/adwords/changes/?db=us&q=<domain>&searchType=domain`
   - slug 实证：点击「排名变化」tab 后读回 href 即此路径（真路由，不在
     「未知子路径 302 回 positions」的回落名单里）
   - 落点把 `db` 吃成 `date=YYYYMMDD`（最近数据日，实测 `date=20260828`）

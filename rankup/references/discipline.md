@@ -213,7 +213,7 @@ opencli browser "$S" eval '(async()=>{ /* fetch(..., {credentials:"include"}) */
 去点、去填、去提交属于执行。两者只要落在「需要登录态的页面操作」上，就都必须走 `opencli`——探路
 本身就是要沉淀成 adapter 的那一步，换了工具探路，路就白探了。
 
-未安装：`npx skills add yan-labs/yan-skills --skill opencli -g -y`。
+未安装：`npx skills add $SKILLS_SOURCE --skill opencli -g -y`。
 
 **除 [SERP 取数路线](seo-serp.md#serp-取数路线)外，反过来同样是硬规则：目标平台有 API 或 CLI、且本机已有凭据能证明（`wrangler whoami`、
 `gh auth status` 一类能给出肯定结果的命令），一律走 API/CLI，禁止开浏览器去后台点。**
@@ -268,10 +268,10 @@ Semrush / Similarweb 的脚本**收敛到固定会话名**（`semrush-nav` / `si
 传了会被忽略并打一行 stderr。Ahrefs 同理，固定 `ahrefs-nav`。旧版主文件的 Rankup CLI 示例带着 `--session`，已改正：
 
 ```bash
-npx @yan-labs/rankup catalog semrush --modules      # 展开工具箱 → 功能页树
-npx @yan-labs/rankup catalog --gaps                 # 只看两家没摸到的地方
-npx @yan-labs/rankup capture semrush keyword-overview --keyword "<词>" --db us --out-dir .rankup/provider-audit/keyword-us
-npx @yan-labs/rankup audit similarweb --manifest .rankup/provider-audit/similarweb.json --out-dir .rankup/provider-audit/live/similarweb --resume
+npx --package $RANKUP_PACKAGE rankup catalog semrush --modules      # 展开工具箱 → 功能页树
+npx --package $RANKUP_PACKAGE rankup catalog --gaps                 # 只看两家没摸到的地方
+npx --package $RANKUP_PACKAGE rankup capture semrush keyword-overview --keyword "<词>" --db us --out-dir .rankup/provider-audit/keyword-us
+npx --package $RANKUP_PACKAGE rankup audit similarweb --manifest .rankup/provider-audit/similarweb.json --out-dir .rankup/provider-audit/live/similarweb --resume
 ```
 
 - 同一平台首页最多用于首次启动一次；进入工具域名后走内页，不要每项报告重新经过首页。

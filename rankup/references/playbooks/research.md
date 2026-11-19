@@ -268,7 +268,7 @@ Stripe 前 20 名、单站与月度概要已迁官方 `stripe_checkout_referrals
 | **`/keyword-research`** | **半进** | P2 阶段 8，**只用第 4 相和第 7 相** | 它**没有任何数据源**（`Data Sources` 那节写明"Without tools, ask for seed keywords"）。它的第 5 相 Score 会凭空生成 volume 和 difficulty 1-100——那与 rankup「脚本只采集、数字必须有出处」的全部纪律直接冲突。**严禁跑它的 Score 相** |
 | **`/deep-research`** | **半进** | P4 阶段 7、P1 用户提到陌生领域时 | 它是 WebSearch 的多角度方法论。**只用于赛道背景的定性理解**，产出不许进 `.rankup/keywords.md` 或任何带数字的表 |
 | **`/opencli`** | **底座** | 所有需要真浏览器的阶段 | 会话纪律、`--window background` 默认、`close` 必须显式——`discipline.md`「浏览器与取数」一节已指向它，本文件不重复 |
-| **`/backlink`** | **底座** | P2 阶段 2/3/7、P4 阶段 5 | Semrush / Similarweb / Tools Share 脚本的宿主。未装：`npx skills add yan-labs/yan-skills --skill backlink -g -y` |
+| **`/backlink`** | **底座** | P2 阶段 2/3/7、P4 阶段 5 | Semrush / Similarweb / Tools Share 脚本的宿主。未装：`npx skills add $SKILLS_SOURCE --skill backlink -g -y` |
 | `/ai-seo`、`/seo-geo`、`/seo-audit` | **不进** | — | 它们是**优化侧**（决定做了之后怎么做好），在调研阶段没有输入可给。立项之后才登场 |
 
 ---

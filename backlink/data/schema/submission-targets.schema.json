@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/yan-labs/yan-skills/backlink/data/schema/submission-targets.schema.json",
+  "$id": "https://github.com/example-owner/yan-skills/backlink/data/schema/submission-targets.schema.json",
   "title": "Submission targets",
   "description": "Places that accept a submission, screened but not yet proven to publish a link. This is the first-pass resource library: relevance and authority never gate entry here, only reachability and the existence of a route. A row graduates into free-channels.json once an actual placement is observed on a live page — until then it makes no claim about rel, anchor, or indexability.",
   "type": "object",

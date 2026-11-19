@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/analytics/adwords/copies/?db=us&q=<domain>&searchType=domain`
+- URL 模板：`https://sem.proxy.example.com/analytics/adwords/copies/?db=us&q=<domain>&searchType=domain`
   - `q`：目标域名；`searchType`：固定 `domain`；`db`：数据库（`us`）
   - 面板可能自动附加 `__gmitm=`（剥敏，只留键名），不需要手动传
 - 广告研究顶部 tab 之一（排名 / 排名变化 / 竞争对手 / **广告创意** / 页面 / 子域名）

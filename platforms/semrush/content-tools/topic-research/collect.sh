@@ -11,7 +11,7 @@ ROOT="$(cd "$SCRIPT_DIR" && git rev-parse --show-toplevel)"
 OUT="${1:-$ROOT/backlink/evidence/ground-truth/semrush-topic-research-$(date +%Y%m%d-%H%M%S)}"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
-  --url "https://sem.3ue.co/topic-research/" \
+  --url "https://sem.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/topic-research/" \
   --out "$OUT" \
   --budget 120 --max-screens 6 \
   --ready-text "获取内容创意"

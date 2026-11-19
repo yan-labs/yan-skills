@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/topic-research/`
+- URL 模板：`https://sem.proxy.example.com/topic-research/`
   - **无 query 参数**。`db=` / `q=` 是否可用**本轮未实证**，别猜着用。
 - `document.title`：`Topic Research: Topic Finder Tool for Finding Content Ideas`
   —— ⚠️ **与报表页完全相同**，不能拿 title 当落点判据，只看 `finalHref` 的 path。

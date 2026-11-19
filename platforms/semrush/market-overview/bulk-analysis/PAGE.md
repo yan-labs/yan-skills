@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sem.3ue.co/analytics/traffic/industry-and-bulk-analysis/`
+- URL 模板：`https://sem.proxy.example.com/analytics/traffic/industry-and-bulk-analysis/`
   - 会自带记忆上次的 `lid=`；页内 tab：**批量分析** / 商家类别
   - 结果头可选维度：全球 / 月份 / 设备
 - 老路由更正：外链侧的 ~~`/analytics/backlinks/bulk/`~~ 已 302 回 `/analytics/backlinks/`

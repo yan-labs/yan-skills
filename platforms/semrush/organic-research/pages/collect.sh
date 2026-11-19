@@ -12,7 +12,7 @@ DOMAIN="${1:-canva.com}"
 
 OUT="$ROOT/backlink/evidence/ground-truth/semrush-organic-pages-${DOMAIN//./-}-$(date +%Y%m%d-%H%M%S)"
 
-URL="https://sem.3ue.co/analytics/toppages/?db=us&q=${DOMAIN}&searchType=domain"
+URL="https://sem.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/analytics/toppages/?db=us&q=${DOMAIN}&searchType=domain"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sim.3ue.co/#/digitalsuite/markets/webmarketanalysis/home`（**无参数**）
+- URL 模板：`https://sim.proxy.example.com/#/digitalsuite/markets/webmarketanalysis/home`（**无参数**）
 - 上级：`../OVERVIEW.md`；真正的榜单页在 `../category-board/PAGE.md`
 
 ## 回答什么业务问题

@@ -4,7 +4,7 @@
 
 - URL 模板（**以落地 href 为准**）：
   ```
-  https://sim.3ue.co/#/digitalsuite/ai-traffic/overview/*/999/6m?webSource=Total&key=<域名>
+  https://sim.proxy.example.com/#/digitalsuite/ai-traffic/overview/*/999/6m?webSource=Total&key=<域名>
   ```
   - **路径段保持字面量 `*`**，域名只走 `key=`——这是本站「站点上下文冷深链必须带 `&key=`」
     定律的又一个实例。

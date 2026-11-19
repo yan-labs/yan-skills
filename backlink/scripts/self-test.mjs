@@ -7,9 +7,9 @@ import { join, resolve } from 'node:path';
 import { closeSession, firstJson, opencli, run } from './opencli-core.mjs';
 import { isReusableToolCapture } from './lib-tools-share.mjs';
 
-assert.equal(isReusableToolCapture({ url: 'https://sem.3ue.co/analytics/overview/', len: 200 }, 'sem.3ue.co'), true);
-assert.equal(isReusableToolCapture({ url: 'https://dash.3ue.co/zh-Hans/', len: 200 }, 'sem.3ue.co'), false);
-assert.equal(isReusableToolCapture({ url: 'https://sem.3ue.co/analytics/overview/', len: 20 }, 'sem.3ue.co'), false);
+assert.equal(isReusableToolCapture({ url: 'https://sem.proxy.example.com/analytics/overview/', len: 200 }, 'sem.proxy.example.com'), true);
+assert.equal(isReusableToolCapture({ url: 'https://dash.proxy.example.com/zh-Hans/', len: 200 }, 'sem.proxy.example.com'), false);
+assert.equal(isReusableToolCapture({ url: 'https://sem.proxy.example.com/analytics/overview/', len: 20 }, 'sem.proxy.example.com'), false);
 
 const root = resolve(new URL('.', import.meta.url).pathname);
 const temporary = await mkdtemp(join(tmpdir(), 'backlink-skill-test-'));

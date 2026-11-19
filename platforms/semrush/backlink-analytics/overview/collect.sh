@@ -13,7 +13,7 @@ DOMAIN="${1:-canva.com}"
 SLUG="${DOMAIN//./-}"
 OUT="${2:-$ROOT/backlink/evidence/ground-truth/semrush-backlinks-overview-${SLUG}-$(date +%Y%m%d-%H%M%S)}"
 
-URL="https://sem.3ue.co/analytics/backlinks/overview/?q=${DOMAIN}&searchType=domain"
+URL="https://sem.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/analytics/backlinks/overview/?q=${DOMAIN}&searchType=domain"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

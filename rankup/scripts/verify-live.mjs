@@ -26,7 +26,7 @@ const TIMEOUT_MS = 15_000
 const MAX_REDIRECTS = 10
 const MAX_SITEMAP_CHILDREN = 50
 const MAX_SITEMAP_DEPTH = 4
-const UA = "rankup-verify-live/1.0 (+https://github.com/yan-labs/yan-skills)"
+const UA = "rankup-verify-live/1.0 (+https://github.com/example-owner/yan-skills)"
 
 function usage(stream = console.error) {
   stream(`用法: node scripts/verify-live.mjs <url1> [url2 ...] [选项]

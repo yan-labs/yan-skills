@@ -1,7 +1,7 @@
 # Similarweb 功能全景 + 我们的探索缺口
 
 **调研日期**:2026-08-29。方式:纯外网调研(官方产品页/知识库检索 + 英文评测 + 中文站长圈教程),
-**未触碰** sim.3ue.co 或任何登录面板。
+**未触碰** sim.proxy.example.com 或任何登录面板。
 对照基线:`backlink/scripts/similarweb-query.mjs` 五类报表(performance / channels /
 similar-sites / audience-geo / site-keywords)+ `similarweb-keywords.mjs` +
 `rankup/references/provider-capabilities.md` 的 73 条路由旧地图(23 个可用模块 + 5 个买不起的独立产品)。
@@ -150,7 +150,7 @@ Team/Enterprise 谈价(最长 37 个月历史、100+ 国、API)。
 | 10 | 外链 3 页 + 网站技术栈 | 外链/竞品 | 与既有 Semrush/Ahrefs 重叠,当第三信源与技术栈补充 |
 
 **探索时注意**(内部既有教训,提前避坑):未知路由会静默重定向,必须记录落地 hash;
-读数要等两拍水合;「空表」≠「无数据」,chart-only 页数据在 SVG 里;`sem.3ue.co`/`sim` 基址别写错。
+读数要等两拍水合;「空表」≠「无数据」,chart-only 页数据在 SVG 里;`sem.proxy.example.com`/`sim` 基址别写错。
 
 ---
 

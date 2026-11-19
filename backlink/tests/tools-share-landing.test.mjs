@@ -10,7 +10,7 @@ import { strict as assert } from 'node:assert';
 import test from 'node:test';
 import { gotoInTool, routeMismatch, routeWindow } from '../scripts/lib-tools-share.mjs';
 
-const SW = 'https://sim.3ue.co';
+const SW = 'https://sim.proxy.example.com';
 const HIJACK = `${SW}/#/digitalsuite/ai-brand-visibility/home`;
 
 /**
@@ -76,9 +76,9 @@ test('allowRedirect: true lets a redirect through', async () => {
 });
 
 test('a non-hash Semrush pathname mismatch throws', async () => {
-  const requested = 'https://sem.3ue.co/analytics/traffic/overview/?q=example.com&searchType=domain';
+  const requested = 'https://sem.proxy.example.com/analytics/traffic/overview/?q=example.com&searchType=domain';
   // 实测：这条路由 302 到 Getting Started 落地页并丢掉 query。
-  const landed = 'https://sem.3ue.co/analytics/traffic/getting-started/';
+  const landed = 'https://sem.proxy.example.com/analytics/traffic/getting-started/';
   const { evalPage } = fakeEvalPage(landed, { title: 'Traffic Analytics' });
   await assert.rejects(
     () => goto(evalPage, requested),
@@ -216,7 +216,7 @@ test('gotoInTool reports the window even when it was not rewritten', async () =>
 test('routeWindow is null for routes whose last segment is not a window', () => {
   const base = `${SW}/#/digitalsuite/websiteanalysis/traffic-overview/marketing-channels/999`;
   assert.equal(routeWindow(base, base), null);
-  assert.equal(routeWindow('https://sem.3ue.co/analytics/overview/', 'https://sem.3ue.co/analytics/overview/'), null);
+  assert.equal(routeWindow('https://sem.proxy.example.com/analytics/overview/', 'https://sem.proxy.example.com/analytics/overview/'), null);
 });
 
 test('the referrals hop also carries its landed window', async () => {

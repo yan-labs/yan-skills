@@ -2,8 +2,8 @@
 
 ## 页面身份
 
-- 入口：`https://sem.3ue.co/eyeon/` → 302
-  `https://sem.3ue.co/analytics/traffic/competitor-monitoring?lid=<listId>`
+- 入口：`https://sem.proxy.example.com/eyeon/` → 302
+  `https://sem.proxy.example.com/analytics/traffic/competitor-monitoring?lid=<listId>`
 - 直达 `/analytics/traffic/competitor-monitoring/?lid=<listId>` 可重现。
   `lid` = .Trends 列表身份（与市场概览共用「未命名列表 canva.com」，实测 lid=1234565）。
 - EyeOn 品牌名已消失：.Trends 左栏 28 项无 EyeOn 字样，302 证实改名「竞争对手监控」。

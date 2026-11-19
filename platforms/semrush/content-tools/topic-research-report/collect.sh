@@ -16,7 +16,7 @@ fi
 OUT="${2:-$ROOT/backlink/evidence/ground-truth/semrush-topic-research-ideas-$(date +%Y%m%d-%H%M%S)}"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
-  --url "https://sem.3ue.co/topic-research/${ID}/" \
+  --url "https://sem.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/topic-research/${ID}/" \
   --out "$OUT" \
   --budget 120 --max-screens 8 \
   --ready-text "Volume:"

@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：
-  `https://sim.3ue.co/#/digitalsuite/websiteanalysis/referrals/*/999/1m?webSource=Total&selectedTab=incomingTraffic&key=<域>`
+  `https://sim.proxy.example.com/#/digitalsuite/websiteanalysis/referrals/*/999/1m?webSource=Total&selectedTab=incomingTraffic&key=<域>`
   - 路径段字面量 `*`；域**只在 `&key=`**
   - 时长段 1m 落地实测被静默改写为 6m——模板以落地 href 为准
 

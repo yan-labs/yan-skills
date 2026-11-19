@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：
-  `https://sim.3ue.co/#/digitalsuite/acquisition/websiteanalysis/topics/<域>/999/<YYYY.MM-YYYY.MM>?webSource=Total&selectedPageTab=Total&key=<域>`
+  `https://sim.proxy.example.com/#/digitalsuite/acquisition/websiteanalysis/topics/<域>/999/<YYYY.MM-YYYY.MM>?webSource=Total&selectedPageTab=Total&key=<域>`
   - **`&key=<域>` 必带**；国家段会被面板静默改写（实测自动跳 840=美国），模板以落地 href 为准
 
 ## 回答什么业务问题

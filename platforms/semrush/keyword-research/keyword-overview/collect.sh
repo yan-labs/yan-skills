@@ -15,7 +15,7 @@ Q="${KW// /+}"
 SLUG="${KW// /-}"
 OUT="$ROOT/backlink/evidence/ground-truth/semrush-keywordoverview-${SLUG}-$(date +%Y%m%d-%H%M%S)"
 
-URL="https://sem.3ue.co/analytics/keywordoverview/?db=${DB}&q=${Q}"
+URL="https://sem.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/analytics/keywordoverview/?db=${DB}&q=${Q}"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

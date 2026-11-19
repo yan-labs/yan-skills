@@ -447,7 +447,7 @@ test('注入不进穿透遍历时，探针必须自报 deepProbe:false 而不是
 // 分类之前的硬闸门：路由 / 页头 / 内容区
 // ---------------------------------------------------------------------------
 const ADMISSIBLE = {
-  landedUrl: 'https://sem.3ue.co/analytics/traffic/top-pages/?q=canva.com&searchType=domain',
+  landedUrl: 'https://sem.proxy.example.com/analytics/traffic/top-pages/?q=canva.com&searchType=domain',
   requestedPath: '/analytics/traffic/top-pages/',
   headerTarget: 'canva.com',
   requestedTarget: 'canva.com',
@@ -466,7 +466,7 @@ test('三条闸门全过才 admissible', () => {
 });
 
 test('闸门 1 —— 落地 URL 的 path 必须等于请求的路由（销售页那次）', () => {
-  // 深链域名写错（www.semrush.com 不是授权基址 sem.3ue.co）**不报错**：
+  // 深链域名写错（www.semrush.com 不是授权基址 sem.proxy.example.com）**不报错**：
   // 渲染骨架 → 弹到 /analytics/traffic/（公开营销页）→ 再弹到 overview。
   const gate = classifyAdmissibility({
     ...ADMISSIBLE,
@@ -481,7 +481,7 @@ test('闸门 1 —— 落地 URL 的 path 必须等于请求的路由（销售�
   assert.equal(checkLandedRoute({ landedUrl: '/relative', requestedPath: '/x' }).reason, 'landing-url-unparsable');
   // 尾斜杠不作数。
   assert.equal(checkLandedRoute({
-    landedUrl: 'https://sem.3ue.co/analytics/traffic/top-pages', requestedPath: '/analytics/traffic/top-pages/',
+    landedUrl: 'https://sem.proxy.example.com/analytics/traffic/top-pages', requestedPath: '/analytics/traffic/top-pages/',
   }).ok, true);
 });
 
@@ -534,7 +534,7 @@ test('闸门 3 的两个前提：穿透读数 + 报表区根已实测', () => {
 test('对照组：top-pages（记录 850 格）今天读到 0 格，分类零区分力', () => {
   // 一条**已知有数据**的路由，和那 9 条「无表格」在浅层探针下读出来完全一样。
   const blindReading = {
-    landedUrl: 'https://sem.3ue.co/analytics/traffic/top-pages/?q=canva.com&searchType=domain',
+    landedUrl: 'https://sem.proxy.example.com/analytics/traffic/top-pages/?q=canva.com&searchType=domain',
     requestedPath: '/analytics/traffic/top-pages/',
     headerTarget: 'canva.com', requestedTarget: 'canva.com',
     deepText: 'x'.repeat(59), filledCells: 0, deepProbe: false,

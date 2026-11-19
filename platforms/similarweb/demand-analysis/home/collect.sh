@@ -9,7 +9,7 @@ ROOT="$(cd "$SCRIPT_DIR" && git rev-parse --show-toplevel)"
 
 OUT="${1:-$ROOT/backlink/evidence/ground-truth/similarweb-demand-home-$(date +%Y%m%d-%H%M%S)}"
 
-URL="https://sim.3ue.co/#/digitalsuite/marketresearch/keywordmarketresearch/home"
+URL="https://sim.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/#/digitalsuite/marketresearch/keywordmarketresearch/home"
 
 node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

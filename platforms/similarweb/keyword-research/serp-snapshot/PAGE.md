@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：
-  `https://sim.3ue.co/#/digitalsuite/acquisition/keyword/organic/search/840/<YYYY.MM-YYYY.MM>/serpsnapshot?keyword=<URL编码词>&tab=0&mtd=false&webSource=Desktop`
+  `https://sim.proxy.example.com/#/digitalsuite/acquisition/keyword/organic/search/840/<YYYY.MM-YYYY.MM>/serpsnapshot?keyword=<URL编码词>&tab=0&mtd=false&webSource=Desktop`
   - 国家段本例 840（美国）；关键词只在 `?keyword=`
 
 ## 回答什么业务问题

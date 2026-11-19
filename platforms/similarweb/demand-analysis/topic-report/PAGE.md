@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：
-  `https://sim.3ue.co/#/digitalsuite/marketresearch/keywordmarketanalysissearch/demand-search-trends?country=999&webSource=Total&duration=12m&id=AiTopic%3B<URL编码主题>%3B999`
+  `https://sim.proxy.example.com/#/digitalsuite/marketresearch/keywordmarketanalysissearch/demand-search-trends?country=999&webSource=Total&duration=12m&id=AiTopic%3B<URL编码主题>%3B999`
   - id 格式 `AiTopic;<主题>;999`（分号编码 %3B）；**可冷深链直达**，hash 不漂移
 
 ## 回答什么业务问题

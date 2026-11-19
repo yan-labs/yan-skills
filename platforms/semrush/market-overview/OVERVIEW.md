@@ -1,6 +1,6 @@
 # .Trends 市场概览 + 行业与批量分析 板块索引
 
-URL 基式：`/analytics/traffic/<路由>/`（host: sem.3ue.co）。本板块是 .Trends 的「流量与市场」
+URL 基式：`/analytics/traffic/<路由>/`（host: sem.proxy.example.com）。本板块是 .Trends 的「流量与市场」
 侧栏两件套：市场概览（Market Explorer 后继）+ 行业与批量分析（Bulk Analysis）。
 **页面身份不在 `q=` 而在 `lid=<listId>`**（列表 id），这是与 traffic-analytics 板块最大的差别。
 2026-08-30 双证人（ground-truth.mjs，会话 `semrush-nav`，目标 canva.com）判决，判决书见

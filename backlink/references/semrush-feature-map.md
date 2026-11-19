@@ -1,6 +1,6 @@
 # Semrush 功能全景 + 探索缺口(GURU 套餐)
 
-> 调研日期 2026-08-29。只做调研,未触碰 sem.3ue.co。
+> 调研日期 2026-08-29。只做调研,未触碰 sem.proxy.example.com。
 > 图例:✅ 我们已实测 / ⬜ 未探索 / ❓ GURU 可能不含(注明依据)。
 > 注意:2025-2026 Semrush 官网已把新客套餐改名为 SEO/Starter/Pro+/Advanced/Enterprise,
 > 但存量 GURU 订阅仍按老结构运行,本文按 GURU 老结构(经典侧边栏)整理。

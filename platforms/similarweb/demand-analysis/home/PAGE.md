@@ -2,7 +2,7 @@
 
 ## 页面身份
 
-- URL 模板：`https://sim.3ue.co/#/digitalsuite/marketresearch/keywordmarketresearch/home`
+- URL 模板：`https://sim.proxy.example.com/#/digitalsuite/marketresearch/keywordmarketresearch/home`
 - 侧栏「市场研究 → 需求分析」直达，无需配置。
 
 ## 回答什么业务问题

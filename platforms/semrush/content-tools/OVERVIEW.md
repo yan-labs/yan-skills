@@ -1,6 +1,6 @@
 # 内容工具组（Content）板块索引
 
-host：`sem.3ue.co`。14 条路由已于 2026-08-30 用双证人（`backlink/scripts/ground-truth.mjs`，
+host：`sem.proxy.example.com`。14 条路由已于 2026-08-30 用双证人（`backlink/scripts/ground-truth.mjs`，
 机器级 semrush 锁逐条持有，会话 `semrush-nav`）全部判决，判决书见
 `backlink/SKILL.md` 的 `<semrush-content-audit-capabilities>` 块与本地
 `backlink/evidence/ground-truth/semrush-content-audit-VERDICTS.md`（证据目录 gitignore）。

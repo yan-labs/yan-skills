@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：
-  `https://sim.3ue.co/#/organicsearch/pageAnalysis/landing-pages-v2/<域>/999/<YYYY.MM-YYYY.MM>?webSource=Total&selectedPageTab=Organic&key=<域>`
+  `https://sim.proxy.example.com/#/organicsearch/pageAnalysis/landing-pages-v2/<域>/999/<YYYY.MM-YYYY.MM>?webSource=Total&selectedPageTab=Organic&key=<域>`
   - **`&key=<域>` 必带**
 
 ## 回答什么业务问题

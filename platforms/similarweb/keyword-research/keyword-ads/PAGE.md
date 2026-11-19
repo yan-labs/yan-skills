@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：
-  `https://sim.3ue.co/#/digitalsuite/acquisition/keyword/organic/search/999/<YYYY.MM-YYYY.MM>/ads?keyword=<URL编码词>&tab=0&mtd=false&webSource=Desktop&selectedPageTab=Text`
+  `https://sim.proxy.example.com/#/digitalsuite/acquisition/keyword/organic/search/999/<YYYY.MM-YYYY.MM>/ads?keyword=<URL编码词>&tab=0&mtd=false&webSource=Desktop&selectedPageTab=Text`
   - 关键词只在 `?keyword=`；`selectedPageTab=Text` 为文字广告
 
 ## 回答什么业务问题

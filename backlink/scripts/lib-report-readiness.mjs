@@ -119,7 +119,7 @@ export const EMPTY_STATE_MARKERS = [
 
 /** 从 `<html lang>` 或 URL 里的 locale 段取 UI 语言。
  *  两者都是页面/请求自己产出的事实，不是猜的类名：本仓库自测里就有
- *  `https://dash.3ue.co/zh-Hans/` 这样的路径。 */
+ *  `https://dash.proxy.example.com/zh-Hans/` 这样的路径。 */
 export function detectUiLocale({ documentLang = '', pathname = '' } = {}) {
   const fromLang = String(documentLang || '').trim();
   if (fromLang) return fromLang;
@@ -220,7 +220,7 @@ export function renderFinished(done = {}) {
 // 的情况下：落地到哪条路由、页头是谁、内容区里有没有东西。三条各自都有实盘反例：
 //
 //   1. 路由：`www.semrush.com/analytics/traffic/...` 不是授权基址（授权的是
-//      `sem.3ue.co`），**它不报错**——渲染骨架 → 弹到 `/analytics/traffic/`
+//      `sem.proxy.example.com`），**它不报错**——渲染骨架 → 弹到 `/analytics/traffic/`
 //      （公开**营销页**，`innerText` 514、10 张图、标题
 //      `Traffic Analytics: Estimate Any Website's Traffic | Semrush`）→ 再弹到
 //      overview。一个扫描器会从**销售页**上记下「无表格、有 svg、有导出按钮」。

@@ -1,6 +1,6 @@
 # Site Audit（网站检测）板块索引
 
-host：`sem.3ue.co`。这是 Semrush 里**唯一没有无状态入口**的模块：
+host：`sem.proxy.example.com`。这是 Semrush 里**唯一没有无状态入口**的模块：
 `/analytics/*` 系用 `?q=<域名>` 就能查任意站，Site Audit 的每条路由都绑一个**项目 id**，
 没有项目就没有报告。5 条报告路由已于 2026-08-30 用双证人
 （`backlink/scripts/ground-truth.mjs`，机器级 semrush 锁逐轮持有，会话 `semrush-nav`）判决，
@@ -10,7 +10,7 @@ host：`sem.3ue.co`。这是 Semrush 里**唯一没有无状态入口**的模块
 ## URL 模板
 
 ```
-https://sem.3ue.co/siteaudit/campaign/<CAMPAIGN_ID>/review/<route>
+https://sem.proxy.example.com/siteaudit/campaign/<CAMPAIGN_ID>/review/<route>
 ```
 
 - `<CAMPAIGN_ID>` 只能**建完项目后从地址栏读回**：列表行是 DIV、`href=null`、

@@ -11,7 +11,7 @@ DOMAIN="${1:-canva.com}"
 SLUG="${DOMAIN//./-}"
 OUT="${2:-$ROOT/backlink/evidence/ground-truth/similarweb-referrals-outgoing-${SLUG}-$(date +%Y%m%d-%H%M%S)}"
 
-URL="https://sim.3ue.co/#/digitalsuite/websiteanalysis/referrals/*/999/1m?webSource=Total&selectedTab=outgoingTraffic&key=${DOMAIN}"
+URL="https://sim.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/#/digitalsuite/websiteanalysis/referrals/*/999/1m?webSource=Total&selectedTab=outgoingTraffic&key=${DOMAIN}"
 
 node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

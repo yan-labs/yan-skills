@@ -11,12 +11,13 @@ import {
 } from '../scripts/opencli-core.mjs';
 
 test('配额站收敛成固定会话名，普通站不受影响', () => {
-  assert.equal(quotaSession('https://sem.3ue.co/analytics/overview/'), 'semrush-nav');
+  process.env.TOOLS_SHARE_DOMAIN = 'proxy.example.com';
+  assert.equal(quotaSession('https://sem.proxy.example.com/analytics/overview/'), 'semrush-nav');
   assert.equal(quotaSession('https://www.semrush.com/analytics/'), 'semrush-nav');
-  assert.equal(quotaSession('https://sim.3ue.co/#/digitalsuite'), 'similarweb-nav');
+  assert.equal(quotaSession('https://sim.proxy.example.com/#/digitalsuite'), 'similarweb-nav');
   assert.equal(quotaSession('https://example.com'), null);
   assert.match(sessionForUrl('https://example.com', 'recon'), /^recon-/);
-  assert.equal(sessionForUrl('https://sem.3ue.co/x', 'recon'), 'semrush-nav');
+  assert.equal(sessionForUrl('https://sem.proxy.example.com/x', 'recon'), 'semrush-nav');
 });
 
 test('主机名要精确匹配，不能被撞名域名骗到', () => {
@@ -25,6 +26,8 @@ test('主机名要精确匹配，不能被撞名域名骗到', () => {
   // 漏掉它等于让一部分导航绕过节流。
   assert.equal(quotaSiteOf('https://cdn.semrush.com/')?.key, 'semrush');
   assert.equal(quotaSiteOf('https://semrush.com.evil.test/'), null, '后缀撞名不算');
+  assert.equal(quotaSiteOf('https://cdn.sem.proxy.example.com/')?.key, 'semrush');
+  assert.equal(quotaSiteOf('https://sem.proxy.example.com.evil.test/'), null);
   assert.ok(QUOTA_SITES.every((s) => s.gapMs > 0), '每个配额站都要有间隔');
 });
 
@@ -77,8 +80,8 @@ test('配额站的会话名由站点决定，--session 不能悄悄恢复旧行�
 });
 
 test('访问记账能从各种参数形状里认出 URL', () => {
-  assert.equal(urlFromArgs(['open', 'https://sem.3ue.co/analytics/overview/']),
-    'https://sem.3ue.co/analytics/overview/');
+  assert.equal(urlFromArgs(['open', 'https://sem.proxy.example.com/analytics/overview/']),
+    'https://sem.proxy.example.com/analytics/overview/');
   // batch 的 URL 埋在 --commands 的 JSON 里
   assert.equal(urlFromArgs(['batch', '--commands',
     JSON.stringify([{ cmd: 'open', args: { url: 'https://example.com/a' } }])]),
@@ -89,7 +92,7 @@ test('访问记账能从各种参数形状里认出 URL', () => {
 test('访问记账认得出动作名，短横线选项不冒充动作', () => {
   const meta = { ms: 1, ok: true, bytes: 0 };
   // 真实形状：opencli() 会在位置 2 插入 --window <mode>，子命令因此排在第 4 位。
-  assert.equal(accessEntry(['browser', 'access-entry-test', '--window', 'background', 'open', 'https://sem.3ue.co/x'], meta).action, 'open');
+  assert.equal(accessEntry(['browser', 'access-entry-test', '--window', 'background', 'open', 'https://sem.proxy.example.com/x'], meta).action, 'open');
   assert.equal(accessEntry(['browser', 'access-entry-test', '--window', 'background', 'eval', '1+1'], meta).action, 'eval');
   // 回归：`sessions` 是子命令而不是会话名，动作曾被记成 `-f`。
   const listing = accessEntry(['browser', 'sessions', '-f', 'json'], meta);

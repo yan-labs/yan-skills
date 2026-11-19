@@ -5,7 +5,7 @@
 结果页可 **URL 直达**，不需要走表单。三域名对比模板全文：
 
 ```
-https://sem.3ue.co/analytics/gap/backlinks/?q=<you>&searchType=domain&compareWith=<comp1>%3Adomain%7C<comp2>%3Adomain
+https://sem.proxy.example.com/analytics/gap/backlinks/?q=<you>&searchType=domain&compareWith=<comp1>%3Adomain%7C<comp2>%3Adomain
 ```
 
 - 落点会 302 到 `/analytics/gap/backlinks/report/?…` 且**表格直接出数**——直达可重现。

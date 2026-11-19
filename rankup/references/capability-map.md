@@ -232,7 +232,7 @@ SKILL.md 段 6 与取数纪律只一行指回本文件，改脚本入口时只�
 ## 十、外链（专项 Skill：backlink）
 
 rankup 只判「什么时候发、发多少」（SKILL.md 段 6 一行指回这里），深入操作时 `/backlink`；未安装：
-`npx skills add yan-labs/yan-skills --skill backlink -g -y`。下表是外链能力的**唯一底账**，SKILL.md 不再复制。
+`npx skills add $SKILLS_SOURCE --skill backlink -g -y`。下表是外链能力的**唯一底账**，SKILL.md 不再复制。
 
 | 能力 | 一句话能干什么 | 入口 | 是否必须加载 backlink |
 |---|---|---|---|

@@ -67,7 +67,7 @@ const requiredContent = {
   "references/seo-webcafe.md": ["gefei-keywords", "gefei-competitor", "gefei-domain", "gefei-page", "knowledge_ask", "disable-model-invocation"],
   "references/seo-geo.md": ["GEO 反推测试", "推荐位竞争分析", "证据边界", "内页测试"],
   "SKILL.md": [
-    "npx skills add yan-labs/yan-skills --skill rankup -g -y",
+    "npx skills add $SKILLS_SOURCE --skill rankup -g -y",
     "npx skills update rankup -g -y",
     ".rankup/skill-state.json",
     "严禁在 Skill、`.rankup/`、Git、测试或回复中保存真实密钥",
@@ -108,8 +108,8 @@ const requiredContent = {
     "--new-only",
     "review-state.json",
     "断言绝不能被 git 追踪",
-    "npx skills add yan-labs/yan-skills --skill rankup -g -y",
-    "npx skills add yan-labs/yan-skills --skill cf-cli -g -y",
+    "npx skills add $SKILLS_SOURCE --skill rankup -g -y",
+    "npx skills add $SKILLS_SOURCE --skill cf-cli -g -y",
     ".rankup/skill-state.json",
   ],
   "references/lifecycle.md": [
@@ -117,7 +117,7 @@ const requiredContent = {
     "scripts/indexnow-submit.mjs",
     "scripts/webmaster-sitemap.mjs",
     "scripts/rankup-cli.mjs",
-    "npx @yan-labs/rankup audit similarweb",
+    "npx --package $RANKUP_PACKAGE rankup audit similarweb",
   ],
   "references/maintenance.md": [
     "## 一、什么时候必须走本章",
@@ -226,15 +226,15 @@ const requiredContent = {
     "正常任务仍完成",
     "pnpm dlx shadcn@latest init --preset b1D0eCA4 --template start --monorepo --rtl --pointer",
     "npm i -g cf",
-    "npx skills add yan-labs/yan-skills --skill cf-cli -g -y",
+    "npx skills add $SKILLS_SOURCE --skill cf-cli -g -y",
     "npx skills add cloudflare/skills --skill wrangler -g -y",
     "wrangler types",
   ],
   "references/integrations.md": [
     "npx skills add stripe/ai --skill stripe-best-practices -g -y",
     "npx skills add vercel-labs/skills --skill find-skills -g -y",
-    "npx skills add yan-labs/yan-skills -g --all",
-    "npx skills add yan-labs/yan-skills --skill backlink -g -y",
+    "npx skills add $SKILLS_SOURCE -g --all",
+    "npx skills add $SKILLS_SOURCE --skill backlink -g -y",
   ],
   "references/evolution.md": [
     "失败分类",

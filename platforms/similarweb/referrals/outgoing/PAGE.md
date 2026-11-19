@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：
-  `https://sim.3ue.co/#/digitalsuite/websiteanalysis/referrals/*/999/1m?webSource=Total&selectedTab=outgoingTraffic&key=<域>`
+  `https://sim.proxy.example.com/#/digitalsuite/websiteanalysis/referrals/*/999/1m?webSource=Total&selectedTab=outgoingTraffic&key=<域>`
   - 与 incoming 同构，只换 `selectedTab`
 
 ## 回答什么业务问题

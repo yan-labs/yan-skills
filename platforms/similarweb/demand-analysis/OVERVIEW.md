@@ -1,6 +1,6 @@
 # Demand Analysis（需求分析·选题雷达）板块索引
 
-host: sim.3ue.co，hash 路由。2 条路由已于 2026-08-29 双证人判决（explore 轮，swgt.mjs +
+host: sim.proxy.example.com，hash 路由。2 条路由已于 2026-08-29 双证人判决（explore 轮，swgt.mjs +
 innerscroll.mjs 驱动），判决书见 `backlink/SKILL.md` 的 `<similarweb-explore-capabilities>` 块；
 本地全文 `backlink/evidence/ground-truth/similarweb-explore-VERDICTS.md`（gitignore）。
 

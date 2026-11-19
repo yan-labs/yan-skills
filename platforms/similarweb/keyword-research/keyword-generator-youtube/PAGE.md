@@ -4,7 +4,7 @@
 
 - URL 模板（**以落地 href 为准**）：
   ```
-  https://sim.3ue.co/#/digitalsuite/acquisition/findkeywords/keyword-generator-tool/999/28d
+  https://sim.proxy.example.com/#/digitalsuite/acquisition/findkeywords/keyword-generator-tool/999/28d
     ?searchEngine=youtube&keyword=<URL编码词>&webSource=Total&isWWW=*&tab=phraseMatch
   ```
   - UI 切换引擎后 URL 可原样复制，**冷深链直开也成功，hash 未漂移**。

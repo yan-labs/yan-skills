@@ -12,7 +12,7 @@ KW="${1:-ai image editor}"
 KW_ENC="$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$KW")"
 OUT="${2:-$ROOT/backlink/evidence/ground-truth/similarweb-kw-generator-youtube-$(date +%Y%m%d-%H%M%S)}"
 
-URL="https://sim.3ue.co/#/digitalsuite/acquisition/findkeywords/keyword-generator-tool/999/28d?searchEngine=youtube&webSource=Total&isWWW=*&tab=phraseMatch&keyword=${KW_ENC}"
+URL="https://sim.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/#/digitalsuite/acquisition/findkeywords/keyword-generator-tool/999/28d?searchEngine=youtube&webSource=Total&isWWW=*&tab=phraseMatch&keyword=${KW_ENC}"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

@@ -72,7 +72,7 @@ if (!dbGiven && !bulkPlanFile && !uiPlanFile && !flags['self-test']) {
   console.error(`⚠ --db not given. volume in the output is globalVolume (worldwide), and country-scoped fields (kd/cpc/competition/results) are nulled out — Semrush's keyword overview has no worldwide selector and the country it lands on without --db is unpredictable (account-shared, observed drifting between jp/us/kr with nothing changed on our end). Pass --db explicitly (e.g. --db us) for country-specific KD/CPC/competition.`);
 }
 const session = resolveSession(flags, 'semrush-keyword', 'semrush');
-const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN_SEMRUSH || 'https://sem.3ue.co').replace(/\/+$/, '');
+const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN_SEMRUSH || (process.env.TOOLS_SHARE_DOMAIN ? `https://sem.${process.env.TOOLS_SHARE_DOMAIN}` : '')).replace(/\/+$/, '');
 // 失败现场的落点。默认贴着 --out（`x.jsonl.evidence/`），没有 --out 进 .backlink/。
 const evidenceDir = typeof flags['evidence-dir'] === 'string'
   ? flags['evidence-dir']
@@ -384,8 +384,8 @@ if (flags['self-test']) {
   assert.equal(noGlobalRow.noData, true);
   assert.equal(noGlobalRow.status, 'metrics_unavailable');
 
-  assert.equal(extractDbFromUrl('https://sem.3ue.co/analytics/keywordoverview/?q=x&db=kr'), 'kr');
-  assert.equal(extractDbFromUrl('https://sem.3ue.co/analytics/keywordoverview/?q=x'), null);
+  assert.equal(extractDbFromUrl('https://sem.proxy.example.com/analytics/keywordoverview/?q=x&db=kr'), 'kr');
+  assert.equal(extractDbFromUrl('https://sem.proxy.example.com/analytics/keywordoverview/?q=x'), null);
   assert.equal(extractDbFromUrl('not a url'), null);
 
   assert.deepEqual(geoHopFacts({ volume: 100, globalVolume: 1000, byCountry: { IN: 600, US: 100 } }, 'us'), {

@@ -16,7 +16,7 @@ COMP2="${3:-adobe.com}"
 
 OUT="$ROOT/backlink/evidence/ground-truth/semrush-backlinkgap-${YOU//./-}-$(date +%Y%m%d-%H%M%S)"
 
-URL="https://sem.3ue.co/analytics/gap/backlinks/?q=${YOU}&searchType=domain&compareWith=${COMP1}%3Adomain%7C${COMP2}%3Adomain"
+URL="https://sem.${TOOLS_SHARE_DOMAIN:?Set TOOLS_SHARE_DOMAIN}/analytics/gap/backlinks/?q=${YOU}&searchType=domain&compareWith=${COMP1}%3Adomain%7C${COMP2}%3Adomain"
 
 exec node "$ROOT/backlink/scripts/ground-truth.mjs" \
   --url "$URL" \

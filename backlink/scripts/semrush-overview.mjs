@@ -142,7 +142,7 @@ const bringChromeForward = async (reason) => {
 };
 if (organicDb && !/^[a-z]{2}(-[a-z]+)?$/.test(organicDb)) throw new Error(`Invalid --organic-db: ${flags['organic-db']}`);
 const session = resolveSession(flags, 'semrush-overview', 'semrush');
-const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN_SEMRUSH || 'https://sem.3ue.co').replace(/\/+$/, '');
+const appOrigin = (process.env.TOOLS_SHARE_APP_ORIGIN_SEMRUSH || (process.env.TOOLS_SHARE_DOMAIN ? `https://sem.${process.env.TOOLS_SHARE_DOMAIN}` : '')).replace(/\/+$/, '');
 const LEGACY_FIELDS = ['authorityScore', 'organicTraffic', 'organicTrafficChange', 'paidTraffic', 'referringDomains', 'organicKeywords', 'organicKeywordsChange', 'backlinks', 'paidKeywords', 'trafficShare'];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

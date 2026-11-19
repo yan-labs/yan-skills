@@ -17,7 +17,7 @@ import {
   buildToolLaunchEnv, reuseDecision,
 } from '../scripts/lib-tools-share.mjs';
 
-const ORIGIN = 'sem.3ue.co';
+const ORIGIN = 'sem.proxy.example.com';
 const URL_ON_TOOL = `https://${ORIGIN}/analytics/traffic/top-pages/?q=example.com`;
 
 test('buildToolLaunchEnv: no opencliEnv (legacy path) → the one line unchanged from before dedicated existed', () => {

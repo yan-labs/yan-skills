@@ -3,7 +3,7 @@
 ## 页面身份
 
 - URL 模板：
-  `https://sim.3ue.co/#/digitalsuite/acquisition/findkeywords/keyword-generator-tool/999/28d?searchEngine=google&webSource=Total&isWWW=*&tab=phraseMatch&keyword=<URL编码词>`
+  `https://sim.proxy.example.com/#/digitalsuite/acquisition/findkeywords/keyword-generator-tool/999/28d?searchEngine=google&webSource=Total&isWWW=*&tab=phraseMatch&keyword=<URL编码词>`
   - `tab` = phraseMatch / related / trending / questions（4 个 tab）
   - `searchEngine=google` 已实证；amazon/youtube 见坑
 

@@ -1,6 +1,6 @@
 # Advertising Research（广告研究）板块索引
 
-URL 基式：`/analytics/adwords/<路由>/?db=us&q=<domain>&searchType=domain`（host: sem.3ue.co）。
+URL 基式：`/analytics/adwords/<路由>/?db=us&q=<domain>&searchType=domain`（host: sem.proxy.example.com）。
 `q=` / `db=` 参数**只对本 `/analytics/adwords/` 组生效**（.Trends 侧不吃 `q=`）。
 2026-08-30 双证人（ground-truth.mjs，会话 `semrush-nav`，目标 canva.com）判决，判决书见
 `backlink/SKILL.md` 的 `<semrush-ads-trends-capabilities>` 与

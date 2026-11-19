@@ -1,6 +1,6 @@
 # Keyword Research（关键词研究工具组）板块索引
 
-host：`sem.3ue.co`。左侧导航「关键词研究」组实见三项：关键词概览 / 关键词魔法工具 /
+host：`sem.proxy.example.com`。左侧导航「关键词研究」组实见三项：关键词概览 / 关键词魔法工具 /
 关键词策略构建器。三条路由已于 2026-08-30 用双证人（`backlink/scripts/ground-truth.mjs`，
 机器级 semrush 锁逐轮持有，会话 `semrush-nav`；tab 交互用一次性只读探针）全部判决，
 判决书见 `backlink/SKILL.md` 的 `<semrush-keyword-research-capabilities>` 块与本地

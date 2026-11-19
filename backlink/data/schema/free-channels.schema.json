@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/yan-labs/yan-skills/backlink/data/schema/free-channels.schema.json",
+  "$id": "https://github.com/example-owner/yan-skills/backlink/data/schema/free-channels.schema.json",
   "title": "Free placement channels",
   "description": "Channels where a link can be published at no cost. Every record must be backed by something observed in a live page, never inferred from a sibling site or from documentation.",
   "type": "object",
