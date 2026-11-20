@@ -12,6 +12,16 @@
 
 用 `fleet watch patrol` 读在途任务事实。窗口值守由脚本定时取数，触阈或状态变化再裁定。快照巡检只做一轮，每单选不动、插话纠正、要求快照、停止或交主会话，执行干预须有授权。
 
+## 席位监听与信箱
+
+Claude 的 `SessionStart` 和 `UserPromptSubmit` hook 可调用 `fleet watch hook`：从 hook 输入取得会话 ID 和目录，回传本席在途、未读及确认命令；子任务不会领取指挥席。SessionStart 有 `CLAUDE_ENV_FILE` 时将会话 ID 写入 `FLEET_DISPATCH_SESSION`；Codex 未设置该变量时使用 `CODEX_THREAD_ID`。
+
+席位通常为「仓库#派单会话」；接班用原 `FLEET_LINE` 沿用席位，新会话成为当前席位代。`fleet watch status --seat <席位>` 查看在途及未读；`fleet watch listen --seat <席位> --session <当前会话ID>` 每 15 秒检查未读变化，席位换代时退出，`--once` 只检查一次。
+
+Mini 信箱位于 `~/.agent-fleet/watch/mailbox.sqlite3`。监督器对账补录有归属的在途任务和 24 小时内的未登记终态，未读保留到确认；hook 单次最多显示 20 条，确认后可见后续。信箱不可达时 hook 报未同步及缓存时间。
+
+处理事件后执行 `fleet watch ack <eventId> --seat <席位> --session <当前会话ID>`；只有当前席位代可确认。显式 `fleet wait <runId>` 仍可取结果，并对取到的事件记回执。
+
 ## Park 等待
 
 先做独立验收，把本单触发的外部条件交给 runner。向 `fleet park` 传 `--until` 条件、`--item` 验收项、`--timeout` 时限、`--say` 唤醒首动作。Actions 条件使用 `gh-run:<GitHub Actions URL>@<完整 SHA>`。长命令用 `fleet bg` 得到 job 条件。runner 负责等待和重新取得名额。首次超时核对精确对象和最后状态后再等一窗，二次超时标「受阻」及「等外部」。派单方供数直接交回。用 `activeMs`、`waitMs`、`pollCount` 分读活跃、等待和探测次数。
