@@ -89,6 +89,11 @@ export function computeVerdict({
   return { verdict: 'ok' };
 }
 
+function hasEvidence(value) {
+  const normalized = String(value ?? '').replace(/^[\s\p{P}\p{S}]+|[\s\p{P}\p{S}]+$/gu, '').trim();
+  return normalized !== '' && !/^(?:无|暂无|没有|n\/?a|none|略|同上|待补)$/i.test(normalized);
+}
+
 export function acceptanceResult(brief = '', report = '', yielded = null) {
   const items = new Map();
   const sections = [...brief.matchAll(/^## (?:验收|派单场景 · [^\r\n]+)[ \t]*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/gm)];
@@ -102,8 +107,9 @@ export function acceptanceResult(brief = '', report = '', yielded = null) {
   if (handoff) return { verdict: 'ok', pending: 'handoff', unmet: [], table: '' };
   if (!items.size) return null;
   const rows = new Map();
-  for (const [, id, status, evidence] of conclusion.matchAll(/^[ \t]*(?:- )?(V\d+)[ \t]*[｜|][ \t]*(已过|未过|等外部|待下游|已回滚|不适用)[ \t]*[｜|][ \t]*([^\s\r\n][^\r\n]*)/gm)) {
-    rows.set(id, { status, evidence: evidence.trim() });
+  const reviewComplete = /(?:只读复核|只读审查)/.test(brief) && (/^LEDGER:[ \t]*blockers=\d+[ \t]+verdict=(?:pass|fail)[ \t]*$/im.test(report) || /不可放行/.test(conclusion));
+  for (const [, id, status, deviation, evidence] of conclusion.matchAll(/^[ \t]*(?:- )?(V\d+)[ \t]*[｜|][ \t]*(已过|未过|等外部|待下游|已回滚|不适用)(?:[（(]([^）)\r\n]+)[）)])?[ \t]*[｜|][ \t]*([^\s\r\n][^\r\n]*)/gm)) {
+    rows.set(id, { status, evidence: evidence.trim(), ...(deviation ? { deviation } : {}) });
   }
   const rollback = /^(?:[- ]*回滚(?:条件|出口|方案)[：:] *[^\s]|授权块：[^\r\n]*deploy-prod\b)|正文没写回滚条件时，用/m.test(brief);
   const unmet = [], missing = [];
@@ -111,8 +117,8 @@ export function acceptanceResult(brief = '', report = '', yielded = null) {
   for (const [id, owner] of items) {
     const status = rows.get(id)?.status;
     if (owner === '本单') {
-      if (status === '未过') unmet.push(id);
-      else if (!status || status === '等外部' || status === '待下游' || (status === '已回滚' && !rollback) || (status === '已过' && (!rows.get(id)?.evidence || rows.get(id).evidence === '无'))) missing.push(id);
+      if (status === '未过' && !reviewComplete) unmet.push(id);
+      else if (!status || status === '等外部' || status === '待下游' || (status === '已回滚' && !rollback) || (status === '已过' && !hasEvidence(rows.get(id)?.evidence))) missing.push(id);
     }
     if (status === '等外部' || (!status && owner.startsWith('外部'))) pending = 'external';
     else if ((status === '待下游' || (!status && owner.startsWith('下游'))) && pending !== 'external') pending = 'downstream';

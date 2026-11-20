@@ -212,4 +212,11 @@ if (outcomeFor('ok', 'external') !== 'external') throw new Error('external outco
 for (const report of ['V1｜等外部｜等待', 'V1｜已过｜无', 'V1｜已过｜\nV2｜等外部｜服务', 'V2｜等外部｜等待']) {
   if (acceptanceResult(named + '\nV2 外部｜owner：外部：服务', '## 结论\n' + report, { external: true }).verdict === 'ok') throw new Error('owned acceptance must have evidence: ' + report);
 }
+for (const evidence of ['无', '暂无。', '（没有）', 'N/A', 'none', '-', '略', '同上', '待补', '。']) {
+  if (acceptanceResult(named, `## 结论\nV1｜已过｜${evidence}`).verdict !== 'needs-review') throw new Error(`empty evidence: ${evidence}`);
+}
+if (acceptanceResult(named, '## 结论\nV1｜已过（目标分支偏差）｜无需额外证据：已核对提交').verdict !== 'ok') throw new Error('deviation and substantive evidence');
+const review = acceptanceResult('归类：只读复核\n' + named, '## 结论\nV1｜未过｜发现必修项\nLEDGER: blockers=1 verdict=fail');
+if (acceptanceResult('归类：只读复核\n' + named, '## 结论\n不可放行，必修项如下\nV1｜未过｜发现必修项').verdict !== 'ok') throw new Error('review without ledger');
+if (review.verdict !== 'ok' || review.unmet.length) throw new Error('completed review');
 finish();
