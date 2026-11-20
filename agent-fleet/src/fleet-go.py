@@ -1761,11 +1761,22 @@ def batch(args, parser):
         return after == name or (after in by_name and follows(by_name[after], name, seen | {after}))
     for name, meta in by_name.items():
         if follows(meta, name): raise ValueError('batch --after 存在循环依赖。')
+    def batch_writes(item, meta):
+        obj = meta.get('object') or {}
+        writes = [os.path.realpath(p) for p in obj.get('writes', [])]
+        if item.worktree is None:
+            return writes
+        source = obj.get('repo') or (writes[0] if writes else '')
+        while source and not os.path.isdir(source):
+            source = os.path.dirname(source)
+        root = subprocess.check_output(['git', '-C', source, 'rev-parse', '--show-toplevel'], text=True).strip()
+        root = os.path.realpath(root)
+        target = str(Path(root).parent / (Path(root).name + '-wt') / item.name)
+        return [os.path.realpath(target + p[len(root):]) if p == root or p.startswith(root + '/') else p for p in writes]
+    effective_writes = [batch_writes(item, meta) for item, _, meta in jobs]
     overlaps = {}
-    for i, (_, _, left) in enumerate(jobs):
-        a = [os.path.realpath(p) for p in (left.get('object') or {}).get('writes', [])]
-        for j, (_, _, right) in enumerate(jobs):
-            b = [os.path.realpath(p) for p in (right.get('object') or {}).get('writes', [])]
+    for i, a in enumerate(effective_writes):
+        for j, b in enumerate(effective_writes):
             overlaps[i, j] = any(x == y or x.startswith(y.rstrip('/') + '/') or y.startswith(x.rstrip('/') + '/') for x in a for y in b)
     print('重叠矩阵（X=可写路径重叠，.=无重叠）', flush=True)
     print('任务 ' + ' '.join(names), flush=True)
