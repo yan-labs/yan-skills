@@ -15,6 +15,7 @@ import shlex
 import subprocess
 import sys
 import time
+import tempfile
 import unicodedata
 import uuid
 import mini
@@ -26,6 +27,14 @@ from types import SimpleNamespace
 watch_store = runpy.run_path(str(Path(__file__).with_name('watch-store.py')))
 
 gate_reject = runpy.run_path(str(Path(__file__).with_name('gate-reject.py')))
+preview_recorded = False
+
+
+def record_rejection(attempt, stage, category, name, error, preview=False):
+    global preview_recorded
+    gate_reject['record'](attempt, stage, category, name, error, preview)
+    if preview:
+        preview_recorded = True
 
 
 def gate_rows():
@@ -46,8 +55,9 @@ def dispatch_gate(args, stage, operation, category=None):
     try:
         result = operation()
     except (ValueError, OSError, subprocess.SubprocessError) as error:
-        if not getattr(args, 'dry_run', False) and not isinstance(error, mini.QueueRejected):
-            gate_reject['record'](args.attempt_id, stage, getattr(error, 'category', category or stage), args.name, error)
+        if not isinstance(error, mini.QueueRejected):
+            args.reject_recorded = True
+            record_rejection(args.attempt_id, stage, getattr(error, 'category', category or stage), args.name, error, getattr(args, 'dry_run', False))
         raise
     args.gate_stage = None
     return result
@@ -220,6 +230,56 @@ def secret_findings(text):
             yield f'第 {number} 行：发现疑似密钥字面量；规则 {name}（已隐藏）。'
 
 
+VALID_ACTIONS = {'只读', '改代码', '本地提交', '推送', '部署', '付费'}
+
+
+def parse_actions(value):
+    value = re.sub(r'[（(].*?[）)]', '', value)
+    return [part for part in re.split(r'[/、,，;；\s和]+', value.strip()) if part]
+
+
+def normalize_actions(text):
+    def normalize(match):
+        actions = parse_actions(match.group(1))
+        if actions and set(actions) <= VALID_ACTIONS:
+            parts = [p for p in re.split(r'[/、,，;；\s和]+(?![^（(]*[）)])', match.group(1).strip()) if p]
+            line = '动作: ' + ' / '.join(parts)
+            if line != match.group(0):
+                print('提示：已规范动作行：' + line, file=sys.stderr)
+            return line
+        return match.group(0)
+    return re.sub(r'^动作[ \t]*[:：][ \t]*(.*?)[ \t]*$', normalize, text, flags=re.M)
+
+
+def normalize_brief(text, to, report):
+    first = text.splitlines()[0] if text else ''
+    if not first.startswith('归类：'):
+        text = f'归类：{PRODUCTS[to]}；理由：按执行者路由\n' + text
+        print('提示：已补归类首行。', file=sys.stderr)
+    elif '理由：' not in first:
+        text = text.replace(first, first + '；理由：按执行者路由', 1)
+        print('提示：已补归类理由。', file=sys.stderr)
+    before = text
+    text = re.sub(r'^REPORT[ \t]*[:：][ \t]*(/[^\n]+)$', r'REPORT: \1', text, flags=re.M)
+    if text != before:
+        print('提示：已规范 REPORT 行。', file=sys.stderr)
+    if not re.search(r'^REPORT[ \t]*[:：]', text, re.M) and report:
+        lines = text.splitlines(keepends=True)
+        lines.insert(1, f'REPORT: {report}\n')
+        text = ''.join(lines)
+        print('提示：已补 REPORT 行。', file=sys.stderr)
+    return normalize_actions(text)
+
+
+def repository_free(text, actions):
+    if actions != {'只读'}:
+        return False
+    goal = re.search(r'^## 目标\s*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
+    entry = re.search(r'^##?\s*入口\s*[:：]?\s*\n(.*?)(?=^##?\s|\Z)', text, re.M | re.S)
+    scope = (goal.group(1) if goal else '') + '\n' + (entry.group(1) if entry else '')
+    return not re.search(r'代码|源码|仓库|worktree|git\b', scope, re.I)
+
+
 def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lint=False, project=None):
     errors = []
     first = text.splitlines()[0] if text else ''
@@ -269,8 +329,8 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
                 deploy = '发布全流程' in auth_text or bool(re.search(r'^授权块：.*\bdeploy-prod\b', auth_text, re.M))
                 if not (commit and deploy): errors.append('正文发布动作需要 local-commit 和 deploy-prod 授权。')
         else:
-            actions = {re.sub(r'[（(].*?[）)]', '', v).strip() for v in action_match.group(1).split('/')}
-            valid = {'只读', '改代码', '本地提交', '推送', '部署', '付费'}
+            tokens = parse_actions(action_match.group(1))
+            actions = set(tokens)
             auth_match = re.search(r'^## 授权覆盖\s*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
             auth_text = auth_match.group(1) if auth_match else ''
             local = '本地文件修改、构建与预览' in auth_text or bool(re.search(r'^授权块：.*(?<![\w-])local(?![\w-])', auth_text, re.M))
@@ -301,12 +361,13 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
                 current.update(needed)
                 if 'local-commit' in current: current.discard('local')
                 errors.insert(0, '缺授权块 ' + ','.join(a for a in AUTH if a in needed) + '：' + '；'.join(why) + '。改用 --auth ' + ','.join(a for a in AUTH if a in current) + '（已派的单用 fleet-go amend <名字> "<说明>" --auth 同值）')
-            if not actions <= valid:
-                errors.append('动作行含未知或空动作，合法集合：只读、改代码、本地提交、推送、部署、付费。')
+            if not actions or not actions <= VALID_ACTIONS:
+                unknown = ['（已隐藏）' if list(secret_findings(text)) else a for a in tokens if a not in VALID_ACTIONS]
+                errors.append('动作行含未知或空动作：' + '、'.join(unknown) + '。合法集合：只读、改代码、本地提交、推送、部署、付费。如未知词是多余内容，可改为：动作: ' + (' / '.join(a for a in tokens if a in VALID_ACTIONS) or '只读'))
             repo = re.search(r'^[ \t]*仓库[ \t]*[:：][ \t]*([^\s，,；;（(]+)', entry, re.M)
-            if not repo:
+            if not repo and not repository_free(text, actions):
                 errors.append('入口缺少仓库绝对路径。')
-            else:
+            elif repo:
                 repo_path = repo.group(1).strip('`')
                 if not repo_path.startswith('/'):
                     errors.append('入口仓库需要绝对路径。')
@@ -349,10 +410,30 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
     return errors
 
 
+def retry_command():
+    if len(sys.argv) < 2 or sys.argv[1] not in ('new', 'lint', 'amend', 'relaunch'):
+        return None
+    cmd = shlex.join(['fleet-go', *sys.argv[1:]])
+    redactor = Path(__file__).resolve().parents[1] / 'bin/redact'
+    try:
+        sanitized = subprocess.run([str(redactor)], input=cmd, capture_output=True, text=True, check=True).stdout.rstrip('\n')
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return cmd if sanitized == cmd and not list(secret_findings(cmd)) else None
+
+
 def checked(text, to, simple=False, on='local', extra=False, sol=False, no_lint=False, project=None):
     errors = lint(text, to, simple, on, extra, sol, no_lint, project)
     if errors:
-        raise ValueError('\n'.join(errors))
+        retry = retry_command()
+        lines = []
+        for error in errors:
+            lines.append(error)
+            if '逐字规则' in error:
+                lines.append('补充：' + rule())
+            elif retry:
+                lines.append('修改后重跑：' + retry)
+        raise ValueError('\n'.join(lines))
 
 
 OBSTACLE_NOTE = '遇到缺文件、工具不可用等阻碍必须在报告「未完成」里写明，不得略过。'
@@ -395,7 +476,7 @@ def launch(meta):
         Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
         started = int(time.time() * 1000)
         try:
-            result = subprocess.run(command(meta), env={**os.environ, 'FLEET_SEAT': meta['watch_seat'] or ''})
+            result = subprocess.run(command(meta), cwd=tempfile.mkdtemp(prefix='fleet-readonly-') if meta.get('temporary_cwd') else None, env={**os.environ, 'FLEET_SEAT': meta['watch_seat'] or ''})
             runs = Path(os.environ.get('AGENT_FLEET_RUNS_DIR') or Path.home() / '.agent-fleet/runs')
             admitted = False
             if result.returncode:
@@ -976,6 +1057,8 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
             text = rewrite_worktree(text, meta, wt, location)
             path.write_text(text)
     meta['paths'] = list(dict.fromkeys([*meta.get('parameterPaths', meta.get('writes', [])), *entry_paths(text)]))
+    text = normalize_brief(text, target, meta.get('report'))
+    path.write_text(text)
     dispatch_gate(attempt, 'lint', lambda: checked(text, target, bool(selected_simple), on or 'mini', True, target == 'gpt' and selected in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project')))
     if target != meta['to']:
         meta.pop('tier', None)
@@ -987,6 +1070,10 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         if target == 'gpt' and not selected_luna:
             meta.pop('xhigh', None)
             meta.pop('max', None)
+    action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', text, re.M)
+    if action_match:
+        meta['actions'] = parse_actions(action_match.group(1))
+        meta['temporary_cwd'] = repository_free(text, set(meta['actions'])) and not entry_repo(text)
     meta.update(to=target, name=name, brief=str(path), attemptId=attempt.attempt_id)
     meta['on'] = on or 'mini'
     meta['local_reason'] = local_reason if on == 'local' else None
@@ -1158,7 +1245,7 @@ def amend(args):
         meta['on'] = args.on
     if meta['to'] == 'gpt' and meta.get('tier') not in ('terra', 'sol', 'luna', 'astra'):
         meta['tier'] = gpt_tier(meta)
-    original = path.read_text()
+    original = normalize_brief(path.read_text(), meta['to'], meta.get('report'))
     if meta['to'] == 'gpt' and gpt_tier(meta) in ('sol', 'astra') and OBSTACLE_NOTE not in original:
         original = original.replace(rule(), OBSTACLE_NOTE + '\n\n' + rule(), 1)
     if args.auth is not None:
@@ -1186,12 +1273,14 @@ def amend(args):
         checked(original, meta['to'], gpt_tier(meta) == 'terra' and meta['to'] == 'gpt', args.on or meta.get('on') or 'local', True, gpt_tier(meta) in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project'))
     else:
         checked(original, meta['to'], no_lint=meta.get('no_lint', False))
+    original = normalize_actions(original)
     path.write_text(original)
     if not (latest_revision and original[latest_revision.end():].startswith(args.message + '\n\n')):
         print(f'已修订：{path}', flush=True)
     action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', path.read_text(), re.M)
     if action_match:
-        meta['actions'] = [a.strip() for a in action_match.group(1).split('/') if a.strip()]
+        meta['actions'] = parse_actions(action_match.group(1))
+        meta['temporary_cwd'] = repository_free(original, set(meta['actions'])) and not entry_repo(original)
     path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     remote = mini.find(args.name) if meta.get('execution') == 'mini' else None
     if remote and not remote.get('local'):
@@ -1274,7 +1363,7 @@ def mean_text(values):
 
 def fault_score(rows, args):
     lower, upper = args.since or '', args.until or '9999-12-31'
-    rejects = [r for r in gate_rows() if lower <= r.get('date', '') <= upper]
+    rejects = [r for r in gate_rows() if not r.get('preview') and lower <= r.get('date', '') <= upper]
     resolver = Path(__file__).with_name('verdict.mjs').as_uri()
     script = f"""import {{ outcomeFor }} from '{resolver}';
 import {{ readFileSync }} from 'node:fs';
@@ -1572,7 +1661,7 @@ def new(args, prepare=False):
                   + '\n\n验收要点：\n' + scene_acceptance(data)
                   for name, data, content in scenes]
     parts.insert(1, block('thinking-principles'))  # 思维准则：每单必带，紧随“归类/REPORT”首部，排在其余样板之前
-    text = dispatch_lessons('\n\n'.join(parts) + '\n')
+    text = normalize_actions(dispatch_lessons('\n\n'.join(parts) + '\n'))
     location = args.on or 'mini'
     if location == 'mini' and not (args.dry_run or args.no_launch or prepare) and not mini.available():
         raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
@@ -1580,8 +1669,11 @@ def new(args, prepare=False):
     action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', body, re.M)
     actions = args.task_action or (action_match.group(1) if action_match else '')
     parameter_paths = [*(mini.expand_path(p) for p in (args.read or [])), *report_writes(args.write, report)]
-    meta = {'attemptId': args.attempt_id, 'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
-            'auth': auth, 'no_lint': args.no_lint, 'actions': [a.strip() for a in actions.split('/') if a.strip()],
+    temporary_cwd = repository_free(text, set(parse_actions(actions))) and not repo
+    if temporary_cwd:
+        print('提示：只读任务未指定仓库，将在空的临时工作目录运行。', file=sys.stderr)
+    meta = {'temporary_cwd': temporary_cwd, 'attemptId': args.attempt_id, 'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
+            'auth': auth, 'no_lint': args.no_lint, 'actions': parse_actions(actions),
             'tier': ('astra' if args.astra else 'luna' if args.luna else 'sol' if args.sol else 'terra') if args.to == 'gpt' else args.tier, 'review': args.review, 'sol': args.sol, 'astra': args.astra, 'low': args.low, 'high': args.high,
             'xhigh': True if (args.to == 'gemini' and not (args.low or args.high)) else args.xhigh,
             'max': args.max, 'simple': args.simple, 'luna': args.luna, 'fast': args.fast, 'no-fast': args.no_fast, 'model': args.model,
@@ -1707,9 +1799,17 @@ def batch(args, parser):
     if failures: raise ValueError('batch 任务失败：' + ', '.join(failures))
 
 
+class DispatchParser(argparse.ArgumentParser):
+    def error(self, message):
+        if 'new' in sys.argv[1:2] and '--dry-run' in sys.argv:
+            record_rejection(str(uuid.uuid4()), 'lint', 'input', '', message, True)
+        retry = retry_command()
+        super().error(message + ('\n修改后重跑：' + retry if retry else ''))
+
+
 def build_parser():
     """解析公开命令入口；状态默认仅保留非终态及最近一小时。"""
-    parser = argparse.ArgumentParser(description='fleet-go：短参数组装标准 brief；前台执行 fleet。')
+    parser = DispatchParser(description='fleet-go：短参数组装标准 brief；前台执行 fleet。')
     sub = parser.add_subparsers(dest='action', required=True)
     p = sub.add_parser('new')
     p.add_argument('name')
@@ -1828,16 +1928,21 @@ def main():
     if any(a == '--kind' or a.startswith('--kind=') for a in sys.argv[1:]):
         raise ValueError('请使用 --to gpt|openai|claude|grok|gemini|jev。')
     args = parser.parse_args()
-    if args.action in ('new', 'amend', 'relaunch') and getattr(args, 'on', None) == 'mini' and mini.on_mini():
-        raise ValueError('已在 Mini 上；请使用 --on local --local-reason <理由> 或在派单机执行 --on mini。')
-    if hasattr(args, 'name') and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.name) and not (args.action in ('relaunch', 'amend', 'worktree') and args.name.endswith('.brief.md')):
-        raise ValueError('名称只能包含字母、数字、下划线与连字符。')
+    try:
+        if args.action in ('new', 'amend', 'relaunch') and getattr(args, 'on', None) == 'mini' and mini.on_mini():
+            raise ValueError('已在 Mini 上；请使用 --on local --local-reason <理由> 或在派单机执行 --on mini。')
+        if hasattr(args, 'name') and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.name) and not (args.action in ('relaunch', 'amend', 'worktree') and args.name.endswith('.brief.md')):
+            raise ValueError('名称只能包含字母、数字、下划线与连字符。')
+    except ValueError as error:
+        if args.action == 'new' and args.dry_run:
+            record_rejection(str(uuid.uuid4()), 'lint', 'input', getattr(args, 'name', ''), error, True)
+        raise
     if args.action == 'new':
         try:
             new(args)
         except (ValueError, OSError, subprocess.SubprocessError) as error:
-            if not args.dry_run and not args.gate_stage:
-                gate_reject['record'](args.attempt_id, 'lint', 'input', args.name, error)
+            if not args.gate_stage:
+                record_rejection(args.attempt_id, 'lint', 'input', args.name, error, args.dry_run)
             raise
     elif args.action == 'context':
         context(project_root(args.project))
@@ -1907,7 +2012,12 @@ def main():
     elif args.action == 'team':
         os.execvp('fleet', ['fleet', 'team'])
     elif args.action == 'lint':
-        checked(Path(args.brief).read_text(), args.to, args.to == 'gpt' and not args.sol, args.on, True, args.sol, args.no_lint, args.project)
+        brief_path = Path(args.brief)
+        original = brief_path.read_text()
+        normalized = normalize_brief(original, args.to, str(brief_path.resolve().with_suffix('.report.md')))
+        checked(normalized, args.to, args.to == 'gpt' and not args.sol, args.on, True, args.sol, args.no_lint, args.project)
+        if normalized != original:
+            brief_path.write_text(normalized)
         print('lint 通过。')
     elif args.action == 'score':
         score(args)
@@ -1962,6 +2072,8 @@ if __name__ == '__main__':
     try:
         main()
     except (ValueError, OSError, subprocess.SubprocessError) as error:
+        if sys.argv[1:2] == ['new'] and '--dry-run' in sys.argv and not preview_recorded:
+            record_rejection(str(uuid.uuid4()), 'lint', 'input', '', error, True)
         # 不回显正文、命令参数或状态内容，避免错误输出带出秘密。
         if isinstance(error, ValueError):
             message = str(error)
@@ -1971,5 +2083,8 @@ if __name__ == '__main__':
             cmd = getattr(error, 'cmd', None)
             executable = Path(cmd[0]).name if isinstance(cmd, (list, tuple)) and cmd else '未知'
             message = f'子命令 {executable}：{type(error).__name__} exit={getattr(error, "returncode", "未知")}。'
+        retry = retry_command()
+        if retry and '修改后重跑：' not in message:
+            message += '\n修改后重跑：' + retry
         print('错误：' + message, file=sys.stderr)
         sys.exit(1)

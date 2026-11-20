@@ -29,7 +29,7 @@ writeFileSync(states, '[]');
 writeFileSync(join(bin, 'fleet'), `#!${process.execPath}
 const fs = require('fs');
 const args = process.argv.slice(2);
-fs.appendFileSync(process.env.CALLS, JSON.stringify({args, pid:process.pid})+'\\n');
+fs.appendFileSync(process.env.CALLS, JSON.stringify({args, pid:process.pid, cwd:process.cwd()})+'\\n');
 if(args[0]==='status') { const rows=JSON.parse(fs.readFileSync(process.env.STATES,'utf8')); console.log(JSON.stringify(args.includes('--running')?rows.filter(r=>r.status==='running'):rows)); }
 if(args[0]==='stop') fs.writeFileSync(process.env.STATES,JSON.stringify(JSON.parse(fs.readFileSync(process.env.STATES,'utf8')).map(r=>r.runId===args[1]?{...r,status:'stopped'}:r)));
 if(args[0]==='say' && process.env.SAY_FAIL) process.exit(1);
@@ -440,7 +440,7 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
   });
   test('lint 缺项失败、合格通过、后台命令和秘密拒绝且不回显', () => {
     const bad=join(temp,'bad.md'); writeFileSync(bad,'没有必需项');
-    let r=spawnSync(script,['lint',bad,'--on','local'],{encoding:'utf8',env}); assert.equal(r.status,1); for(const word of ['第一行','REPORT','逐字规则']) assert.ok(r.stderr.includes(word));
+    let r=spawnSync(script,['lint',bad,'--on','local'],{encoding:'utf8',env}); assert.equal(r.status,1); for(const word of ['归类','REPORT','逐字规则']) assert.ok(r.stderr.includes(word));
     assert.equal(run(['lint',path]).status,0);
     for(const unsafe of ['fleet code task.md &','nohup fleet code task.md','fleet code task.md > /tmp/out 2>&1 &','nohup npm run dev','node server.mjs &','sk-'+'x'.repeat(24),'Bearer '+'x'.repeat(24)]) {
       writeFileSync(bad,original+'\n'+unsafe); r=run(['lint',bad]); assert.equal(r.status,1,unsafe); assert.ok(!r.stderr.includes(unsafe));
@@ -472,18 +472,46 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
     assert.equal(local.status,0,local.stderr);
     assert.match(local.stdout,/部署、git 写操作、线上写入由主线程另行授权/); assert.match(local.stdout,/本单不做 git 提交，报告不需要提交哈希/);
   });
+  test('预检补全格式并将预览拒绝记账', () => {
+    const file=join(temp,'normalize.md');
+    writeFileSync(file, original.replace(/^归类：[^\n]*\n/m,'').replace(/^REPORT: [^\n]*\n/m,''));
+    let r=spawnSync(script,['lint',file,'--on','local'],{encoding:'utf8',env});
+    assert.equal(r.status,0,r.stderr);
+    assert.match(readFileSync(file,'utf8'),/^归类：.*理由：.*\nREPORT: \//);
+    const ledger=join(temp,'preview-rejects.jsonl');
+    r=run(['new','preview-reject','--to','gpt','--goal','检查','--action','改代码','--dry-run'],{AGENT_FLEET_GATE_REJECTS:ledger});
+    assert.equal(r.status,1); assert.equal(JSON.parse(readFileSync(ledger,'utf8').trim()).preview,true);
+    r=run(['new','invalid name','--to','gpt','--goal','检查','--dry-run'],{AGENT_FLEET_GATE_REJECTS:ledger});
+    assert.equal(r.status,1); assert.equal(JSON.parse(readFileSync(ledger,'utf8').trim().split('\n').at(-1)).preview,true);
+    r=run(['new','arg-error','--to','gpt','--bogus','--dry-run'],{AGENT_FLEET_GATE_REJECTS:ledger});
+    assert.notEqual(r.status,0); assert.equal(JSON.parse(readFileSync(ledger,'utf8').trim().split('\n').at(-1)).preview,true);
+  });
+  test('无仓库只读实际在空目录启动', () => {
+    reset();
+    const r=run(['new','no-repo-read','--to','gpt','--goal','联网调研','--action','只读']);
+    assert.equal(r.status,7,r.stderr);
+    const call=history().find(c=>c.args[0]==='code');
+    assert.ok(call && call.cwd.includes('fleet-readonly-')); assert.ok(existsSync(call.cwd));
+  });
   test('动作、入口与授权 lint 及豁免', () => {
     const strict = (action, body, opts=[]) => spawnSync(script,['new','strict','--to','gpt','--on','local','--goal','检查任务' ,'--dry-run',...(action ? ['--action',action] : []),...opts],{encoding:'utf8',env,input:body});
     const entry = '## 入口\n仓库：/tmp\n可写路径：/tmp/example\n';
     const readEntry = '## 入口\n仓库：/tmp\n';
     let r = strict('只读',readEntry); assert.equal(r.status,0,r.stderr); assert.match(r.stdout,/动作: 只读/);
     assert.equal(strict('改代码',entry).status,0);
-    assert.equal(strict('部署（生产数据删除） / 只读', '## 入口\n仓库：/tmp（说明）\n可写路径：/tmp/example(说明)\n', ['--auth','local-commit,deploy-prod']).status,0);
+    for (const sep of ['/', '、', ',', '，', ';', '；', ' ', '和']) {
+      const r = strict('只读' + sep + '改代码', entry);
+      assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /动作: 只读 \/ 改代码/);
+    }
+    let noRepo = strict('只读', ''); assert.equal(noRepo.status, 0, noRepo.stderr); assert.match(noRepo.stderr, /空的临时工作目录/);
+    assert.equal(strict('改代码', '').status, 1);
+    const badWord = strict('只读、错字', entry); assert.match(badWord.stderr, /错字.*动作: 只读/);
+    const annotated = strict('部署（生产数据删除）、只读', '## 入口\n仓库：/tmp（说明）\n可写路径：/tmp/example(说明)\n', ['--auth','local-commit,deploy-prod']);
+    assert.equal(annotated.status,0,annotated.stderr); assert.match(annotated.stdout,/动作: 部署（生产数据删除） \/ 只读/);
     assert.equal(strict('本地提交',entry,['--auth','local-commit']).status,0);
     assert.equal(strict('推送 / 部署',entry,['--auth','local-commit,deploy-prod']).status,0);
     assert.equal(strict('付费',entry,['--auth','paid']).status,0);
     for (const [action, body, opts, expected] of [
-      ['只读','',[],/仓库/],
       ['只读','## 入口\n仓库：relative',[],/绝对路径/],
       ['只读','## 入口\n仓库：/no-such-fake-repository',[],/仓库不存在/],
       ['改代码',readEntry,[],/可写路径/],
@@ -592,7 +620,7 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
       for(const opt of opts.filter(x=>x.startsWith('--')&&!['--bulk','--type'].includes(x))) assert.ok(r.stderr.includes(opt));
     }
     assert.notEqual(run(['new','missing','--goal','任务','--dry-run']).status,0);
-    const old=run(['new','old','--kind','code']); assert.equal(old.status,1); assert.match(old.stderr,/--to/); assert.equal(old.stderr.trim().split('\n').length,1);
+    const old=run(['new','old','--kind','code']); assert.equal(old.status,1); assert.match(old.stderr,/--to/); assert.match(old.stderr,/修改后重跑：fleet-go new/);
     assert.equal(run(['new','bad','--to','gpt','--tier','opus','--goal','任务','--dry-run']).status,1);
   });
   test('simple 两档、组合限制及 relaunch/amend 保留档位', () => {
@@ -1008,7 +1036,7 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
     const badOrder = invoke(['new','reject-order','--to','gpt','--goal','x']);
     assert.equal(badOrder.status,1); assert.match(badOrder.stderr,/调遣令拒绝/);
     writeFileSync(orderFile, '| 全局 | 正常 | 用户另说 | |\n');
-    const badLint = invoke(['new','reject-lint','--to','gpt','--goal','x','--action','只读']);
+    const badLint = invoke(['new','reject-lint','--to','gpt','--goal','x','--action','改代码']);
     assert.equal(badLint.status,1); assert.match(badLint.stderr,/入口缺少仓库/);
     const hook = rawSpawnSync('python3',[join(root,'hooks/check-fleet-launch.py')], { encoding:'utf8',env:fixture,
       input:JSON.stringify({tool_input:{command:'fleet-go new reject-hook --to gpt --goal x'}}) });

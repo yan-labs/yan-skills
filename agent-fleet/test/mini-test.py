@@ -177,6 +177,14 @@ echo '[{"runId":"old-run","status":"done"}]'
         with patch.object(mini, 'REMOTE_BIN', str(configured)), patch.object(mini, 'call', local_call), patch.object(mini, 'wait', return_value=0), patch.object(mini.os, 'getcwd', return_value=str(tmp)):
             assert mini.launch({**meta, 'report': str(tmp/'report.md')}, ['fleet', 'code', str(brief), '--report', str(tmp/'report.md')]) == 0
             assert mini.forward(['status']) == 0
+    cwd_record = tmp / 'readonly-cwd'
+    launch_fleet.write_text(f'#!/bin/sh\npwd > {cwd_record}\necho "runId: readonly-run"\n')
+    with patch.object(mini, 'REMOTE_HOME', str(tmp)), patch.object(mini, 'REMOTE_BIN', str(launch_fleet)), patch.object(mini, 'call', local_call), patch.object(mini, 'wait', return_value=0), patch.object(mini.os, 'getcwd', return_value=str(tmp)), patch.dict(os.environ, {'TMPDIR': str(tmp)}):
+        assert mini.launch({**meta, 'report': str(tmp/'report.md'), 'temporary_cwd': True}, ['fleet', 'code', str(brief)]) == 0
+    isolated = Path(cwd_record.read_text().strip())
+    assert isolated.name.startswith('fleet-readonly-') and not list(isolated.iterdir())
+    isolated.rmdir()
+    launch_fleet.write_text('#!/bin/sh\necho "runId: directory-run"\n')
     # A dispatcher-only cwd must not prevent Mini launch; use the brief repository.
     fallback_brief = tmp/'fallback.md'; fallback_brief.write_text(f'仓库: {tmp}\n')
     with patch.object(mini, 'REMOTE_HOME', str(tmp)), patch.object(mini, 'REMOTE_BIN', str(launch_fleet)), patch.object(mini, 'call', local_call), patch.object(mini, 'wait', return_value=0), patch.object(mini.os, 'getcwd', return_value=str(tmp/'absent')):

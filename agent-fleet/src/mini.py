@@ -313,15 +313,17 @@ def launch(meta, argv):
     args.append('--no-wait')
     match = re.search(r'^\s*仓库\s*[:：]\s*(/[^\s`]+)', Path(meta['brief']).read_text(), re.M)
     repo = remote_path(match.group(1)) if match else ''
-    payload = {'files': files, 'args': args, 'cwd': remote_path(os.getcwd()), 'repo': repo, 'report': remote_path(meta['report']), 'home': REMOTE_HOME}
+    payload = {'files': files, 'args': args, 'cwd': remote_path(os.getcwd()), 'repo': repo, 'report': remote_path(meta['report']), 'home': REMOTE_HOME, 'temporary_cwd': meta.get('temporary_cwd', False)}
     payload['seat'] = meta.get('watch_seat') or ''
     payload['session'] = meta.get('dispatch_session') or ''
     payload['parent'] = (os.environ.get('FLEET_SLOT_RUN_ID') or os.environ.get('FLEET_DETACHED_RUN_ID')
                          or os.environ.get('FLEET_PARENT_RUN_ID') or '')
-    script = PATH_FIX + '''import base64,json,os,pathlib,subprocess,sys
+    script = PATH_FIX + '''import base64,json,os,pathlib,subprocess,sys,tempfile
 p=json.loads(base64.b64decode(sys.argv[1]));
 ''' + CANONICAL_SCRIPT + '''
 p['args']=[canonical(x) for x in p['args']]; p['cwd']=canonical(p['cwd']); p['repo']=canonical(p['repo']); p['report']=canonical(p['report'])
+if p.get('temporary_cwd'):
+ p['cwd']=tempfile.mkdtemp(prefix='fleet-readonly-')
 if not pathlib.Path(p['cwd']).is_dir():
  p['cwd']=p['repo'] if p['repo'] and pathlib.Path(p['repo']).is_dir() else p['home']
  print('Mini 工作目录不存在，改用：' + p['cwd'], flush=True)

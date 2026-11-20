@@ -11,12 +11,14 @@ def path():
     return Path(os.environ.get('AGENT_FLEET_GATE_REJECTS') or Path.home() / '.agent-fleet/gate-rejects.jsonl')
 
 
-def record(attempt, stage, category, name, reason):
+def record(attempt, stage, category, name, reason, preview=False):
     try:
         redactor = Path(__file__).resolve().parents[1] / 'bin/redact'
         sanitized = subprocess.run([str(redactor)], input=str(reason), capture_output=True, text=True, check=True).stdout
         row = {'attemptId': attempt, 'stage': stage, 'category': category, 'name': name,
                'date': datetime.date.today().isoformat(), 'reason': sanitized.strip()[:2000]}
+        if preview:
+            row['preview'] = True
         dest = path()
         dest.parent.mkdir(parents=True, exist_ok=True)
         with dest.open('a') as out:
