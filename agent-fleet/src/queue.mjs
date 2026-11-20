@@ -40,7 +40,10 @@ export function taskObject(briefPath) {
   if (!object) return null; // Legacy/direct fleet briefs still share the machine slot limit.
   const report = meta.report && canonicalPath(meta.report);
   const reportRoots = [join(process.env.HOME, '.agent-fleet', 'reports'), join(process.env.HOME, '.agent-reports')].map(canonicalPath);
-  const writes = object.writes.map(canonicalPath).filter(path => !report ||
+  const repo = meta.worktree?.repo && canonicalPath(meta.worktree.repo);
+  const worktree = meta.worktree?.path && canonicalPath(meta.worktree.path);
+  const writes = object.writes.map(canonicalPath).map(path => repo && worktree && (path === repo || path.startsWith(repo + '/'))
+    ? worktree + path.slice(repo.length) : path).filter(path => !report ||
     !(path === report || path === report.replace(/\.md$/, '.checkpoint.md') ||
       reportRoots.some(root => (path === root || path.startsWith(root + '/')) && report.startsWith(path + '/'))));
   return { ...object, repo: object.repo ? canonicalPath(object.repo) : '', writes, after: meta.after || null };

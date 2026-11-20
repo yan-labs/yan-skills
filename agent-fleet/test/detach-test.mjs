@@ -552,6 +552,14 @@ with mini.parent_slot_released():
     const writer=await start('writer',[join(scratch,'repo')]);
     await until(()=>began(writer),'writer starts');
     await assert.rejects(start('collision',[join(scratch,'repo','src')]), err => { assert.match(err.message,/可写路径重叠/); assert.ok(err.message.includes(join(scratch,'repo','src'))); assert.ok(err.message.includes(join(scratch,'repo'))); assert.match(err.message,/fleet-go relaunch 'collision' --worktree[\s\S]*--after 'writer'/); assert.doesNotMatch(err.message,/fleet say/); return true; });
+    const wt1 = {worktree:{repo:join(scratch,'repo'),path:join(scratch,'repo-wt','one')}};
+    const wt2 = {worktree:{repo:join(scratch,'repo'),path:join(scratch,'repo-wt','two')}};
+    const first = await start('wt-one',[join(scratch,'repo')],null,'mini','mock','wt-one',5,wt1);
+    const second = await start('wt-two',[join(scratch,'repo')],null,'mini','mock','wt-two',5,wt2);
+    assert.deepEqual(queueRecord(first).object.writes,[canonicalPath(wt1.worktree.path)]);
+    assert.deepEqual(queueRecord(second).object.writes,[canonicalPath(wt2.worktree.path)]);
+    await assert.rejects(start('wt-same',[join(scratch,'repo','src')],null,'mini','mock','wt-same',5,wt1), /可写路径重叠/);
+    release(first); release(second); await waitDetached(first); await waitDetached(second);
     const separate=await start('separate',[join(scratch,'repo-wt','separate')]);
     await until(()=>began(separate),'independent worktree starts');release(separate);await waitDetached(separate);
     const frontCollision=await cliRun(['code',join(queueRuns,'writer.brief.md'),'--cwd',scratch,'--attach'],{AGENT_FLEET_RUNS_DIR:queueRuns,FLEET_SLOT_CAPACITY:'5'});
