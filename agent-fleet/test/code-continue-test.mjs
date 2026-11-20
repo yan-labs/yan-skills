@@ -75,6 +75,8 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
    const conclusion = (mode === 'finish' && count > 1) || (mode === 'progress' && count > 5) || mode.startsWith('judge-') || mode === 'complete' || mode === 'missing-sections' ? '完成' : mode === 'fail' ? '失败' : '部分完成';
    let report = '# 测试\\n## 规则回执\\n测试\\n## 实际执行\\n测试\\n## 改动与产物\\n测试\\n## 验证证据\\n测试\\n## 偏差\\n无\\n## 结论\\n' + conclusion + '。\\n## 未完成/风险/需要用户决定的事\\n' + (mode === 'progress' ? count : '待办');
    if (mode === 'missing-sections' || (['finish', 'stuck', 'progress', 'env-off'].includes(mode) && !(mode === 'finish' && count > 1) && !(mode === 'progress' && count > 5))) report = '## 结论\\n' + conclusion + (mode === 'progress' ? count : '');
+   if (mode === 'review-complete') report = '## 结论\\n不可放行，列出必修项\\nV1｜未过｜问题一\\nV2｜已过｜已核验\\nLEDGER: blockers=1 verdict=fail';
+   if (mode === 'deviation-complete') report = '## 结论\\n' + Array.from({length:5}, (_, i) => 'V' + (i+1) + '｜已过' + (i === 2 ? '（目标分支偏差）' : '') + '｜已核验').join('\\n');
    if (mode === 'named-stuck' || mode === 'named-external') report = '## 结论\\nV1｜' + (mode === 'named-stuck' ? '未过' : '等外部') + '｜fixture';
    if (mode === 'progress') fs.writeFileSync(process.env.REPORT_FILE + '.artifact', String(count));
    fs.writeFileSync(process.env.REPORT_FILE, report);
@@ -423,6 +425,24 @@ try {
     assert.equal(buildBrief(result).verdict, verdict, mode);
     if (wanted) assert.match(result.continueStop, /无新证据/);
     else assert.equal(buildBrief(result).pending, 'external');
+  }
+  for (const mode of ['review-complete', 'deviation-complete']) {
+    process.env.MODE = mode;
+    process.env.FLEET_DETACHED_RUN_ID = mode;
+    process.env.TRACE = join(scratch, mode + '.trace');
+    process.env.REPORT_FILE = join(scratch, mode + '.md');
+    const count = mode === 'review-complete' ? 2 : 5;
+    const prompt = `归类：${mode === 'review-complete' ? '只读复核' : '编码'}\nREPORT: ${process.env.REPORT_FILE}\n## 验收\n` + Array.from({length:count}, (_, i) => `V${i+1} 核验｜owner：本单`).join('\n');
+    const result = await runCode({ prompt, cwd:scratch, codexBin:mock });
+    assert.equal(result.continueCount, 0, mode);
+    assert.equal(buildBrief(result).verdict, 'ok', mode);
+    assert.equal(readFileSync(process.env.TRACE, 'utf8').split('"method":"turn/start"').length - 1, 1);
+    if (mode === 'deviation-complete') {
+      assert.match(readFileSync(process.env.REPORT_FILE, 'utf8'), /目标分支偏差/);
+      const cli = spawnSync(process.execPath, [join(process.cwd(), 'bin/agent-fleet.mjs'), 'code', prompt, '--cwd', scratch, '--json', '--attach'], { env: { ...process.env, FLEET_CODEX_BIN: mock }, encoding:'utf8', timeout:30000 });
+      assert.equal(cli.status, 0, cli.stderr);
+      assert.equal(JSON.parse(cli.stdout).verdict, 'ok');
+    }
   }
   const execMock = join(scratch, 'codex-exec-mock.cjs');
   writeFileSync(execMock, `#!/usr/bin/env node
