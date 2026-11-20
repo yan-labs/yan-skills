@@ -9,6 +9,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import time
 from urllib.parse import urlsplit
 
 import mini
@@ -33,6 +34,7 @@ CREATE TABLE IF NOT EXISTS events (
   summary TEXT NOT NULL, at TEXT NOT NULL, acked_by TEXT
 );
 CREATE INDEX IF NOT EXISTS events_unread ON events(seat) WHERE acked_by IS NULL;
+CREATE TABLE IF NOT EXISTS wait_terminals (run TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS timers (
   id TEXT PRIMARY KEY, seat TEXT NOT NULL, rule TEXT NOT NULL, timezone TEXT NOT NULL,
   action TEXT NOT NULL, due REAL
@@ -105,13 +107,19 @@ def current_seat(cwd, session=None, repo=None):
     return line_seat(base, line or session or dispatch_session()) if base else None
 
 
+def brief_metadata(brief):
+    if not brief:
+        return {}
+    metadata = read_record(Path(brief).with_suffix('.json'))
+    return metadata if isinstance(metadata, dict) else {}
+
+
 def run_binding(state):
-    brief = state.get('briefPath')
-    metadata = read_record(Path(brief).with_suffix('.json')) if brief else {}
+    metadata = brief_metadata(state.get('briefPath'))
     # sessionId belongs to the executor, so it cannot establish dispatch ownership.
     return dict(cwd=state.get('cwd'), parent=state.get('parentRunId'),
                 repo=(state.get('object') or metadata.get('object') or {}).get('repo'),
-                seat=state.get('watchSeat'),
+                seat=state.get('watchSeat') or metadata.get('watch_seat'),
                 line=state.get('watchLine') or state.get('dispatchSession') or metadata.get('dispatch_session'))
 
 
@@ -120,16 +128,16 @@ def terminal_summary(state, verdict):
 
 
 def migrate(db):
-    if db.execute('PRAGMA user_version').fetchone()[0]:
+    if db.execute('PRAGMA user_version').fetchone()[0] >= 2:
         return
     with db:
         db.execute('BEGIN IMMEDIATE')
-        if db.execute('PRAGMA user_version').fetchone()[0]:
+        if db.execute('PRAGMA user_version').fetchone()[0] >= 2:
             return
         root = runs_root()
 
         def owner(run, seen):
-            if not run or run in seen or not re.fullmatch(r'[\w.-]+', run, re.ASCII):
+            if not run or run in seen or run in ('.', '..') or not re.fullmatch(r'[\w.-]+', run, re.ASCII):
                 return None
             row = db.execute('SELECT seat FROM runs WHERE id=?', (run,)).fetchone()
             if row and '#' in row['seat']:
@@ -139,7 +147,10 @@ def migrate(db):
             inherited = owner(binding['parent'], {*seen, run})
             if inherited:
                 return inherited
-            base = row['seat'] if row else seat_for(binding['cwd']) or seat_for(binding['repo'])
+            if binding['seat'] and '#' in binding['seat']:
+                return binding['seat']
+            base = (seat_for(binding['cwd']) or seat_for(binding['repo'])
+                    or (row['seat'] if row else None))
             return line_seat(base, binding['line']) if base and binding['line'] else None
 
         for row in db.execute('SELECT id,seat,state FROM runs').fetchall():
@@ -154,7 +165,7 @@ def migrate(db):
                     db.execute("""UPDATE events SET summary=? WHERE run=? AND kind='terminal'
                                   AND acked_by IS NULL AND summary=?""",
                                (terminal_summary(row['state'], verdict), run, row['state']))
-        db.execute('PRAGMA user_version=1')
+        db.execute('PRAGMA user_version=2')
 
 
 def now_iso():
@@ -180,8 +191,9 @@ def bind(db, run, seat=None, cwd=None, parent=None, repo=None, line=None, ancest
         return current['seat']
     inherited = db.execute('SELECT seat FROM runs WHERE id=?', (parent,)).fetchone()
     owner = inherited['seat'] if inherited else None
-    if not owner and parent and parent not in (*ancestors, run) and re.fullmatch(r'[\w.-]+', parent, re.ASCII):
-        state = read_record(runs_root() / (parent + '.json'))
+    if not owner and parent and parent not in (*ancestors, run, '.', '..') and re.fullmatch(r'[\w.-]+', parent, re.ASCII):
+        state = (read_record(runs_root() / (parent + '.json'))
+                 or read_record(runs_root() / (parent + '.queue.json')))
         if state.get('runId') == parent:
             owner = bind(db, parent, **run_binding(state), ancestors=(*ancestors, run))
     owner = owner or seat or line_seat(seat_for(cwd) or seat_for(repo) or 'unassigned', line)
@@ -201,6 +213,51 @@ def record_ask(db, ask):
     event(db, ask['runId'], 'ask', ask['kind'] + '：' + ask['text'], ask['id'], ask['at'])
 
 
+def legacy_asks(db, root, run):
+    seen = read_record(root / (run + '.asks-seen'))
+    seen = {key for key in seen if isinstance(key, str)} if isinstance(seen, list) else set()
+    db.executemany("UPDATE events SET acked_by='legacy-wait' WHERE id=? AND run=? AND kind='ask' AND acked_by IS NULL",
+                   ((key, run) for key in seen))
+    path = root / (run + '.asks')
+    try:
+        with path.open() as log:
+            for line in log:
+                try:
+                    ask = json.loads(line)
+                except ValueError:
+                    continue
+                if (not isinstance(ask, dict) or ask.get('runId') != run
+                        or not all(isinstance(ask.get(key), str) for key in ('id', 'kind', 'text', 'at'))
+                        or db.execute('SELECT 1 FROM events WHERE id=?', (ask['id'],)).fetchone()):
+                    continue
+                result = subprocess.run([str(FLEET / 'bin/redact')], input=ask['text'],
+                                        capture_output=True, text=True, check=True, timeout=5)
+                record_ask(db, {**ask, 'text': result.stdout.strip()})
+                if ask['id'] in seen:
+                    db.execute("UPDATE events SET acked_by='legacy-wait' WHERE id=?", (ask['id'],))
+    except FileNotFoundError:
+        pass
+
+
+def take_wait_events(db, run, terminal=False):
+    if not re.fullmatch(r'[\w.-]+', run, re.ASCII) or run in ('.', '..'):
+        raise ValueError('无效 runId')
+    root = runs_root()
+    state = read_record(root / (run + '.json'))
+    if not state.get('detach') or state.get('runId') != run:
+        return []
+    bind(db, run, **run_binding(state))
+    legacy_asks(db, root, run)
+    rows = db.execute("""SELECT id,summary FROM events WHERE run=? AND kind='ask'
+                         AND acked_by IS NULL ORDER BY at,id""", (run,)).fetchall()
+    db.executemany("UPDATE events SET acked_by='wait' WHERE id=?", ((row['id'],) for row in rows))
+    if terminal and state.get('status') in TERMINAL:
+        db.execute('INSERT OR IGNORE INTO wait_terminals VALUES (?)', (run,))
+        db.execute("""UPDATE events SET acked_by='wait' WHERE run=? AND kind='terminal'
+                      AND acked_by IS NULL""", (run,))
+    return [row['summary'] for row in rows]
+
+
 def snapshot(db, seat, session=None, started=None):
     if session and started is not None and db.execute('INSERT OR IGNORE INTO sessions VALUES (?,?)', (seat, session)).rowcount:
         db.execute('''INSERT INTO seats VALUES (?,?,?) ON CONFLICT(id) DO UPDATE
@@ -208,12 +265,12 @@ def snapshot(db, seat, session=None, started=None):
                       WHERE excluded.started >= seats.started''', (seat, session, started))
     owner = db.execute('SELECT session FROM seats WHERE id=?', (seat,)).fetchone()
     slots = ','.join('?' * len(ACTIVE))
-    running = db.execute(f'SELECT COUNT(*) FROM runs WHERE seat=? AND state IN ({slots})',
-                         (seat, *ACTIVE)).fetchone()[0]
+    active = [dict(row) for row in db.execute(
+        f'SELECT id,state FROM runs WHERE seat=? AND state IN ({slots}) ORDER BY id', (seat, *ACTIVE))]
     unread = db.execute('SELECT COUNT(*) FROM events WHERE seat=? AND acked_by IS NULL', (seat,)).fetchone()[0]
     rows = db.execute('''SELECT id,run,kind,summary,at FROM events
                          WHERE seat=? AND acked_by IS NULL ORDER BY at,id LIMIT 20''', (seat,))
-    return dict(seat=seat, running=running, unread=unread, events=[dict(row) for row in rows],
+    return dict(seat=seat, running=len(active), runs=active, unread=unread, events=[dict(row) for row in rows],
                 current=bool(owner and owner['session'] == session), at=now_iso())
 
 
@@ -247,6 +304,8 @@ def request(action, data, remote=False):
             extra = data.pop('binding')
             bind(db, data['runId'], **extra)
             return record_ask(db, data)
+        if action == 'wait-events':
+            return take_wait_events(db, **data)
         if action == 'claim':
             return bool(db.execute('UPDATE runs SET timer_claimed=1 WHERE id=? AND timer_claimed=0',
                                    (data['run'],)).rowcount)
@@ -263,6 +322,10 @@ def main():
     parser.add_argument('--serve', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--request', action='store_true', help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest='command')
+    listen = sub.add_parser('listen', help='输出席位未读变化，供会话 Monitor 唤醒。')
+    listen.add_argument('--seat')
+    listen.add_argument('--session', help='席位已交接时退出。')
+    listen.add_argument('--once', action='store_true')
     status = sub.add_parser('status')
     status.add_argument('--seat', default=os.environ.get('FLEET_SEAT'))
     ack = sub.add_parser('ack')
@@ -274,6 +337,29 @@ def main():
         if args.serve or args.request:
             action, data = json.load(sys.stdin)
             result = request(action, data, remote=args.request and remote_machine())
+        elif args.command == 'listen':
+            seat = args.seat or current_seat(os.getcwd(), args.session)
+            if not seat:
+                raise ValueError('当前目录无法解析席位，请指定 --seat')
+            remote = remote_machine()
+            announced = set()
+            previous_unread = 0
+            while True:
+                try:
+                    snap = request('snapshot', {'seat': seat, 'session': args.session}, remote=remote)
+                    if args.session and not snap['current']:
+                        return 0
+                    visible = {entry['id'] for entry in snap['events']}
+                    if visible - announced or snap['unread'] > previous_unread:
+                        print(json.dumps({'seat': seat, 'unread': snap['unread']}, ensure_ascii=False), flush=True)
+                    announced = visible
+                    previous_unread = snap['unread']
+                except (OSError, ValueError, sqlite3.Error, subprocess.SubprocessError):
+                    if args.once:
+                        raise
+                if args.once:
+                    return 0
+                time.sleep(15)
         elif args.command == 'status':
             seat = args.seat or current_seat(os.getcwd())
             if not seat:

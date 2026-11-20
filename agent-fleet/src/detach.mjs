@@ -1,5 +1,5 @@
 import { isCodexModel } from './model-family.mjs';
-import { dispatchSession, takeAsk, watchBinding, watchRequest } from './yield.mjs';
+import { dispatchSession, watchBinding, watchRequest } from './yield.mjs';
 import { spawn } from 'node:child_process';
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -310,18 +310,28 @@ export async function waitDetached(spec, { cwd, timeout, originalOutput = false 
   try {
   const id = resolveDetached(spec, cwd);
   const started = Date.now();
-  let warnedAbnormal = false;
+  let warnedAbnormal = false, warnedMailbox = false, nextMailbox = 0;
   for (;;) {
     const rec = reconcileDetached(readState(id));
     if (!rec) throw new Error(`找不到 detach 任务 ${id}`);
     const state = detachedState(rec);
-    let question;
-    while ((question = takeAsk(id))) process.stdout.write(`[agent-fleet] 【待答复 ask】runId=${id} kind=${question.kind}：${redactEvidence(question.text)}\n用 fleet say ${id} \"<答复>\" 回复；wait 继续等待任务终态。\n`);
+    const terminal = !['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(state);
+    if (terminal || Date.now() >= nextMailbox) {
+      nextMailbox = Date.now() + 5000;
+      try {
+        for (const summary of watchRequest('wait-events', { run: id, terminal })) {
+          process.stdout.write(`[agent-fleet] 【待答复 ask】runId=${id} ${summary}\n用 fleet say ${id} "<答复>" 回复；wait 继续等待任务终态。\n`);
+        }
+      } catch {
+        if (!warnedMailbox) process.stderr.write('[agent-fleet] Mini 信箱暂不可读，未读仍留在信箱。\n');
+        warnedMailbox = true;
+      }
+    }
     if (state === 'abnormal' && !warnedAbnormal) {
       process.stdout.write(`[agent-fleet] 【心跳异常】${id} 仍有存活进程；wait 继续等待终态，可用 fleet status / fleet stop 检查处理。\n`);
       warnedAbnormal = true;
     }
-    if (!['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(state)) {
+    if (terminal) {
       const brief = state === 'abnormal' ? buildBrief({ ...failureFacts(rec), ok: false,
         error: `异常终止；最后心跳 ${rec.heartbeatAt}`, resultPath: rec.resultPath, logPath: rec.logPath })
         : rec.brief ?? buildBrief({ ...failureFacts(rec), ok: false, stopped: state === 'stopped', error: rec.error,

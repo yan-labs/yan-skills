@@ -128,6 +128,7 @@ export async function registerQueue(rec) {
       const identity = taskIdentity(rec);
       const row = { runId: rec.runId, name: rec.name, pid: process.pid, command: processCommand(process.pid),
         machine: hostname(), model: rec.model, briefPath: rec.briefPath, object, ...identity, after: object?.after,
+        watchSeat: rec.watchSeat, parentRunId: rec.parentRunId,
         createdAt: Date.now(), state: 'queued' };
       if (row.after && !dependency(rows, row.after)) {
         category = 'missing-predecessor';

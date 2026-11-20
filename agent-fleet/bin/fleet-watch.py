@@ -83,26 +83,10 @@ def transition(db, row, state, now, verdict=None):
     if state in store['TERMINAL'] or state in ('heartbeat', 'stalled'):
         kind = 'terminal' if state in store['TERMINAL'] else 'stall'
         reason = {'heartbeat': '监督心跳超过 90 秒', 'stalled': '进度超过 30 分钟未更新'}.get(state, store['terminal_summary'](state, verdict))
-        store['event'](db, row['id'], kind, reason, f"{row['id']}:{sequence}")
-
-
-def legacy_asks(db, path, run):
-    try:
-        with path.open() as log:
-            for line in log:
-                try:
-                    ask = json.loads(line)
-                except ValueError:
-                    continue
-                if (not isinstance(ask, dict) or ask.get('runId') != run
-                        or not {'id', 'kind', 'text', 'at'} <= ask.keys()
-                        or db.execute('SELECT 1 FROM events WHERE id=?', (ask['id'],)).fetchone()):
-                    continue
-                result = subprocess.run([str(FLEET / 'bin/redact')], input=ask['text'],
-                                        capture_output=True, text=True, check=True, timeout=5)
-                store['record_ask'](db, {**ask, 'text': result.stdout.strip()})
-    except FileNotFoundError:
-        pass
+        key = f"{row['id']}:{sequence}"
+        store['event'](db, row['id'], kind, reason, key)
+        if kind == 'terminal' and db.execute('SELECT 1 FROM wait_terminals WHERE run=?', (row['id'],)).fetchone():
+            db.execute("UPDATE events SET acked_by='wait' WHERE id=?", (key,))
 
 
 def reconcile(db, root, now):
@@ -113,21 +97,22 @@ def reconcile(db, root, now):
         for path in root.glob('attach-*.queue.json'):
             run = path.name.removesuffix('.queue.json')
             queue = record(path)
-            if run.startswith('attach-') and queue.get('state') in (*WAITING, 'running'):
+            if (queue.get('runId') == run and
+                    (queue.get('state') in (*WAITING, 'running') or
+                     (queue.get('state') in store['TERMINAL'] and now - queue.get('finishedAt', 0) / 1000 <= 86400))):
                 records[run] = (queue, {}, True)
-        for path in root.glob('*-detach-*.json'):
+        for path in (*root.glob('*-detach-*.json'), *root.glob('timer-*.json')):
             if path.name.removesuffix('.json') in known:
                 continue
-            try:
-                if now - path.stat().st_mtime > 86400:
-                    continue
-            except FileNotFoundError:
-                continue
             rec = record(path)
-            if rec.get('detach') and path.name == rec.get('runId', '') + '.json':
+            if (rec.get('detach') and path.name == rec.get('runId', '') + '.json'
+                    and (rec.get('status') not in store['TERMINAL']
+                         or now - timestamp(rec.get('finishedAt'), 0) <= 86400)):
                 records[rec['runId']] = (rec, None, False)
         for run, row in known.items():
             if row['state'] in store['TERMINAL']:
+                if RUN_ID.fullmatch(run) and run not in ('.', '..') and (root / (run + '.asks-seen')).exists():
+                    store['legacy_asks'](db, root, run)
                 continue
             if RUN_ID.fullmatch(run) and run not in ('.', '..'):
                 attached = run.startswith('attach-')
@@ -138,7 +123,7 @@ def reconcile(db, root, now):
             if run in known:
                 return
             rec, _, attached = records[run]
-            if not rec or (rec.get('state' if attached else 'status') in store['TERMINAL']):
+            if not rec:
                 return
             store['bind'](db, run, **store['run_binding'](rec))
             known[run] = db.execute('SELECT * FROM runs WHERE id=?', (run,)).fetchone()
@@ -149,7 +134,7 @@ def reconcile(db, root, now):
             row = known.get(run)
             if row is None or row['state'] in store['TERMINAL']:
                 continue
-            legacy_asks(db, root / (run + '.asks'), run)
+            store['legacy_asks'](db, root, run)
             state = rec.get('state' if attached else 'status')
             if not state:
                 if now - row['changed'] > HEARTBEAT_SECONDS and row['state'] == 'starting':
@@ -207,7 +192,7 @@ def patrol(db, root, now, reviews=None):
             yielded = record(root / (run + '.yield'))
             watch = pid.get('supervision') or {}
             brief_path = state.get('briefPath') or pid.get('briefPath')
-            meta = record(Path(brief_path).with_suffix('.json')) if brief_path else {}
+            meta = store['brief_metadata'](brief_path)
             actions = pid.get('actions') or meta.get('actions') or []
             production = bool('deploy-prod' in (pid.get('auth') or meta.get('auth') or []) or
                               re.search('发布|生产|部署', str(actions)))

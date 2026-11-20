@@ -88,7 +88,7 @@ async function launch(command='code', extra={}, prefix=[]) {
   console.log(`launch ${command}: ${Date.now()-start}ms ${id}`);
   return id;
 }
-async function runnerReady() { for(let i=0;i<100;i++){ if(existsSync(env.FLEET_TEST_PIDS)) return readFileSync(env.FLEET_TEST_PIDS,'utf8').trim().split(' ').map(Number);await sleep(50); } throw Error('runner not ready'); }
+async function runnerReady(path = env.FLEET_TEST_PIDS) { for(let i=0;i<100;i++){ if(existsSync(path)) return readFileSync(path,'utf8').trim().split(' ').map(Number);await sleep(50); } throw Error('runner not ready'); }
 function psReceipt(pids) {
   let output;
   try { output=execFileSync('ps',['-o','pid=,ppid=,pgid=,command=','-p',pids.join(',')],{encoding:'utf8',stdio:['ignore','pipe','ignore']}); }
@@ -237,8 +237,9 @@ assert.equal((await cliRun(['stop','latest'])).code,0);
 assert.equal(state(stopped).status,'stopped');assert.equal((await cliRun(['wait',stopped])).code,1);
 await sleep(200);assert(pids.every(p=>!alive(p)),'stop leaves no runner descendants');
 console.log('stop: '+psReceipt([state(stopped).pid,state(stopped).childPid,...pids]));
-const abnormal=await launch('code',{FLEET_TEST_SLEEP:'60',FLEET_TEST_PIDS:join(scratch,'abnormal-pids')});
-await sleep(500);const abnormalRec=state(abnormal);process.kill(abnormalRec.pid,'SIGKILL');await sleep(200);
+const abnormalPids = join(scratch, 'abnormal-pids');
+const abnormal=await launch('code',{FLEET_TEST_SLEEP:'60',FLEET_TEST_PIDS:abnormalPids});
+await runnerReady(abnormalPids);const abnormalRec=state(abnormal);process.kill(abnormalRec.pid,'SIGKILL');await sleep(200);
 const status=await cliRun(['status']);assert.match(status.stdout,/最后心跳=.*异常终止/);
 const orphanWait=await cliRun(['wait',abnormal,'--timeout','0']);
 assert.equal(orphanWait.code,1);assert.match(orphanWait.stdout,/心跳异常/);assert.match(orphanWait.stderr,/超时.*任务继续运行/);

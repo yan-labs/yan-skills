@@ -553,8 +553,9 @@ async function cmdShortRun(command, argv) {
 async function enterAttachedSlot(options) {
   attachedReportPath = options.reportPath;
   const id = `attach-${randomUUID()}`;
-  watchRequest('bind', { run: id, ...watchBinding({ ...options, parentRunId: process.env.FLEET_SLOT_RUN_ID }) });
-  await registerQueue({ ...options, runId: id });
+  const binding = watchBinding({ ...options, parentRunId: process.env.FLEET_SLOT_RUN_ID });
+  const watchSeat = watchRequest('bind', { run: id, ...binding });
+  await registerQueue({ ...options, runId: id, watchSeat, parentRunId: binding.parent });
   while (!(await acquireSlot(id))) await new Promise(r => setTimeout(r, 250));
   const previous = process.env.FLEET_SLOT_RUN_ID;
   process.env.FLEET_SLOT_RUN_ID = id;

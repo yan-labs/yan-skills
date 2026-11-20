@@ -52,6 +52,8 @@ def pickup(payload):
     lines = [f"Fleet 席位 {seat}：本席在跑 {snap['running']} 单、未读 {snap['unread']} 条。"]
     if not snap['current']:
         lines.append('本会话的指挥席已交接，当前会话仅可查看。')
+    for run in snap.get('runs', []):
+        lines.append(f"[在途] {run['id']} · {run['state']}")
     for entry in snap['events']:
         summary = ' '.join(entry['summary'].split())[:220]
         lines.append(f"[{entry['kind']}] {entry['run']} · {entry['id']} · {summary}")

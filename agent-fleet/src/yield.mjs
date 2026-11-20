@@ -127,15 +127,6 @@ export function ask(id, { kind = 'help', text, wait = false, timeout } = {}) {
   appendFileSync(pathFor(id, 'log'), fleetEvent('ask') + '\n');
   return rec;
 }
-export function takeAsk(id) {
-  const path = pathFor(validId(id), 'asks');
-  if (!existsSync(path)) return null;
-  const entries = readFileSync(path, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
-  const seen = readJSON(pathFor(id, 'asks-seen')) || [];
-  const entry = entries.find(e => !seen.includes(e.id));
-  if (entry) save(pathFor(id, 'asks-seen'), [...seen, entry.id]);
-  return entry || null;
-}
 export async function localCondition(condition, { id, entry, cwd, replies = [] }) {
   if (condition === 'reply') return replies.length ? { status: 'done', text: replies.join('\n\n') } : null;
   const index = condition.indexOf(':'), kind = condition.slice(0, index), value = condition.slice(index + 1);

@@ -151,12 +151,13 @@ with tempfile.TemporaryDirectory() as d:
     pulled = tmp/'pulled.md'
     row = {'status':'done', 'verdict':'ok', 'resultPath':'/home/b/.agent-fleet/runs/run-123.result.md'}
     data = base64.b64encode('/home/b/result\nsecond\nthird\n'.encode()).decode()
-    with patch.object(mini, 'query', side_effect=[ConnectionError(), row]), patch.object(mini.time, 'sleep'), patch.object(mini, 'call', return_value=subprocess.CompletedProcess([],0,json.dumps(data),'')), patch.dict(os.environ, {'HOME':str(tmp)}, clear=False):
+    with patch.object(mini, 'wait_events', return_value=['help：fixture']) as receipt, patch.object(mini, 'query', side_effect=[ConnectionError(), row]), patch.object(mini.time, 'sleep'), patch.object(mini, 'call', return_value=subprocess.CompletedProcess([],0,json.dumps(data),'')), patch.dict(os.environ, {'HOME':str(tmp)}, clear=False):
         assert mini.wait({'id':'run-123','report':str(pulled)}) == 0
+        receipt.assert_called_once_with('run-123', True)
         assert not pulled.exists()
         assert mini.read({'id':'run-123','report':str(pulled)}, 'report', pull=True, row=row) == 0
     assert pulled.read_text().startswith('/home/b/result')
-    with patch.object(mini, 'query', return_value={'status':'failed', 'verdict':'fail', 'exitCode':1, 'resultPath':None}):
+    with patch.object(mini, 'wait_events', side_effect=ConnectionError()), patch.object(mini, 'query', return_value={'status':'failed', 'verdict':'fail', 'exitCode':1, 'resultPath':None}):
         assert mini.wait({'id':'failed-run','report':str(tmp/'absent.md')}) == 1
     with patch.object(mini, "MM", str(tmp / "missing-mm")):
         assert not mini.available()

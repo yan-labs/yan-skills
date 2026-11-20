@@ -53,15 +53,17 @@ def verify_mailbox(root, runs, repo, seat):
     print(f'ask 到可读 {time.monotonic() - started:.2f}s')
     write(runs / (child + '.json'), {**state, 'runId': child, 'status': 'failed', 'verdict': 'partial', 'parentRunId': live_id})
     assert 'fixture question' in run([fleet, 'wait', child]).stdout
-    assert (runs / (child + '.asks-seen')).exists()
+    assert 'fixture question' not in run([fleet, 'wait', child]).stdout
     with closing(store['connect']()) as db:
         watch['reconcile'](db, runs, time.time())
         watch['reconcile'](db, runs, time.time())
     snap = store['request']('snapshot', {'seat': seat})
-    assert snap['unread'] == 3 and snap['running'] == 1
-    assert {e['kind'] for e in snap['events']} == {'ask', 'stall', 'terminal'}
-    assert next(e['summary'] for e in snap['events'] if e['kind'] == 'terminal') == 'partial/failed'
-    assert sum(e['id'] == ask['id'] for e in snap['events']) == 1
+    assert snap['unread'] == 1 and snap['running'] == 1
+    assert {e['kind'] for e in snap['events']} == {'stall'}
+    with closing(store['connect']()) as db:
+        assert [(r['kind'], r['summary'] if r['kind'] == 'terminal' else None, r['acked_by'])
+                for r in db.execute('SELECT * FROM events WHERE run=? ORDER BY kind', (child,))] == [
+                    ('ask', None, 'wait'), ('terminal', 'partial/failed', 'wait')]
 
     # Script-only patrol batches changed evidence, then reuses the six-question review.
     with closing(store['connect']()) as db:
@@ -89,11 +91,13 @@ def verify_mailbox(root, runs, repo, seat):
             with patch.dict(os.environ, {'FLEET_WATCH_CACHE': str(fake_home)}):
                 assert '未同步，缓存时间 无' in pickup(dict(session_id='C', cwd=str(repo)))
     message = invoke_hook('B', 'UserPromptSubmit').stdout
-    assert '本席在跑 1 单、未读 3 条' in message and ask['id'] in message and '--session B' in message
+    stall = snap['events'][0]['id']
+    assert '本席在跑 1 单、未读 1 条' in message and live_id in message and '--session B' in message
+    assert ask['id'] not in message
     assert '仅可查看' in invoke_hook('A', 'UserPromptSubmit').stdout
-    assert run([fleet, 'watch', 'ack', ask['id'], '--session', 'A', '--seat', seat]).returncode == 1
-    assert run([fleet, 'watch', 'ack', ask['id'], '--session', 'B', '--seat', seat]).returncode == 0
-    assert json.loads(run([fleet, 'watch', 'status', '--seat', seat], check=True).stdout)['unread'] == 2
+    assert run([fleet, 'watch', 'ack', stall, '--session', 'A', '--seat', seat]).returncode == 1
+    assert run([fleet, 'watch', 'ack', stall, '--session', 'B', '--seat', seat]).returncode == 0
+    assert json.loads(run([fleet, 'watch', 'status', '--seat', seat], check=True).stdout)['unread'] == 0
     with patch.dict(os.environ, {'FLEET_SLOT_RUN_ID': live_id}):
         assert not invoke_hook('worker', 'SessionStart').stdout
 
@@ -222,6 +226,32 @@ def verify_lines(root, runs, repo, seat):
     assert not result.stderr and not result.stdout
 
 
+def verify_backfill(root, runs, repo, seat):
+    run_id = 'fixture-detach-cutover'
+    line = seat + '#cutover'
+    state = {'runId': run_id, 'cwd': str(repo), 'dispatchSession': 'cutover', 'detach': True,
+             'status': 'done', 'verdict': 'ok', 'finishedAt': store['now_iso']()}
+    write(runs / f'{run_id}.json', state)
+    legacy = dict(id='legacy-seen', runId=run_id, kind='help', text='already shown', at=store['now_iso']())
+    write(runs / f'{run_id}.asks', legacy)
+    write(runs / f'{run_id}.asks-seen', [legacy['id']])
+    status = lambda: store['request']('snapshot', {'seat': line})
+    listen = [fleet, 'watch', 'listen', '--seat', line, '--once']
+    before = status()
+    assert before['unread'] == 0 and not run(listen, check=True).stdout
+    for _ in range(2):
+        run([sys.executable, FLEET / 'bin/fleet-watch.py', '--once'], check=True)
+    after = status()
+    assert [(e['run'], e['kind'], e['summary']) for e in after['events']] == [(run_id, 'terminal', 'ok/done')]
+    assert json.loads(run(listen, check=True).stdout) == {'seat': line, 'unread': 1}
+    assert 'already shown' not in run([fleet, 'wait', run_id]).stdout
+    assert status()['unread'] == 0 and not run(listen, check=True).stdout
+    with closing(store['connect']()) as db:
+        assert db.execute('SELECT seat,state FROM runs WHERE id=?', (run_id,)).fetchone()[:] == (line, 'done')
+        assert db.execute('SELECT COUNT(*) FROM events WHERE run=?', (run_id,)).fetchone()[0] == 2
+    print(f"切流夹具 {line} 未读 {before['unread']} → {after['unread']}（ok/done）→ {status()['unread']}（wait 回执）")
+
+
 def verify_migration(runs, seat):
     parent, child = 'legacy-detach-parent', 'legacy-detach-child'
     with closing(store['connect']()) as db, db:
@@ -230,7 +260,7 @@ def verify_migration(runs, seat):
             store['event'](db, run_id, 'ask', 'legacy question', run_id)
         write(runs / f'{parent}.json', {'runId': parent, 'dispatchSession': 'first'})
         write(runs / f'{child}.json', {'runId': child, 'parentRunId': parent, 'sessionId': 'worker'})
-        db.execute('PRAGMA user_version=0')
+        db.execute('PRAGMA user_version=1')
     assert store['request']('snapshot', {'seat': seat + '#first'})['unread'] == 2
 
 
@@ -254,6 +284,7 @@ def main():
             verify_timer(root, runs, repo, seat)
             verify_lines(root, runs, repo, seat)
             verify_migration(runs, seat)
+            verify_backfill(root, runs, repo, seat)
     print('PASS SQLite、旧 wait、离线三类事件、接班和迟到确认、定时派发崩溃重放')
 
 

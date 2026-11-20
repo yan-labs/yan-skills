@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync, spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { writeYield, readYield, ask, takeAsk, localCondition, startBackground } from '../src/yield.mjs';
+import { writeYield, readYield, ask, watchRequest, localCondition, startBackground } from '../src/yield.mjs';
 import { registerQueue, acquireSlot, queueRecord, setSlotState } from '../src/queue.mjs';
 import { waitDetached } from '../src/detach.mjs';
 import { appendInbox } from '../src/inbox.mjs';
@@ -319,7 +319,7 @@ try {
   writeFileSync(join(scratch, `${askId}.json`), JSON.stringify({detach:true,runId:askId,status:'done',cwd:scratch,exitCode:0}));
   ask(askId, {kind:'decision',text:'选哪种办法？'});
   assert.equal(await waitDetached(askId), 1, '终态退出码取决于结果，不因 ask 返回3');
-  assert.equal(takeAsk(askId), null, '重新 wait 不重复消费 ask');
+  assert.deepEqual(watchRequest('wait-events', { run: askId }), [], '重新 wait 不重复消费 ask');
   const yieldCli = new URL('../bin/agent-fleet.mjs', import.meta.url).pathname;
   const cliEnv = {...process.env};
   for(const key of ['FLEET_SLOT_RUN_ID','FLEET_DETACHED_RUN_ID','FLEET_PARENT_RUN_ID']) delete cliEnv[key];

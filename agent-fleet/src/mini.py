@@ -482,11 +482,34 @@ print(json.dumps({'text':tail(p['log'],6000)+'\\n'+tail(p['result'],3000),'codex
     except Exception:
         pass
 
+def wait_events(run, terminal):
+    script = PATH_FIX + '''import base64,json,pathlib,subprocess,sys
+binary, data = json.loads(base64.b64decode(sys.argv[1]))
+binary = pathlib.Path(binary)
+if binary.is_dir(): binary = binary / 'fleet'
+sys.exit(subprocess.run([str(binary), 'watch', '--serve'], input=json.dumps(['wait-events', data]), text=True).returncode)
+'''
+    reply = call(script, [REMOTE_BIN, dict(run=run, terminal=terminal)], timeout=12)
+    if reply.returncode:
+        raise ConnectionError('Mini 信箱暂不可读')
+    return json.loads(reply.stdout)
+
+
 def _wait(rec, pull=False):
+    warned_mailbox = False
     while True:
         try:
             row = query(rec)
-            if row.get('status') not in ('running', 'queued', 'parked', 'waiting', 'abnormal'): break
+            terminal = row.get('status') not in ('running', 'queued', 'parked', 'waiting', 'abnormal')
+            try:
+                for summary in wait_events(rec['id'], terminal):
+                    print(f"[agent-fleet] 【待答复 ask】runId={rec['id']} {summary}，用 fleet say {rec['id']} 回复。", flush=True)
+            except (ConnectionError, OSError, subprocess.SubprocessError, ValueError):
+                if not warned_mailbox:
+                    print('Mini 信箱暂不可读。', file=sys.stderr, flush=True)
+                    warned_mailbox = True
+            if terminal:
+                break
         except (ConnectionError, OSError, subprocess.TimeoutExpired, ValueError):
             print('Mini 连接中断，等待重连…', file=sys.stderr, flush=True)
         time.sleep(5)
