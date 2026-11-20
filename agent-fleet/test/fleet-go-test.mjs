@@ -869,6 +869,13 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
     assert.equal(aMeta.after,'batch-a');assert.deepEqual(aMeta.object.writes,[temp+'/a/src']);
     writeFileSync(manifest,JSON.stringify([job('cycle-a',temp+'/a','cycle-b'),job('cycle-b',temp+'/a','cycle-a')]));
     assert.match(run(['batch',manifest,'--dry-run']).stderr,/循环依赖/);
+    const repo=join(temp,'batch-repo'); mkdirSync(repo, {recursive:true});
+    spawnSync('git',['init',repo]);
+    writeFileSync(body,`## 入口\n仓库: ${repo}\n`);
+    writeFileSync(manifest,JSON.stringify([job('tree-a',repo+'/src').concat('--worktree'),job('tree-b',repo+'/src').concat('--worktree')]));
+    r=run(['batch',manifest,'--dry-run']); assert.equal(r.status,0,r.stderr); assert.match(r.stdout,/tree-a - \./);
+    writeFileSync(manifest,JSON.stringify([job('tree-c',temp+'/shared').concat('--worktree'),job('tree-d',temp+'/shared').concat('--worktree')]));
+    r=run(['batch',manifest,'--dry-run']); assert.equal(r.status,1); assert.match(r.stdout,/tree-c - X/);
     writeFileSync(manifest,JSON.stringify([job('disjoint-a',temp+'/a'),job('disjoint-b',temp+'/ab')]));
     assert.equal(run(['batch',manifest,'--dry-run']).status,0);
   });
