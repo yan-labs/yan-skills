@@ -7,7 +7,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/python3</string>
-    <string>/ABSOLUTE/PATH/TO/yan-skills/agent-fleet/bin/fleet-watch.py</string>
+    <string>/ABSOLUTE/PATH/TO/.agent-fleet/runtime/current/agent-fleet/bin/fleet-watch.py</string>
     <string>--dispatch</string>
   </array>
   <key>EnvironmentVariables</key>

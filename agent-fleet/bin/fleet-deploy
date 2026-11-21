@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+"""Publish a clean, tested export of a commit on origin/main."""
+import argparse
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+HOME = Path.home()
+SOURCE = HOME / "PROJECT/kcsx/macmini/yan-skills"
+RUNTIME = HOME / ".agent-fleet/runtime"
+RELEASE = re.compile(r"[0-9a-f]{12}")
+SHA = re.compile(r"[0-9a-f]{7,40}")
+
+
+def git(repo, *args):
+    return subprocess.check_output(["git", "-C", repo, *args], text=True).strip()
+
+
+def switch_link(name, destination):
+    with tempfile.TemporaryDirectory(prefix=".link-", dir=RUNTIME) as folder:
+        link = Path(folder) / name
+        link.symlink_to(destination)
+        os.replace(link, RUNTIME / name)
+
+
+def release_at(name):
+    link = RUNTIME / name
+    if not link.is_symlink():
+        if link.exists():
+            raise ValueError(f"{link} 必须是软链")
+        return None
+    target = os.readlink(link)
+    if not RELEASE.fullmatch(target) or not (RUNTIME / target / ".fleet-release").is_file():
+        raise ValueError(f"{link} 没有指向已发布的版本")
+    return target
+
+
+def smoke(release):
+    package = release / "agent-fleet"
+    fleet, fleet_go = (package / "bin" / cmd for cmd in ("fleet", "fleet-go"))
+    commands = [
+        ([fleet, "--version"], "fleet --version"),
+        ([fleet_go, "--help"], "fleet-go --help"),
+        ([fleet, "status", "--json"], "fleet status --json"),
+        ([fleet_go, "new", "fleet-runtime-smoke", "--to", "gpt", "--scene", "none",
+          "--action", "只读", "--goal", "核对版本。", "--dry-run"], "fleet-go new --dry-run"),
+    ]
+    for command, label in commands:
+        result = subprocess.check_output(command, cwd=package, stdin=subprocess.DEVNULL, text=True)
+        if label == "fleet status --json":
+            rows = json.loads(result)
+            if not isinstance(rows, list):
+                raise ValueError("fleet status --json 应返回任务数组")
+            summary = f"{len(rows)} 条记录"
+        elif label.endswith("--dry-run"):
+            if "REPORT:" not in result:
+                raise ValueError("dry-run 未生成 brief")
+            summary = next(line for line in result.splitlines() if line.startswith("归类"))
+        else:
+            summary = result.splitlines()[0]
+        print(f"{label} OK  {summary}", flush=True)
+
+
+def prepare(repo, commit):
+    short = commit[:12]
+    release = RUNTIME / short
+    marker = release / ".fleet-release"
+    if release.exists() or release.is_symlink():
+        if release.is_symlink() or not marker.is_file() or marker.read_text().strip() != commit:
+            raise ValueError(f"发布目录已存在且无法验证来源：{release}")
+        smoke(release)
+        return short
+
+    with tempfile.TemporaryDirectory(prefix=".stage-", dir=RUNTIME) as folder:
+        stage = Path(folder)
+        archive = stage / "export.tar"
+        subprocess.run(["git", "-C", repo, "archive", "-o", archive, commit], check=True)
+        subprocess.run(["tar", "-xf", archive, "-C", stage], check=True)
+        archive.unlink()
+        package = stage / "agent-fleet"
+        if not (package / "pnpm-lock.yaml").is_file():
+            raise ValueError("该提交缺少 pnpm-lock.yaml")
+        subprocess.run(["pnpm", "install", "--frozen-lockfile"], cwd=package, check=True)
+        settings = RUNTIME.parent / ".env"
+        if settings.is_file():
+            with settings.open("rb") as source, os.fdopen(
+                os.open(package / ".env", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb"
+            ) as target:
+                shutil.copyfileobj(source, target)
+        smoke(stage)
+        (stage / ".fleet-release").write_text(commit + "\n")
+        stage.rename(release)
+    return short
+
+
+def prune(current, previous):
+    releases = sorted(
+        (entry for entry in RUNTIME.iterdir() if RELEASE.fullmatch(entry.name)
+         and not entry.is_symlink() and (entry / ".fleet-release").is_file()),
+        key=lambda entry: entry.stat().st_mtime, reverse=True,
+    )
+    # Keep a grace period for launchers resolving current just before a switch.
+    # A long-lived supervisor or worker has its resolved release in its command line.
+    processes = subprocess.check_output(["ps", "-Aww", "-o", "command="], text=True)
+    keep = {name for name in (current, previous) if name}
+    for entry in releases:
+        if len(keep) == 5:
+            break
+        keep.add(entry.name)
+    for entry in releases:
+        if entry.name in keep or time.time() - entry.stat().st_mtime < 86400 or str(entry) in processes:
+            continue
+        shutil.rmtree(entry)
+
+
+def deploy(args):
+    RUNTIME.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with (RUNTIME / ".deploy.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        current = release_at("current")
+        previous = release_at("previous")
+        if args.rollback:
+            if not previous or previous == current:
+                raise ValueError("没有可回滚的上一版")
+            target = previous
+            smoke(RUNTIME / target)
+        else:
+            main = git(args.repo, "ls-remote", "--exit-code", "origin", "refs/heads/main").split()[0]
+            git(args.repo, "fetch", "--no-tags", "--no-write-fetch-head", "origin", main)
+            commit = git(args.repo, "rev-parse", f"{args.commit}^{{commit}}") if args.commit else main
+            if subprocess.run(["git", "-C", args.repo, "merge-base", "--is-ancestor", commit, main]).returncode:
+                raise ValueError("提交必须已进入 origin/main")
+            target = prepare(args.repo, commit)
+        if target != current:
+            if current:
+                os.utime(RUNTIME / current)
+                switch_link("previous", current)
+            switch_link("current", target)
+            os.utime(RUNTIME / target)
+        print(f"current: {current or '未发布'} -> {target} ({(RUNTIME / target / '.fleet-release').read_text().strip()})")
+        try:
+            prune(target, current if target != current else previous)
+        except (OSError, subprocess.SubprocessError) as error:
+            print(f"fleet-deploy: current 已切换，旧版清理失败：{error}", file=sys.stderr)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("commit", nargs="?", help="origin/main 上的 Git SHA，默认最新 main")
+    parser.add_argument("--repo", type=Path, default=SOURCE, help="用于 fetch/archive 的源码仓")
+    parser.add_argument("--rollback", action="store_true")
+    parser.add_argument("--host", choices=["mini"], help="通过 mm 在 Mini 发布")
+    args = parser.parse_args()
+    if args.commit and (args.rollback or not SHA.fullmatch(args.commit)):
+        parser.error("提交须为 SHA，且不能与 --rollback 同用")
+    if args.host:
+        mm = os.environ.get("FLEET_MINI_MM", str(HOME / ".claude/skills/macmini/scripts/mm"))
+        remote_args = [arg for arg in sys.argv[1:] if arg != "--host=mini"]
+        if "--host" in remote_args:
+            index = remote_args.index("--host")
+            del remote_args[index:index + 2]
+        remote = "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; exec " + shlex.join(["python3", "-", *remote_args])
+        return subprocess.run([mm, remote], input=Path(__file__).read_bytes()).returncode
+    deploy(args)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (ValueError, OSError, subprocess.SubprocessError) as error:
+        sys.exit(f"fleet-deploy: {error}")

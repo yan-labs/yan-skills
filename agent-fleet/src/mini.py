@@ -25,6 +25,19 @@ REMOTE_HOME = (os.environ.get('FLEET_MINI_HOME') or CONFIG.get('remote_home', ''
 STORE = Path.home() / '.agent-fleet/mini-runs'
 # 非交互 ssh 的 PATH 不含 Homebrew；远端脚本一律补上，避免把“PATH 没带上”误判成“Mini 没装”。
 PATH_FIX = "import os as _os; _os.environ['PATH']=':'.join(dict.fromkeys([*_os.environ.get('PATH','').split(':'),'/opt/homebrew/bin','/usr/local/bin']))\n"
+REMOTE_FLEET = """
+def remote_fleet(configured):
+    from pathlib import Path
+    binary = Path(configured)
+    if binary.is_dir():
+        binary /= 'fleet'
+    # Migrate legacy transport configuration without changing local config files.
+    legacy = Path.home() / 'PROJECT/kcsx/macmini/yan-skills/agent-fleet/bin/fleet'
+    runtime = Path.home() / '.agent-fleet/runtime/current/agent-fleet/bin/fleet'
+    if binary == legacy and runtime.is_file():
+        binary = runtime
+    return binary.resolve(strict=True)
+"""
 TOOLS_MISSING = 'Mini 缺命令：'
 # brief 正文出现这些命令即视为需要；其余命令写在「需要命令: a, b」行。
 KNOWN_TOOLS = ('kubectl', 'aws', 'gh', 'psql', 'coscli', 'rclone', 'helm', 'terraform')
@@ -73,7 +86,7 @@ def available():
 
 def call(script, payload, timeout=30, kill_group=False):
     data = base64.b64encode(json.dumps(payload, ensure_ascii=False).encode()).decode()
-    cmd = 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(data)
+    cmd = 'python3 -c ' + shlex.quote(REMOTE_FLEET + script) + ' ' + shlex.quote(data)
     if not kill_group:
         return subprocess.run([MM, cmd], capture_output=True, text=True, timeout=timeout)
     proc = subprocess.Popen([MM, cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
@@ -229,7 +242,7 @@ for record in (pathlib.Path(p['home'])/'.agent-fleet/runs').glob('*.json'):
   finally: os.unlink(tmp)
  except (OSError,ValueError,TypeError): pass
 missing=[x for x in p['paths'] if not pathlib.Path(x).exists()]; tools=[t for t in p.get('commands',[]) if not shutil.which(t)]
-kind=p['kind']; binary=pathlib.Path(p['bin']); root=binary.parent if binary.is_dir() else binary.parent.parent; envnames={'claude':'ANTHROPIC_CREDIT_API_KEY','openai':'OPENAI_CREDIT_API_KEY','gemini':'KOLLAB_PROD_API_KEY','jev':'TYPESAFE_API_KEY'}
+kind=p['kind']; binary=remote_fleet(p['bin']); root=binary.parent.parent; envnames={'claude':'ANTHROPIC_CREDIT_API_KEY','openai':'OPENAI_CREDIT_API_KEY','gemini':'KOLLAB_PROD_API_KEY','jev':'TYPESAFE_API_KEY'}
 timed_out=False
 try:
  if kind in envnames:
@@ -333,7 +346,7 @@ if not pathlib.Path(p['cwd']).is_dir():
  p['cwd']=p['repo'] if p['repo'] and pathlib.Path(p['repo']).is_dir() else p['home']
  print('Mini 工作目录不存在，改用：' + p['cwd'], flush=True)
 p['files']={canonical(k):canonical(v) for k,v in p['files'].items()}
-binary=pathlib.Path(p['args'][0]); p['args'][0]=str(binary/'fleet' if binary.is_dir() else binary)
+p['args'][0]=str(remote_fleet(p['args'][0]))
 transfer_lock=pathlib.Path(p['args'][2]).parent/'.dispatch.lock'
 transfer_lock.parent.mkdir(parents=True,exist_ok=True)
 lock=transfer_lock.open('a')
@@ -370,7 +383,7 @@ STATUS_KEYS = ('runId', 'status', 'state', 'verdict', 'exitCode', 'resultPath', 
 
 def query(rec, timeout=20, kill_group=False, *, passive=False):
     script = PATH_FIX + '''import base64,json,pathlib,subprocess,sys
-p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary; r=subprocess.run([str(binary),'status','--json',*([] if p['passive'] else ['--fresh'])],capture_output=True,text=True,check=True); rows=json.loads(r.stdout); row=next((x for x in rows if x.get('runId')==p['id']),None)
+p=json.loads(base64.b64decode(sys.argv[1])); binary=remote_fleet(p['bin']); r=subprocess.run([str(binary),'status','--json',*([] if p['passive'] else ['--fresh'])],capture_output=True,text=True,check=True); rows=json.loads(r.stdout); row=next((x for x in rows if x.get('runId')==p['id']),None)
 if row is None: row=json.loads((pathlib.Path.home()/'.agent-fleet/runs'/(p['id']+'.json')).read_text())
 output={k:row.get(k) for k in p['keys']}
 brief=row.get('brief'); output['usage']=brief.get('usage') if isinstance(brief,dict) else None
@@ -396,7 +409,7 @@ def query_all(recs, since=None, timeout=20, *, fresh=False):
     返回 (rows, missing)：rows 为 {runId: 摘要}，missing 是 Mini 上找不到记录的 runId。
     """
     script = PATH_FIX + '''import base64,datetime,json,pathlib,subprocess,sys
-p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary
+p=json.loads(base64.b64decode(sys.argv[1])); binary=remote_fleet(p['bin'])
 try: live={x.get('runId'):x for x in json.loads(subprocess.run([str(binary),'status','--json',*(['--fresh'] if p['fresh'] else [])],capture_output=True,text=True,check=True).stdout)}
 except Exception: sys.exit(3)
 runs=pathlib.Path.home()/'.agent-fleet/runs'; rows={}; missing=[]
@@ -506,8 +519,7 @@ print(json.dumps({'text':tail(p['log'],6000)+'\\n'+tail(p['result'],3000),'codex
 def wait_events(run, terminal):
     script = PATH_FIX + '''import base64,json,pathlib,subprocess,sys
 binary, data = json.loads(base64.b64decode(sys.argv[1]))
-binary = pathlib.Path(binary)
-if binary.is_dir(): binary = binary / 'fleet'
+binary = remote_fleet(binary)
 sys.exit(subprocess.run([str(binary), 'watch', '--serve'], input=json.dumps(['wait-events', data]), text=True).returncode)
 '''
     reply = call(script, [REMOTE_BIN, dict(run=run, terminal=terminal)], timeout=12)
@@ -518,7 +530,7 @@ sys.exit(subprocess.run([str(binary), 'watch', '--serve'], input=json.dumps(['wa
 
 def progress_chunk(rec, row, offset):
     script = PATH_FIX + """import base64,json,pathlib,subprocess,sys
-p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary
+p=json.loads(base64.b64decode(sys.argv[1])); binary=remote_fleet(p['bin'])
 module=binary.resolve().parent.parent/'src/live-progress.mjs'
 code="const m=await import(process.argv[1]); const r=m.readProgress(process.argv[2], Number(process.argv[3]), process.argv[4]); r.reports=m.reportProgress(process.argv[5]); console.log(JSON.stringify(r))"
 result=subprocess.run(['node','--input-type=module','-e',code,module.as_uri(),p['log'],str(p['offset']),p['model'],p['report']],capture_output=True,text=True,check=True)
@@ -607,7 +619,7 @@ def _wait(rec, pull=False, quiet=False):
 
 def forward(args):
     p = call(PATH_FIX + '''import base64,json,pathlib,subprocess,sys
-p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p[0]); p[0]=str(binary/'fleet' if binary.is_dir() else binary); r=subprocess.run(p, text=True); sys.exit(r.returncode)
+p=json.loads(base64.b64decode(sys.argv[1])); p[0]=str(remote_fleet(p[0])); r=subprocess.run(p, text=True); sys.exit(r.returncode)
 ''', [REMOTE_BIN, *args], timeout=90)
     sys.stdout.write(p.stdout); sys.stderr.write(p.stderr)
     return p.returncode

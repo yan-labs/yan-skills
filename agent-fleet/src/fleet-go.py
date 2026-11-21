@@ -810,6 +810,11 @@ def machine_checks(source, config):
         common = git(repo, 'rev-parse', '--path-format=absolute', '--git-common-dir')
         return Path(common).parent if common else repo
 
+    runtime = Path.home() / '.agent-fleet/runtime'
+    release = Path(source)
+    if release.parent == runtime:
+        print('运行版本：' + (release / '.fleet-release').read_text().strip())
+        source = Path.home() / 'PROJECT/kcsx/macmini/yan-skills'
     source = main_clone(Path(source))
     for name, repo, remote_ref in [('源码仓', source, 'refs/heads/main'), ('全局配置仓', Path(config), 'HEAD')]:
         head = git(repo, 'rev-parse', 'HEAD') if repo.is_dir() else ''
@@ -824,13 +829,16 @@ def machine_checks(source, config):
         else:
             print(f'{name}：与远端一致（{head[:12]}）')
 
-    for name, expected in [('agent-fleet', source / 'agent-fleet/skill'), ('rankup', source / 'rankup')]:
+    fleet_skill = runtime / 'current/agent-fleet/skill'
+    if not fleet_skill.is_dir():
+        fleet_skill = source / 'agent-fleet/skill'
+    for name, expected in [('agent-fleet', fleet_skill), ('rankup', source / 'rankup')]:
         link = Path.home() / '.agents/skills' / name
         if link.is_symlink() and expected.is_dir() and link.resolve() == expected.resolve():
-            print(f'Skill {name}：软链指向主克隆')
+            print(f'Skill {name}：软链目标正确')
         else:
             dest = shlex.quote(str(link))
-            print(f'Skill {name}：未指向主克隆；移走旧安装后修复：test ! -e {dest} && test ! -L {dest} && '
+            print(f'Skill {name}：软链目标有差异；移走旧安装后修复：test ! -e {dest} && test ! -L {dest} && '
                   f'ln -s {shlex.quote(str(expected))} {dest}')
 
     script = Path(config) / 'link.sh'
@@ -906,8 +914,7 @@ def doctor(root):
             script += '\n'.join(inspect.getsource(fn) for fn in (machine_checks, recently_used_scenes, ledger_rows))
             script += """
 bin_path, config, project, cutoff = json.loads(base64.b64decode(sys.argv[1]))
-binary = Path(bin_path)
-binary = (binary / 'fleet' if binary.is_dir() else binary).resolve(strict=True)
+binary = remote_fleet(bin_path)
 machine_checks(binary.parents[2], config)
 print(json.dumps(sorted(recently_used_scenes(Path(project).resolve() if project else None, cutoff))))
 """

@@ -48,7 +48,10 @@ async function discoverSkills() {
       skills.push({ name: entry.name, source: path.join(repoRoot, entry.name) });
     }
   }
-  const fleet = path.join(repoRoot, "agent-fleet", "skill");
+  const runtimeFleet = path.join(homedir(), ".agent-fleet", "runtime", "current", "agent-fleet", "skill");
+  const fleet = await exists(path.join(runtimeFleet, "SKILL.md"))
+    ? runtimeFleet
+    : path.join(repoRoot, "agent-fleet", "skill");
   if (await exists(path.join(fleet, "SKILL.md"))) skills.push({ name: "agent-fleet", source: fleet });
   return skills.sort((a, b) => a.name.localeCompare(b.name));
 }
