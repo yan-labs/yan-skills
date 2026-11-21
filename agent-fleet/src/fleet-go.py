@@ -503,7 +503,7 @@ def checked(text, to, simple=False, on='local', extra=False, sol=False, no_lint=
                 lines.append('修改后重跑：' + retry)
         raise ValueError('\n'.join(lines))
     if strict_dispatch():
-        check_sensitive_actions(text, auth)
+        check_sensitive_actions(text, auth, sensitive_text)
 
 
 OBSTACLE_NOTE = '遇到缺文件、工具不可用等阻碍必须在报告「未完成」里写明，不得略过。'
@@ -1379,7 +1379,7 @@ def amend(args):
         meta['auth'] = infer_local_auth(original, previous_auth)
         if meta['auth'] != previous_auth:
             original = original.replace('## 授权覆盖\n', '## 授权覆盖\n授权块：local-commit\n', 1)
-    sensitive_text = (args.message + '\n' + (args.task_action or '')) if args.say and not strict_dispatch() else None
+    sensitive_text = (args.message + '\n' + (args.task_action or '')) if args.say else None
     if args.auth is not None or args.task_action is not None:
         checked(original, meta['to'], gpt_tier(meta) == 'terra' and meta['to'] == 'gpt', args.on or meta.get('on') or 'local', True, gpt_tier(meta) in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project'), auth=meta.get('auth', ()), sensitive_text=sensitive_text)
     else:

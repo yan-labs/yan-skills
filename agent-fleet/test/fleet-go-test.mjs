@@ -610,6 +610,20 @@ except ValueError:
     assert.equal(blocked.status,1);
     writeFileSync(states,'[]');
   });
+  test('严格模式 amend say 只检查新增敏感动作并保留严格 lint', () => {
+    const name='strict-amend-sensitive';
+    assert.equal(run(['new',name,'--to','gpt','--goal','修复','--action','只读','--no-launch']).status,0);
+    const file=join(path.slice(0,path.lastIndexOf('/')),name+'.brief.md');
+    writeFileSync(file,readFileSync(file,'utf8')+'\n## 旧内容\n删除测试数据\n');
+    writeFileSync(states, JSON.stringify([{name,status:'running',runId:'strict-amend-sensitive-run'}]));
+    let r=run(['amend',name,'只描述缺陷','--say']);
+    assert.equal(r.status,0,r.stderr);
+    r=run(['amend',name,'删除测试数据','--say']);
+    assert.equal(r.status,1); assert.match(r.stderr,/删除数据需要/);
+    r=run(['amend',name,'继续','--say','--action','部署']);
+    assert.equal(r.status,1); assert.match(r.stderr,/授权/);
+    writeFileSync(states,'[]');
+  });
   test('豁免样板的任务重派及修订授权动作', () => {
     const body=join(temp,'dx-entry.md');
     writeFileSync(body,`## 入口\n仓库: ${temp}\n可写路径: ${temp}/project\n`);
