@@ -157,5 +157,14 @@
     "terra": "gpt-6.1-terra",
     "luna": "gpt-6-luna",
     "astra": "gpt-6.2-astra"
+  },
+  "kollab-gateway-hydrogen": {
+    "description": "Kollab 托管网关，Gemini 4 Hydrogen（官方价输入 $1.50/百万、输出 $7.50/百万，Gemini 4 里最便宜），适合便宜的日常任务与批量处理。2026-11-21 生产上线并经 Kollab CLI 真实验证；费用从已有账号绑定的 Space 扣除。",
+    "baseURL": "https://kollab.im/api/llm",
+    "maxOutputTokens": 16000,
+    "model": "gemini-4-hydrogen",
+    "apiKeyEnv": "KOLLAB_PROD_API_KEY",
+    "authHeader": "x-api-key",
+    "subagentModel": "deepseek-v4.1-flash"
   }
 }
