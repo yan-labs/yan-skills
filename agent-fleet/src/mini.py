@@ -339,7 +339,7 @@ transfer_lock.parent.mkdir(parents=True,exist_ok=True)
 lock=transfer_lock.open('a')
 fcntl.flock(lock,fcntl.LOCK_EX)
 if any(pathlib.Path(name).exists() for name in p['files']):
- state=subprocess.run([p['args'][0],'status','--json'],capture_output=True,text=True,check=True)
+ state=subprocess.run([p['args'][0],'status','--json','--fresh'],capture_output=True,text=True,check=True)
  for row in json.loads(state.stdout):
   if row.get('status') not in ('running','queued','parked','waiting','abnormal'): continue
   brief=row.get('briefPath')
@@ -368,18 +368,18 @@ r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini'
 
 STATUS_KEYS = ('runId', 'status', 'state', 'verdict', 'exitCode', 'resultPath', 'startedAt', 'finishedAt', 'model', 'duration', 'heartbeatAt', 'launchDetached', 'activeMs', 'waitMs', 'pollCount', 'pending')
 
-def query(rec, timeout=20, kill_group=False):
+def query(rec, timeout=20, kill_group=False, *, passive=False):
     script = PATH_FIX + '''import base64,json,pathlib,subprocess,sys
-p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary; r=subprocess.run([str(binary),'status','--json'],capture_output=True,text=True,check=True); rows=json.loads(r.stdout); row=next((x for x in rows if x.get('runId')==p['id']),None)
+p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary; r=subprocess.run([str(binary),'status','--json',*([] if p['passive'] else ['--fresh'])],capture_output=True,text=True,check=True); rows=json.loads(r.stdout); row=next((x for x in rows if x.get('runId')==p['id']),None)
 if row is None: row=json.loads((pathlib.Path.home()/'.agent-fleet/runs'/(p['id']+'.json')).read_text())
 output={k:row.get(k) for k in p['keys']}
 brief=row.get('brief'); output['usage']=brief.get('usage') if isinstance(brief,dict) else None
 print(json.dumps(output))
 '''
     if kill_group:
-        p = call(script, {**rec, 'bin': REMOTE_BIN, 'keys': STATUS_KEYS}, timeout=timeout, kill_group=True)
+        p = call(script, {**rec, 'bin': REMOTE_BIN, 'keys': STATUS_KEYS, 'passive': passive}, timeout=timeout, kill_group=True)
     else:
-        p = call(script, {**rec, 'bin': REMOTE_BIN, 'keys': STATUS_KEYS}, timeout=timeout)
+        p = call(script, {**rec, 'bin': REMOTE_BIN, 'keys': STATUS_KEYS, 'passive': passive}, timeout=timeout)
     if p.returncode: raise ConnectionError('Mini 状态暂不可读')
     return json.loads(p.stdout)
 
@@ -389,7 +389,7 @@ class StatusError(ConnectionError):
         super().__init__(reason)
         self.reason = reason
 
-def query_all(recs, since=None, timeout=20):
+def query_all(recs, since=None, timeout=20, *, fresh=False):
     """一次 ssh 取 recs 的 run 摘要（Mini 端只跑一次 fleet status，再补读 24 小时外的 run 文件）。
 
     since 是 epoch 秒：给定时 Mini 端丢弃更早结束的终态行，不传输。
@@ -397,7 +397,7 @@ def query_all(recs, since=None, timeout=20):
     """
     script = PATH_FIX + '''import base64,datetime,json,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary
-try: live={x.get('runId'):x for x in json.loads(subprocess.run([str(binary),'status','--json'],capture_output=True,text=True,check=True).stdout)}
+try: live={x.get('runId'):x for x in json.loads(subprocess.run([str(binary),'status','--json',*(['--fresh'] if p['fresh'] else [])],capture_output=True,text=True,check=True).stdout)}
 except Exception: sys.exit(3)
 runs=pathlib.Path.home()/'.agent-fleet/runs'; rows={}; missing=[]
 def stamp(row):
@@ -414,7 +414,7 @@ for i in p['ids']:
     rows[i]={k:row.get(k) for k in p['keys']}
 print(json.dumps({'rows':rows,'missing':missing}))
 '''
-    payload = {'ids': [r['id'] for r in recs], 'bin': REMOTE_BIN, 'since': since, 'keys': STATUS_KEYS}
+    payload = {'ids': [r['id'] for r in recs], 'bin': REMOTE_BIN, 'since': since, 'fresh': fresh, 'keys': STATUS_KEYS}
     try:
         p = call(script, payload, timeout=timeout, kill_group=True)
     except subprocess.TimeoutExpired:
@@ -542,7 +542,7 @@ def _wait(rec, pull=False, quiet=False):
         print(line, flush=True)
     while True:
         try:
-            row = query(rec)
+            row = query(rec, kill_group=True, passive=True)
             if not quiet:
                 chunk = progress_chunk(rec, row, offset)
                 offset = chunk['offset']
@@ -580,7 +580,7 @@ def _wait(rec, pull=False, quiet=False):
         except (ConnectionError, OSError, subprocess.TimeoutExpired, ValueError):
             if not disconnected: print('Mini 连接中断，等待重连…', file=sys.stderr, flush=True)
             disconnected = True
-        time.sleep(3)
+        time.sleep(15)
     record_quota_order(rec, row)
     while True:
         try:

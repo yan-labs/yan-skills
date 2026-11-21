@@ -36,7 +36,7 @@ import { tailLatestLog } from '../src/tail-log.mjs';
 import { timelineFile } from '../src/timeline.mjs';
 import { buildBrief, DEFAULT_BRIEF_LINES, renderManyOutput, renderRunOutput, failureReport, redactEvidence, inspectGit, fillReport } from '../src/brief.mjs';
 import { collectStatus, deliverSay, formatStatusHuman, requestStop } from '../src/control.mjs';
-import { readPidRecord, resolveRunId, isRecordedProcessAlive, patchPidRecord, runIdFromLogPath } from '../src/pid.mjs';
+import { readPidRecord, resolveRunId, isRecordedProcessAlive, patchPidRecord, runIdFromLogPath, sameCwd } from '../src/pid.mjs';
 import { shortRunOptions, splitShortArgs, resolveBrief } from '../src/shortcuts.mjs';
 import { runCode, launchArchiveSweep } from '../src/code-runner.mjs';
 import { runGrok } from '../src/grok-runner.mjs';
@@ -321,9 +321,10 @@ function matchCwd(flags) {
   return flags.cwd ? resolvePath(flags.cwd) : process.cwd();
 }
 
-function cmdStatus(argv) {
+function cmdStatus(argv, cachedRows) {
   const flags = parseFlags(argv);
-  const rows = collectStatus(flags.cwd ? { cwd: resolvePath(flags.cwd) } : {});
+  const cwd = flags.cwd ? resolvePath(flags.cwd) : undefined;
+  const rows = cachedRows ? cachedRows.filter(r => !cwd || sameCwd(r.cwd, cwd)) : collectStatus({ cwd });
   const selected = rows.filter(r => !flags.running || ['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(r.state));
   process.stdout.write(flags.json ? `${JSON.stringify(selected, null, 2)}\n`
     : selected.length ? selected.map(r =>
@@ -757,6 +758,9 @@ async function main() {
         break;
       case 'status':
         cmdStatus(rest);
+        break;
+      case 'status-render':
+        cmdStatus(rest, JSON.parse(readFileSync(0, 'utf8')));
         break;
       case 'say':
         cmdSay(rest);

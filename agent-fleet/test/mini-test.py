@@ -478,13 +478,13 @@ with tempfile.TemporaryDirectory() as d:
         assert len(got) == 301 and got[1]['status'] == 'unreachable'
 print('PASS: path rewrite, mini command assembly, unavailable fallback')
 
-# Remote follow reconnects once and never polls faster than three seconds.
+# Remote follow reconnects once and uses the status cache interval.
 with patch.object(mini, 'query', side_effect=[ConnectionError(), {'status':'running','model':'codex'}, {'status':'done','verdict':'ok'}]), \
      patch.object(mini, 'progress_chunk', side_effect=[{'offset':1,'lines':['12:00:00 [codex] 运行 a']}, {'offset':1,'lines':[]}]), \
      patch.object(mini, 'wait_events', return_value=[]), patch.object(mini, 'record_quota_order'), \
      patch.object(mini.time, 'sleep') as pause, patch('sys.stderr', new_callable=io.StringIO) as errors:
     assert mini.wait({'id':'reconnect','report':'/tmp/report'}) == 0
-    assert [call.args[0] for call in pause.call_args_list] == [3, 3]
+    assert [call.args[0] for call in pause.call_args_list] == [15, 15]
     assert errors.getvalue().count('Mini 连接中断') == 1
 
 # Exercise the actual remote payload locally, including its Node module resolution.
