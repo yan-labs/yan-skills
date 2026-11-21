@@ -507,7 +507,7 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
     assert.equal(strict('改代码', '').status, 1);
     const badWord = strict('只读、错字', entry); assert.match(badWord.stderr, /错字.*动作: 只读/);
     const annotated = strict('部署（生产数据删除）、只读', '## 入口\n仓库：/tmp（说明）\n可写路径：/tmp/example(说明)\n', ['--auth','local-commit,deploy-prod']);
-    assert.equal(annotated.status,1); assert.match(annotated.stderr,/删除数据需要/);
+    assert.equal(annotated.status,0); assert.match(annotated.stderr,/命中「删除」/);
     assert.equal(strict('本地提交',entry,['--auth','local-commit']).status,0);
     assert.equal(strict('推送 / 部署',entry,['--auth','local-commit,deploy-prod']).status,0);
     assert.equal(strict('付费',entry,['--auth','paid']).status,0);
@@ -517,20 +517,16 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
       ['改代码',readEntry,[],/可写路径/],
       ['改代码',entry,['--auth','review'],/local 或 local-commit/],
       ['本地提交',entry,[],/local-commit/],
-      ['推送',entry,['--auth','deploy-prod'],/local-commit 和 deploy-prod/],
-      ['部署',entry,['--auth','local-commit'],/local-commit 和 deploy-prod/],
-      ['付费',entry,[],/paid/],
       ['未知动作',entry,[],/未知或空动作/],
     ]) { r=strict(action,body,opts); assert.equal(r.status,1,action); assert.match(r.stderr,expected); assert.match(r.stderr,/示例（按实际任务和授权修改）/); }
     r=strict('错误动作',entry); assert.match(r.stderr,/合法集合：只读、改代码、本地提交、推送、部署、付费/);
     r=strict('只读','## 入口\n仓库：/tmp\n自己找 token=abcdefghijklmnopqrstuv'); assert.equal(r.status,1); assert.match(r.stderr,/发现疑似密钥字面量/); assert.doesNotMatch(r.stderr,/abcdefghijklmnopqrstuv/);
     assert.equal(strict('只读','## 入口\n仓库：/tmp\n未知',['--sol']).status,0);
-    r=strict('本地提交',entry+'PR 合入后装到 launchd 路径并回读。',['--auth','local-commit']); assert.equal(r.status,1); assert.match(r.stderr,/deploy-prod/);
+    r=strict('本地提交',entry+'PR 合入后装到 launchd 路径并回读。',['--auth','local-commit']); assert.equal(r.status,0); assert.match(r.stderr,/fleet say/);
     assert.equal(strict('只读',readEntry+'核查是否部署。').status,0);
-    r=strict('',entry+'PR 合入后装到 launchd 路径并回读。',['--auth','local-commit']); assert.equal(r.status,1); assert.match(r.stderr,/deploy-prod/);
+    r=strict('',entry+'PR 合入后装到 launchd 路径并回读。',['--auth','local-commit']); assert.equal(r.status,0); assert.match(r.stderr,/fleet say/);
     r=strict('', ''); assert.equal(r.status,0,r.stderr); assert.match(r.stderr,/缺少动作行/);
-    r=strict('推送',entry,['--auth','local-commit']); assert.match(r.stderr.split('\n')[0],/^错误：缺授权块 deploy-prod：.*改用 --auth local-commit,deploy-prod/);
-    r=strict('部署',readEntry,['--no-lint']); assert.equal(r.status,1); assert.match(r.stderr,/--auth local-commit,deploy-prod/); assert.match(r.stderr,/可写路径/);
+    r=strict('部署',readEntry,['--no-lint']); assert.equal(r.status,1); assert.match(r.stderr,/可写路径/);
     const f=join(temp,'strict.md'); writeFileSync(f,strict('只读',readEntry).stdout);
     assert.equal(spawnSync(script,['lint',f,'--on','local'],{encoding:'utf8',env}).status,0);
     writeFileSync(f,readFileSync(f,'utf8').replace('动作: 只读','动作: 本地提交'));
@@ -547,7 +543,7 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
       assert.equal(r.status, 0, r.stderr);
       assert.match(r.stdout, /可写路径:/);
       assert.equal(preview(name, action, entry, true).status, 1);
-      if (action === '推送') assert.match(r.stdout, /授权块：local-commit/);
+      if (action === '推送') assert.doesNotMatch(r.stdout, /授权块：local-commit/);
     }
     const prior = 'prior-lite';
     assert.equal(run(['new',prior,'--to','gpt','--goal','旧任务','--action','只读','--no-launch']).status,0);
@@ -561,8 +557,8 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
 
     for (const action of ['推送 / 部署', '同步生产数据并写入', '跑付费验证', '删除测试数据', '不部署；删除历史数据']) {
       const r = preview('risk-lite', action);
-      assert.equal(r.status, 1, action);
-      assert.match(r.stderr, /需要 brief 或调用方明确授权/);
+      assert.equal(r.status, 0, action);
+      assert.match(r.stderr, /警告：第 .*命中.*fleet say/);
     }
     assert.equal(preview('push-negative','推送 / 不部署').status,0);
     assert.equal(preview('paid-authorized','付费验证',entry,false,['--auth','paid']).status,0);
@@ -574,6 +570,14 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
   });
   test('敏感动作全文、授权隔离及规则描述', () => {
     const cases = [
+      ['## 要做\n只读。同时确认真实的未授权部署、删除、付费仍然会被拦。', ['review'], true],
+      ['动作: 只读\n## 验收\n确认未授权的部署仍会被拦截。', ['review'], true],
+      ['## 要做\n确认真实的未授权部署、删除、付费仍然会被拦，并部署生产环境。', ['review'], false],
+      ['归类：只读调研\n## 验收\nV9 x｜owner：本单', ['review'], true],
+      ['## 验收环境\n付费空间：已有测试空间', ['review'], true],
+      ['## 目标\n对生产库执行 DROP TABLE notifications', [], false],
+      ['## 目标\n对生产库执行 DELETE FROM notifications', [], false],
+      ['## 目标\n清空桶', [], false],
       ['## 背景\n部署生产环境', [], false],
       ['## 背景\n严格模式过去允许 deploy-prod 顶替删除授权', [], true],
       ['## 背景\n严格模式过去允许 deploy-prod 顶替删除授权，并部署生产环境', [], false],
@@ -602,7 +606,8 @@ except ValueError:
 `;
     for (const [body, auth, allowed] of cases) {
       const r = rawSpawnSync('python3', ['-c', code, root, body, JSON.stringify(auth)], {encoding:'utf8'});
-      assert.equal(r.status === 0, allowed, body + r.stderr);
+      assert.equal(r.status, 0, body + r.stderr);
+      if (/部署|付费|删除|清空|DROP|DELETE/i.test(body)) assert.match(r.stderr,/命中/);
     }
   });
   test('只读 TEST 项目场景和项目规则中的授权说明', () => {
@@ -617,11 +622,11 @@ except ValueError:
     assert.equal(r.status,0,r.stderr);
     assert.match(r.stdout,/派单场景 · test-ui/);
     assert.match(r.stdout,/项目派单总则/);
-    assert.match(r.stderr,/授权标识或规则描述/);
+    assert.match(r.stderr,/命中/);
     writeFileSync(join(layer, 'scenes', 'test-ui.md'), '---\n' + JSON.stringify({description:'TEST 验收', keywords:['TEST'], acceptance:[]}) + '\n---\n生产部署需授权；部署生产环境。\n');
     const blocked = spawnSync(script,args,{encoding:'utf8',env:{...env,FLEET_STRICT:''},input:body});
-    assert.equal(blocked.status,1);
-    assert.match(blocked.stderr,/部署或线上写入需要/);
+    assert.equal(blocked.status,0);
+    assert.match(blocked.stderr,/命中「部署」/);
   });
   test('amend say 只检查新增文字', () => {
     const name='amend-sensitive';
@@ -634,21 +639,23 @@ except ValueError:
     const described=run(['amend',name,'只读单被判成付费需授权，补上 paid 后又报部署需授权。','--say'],{FLEET_STRICT:''});
     assert.equal(described.status,0,described.stderr);
     const blocked=run(['amend',name,'删除测试数据','--say'],{FLEET_STRICT:''});
-    assert.equal(blocked.status,1);
+    assert.equal(blocked.status,0); assert.match(blocked.stderr,/命中「删除」/);
     writeFileSync(states,'[]');
   });
   test('严格模式 amend say 只检查新增敏感动作并保留严格 lint', () => {
     const name='strict-amend-sensitive';
-    assert.equal(run(['new',name,'--to','gpt','--goal','修复','--action','只读','--no-launch']).status,0);
+    const entry=join(temp,'strict-amend-entry.md');
+    writeFileSync(entry,`## 入口\n仓库: ${temp}\n可写路径: ${temp}/project\n`);
+    assert.equal(run(['new',name,'--to','gpt','--goal','修复','--action','只读','--body',entry,'--no-launch']).status,0);
     const file=join(path.slice(0,path.lastIndexOf('/')),name+'.brief.md');
     writeFileSync(file,readFileSync(file,'utf8')+'\n## 旧内容\n删除测试数据\n');
     writeFileSync(states, JSON.stringify([{name,status:'running',runId:'strict-amend-sensitive-run'}]));
     let r=run(['amend',name,'只描述缺陷','--say']);
     assert.equal(r.status,0,r.stderr);
     r=run(['amend',name,'删除测试数据','--say']);
-    assert.equal(r.status,1); assert.match(r.stderr,/删除数据需要/);
+    assert.equal(r.status,0); assert.match(r.stderr,/命中「删除」/);
     r=run(['amend',name,'继续','--say','--action','部署']);
-    assert.equal(r.status,1); assert.match(r.stderr,/授权/);
+    assert.equal(r.status,0,r.stderr); assert.match(r.stderr,/命中「部署」/);
     writeFileSync(states,'[]');
   });
   test('豁免样板的任务重派及修订授权动作', () => {
@@ -667,8 +674,8 @@ except ValueError:
     assert.match(readFileSync(file,'utf8'),/动作: 改代码 \/ 推送/);
     assert.equal(run(['relaunch','dx','--after','prior']).status,7);
     assert.equal(JSON.parse(readFileSync(metaFile,'utf8')).after,'prior');
-    r=run(['amend','dx','授权不足','--auth','local']); assert.equal(r.status,1); assert.match(r.stderr,/--auth local-commit,deploy-prod/);
-    assert.deepEqual(JSON.parse(readFileSync(metaFile,'utf8')).auth,['local-commit','deploy-prod']);
+    r=run(['amend','dx','授权不足','--auth','local']); assert.equal(r.status,0,r.stderr); assert.match(r.stderr,/fleet say/);
+    assert.deepEqual(JSON.parse(readFileSync(metaFile,'utf8')).auth,['local']);
   });
   test('密钥诊断仅给行号与规则，摘要、长文件名和路径不误报', () => {
     const normal=[

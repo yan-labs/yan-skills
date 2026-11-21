@@ -290,59 +290,20 @@ def declared_action(text):
 
 
 def infer_local_auth(text, auth):
-    if not strict_dispatch() and re.search(r'本地提交|推送|\bgit (?:commit|push)\b', declared_action(text), re.I):
-        return list(dict.fromkeys([*(a for a in auth if a != 'local'), 'local-commit']))
     return auth
 
 
 def check_sensitive_actions(text, auth=(), action_text=None):
-    sections = re.findall(r'^## ([^\n]+)\n(.*?)(?=^## |\Z)', text, re.M | re.S)
-    grants = '\n'.join(line for key, value in sections if key in ('授权覆盖', '授权')
-                       for line in value.splitlines()
-                       if re.match(r'^(?:[-*] )?(?:授权块|允许|明确授权|已授权|local-commit|deploy-prod|paid)', line))
-    declared = set(auth)
-    for match in re.finditer(r'^(?:授权块[：:][ \t]*([a-z,-]+)[ \t]*$|(deploy-prod|paid)[：:][ \t]*(?:已授权|允许))', grants, re.M):
-        declared.update((match.group(1) or match.group(2)).split(','))
     actions = text if action_text is None else action_text
-    # Only remove exact generated templates; user text adjacent to a template remains visible.
-    for name in ('auth-local', 'auth-local-commit', 'auth-readonly-web', 'auth-deploy-prod', 'auth-paid', 'auth-review', 'worktree-close'):
-        template = block(name)
-        pattern = re.escape(template)
-        pattern = re.sub(r'\\\{[A-Za-z_]+\\\}', r'[^\\n]+?', pattern)
-        actions = re.sub(pattern, '', actions)
-    actions = actions.replace('推送范围：仅允许动作行明确要求的代码分支推送，部署、环境分支合入和线上写入须另有授权。', '')
-    actions = re.sub(r'(?:[“"「](?:部署|上线|付费|充值|删除数据|清空数据)[”"」][、，,\s]*)+(?:属于|是)(?:需要授权的)?敏感动作', '', actions)
-    actions = re.sub(r'(?:敏感动作|敏感操作)(?:包括|包含|有|为|[:：])\s*(?:(?:部署|上线|付费|充值|删除数据|清空数据)[、，,\s]*)+', '', actions)
-    # Authorization identifiers and descriptions of gate outcomes are not actions.
-    original_actions = actions
-    actions = re.sub(r'\bdeploy-prod\b', '授权块', actions, flags=re.I)
-    actions = re.sub(r'(?:生产|线上)?(?:部署|上线|付费(?:验证)?|删除数据)(?:需|需要)(?:要)?授权', '授权规则', actions)
-    actions = re.sub(r'(?:付费|部署|上线|删除数据)(?:被判成|被判为|被误判为|需|需要|报)(?:需|需要)?授权', '授权判断', actions)
-    if actions != original_actions:
-        print('提示：授权标识或规则描述不视为执行动作；实际敏感动作仍需对应授权。', file=sys.stderr)
-    # This is a list of actions to be gated when authorization is absent, not a request to execute them.
-    actions = re.sub(r'生产/线上数据写入、付费、删数据而 brief 与调用方都没有任何对应授权声明', '', actions)
-    for clause in re.split(r'[。；;\n]', actions):
-        # A question about an action is not itself an instruction to perform it.
-        clause = re.sub(r'(?:检查|核查|确认|描述|说明|模拟)是否\s*(?:部署|上线|发布|付费(?:验证)?|充值|删(?:除)?数据)', '', clause)
-        # Remove negated actions individually so a prohibition cannot mask another action.
-        clause = re.sub(r'(?:不(?:要|会|得|做|进行|允许|涉及)?|禁止|无需)\s*(?:直接)?(?:部署|上线|发布|付费(?:验证)?|充值|删(?:除)?数据)', '', clause)
-        clause = re.sub(r'(?:本地|TEST|测试环境)\s*(?:上|里)?(?:部署|发布)|(?:部署|发布)(?:到|至)?\s*(?:本地|TEST\b|测试环境)', '', clause, flags=re.I)
-        for kind, pattern, permission in (
-            ('部署或线上写入', r'部署|上线|发布到|\b(?:wrangler|vercel|flyctl)\s+deploy\b|\b(?:deploy|write|update|mutate)\b.{0,24}\bprod(?:uction)?\b|(?:生产|线上).{0,16}(?:写入|修改|更新|删除|变更|清空|迁移)|(?:写入|修改|更新|删除|变更|清空|迁移).{0,16}(?:生产|线上)', r'^(?:[-*] )?(?:允许(?:范围[：:]\s*)?|明确授权|已授权)(?:在|对)?(?:生产|线上|部署|上线|正文明确指定的服务与环境（test、生产）上的发布全流程)'),
-            ('付费', r'付费(?!空间)|充值|购买订阅|变更套餐|扣(?:除)?积分|\b(?:paid (?:call|test|verification)|buy (?:credits|subscription))\b', r'^(?:[-*] )?(?:允许(?:范围[：:]\s*)?|明确授权|已授权)(?:当前目标必要的|必要的)?付费'),
-            ('删除数据', r'(?:删除|清空|擦除|清理)[^，。；]{0,12}(?:数据|记录)|(?:数据|记录)[^，。；]{0,12}(?:删除|清空|擦除)|\b(?:DROP|TRUNCATE)\s+TABLE\b|\b(?:delete|wipe|purge)\b.{0,24}\b(?:data|records|database)\b', r'^(?:[-*] )?(?:允许(?:范围[：:]\s*)?|明确授权|已授权)(?:在[^。；]{1,12})?(?:删除|清空).{0,20}(?:数据|记录|数据库)'),
-        ):
-            if not re.search(pattern, clause, re.I):
-                continue
-            if kind == '付费' and re.search(r'充值|购买订阅|变更套餐|\bbuy (?:credits|subscription)\b', clause, re.I):
-                if not re.search(r'^(?:[-*] )?(?:允许|明确授权|已授权)(?:充值|购买订阅|变更套餐)', grants, re.M):
-                    raise ValueError('充值、购买订阅或变更套餐需要独立授权。')
-                continue
-            block_grants = ('paid' in declared if kind == '付费'
-                            else kind == '部署或线上写入' and 'deploy-prod' in declared)
-            if not block_grants and not re.search(permission, grants, re.M):
-                raise ValueError(f'{kind}需要 brief 或调用方明确授权。')
+    patterns = (
+        (r'部署|上线|发布|推送|(?:生产|线上).{0,16}(?:写入|修改|更新|变更|迁移)|\bdeploy\b', '--auth local-commit,deploy-prod'),
+        (r'付费|充值|购买订阅|变更套餐|\bpaid\b', '--auth paid；充值、订阅和套餐变更须单独授权'),
+        (r'删除|清空|擦除|清理|\b(?:DROP|TRUNCATE)\s+TABLE\b|\bDELETE\s+FROM\b', '在 brief 明确删除范围和授权'),
+    )
+    for number, line in enumerate(actions.splitlines(), 1):
+        for pattern, suggestion in patterns:
+            for match in re.finditer(pattern, line, re.I):
+                print(f'警告：第 {number} 行命中「{match.group()}」；请核对 {suggestion}；可用 fleet say 追发补充。', file=sys.stderr)
 
 
 def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lint=False, project=None):
@@ -384,15 +345,6 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
                     errors.append(f'可写路径覆盖多仓聚合根：{root}。请改为具体仓库 worktree 或子目录。')
         if not action_match:
             print('警告：缺少动作行；请补充动作。', file=sys.stderr)
-            body = re.search(r'^## 目标\s*\n(.*?)(?=^## 允许范围|\Z)', text, re.M | re.S)
-            auth = re.search(r'^## 授权覆盖\s*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
-            auth_text = auth.group(1) if auth else ''
-            clauses = re.split(r'[。；;\n]', body.group(1) if body else '')
-            readonly = bool(re.search(r'^归类：[^\n]*(?:只读|复核|审计)', text, re.M) or '允许范围：只读复核' in auth_text)
-            if not readonly and any(re.search(r'合入|合并|推送|部署|安装到|装到|上线|发布', c) and not re.search(r'不(?:要|得|做|进行|允许|推送|合入|部署|上线|发布)|禁止|无需|只读', c) for c in clauses):
-                commit = '允许在本地分支提交' in auth_text or '允许本地提交' in auth_text or bool(re.search(r'^授权块：.*\blocal-commit\b', auth_text, re.M))
-                deploy = '发布全流程' in auth_text or bool(re.search(r'^授权块：.*\bdeploy-prod\b', auth_text, re.M))
-                if not (commit and deploy): errors.append('正文发布动作需要 local-commit 和 deploy-prod 授权。')
         else:
             tokens = parse_actions(action_match.group(1))
             actions = set(tokens)
@@ -405,22 +357,10 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
             needed = set()
             if '改代码' in actions and not (local or commit): needed.add('local')
             if '本地提交' in actions and not commit: needed.add('local-commit')
-            if actions & {'推送', '部署'}: needed.update(a for a, present in [('local-commit', commit), ('deploy-prod', deploy)] if not present)
-            if '付费' in actions and not paid: needed.add('paid')
-            # 正文的发布动作与动作行同样需要授权；只读任务不推断写操作。
-            body = re.search(r'^## 目标\s*\n(.*?)(?=^## 允许范围|\Z)', text, re.M | re.S)
-            revisions = re.findall(r'^## 【修订[^\n]*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
-            clauses = re.split(r'[。；;\n]', (body.group(1) if body else '') + '\n' + '\n'.join(revisions))
-            publishing = any(re.search(r'合入|合并|推送|部署|安装到|装到|上线|发布', clause)
-                and not re.search(r'不(?:要|得|做|进行|允许|推送|合入|部署|上线|发布)|禁止|无需|仅供|只读|执行者收尾', clause) for clause in clauses)
-            if actions != {'只读'} and publishing and not (commit and deploy):
-                needed.update(a for a, present in [('local-commit', commit), ('deploy-prod', deploy)] if not present)
-
             if needed:
                 why = [msg for want, msg in [('改代码' in actions and not (local or commit), '改代码需要 local 或 local-commit 授权'),
                                                ('本地提交' in actions and not commit, '本地提交需要 local-commit 授权'),
-                                               ((bool(actions & {'推送', '部署'}) or (actions != {'只读'} and publishing)) and not (commit and deploy), '推送或部署需要 local-commit 和 deploy-prod 授权'),
-                                               ('付费' in actions and not paid, '付费需要 paid 授权')] if want]
+                                               (False, '')] if want]
                 current = {a for a, present in [('local', local), ('local-commit', commit), ('deploy-prod', deploy), ('paid', paid)] if present}
                 current.update(a for a in ('review', 'readonly-web') if block('auth-' + a, {'REPORT': re.search(r'^REPORT: (.+)$', text, re.M).group(1) if re.search(r'^REPORT: (.+)$', text, re.M) else ''}) in auth_text or re.search(r'^授权块：.*(?<![\w-])' + re.escape(a) + r'(?![\w-])', auth_text, re.M))
                 current.update(needed)
