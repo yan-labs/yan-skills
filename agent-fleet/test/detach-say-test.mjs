@@ -26,6 +26,10 @@ process.on('SIGINT', () => process.exit(0));
 require('node:readline').createInterface({input:process.stdin}).on('line', line => {
  const q = JSON.parse(line); fs.appendFileSync(process.env.TRACE, line+'\\n');
  if(q.method==='thread/start') send({id:q.id,result:{thread:{id:'thread-test'}}});
+ else if(q.method==='thread/resume') {
+  turns = 1;
+  send({id:q.id,result:{thread:{id:q.params.threadId}}});
+ }
  else if(q.method==='turn/start') {
   send({id:q.id,result:{turn:{id:'turn-test'}}});
   send({method:'turn/started',params:{turn:{id:'turn-test'}}});

@@ -19,7 +19,7 @@ function fixture(id, originator = 'agent_fleet', source, recent = false) {
 }
 try {
   fixture('running'); fixture('child', 'agent_fleet', { subagent: { thread_spawn: { parent_thread_id: 'running' } } });
-  fixture('foreign', 'codex_cli'); fixture('recent', 'agent_fleet', undefined, true);
+  fixture('parked'); fixture('foreign', 'codex_cli'); fixture('recent', 'agent_fleet', undefined, true);
   for (const id of ['parent', 'cascade', 'writer', 'bad', 'last', 'changed']) fixture(id);
   const calls = [];
   let opened = 0, closed = 0;
@@ -32,19 +32,19 @@ try {
     if (id === 'cascade') paths.set('parent', join(scratch, 'archived_sessions', 'parent'));
     return {};
   } };
-  const options = { root, status: () => [{ state: 'running', threadId: 'running' }], open: async () => { opened++; return client; } };
+  const options = { root, status: () => [{ state: 'running', threadId: 'running' }, { state: 'parked', threadId: 'parked' }], open: async () => { opened++; return client; } };
   const dry = await sweep({ ...options, dryRun: true });
   assert.equal(dry.candidates, 5);
-  assert.equal(dry.skipped, 4);
+  assert.equal(dry.skipped, 5);
   assert(!calls.some(([method]) => method === 'thread/archive'));
   calls.length = 0;
   const result = await sweep(options);
   assert.equal(result.archived, 3);
   assert.equal(result.failed, 1);
-  assert.equal(result.skipped, 5);
+  assert.equal(result.skipped, 6);
   assert(result.threads.some(row => row.reason === 'already archived (cascade)'));
   assert(!calls.some(([method, id]) => method === 'thread/archive' && ['running', 'child', 'foreign', 'recent', 'changed'].includes(id)));
-  assert(!calls.some(([, id]) => ['running', 'child', 'foreign', 'recent'].includes(id)));
+  assert(!calls.some(([, id]) => ['running', 'child', 'parked', 'foreign', 'recent'].includes(id)));
   assert(calls.some(([method, id]) => method === 'thread/archive' && id === 'last'), 'single failure does not stop sweep');
   assert.equal(opened, closed);
   const broken = join(scratch, 'broken'); mkdirSync(broken);

@@ -10,6 +10,10 @@ while [ -L "$script" ]; do
 done
 dir=$(CDPATH= cd -P "$(dirname "$script")" && pwd -P)
 case "${1:-}" in
+  heavy)
+    shift
+    exec python3 "$dir/../src/host-lock.py" heavy "$@"
+    ;;
   status)
     shift
     exec python3 "$dir/../src/status-cache.py" "$@"

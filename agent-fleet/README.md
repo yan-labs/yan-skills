@@ -584,7 +584,7 @@ agent-fleet 会把 `CLAUDE_CONFIG_DIR` 指向自己专属的 `~/.agent-fleet/cla
 
 修订用 `fleet-go amend fix-card "补充要求"`；优先 `--say`，不支持插话则保留修订并提示，确需重来才用 `--restart`（先 stop 并核验残留）。派单及 lint 的放行规则见[派单检查](skill/references/fleet-go.md#派单检查)；`fleet-go status` 给运行摘要。新报告、brief 和用于恢复命令的 `.brief.json` 默认放在 `~/.agent-fleet/reports/<日期>/`。仍可读取和清理旧报告目录。启动仍用工具 `run_in_background:true`，脚本不后台化。需要 Python 3，无新增 npm 依赖。
 
-补扫漏归档线程：`node bin/fleet-archive-sweep.mjs [--dry-run] [--json] [--min-idle-minutes 10]`。派单前及 Codex 完成后运行；派单入口也会后台补扫（不等待、失败不阻断），`FLEET_NO_ARCHIVE_SWEEP=1` 可关闭自动扫描。
+补扫漏归档线程：`node bin/fleet-archive-sweep.mjs [--dry-run] [--json] [--min-idle-minutes 10]`。派单入口在后台补扫（不等待、失败不阻断、全机单实例）；Codex 完成后正常归档本单线程，`FLEET_NO_ARCHIVE_SWEEP=1` 可关闭自动扫描。
 
 ## OpenAI 订阅 API 额度
 

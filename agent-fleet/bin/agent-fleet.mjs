@@ -58,6 +58,7 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
   fleet land --repo <主克隆> --env test [--commit SHA --run ID | --flush --config <私有JSON> | --status]
   fleet timeline <runId|名字>
   fleet wait <id|latest> [--timeout 秒]   等待终态；ask 醒目标出并继续等待
+  fleet heavy [--gcp] -- <命令> [参数]
   fleet park --until <条件> --timeout 2h --item V1 --say <醒来做什么>
   fleet blocked --need auth|input|access --what <缺口> --tried <查过哪里> --who <谁能给>
   fleet ask --kind help|shared|decision "问题" [--wait] [--timeout 30m]

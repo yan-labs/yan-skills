@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { writeYield, readYield, ask, watchRequest, localCondition, startBackground } from '../src/yield.mjs';
 import { registerQueue, acquireSlot, queueRecord, setSlotState } from '../src/queue.mjs';
 import { waitDetached } from '../src/detach.mjs';
+import { readPidRecord } from '../src/pid.mjs';
 import { appendInbox } from '../src/inbox.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { acceptanceResult } from '../src/verdict.mjs';
@@ -46,7 +47,11 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
  if (req.method === 'thread/resume') send({id:req.id,result:{thread:{id:req.params.threadId}}});
  else if (req.method === 'thread/start') send({id:req.id,result:{thread:{id:++threads === 1 ? 'same-thread' : 'next-thread'}}});
  else if (req.method === 'turn/start') {
-  const id = 'turn-' + ++count;
+  // A resumed app-server has a new process, but the mock thread's turn counter persists.
+  const counter = process.env.TRACE+'.app-count';
+  count = fs.existsSync(counter) ? Number(fs.readFileSync(counter))+1 : 1;
+  fs.writeFileSync(counter,String(count));
+  const id = 'turn-' + count;
   send({id:req.id,result:{turn:{id}}});
   send({method:'turn/started',params:{turn:{id}}});
   if (process.env.MODE === 'yield-interrupt' && count === 1) {
@@ -263,6 +268,7 @@ try {
     if (mode === 'yield-park') {
       for (let i = 0; i < 500 && queueRecord(id)?.state !== 'parked'; i++) await delay(10);
       assert.equal(queueRecord(id).state, 'parked');
+      assert.equal(readPidRecord(id).codexPid, null);
       const waitingId = 'queued-behind-park';
       await registerQueue({runId:waitingId,model:'gpt-6.1-sol'});
       assert(await acquireSlot(waitingId), 'park 释放槽位，队列可启动');
@@ -278,7 +284,10 @@ try {
     const starts = readFileSync(process.env.TRACE, 'utf8').trim().split('\n').map(JSON.parse).filter(e => e.method === 'turn/start');
     assert.equal(starts.length, mode === 'yield-park' ? 2 : 1);
     assert(starts.every(e => e.params.threadId === 'same-thread'));
-    if (mode === 'yield-park') assert.match(starts[1].params.input[0].text, /醒来执行指定动作[\s\S]*终态/);
+    if (mode === 'yield-park') {
+      assert.equal(result.resumeCount, 1);
+      assert.match(starts[1].params.input[0].text, /醒来执行指定动作[\s\S]*终态/);
+    }
     else {
       assert.equal(result.yield.type, 'blocked');
       assert.equal(buildBrief(result).verdict, 'partial');

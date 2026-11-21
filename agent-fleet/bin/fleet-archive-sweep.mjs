@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { createReadStream } from 'node:fs';
+import { createReadStream, fstatSync, realpathSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
@@ -85,7 +85,7 @@ export async function sweep({ root = join(process.env.CODEX_HOME || join(homedir
   result.failed = errors.length;
   result.threads.push(...errors);
   const protectedIds = () => {
-    const ids = new Set(status().filter(r => ['running', 'abnormal'].includes(r.state ?? r.status))
+    const ids = new Set(status().filter(r => ['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(r.state ?? r.status))
       .flatMap(r => [r.runId, r.threadId, r.sessionId]).filter(Boolean));
     // Parent archive cascades: protect the whole family of a running thread.
     let changed;
@@ -100,16 +100,15 @@ export async function sweep({ root = join(process.env.CODEX_HOME || join(homedir
     } while (changed);
     return ids;
   };
-  const reason = async row => {
-    const ids = protectedIds();
+  const reason = async (row, ids) => {
     if (ids.has(row.id)) return 'running task or family';
     if (ids.has(row.source?.subagent?.thread_spawn?.parent_thread_id)) return 'running parent';
     try { if (Date.now() - (await stat(row.path)).mtimeMs < minIdleMinutes * 60000) return 'recent mtime'; }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
   };
-  const targets = [];
+  const targets = [], initiallyProtected = protectedIds();
   for (const row of rows) {
-    const why = await reason(row);
+    const why = await reason(row, initiallyProtected);
     if (why) { result.skipped++; result.threads.push({ id: row.id, status: 'skipped', reason: why }); }
     else targets.push(row);
   }
@@ -125,7 +124,7 @@ export async function sweep({ root = join(process.env.CODEX_HOME || join(homedir
         if (thread.originator !== 'agent_fleet') { state = 'skipped'; why = 'non-fleet originator'; }
         else if (thread.path && !inSessions(thread.path)) { state = 'archived'; why = 'already archived (cascade)'; }
         else if (!thread.path) throw new Error('thread/read missing path');
-        else if ((why = await reason({ ...row, path: thread.path }))) state = 'skipped';
+        else if ((why = await reason({ ...row, path: thread.path }, protectedIds()))) state = 'skipped';
         else if (dryRun) { state = 'candidate'; why = 'idle fleet thread'; }
         else {
           await client.rpc('thread/archive', { threadId: row.id });
@@ -167,4 +166,16 @@ async function main() {
     console.log(`archive-sweep: archived ${result.archived}, skipped ${result.skipped}, failed ${result.failed}${args.includes('--dry-run') ? `, candidates ${result.candidates}` : ''}`);
   }
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  let locked = false;
+  try { locked = fstatSync(Number(process.env.FLEET_ARCHIVE_LEASE_FD)).isFile(); } catch {}
+  if (locked) await main();
+  else {
+    const helper = fileURLToPath(new URL('../src/host-lock.py', import.meta.url));
+    const guard = spawn('python3', [helper, 'archive', process.execPath, ...process.argv.slice(1)], { stdio: 'inherit' });
+    process.exitCode = await new Promise(resolve => {
+      guard.once('error', error => { console.error(error.message); resolve(1); });
+      guard.once('close', code => resolve(code ?? 1));
+    });
+  }
+}

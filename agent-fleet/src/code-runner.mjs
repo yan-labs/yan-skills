@@ -220,7 +220,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       .map(pid => ({ pid, command: processCommand(pid) }));
     activeDescendants = [...new Map([...activeDescendants, ...current].map(child => [child.pid, child])).values()];
   };
-  const interrupt = async () => {
+  const interrupt = async ({ forPark = false } = {}) => {
     const child = activeChild;
     if (!child) return;
     captureChildren();
@@ -239,8 +239,11 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     }
     captureChildren();
     const descendants = activeDescendants;
-    if (metadata.backend === 'codex-app-server') await archive();
-    if (!alreadyExited) child.kill('SIGINT');
+    if (!forPark && metadata.backend === 'codex-app-server') await archive();
+    if (!alreadyExited) {
+      if (forPark) child.stdin.end();
+      else child.kill('SIGINT');
+    }
     let timer;
     await Promise.race([closed, new Promise(resolve => { timer = setTimeout(resolve, 10000); })]);
     clearTimeout(timer);
@@ -286,7 +289,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const schedule = () => { drain = drain.then(consume); };
   record({ finished: false });
   const inbox = watchInbox(runId, entry => {
-    if (entry.type === 'stop') { stopping = true; void interrupt(); }
+    if (entry.type === 'stop') { stopping = true; if (!yielding) void interrupt(); }
     else if (entry.type === 'say') {
       stages.revisions = [...(stages.revisions || []), entry.text];
       stages.anchor += '\n\n修订 ' + stages.revisions.length + '：\n' + entry.text;
@@ -356,6 +359,13 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       }
       record();
       return { blocked: true };
+    }
+    if (metadata.backend === 'codex-app-server' && activeChild) {
+      activeDescendants = [];
+      await interrupt({ forPark: true });
+      activeChild = null;
+      turnId = null;
+      record({ codexPid: null, codexCommand: null });
     }
     const slotId = process.env.FLEET_SLOT_RUN_ID || runId;
     const parkedAt = Date.now();
@@ -449,77 +459,88 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     record();
     return Boolean(metadata.continueStop);
   };
-  let outcome;
+  let outcome, wakePrompt;
   try {
     if (!stopping && process.env.FLEET_CODEX_BACKEND !== 'exec') {
       metadata.backend = 'codex-app-server';
-      const child = start(['app-server', '--stdio']);
-      const pending = new Map();
-      let counter = 0, buffer = '';
       let finishTurn;
-      let turnDone;
-      rpc = (method, params) => new Promise((resolve, reject) => {
-        const id = ++counter;
-        const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timeout`)); }, 15000);
-        pending.set(id, { resolve, reject, timer });
-        child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
-      });
-      const notification = event => {
-        if (event.id !== undefined && pending.has(event.id)) {
-          const request = pending.get(event.id); pending.delete(event.id); clearTimeout(request.timer);
-          if (event.error) request.reject(new Error(event.error.message)); else request.resolve(event.result);
-          return;
-        }
-        // danger-full-access + approvalPolicy never; older servers may still ask for approval.
-        if (event.id !== undefined && event.method) {
-          const result = event.method === 'item/permissions/requestApproval' ? { permissions: event.params.permissions, scope: 'turn' }
-            : /requestApproval$/.test(event.method) ? { decision: 'accept' }
-            : /applyPatchApproval|execCommandApproval/.test(event.method) ? { decision: 'approved' } : null;
-          child.stdin.write(`${JSON.stringify(result ? { id: event.id, result } : { id: event.id, error: { code: -32601, message: 'Unsupported client request' } })}\n`);
-          return;
-        }
-        const params = event.params || {};
-        if (event.method === 'account/rateLimits/updated') saveCodexQuota(params.rateLimits);
-        // app-server also emits child-thread events; only our thread can finish this run.
-        if (params.threadId && params.threadId !== metadata.threadId) return;
-        if (event.method === 'turn/started') { turnId = params.turn.id; metadata.numTurns++; record({ activeTurnId: turnId }); }
-        if (event.method === 'item/completed' && params.item?.type === 'agentMessage' && params.item.phase !== 'commentary')
-          writeFileSync(resultPath, params.item.text || '');
-        if (event.method === 'thread/tokenUsage/updated') {
-          metadata.usage = params.tokenUsage;
-          const total = params.tokenUsage?.total;
-          // Codex outputTokens already includes reasoningOutputTokens.
-          supervision.token(Date.now(), total?.outputTokens);
-          record();
-        }
-        if (event.method === 'item/started' && params.item && /commandExecution|mcpToolCall|dynamicToolCall|fileChange|webSearch|collabAgentToolCall/.test(params.item.type))
-          tools.set(params.item.id, params.item);
-        if (event.method === 'item/completed' && params.item) tools.delete(params.item.id);
-        if (event.method === 'item/completed' && params.item?.type === 'commandExecution') recordCommandEvidence(params.item);
-        if (event.method === 'item/completed' && params.item?.type === 'commandExecution' && !interruptedForPark && !tools.size && turnId) {
-          const park = readYield(runId);
-          if (park?.type === 'park' && !park.resolvedAt) {
-            interruptedForPark = true;
-            rpc('turn/interrupt', { threadId: metadata.threadId, turnId }).catch(() => { interruptedForPark = false; });
+      const connect = async threadId => {
+        const child = start(['app-server', '--stdio']);
+        const pending = new Map();
+        let counter = 0, buffer = '';
+        rpc = (method, params) => new Promise((resolve, reject) => {
+          const id = ++counter;
+          const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timeout`)); }, 15000);
+          pending.set(id, { resolve, reject, timer });
+          child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+        });
+        const notification = event => {
+          if (event.id !== undefined && pending.has(event.id)) {
+            const request = pending.get(event.id); pending.delete(event.id); clearTimeout(request.timer);
+            if (event.error) request.reject(new Error(event.error.message)); else request.resolve(event.result);
+            return;
           }
-        }
-        if (event.method === 'turn/completed') { completed = params.turn; finishTurn(); }
-      };
-      child.stdout.setEncoding('utf8');
-      child.stdout.on('data', chunk => {
-        buffer += chunk;
-        const lines = buffer.split('\n'); buffer = lines.pop();
-        for (const line of lines) { log(`${line}\n`); try { notification(JSON.parse(line)); } catch { /* non JSON diagnostics */ } }
-      });
-      closed.then(result => {
-        for (const request of pending.values()) { clearTimeout(request.timer); request.reject(result.error || new Error('app-server closed')); }
-        pending.clear(); finishTurn?.();
-      });
-      try {
+          // danger-full-access + approvalPolicy never; older servers may still ask for approval.
+          if (event.id !== undefined && event.method) {
+            const result = event.method === 'item/permissions/requestApproval' ? { permissions: event.params.permissions, scope: 'turn' }
+              : /requestApproval$/.test(event.method) ? { decision: 'accept' }
+              : /applyPatchApproval|execCommandApproval/.test(event.method) ? { decision: 'approved' } : null;
+            child.stdin.write(`${JSON.stringify(result ? { id: event.id, result } : { id: event.id, error: { code: -32601, message: 'Unsupported client request' } })}\n`);
+            return;
+          }
+          const params = event.params || {};
+          if (event.method === 'account/rateLimits/updated') saveCodexQuota(params.rateLimits);
+          // app-server also emits child-thread events; only our thread can finish this run.
+          if (params.threadId && params.threadId !== metadata.threadId) return;
+          if (event.method === 'turn/started') { turnId = params.turn.id; metadata.numTurns++; record({ activeTurnId: turnId }); }
+          if (event.method === 'item/completed' && params.item?.type === 'agentMessage' && params.item.phase !== 'commentary')
+            writeFileSync(resultPath, params.item.text || '');
+          if (event.method === 'thread/tokenUsage/updated') {
+            metadata.usage = params.tokenUsage;
+            const total = params.tokenUsage?.total;
+            // Codex outputTokens already includes reasoningOutputTokens.
+            supervision.token(Date.now(), total?.outputTokens);
+            record();
+          }
+          if (event.method === 'item/started' && params.item && /commandExecution|mcpToolCall|dynamicToolCall|fileChange|webSearch|collabAgentToolCall/.test(params.item.type))
+            tools.set(params.item.id, params.item);
+          if (event.method === 'item/completed' && params.item) tools.delete(params.item.id);
+          if (event.method === 'item/completed' && params.item?.type === 'commandExecution') recordCommandEvidence(params.item);
+          if (event.method === 'item/completed' && params.item?.type === 'commandExecution' && !interruptedForPark && !tools.size && turnId) {
+            const park = readYield(runId);
+            if (park?.type === 'park' && !park.resolvedAt) {
+              interruptedForPark = true;
+              rpc('turn/interrupt', { threadId: metadata.threadId, turnId }).catch(() => { interruptedForPark = false; });
+            }
+          }
+          if (event.method === 'turn/completed') { completed = params.turn; finishTurn(); }
+        };
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', chunk => {
+          buffer += chunk;
+          const lines = buffer.split('\n'); buffer = lines.pop();
+          for (const line of lines) { log(`${line}\n`); try { notification(JSON.parse(line)); } catch { /* non JSON diagnostics */ } }
+        });
+        closed.then(result => {
+          for (const request of pending.values()) { clearTimeout(request.timer); request.reject(result.error || new Error('app-server closed')); }
+          pending.clear();
+          if (activeChild === child) finishTurn?.();
+        });
         await rpc('initialize', { clientInfo: { name: 'agent_fleet', version: '0.7.0' }, capabilities: { experimentalApi: true } });
         child.stdin.write('{"method":"initialized"}\n');
-        const response = await rpc(resume ? 'thread/resume' : 'thread/start', { ...(resume ? { threadId: resume } : {}), cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
+        const response = await rpc(threadId ? 'thread/resume' : 'thread/start', { ...(threadId ? { threadId } : {}), cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
+        if (threadId && response.thread.id !== threadId) throw new Error('Codex resume 返回了不同的 threadId');
         metadata.threadId = metadata.sessionId = response.thread.id; ownsAppThread = true; record();
+      };
+      const reconnect = async () => {
+        if (activeChild) return;
+        await connect(metadata.threadId);
+        metadata.resumeCount++;
+        record();
+      };
+      let threshold;
+      try {
+        await connect(resume);
         let nextPrompt = resume ? stages.anchor : fullPrompt;
         if (resumedFrom) {
           const pendingYield = readYield(resumedFrom);
@@ -527,11 +548,11 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
             writeFileSync(base + '.yield', JSON.stringify({ ...pendingYield, sourceId: pendingYield.sourceId || resumedFrom }));
             const wake = await handleYield();
             if (wake?.blocked) return metadata;
-            if (wake?.prompt) nextPrompt = wake.prompt;
+            if (wake?.prompt) nextPrompt = wakePrompt = wake.prompt;
             resolveYield(resumedFrom, pendingYield, { status: 'resumed', runId });
           }
         }
-        const threshold = setInterval(() => {
+        threshold = setInterval(() => {
           const elapsed = Date.now() - activeSince; activeSince = Date.now();
           if (!yielding) activeElapsed += elapsed;
           if (turnId && !completed && Date.now() - lastSample >= 15_000) {
@@ -539,22 +560,24 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
             record();
           }
           const tokens = metadata.usage?.last?.totalTokens || metadata.usage?.total?.totalTokens || 0;
-          if (!thresholdSent && !yielding && turnId && (tokens >= Number(process.env.FLEET_HANDOFF_TOKENS || 150000) || activeElapsed >= Number(process.env.FLEET_HANDOFF_ACTIVE_MS || 7200000))) {
+          if (!thresholdSent && !yielding && turnId && !completed && (tokens >= Number(process.env.FLEET_HANDOFF_TOKENS || 150000) || activeElapsed >= Number(process.env.FLEET_HANDOFF_ACTIVE_MS || 7200000))) {
             thresholdSent = true;
             rpc('turn/steer', { threadId: metadata.threadId, expectedTurnId: turnId,
               input: textInput('已到交接提示阈值；这不是强停。到阶段边界写五项交接单并 fleet handoff；没有阶段计划先 fleet plan 提交计划后直接继续，不等批准。') }).then(() => log(fleetEvent('steer'))).catch(error => fallback(error.message));
           }
         }, 250);
-        child.once('close', () => clearInterval(threshold));
         while (true) {
+          await reconnect();
+          if (stopping) break;
           // 每轮都先安装完成监听，避免很快结束的回合漏掉通知。
           completed = null;
           turnId = null;
           tools.clear();
           interruptedForPark = false;
-          turnDone = turnFinished = new Promise(resolve => { finishTurn = resolve; });
+          const turnDone = turnFinished = new Promise(resolve => { finishTurn = resolve; });
           writeFileSync(resultPath, '');
           const turn = await rpc('turn/start', { threadId: metadata.threadId, input: textInput(nextPrompt), effort });
+          wakePrompt = undefined;
           turnId = turn.turn.id; record({ activeTurnId: turnId }); schedule();
           await turnDone;
           inbox.pump(); await drain;
@@ -581,7 +604,11 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
             archived = false; activeSince = Date.now(); activeElapsed = 0; thresholdSent = false; record();
           }
           if (yielded?.blocked) break;
-          if (yielded?.prompt) { nextPrompt = yielded.prompt; continue; }
+          if (yielded?.prompt) {
+            nextPrompt = yielded.prompt;
+            if (!activeChild) wakePrompt = nextPrompt;
+            continue;
+          }
           if (offsetQueue.length) break;
           const state = readContinuationState(workdir, reportPath, prompt);
           state.finalReply = readFileSync(resultPath, 'utf8');
@@ -613,13 +640,14 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       } catch (error) {
         fallback(`app-server unavailable: ${error.message}; exec${metadata.threadId ? ' resume' : ''}`);
       } finally {
+        clearInterval(threshold);
         await interrupt();
       }
     }
     if (!stopping && !metadata.yield && !metadata.resumeBlocked && (!outcome || offsetQueue.length)) {
       metadata.backend = 'codex-exec';
       let session = metadata.threadId;
-      let nextPrompt = session ? offsetQueue.splice(0).join('\n\n') || fullPrompt : fullPrompt;
+      let nextPrompt = session ? [wakePrompt, ...offsetQueue.splice(0)].filter(Boolean).join('\n\n') || fullPrompt : fullPrompt;
       do {
         writeFileSync(resultPath, '');
         const args = ['exec', '--skip-git-repo-check', '--json', '-m', model, ...(serviceTier ? ['-c', 'service_tier="priority"'] : []), '-c', `model_reasoning_effort=${effort}`,
