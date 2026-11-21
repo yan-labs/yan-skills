@@ -564,6 +564,15 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
       assert.equal(r.status, 1, action);
       assert.match(r.stderr, /需要 brief 或调用方明确授权/);
     }
+    for (const body of ['付费空间、付费用户、付费会员、付费套餐、付费版、付费导入', '付费 Notion 导入', '只有付费/不可逆且无授权记录才停；若付费则停；不付费']) {
+      const r = preview('paid-noun', '改代码', entry + '## 正文\n' + body);
+      assert.equal(r.status, 0, r.stderr);
+    }
+    for (const body of ['执行付费验证', '购买订阅']) {
+      const r = preview('paid-action', '改代码', entry + '## 正文\n' + body);
+      assert.equal(r.status, 1, body);
+      assert.match(r.stderr, /授权/);
+    }
     assert.equal(preview('push-negative','推送 / 不部署').status,0);
     assert.equal(preview('paid-authorized','付费验证',entry,false,['--auth','paid']).status,0);
     assert.equal(preview('delete-authorized','删除测试数据',entry+'## 授权\n允许删除指定测试数据。').status,0);
