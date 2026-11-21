@@ -293,7 +293,7 @@ def infer_local_auth(text, auth):
     return auth
 
 
-def check_sensitive_actions(text, auth=(), action_text=None):
+def check_sensitive_actions(text, auth=None, action_text=None, review=False):
     actions = text if action_text is None else action_text
     patterns = (
         (r'部署|上线|发布|推送|(?:生产|线上).{0,16}(?:写入|修改|更新|变更|迁移)|\bdeploy\b', '--auth local-commit,deploy-prod'),
@@ -304,6 +304,20 @@ def check_sensitive_actions(text, auth=(), action_text=None):
         for pattern, suggestion in patterns:
             for match in re.finditer(pattern, line, re.I):
                 print(f'警告：第 {number} 行命中「{match.group()}」；请核对 {suggestion}；可用 fleet say 追发补充。', file=sys.stderr)
+
+    declared = set(parse_actions(declared_action(text)))
+    if review or declared == {'只读'}:
+        return
+
+    if auth is None:
+        grants = '\n'.join(re.findall(r'^## 授权(?:覆盖)?[ \t]*\n(.*?)(?=^## |^动作[ \t]*[:：]|\Z)', text, re.M | re.S))
+        auth = [key for key in AUTH if block('auth-' + key) in grants]
+        for value in re.findall(r'^授权块[：:][ \t]*([a-z,-]+)[ \t]*$', grants, re.M):
+            auth.extend(value.split(','))
+    required = {'推送': 'local-commit', '部署': 'deploy-prod', '付费': 'paid'}
+    missing = {key for action, key in required.items() if action in declared and key not in auth}
+    if missing:
+        raise ValueError('动作行缺少授权，请补 --auth ' + ','.join(key for key in AUTH if key in missing or key in auth))
 
 
 def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lint=False, project=None):
@@ -427,12 +441,12 @@ def retry_command():
     return cmd if sanitized == cmd and not list(secret_findings(cmd)) else None
 
 
-def checked(text, to, simple=False, on='local', extra=False, sol=False, no_lint=False, project=None, auth=(), sensitive_text=None):
+def checked(text, to, simple=False, on='local', extra=False, sol=False, no_lint=False, project=None, auth=None, sensitive_text=None, review=False):
     secrets = list(secret_findings(text))
     if secrets:
         raise ValueError('\n'.join(secrets))
     if not strict_dispatch():
-        check_sensitive_actions(text, auth, sensitive_text)
+        check_sensitive_actions(text, auth, sensitive_text, review)
     errors = lint(text, to, simple, on, extra, sol, no_lint, project)
     if errors and not strict_dispatch():
         warnings = [e for e in errors if not e.startswith(('示例', '缺授权块'))]
@@ -450,7 +464,7 @@ def checked(text, to, simple=False, on='local', extra=False, sol=False, no_lint=
                 lines.append('修改后重跑：' + retry)
         raise ValueError('\n'.join(lines))
     if strict_dispatch():
-        check_sensitive_actions(text, auth, sensitive_text)
+        check_sensitive_actions(text, auth, sensitive_text, review)
 
 
 OBSTACLE_NOTE = '遇到缺文件、工具不可用等阻碍必须在报告「未完成」里写明，不得略过。'
@@ -1020,8 +1034,6 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     secrets = list(secret_findings(text))
     if secrets:
         raise ValueError('\n'.join(secrets))
-    if not strict_dispatch():
-        check_sensitive_actions(text, meta.get('auth', []))
     if fallback:
         lines = text.splitlines(keepends=True)
         text = ''.join(lines[:2]) + '\n' + fallback + '\n' + ''.join(lines[2:])
@@ -1108,7 +1120,7 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     meta['paths'] = list(dict.fromkeys([*meta.get('parameterPaths', meta.get('writes', [])), *entry_paths(text)]))
     text = normalize_brief(text, target, meta.get('report'))
     meta['auth'] = infer_local_auth(text, meta.get('auth', []))
-    dispatch_gate(attempt, 'lint', lambda: checked(text, target, bool(selected_simple), on or 'mini', True, target == 'gpt' and selected in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project'), auth=meta.get('auth', ())))
+    dispatch_gate(attempt, 'lint', lambda: checked(text, target, bool(selected_simple), on or 'mini', True, target == 'gpt' and selected in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project'), auth=meta.get('auth', ()), review=meta.get('review', False)))
     path.write_text(text)
     if target != meta['to']:
         meta.pop('tier', None)
@@ -1330,9 +1342,9 @@ def amend(args):
             original = original.replace('## 授权覆盖\n', '## 授权覆盖\n授权块：local-commit\n', 1)
     sensitive_text = (args.message + '\n' + (args.task_action or '')) if args.say else None
     if args.auth is not None or args.task_action is not None:
-        checked(original, meta['to'], gpt_tier(meta) == 'terra' and meta['to'] == 'gpt', args.on or meta.get('on') or 'local', True, gpt_tier(meta) in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project'), auth=meta.get('auth', ()), sensitive_text=sensitive_text)
+        checked(original, meta['to'], gpt_tier(meta) == 'terra' and meta['to'] == 'gpt', args.on or meta.get('on') or 'local', True, gpt_tier(meta) in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project'), auth=meta.get('auth', ()), sensitive_text=sensitive_text, review=meta.get('review', False))
     else:
-        checked(original, meta['to'], no_lint=meta.get('no_lint', False), auth=meta.get('auth', ()), sensitive_text=sensitive_text)
+        checked(original, meta['to'], no_lint=meta.get('no_lint', False), auth=meta.get('auth', ()), sensitive_text=sensitive_text, review=meta.get('review', False))
     original = normalize_actions(original)
     path.write_text(original)
     if not (latest_revision and original[latest_revision.end():].startswith(args.message + '\n\n')):
@@ -1751,7 +1763,7 @@ def new(args, prepare=False):
     location = args.on or 'mini'
     if location == 'mini' and not (args.dry_run or args.no_launch or prepare) and not mini.available():
         raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
-    dispatch_gate(args, 'lint', lambda: checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna or args.astra), location, True, args.sol or args.astra, args.no_lint, project, auth=auth))
+    dispatch_gate(args, 'lint', lambda: checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna or args.astra), location, True, args.sol or args.astra, args.no_lint, project, auth=auth, review=args.review))
     action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', body, re.M)
     actions = args.task_action or (action_match.group(1) if action_match else '')
     parameter_paths = [*(mini.expand_path(p) for p in (args.read or [])), *report_writes(args.write, report)]
