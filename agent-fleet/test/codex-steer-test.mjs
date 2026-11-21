@@ -89,14 +89,14 @@ chmodSync(mock, 0o755);
 process.env.AGENT_FLEET_RUNS_DIR = scratch;
 
 let scenarioNumber = 0;
-async function scenario(mode, { backend, say, stop, resume, review = false, low = false, high = false, xhigh = false, max = false, simple = false, sol = false, luna = false, fast = false } = {}) {
+async function scenario(mode, { backend, say, stop, resume, review = false, low = false, high = false, xhigh = false, max = false, simple = false, sol = false, luna = false, fast = false, grant = '' } = {}) {
   const runId = `codex-${++scenarioNumber}-${mode}-${review ? 'review' : 'code'}`;
   process.env.FLEET_DETACHED_RUN_ID = runId;
   process.env.FLEET_STEER_TEST_MODE = mode;
   process.env.FLEET_STEER_TEST_TRACE = join(scratch, `${runId}.trace`);
   if (backend) process.env.FLEET_CODEX_BACKEND = backend;
   else delete process.env.FLEET_CODEX_BACKEND;
-  const pending = runCode({ noContinue: true, prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则', cwd: scratch, codexBin: mock, resume, review, low, high, xhigh, max, simple, sol, luna, fast });
+  const pending = runCode({ noContinue: true, prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则' + (grant ? '\n' + grant : ''), cwd: scratch, codexBin: mock, resume, review, low, high, xhigh, max, simple, sol, luna, fast });
   if (say || stop) {
     for (let attempt = 0; attempt < 500; attempt++) {
       if (existsSync(process.env.FLEET_STEER_TEST_TRACE) && readFileSync(process.env.FLEET_STEER_TEST_TRACE, 'utf8').includes('turn/start')) break;
@@ -136,6 +136,16 @@ try {
   assert.equal(normal.result.serviceTier, null);
   const defaultExec = await scenario('normal', { backend: 'exec' });
   assert(!defaultExec.trace.find(entry => entry.args?.[0] === 'exec').args.some(arg => arg.startsWith('service_tier=')));
+  for (const run of [normal, defaultExec]) {
+    const args = run.trace.find(entry => entry.args).args;
+    assert(args.includes('mcp_servers.node_repl.enabled=false'));
+    assert(args.includes('mcp_servers.computer-use.enabled=false'));
+    assert(args.includes('features.computer_use=false'));
+  }
+  const gui = await scenario('normal', { grant: '允许范围：可使用本机已登录 Chrome 验收页面。' });
+  assert(!gui.trace.find(entry => entry.args).args.includes('mcp_servers.node_repl.enabled=false'));
+  const denied = await scenario('normal', { grant: '允许范围：只读检查，不允许浏览器操作。' });
+  assert(denied.trace.find(entry => entry.args).args.includes('mcp_servers.node_repl.enabled=false'));
   const simpleApp = await scenario('normal', { simple: true, fast: true, low: true });
   const simpleStart = simpleApp.trace.find(entry => entry.method === 'thread/start').params;
   assert.equal(simpleStart.model, 'gpt-6.1-terra');

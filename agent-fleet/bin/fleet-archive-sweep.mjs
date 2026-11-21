@@ -6,11 +6,12 @@ import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { codexSessionOverrides } from '../src/codex-headless.mjs';
 import { collectStatus } from '../src/control.mjs';
 import { redactEvidence } from '../src/brief.mjs';
 
 export async function connect() {
-  const child = spawn(process.env.FLEET_CODEX_BIN || 'codex', ['app-server', '--stdio'], {
+  const child = spawn(process.env.FLEET_CODEX_BIN || 'codex', ['app-server', '--stdio', ...codexSessionOverrides()], {
     stdio: ['pipe', 'pipe', 'ignore'], env: { ...process.env, NODE_USE_ENV_PROXY: '1' },
   });
   const pending = new Map();

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { codexSessionOverrides } from './codex-headless.mjs';
 import { resolveCodexModel } from './model-family.mjs';
 import { readJSON, readYield, resolveYield, writeYield, localCondition, stageState, saveStages, alignStage } from './yield.mjs';
 import { saveCodexQuota, taskIdentity, queueRecord, setSlotState, acquireSlot } from './queue.mjs';
@@ -40,8 +41,8 @@ export function launchArchiveSweep({ env = process.env, spawnChild = spawn,
   } catch {}
 }
 
-async function threadLifecycle(codexBin, method, threadId) {
-  const child = spawn(codexBin, ['app-server', '--stdio'], { stdio: ['pipe', 'pipe', 'ignore'] });
+async function threadLifecycle(codexBin, method, threadId, overrides) {
+  const child = spawn(codexBin, ['app-server', '--stdio', ...overrides], { stdio: ['pipe', 'pipe', 'ignore'] });
   const lines = createInterface({ input: child.stdout });
   const pending = new Map();
   let counter = 0;
@@ -125,6 +126,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const slot = process.env.FLEET_SLOT_RUN_ID ? queueRecord(process.env.FLEET_SLOT_RUN_ID) : null;
   briefPath ??= slot?.briefPath;
   const identity = taskIdentity({ ...slot, briefPath, review });
+  const overrides = codexSessionOverrides(prompt, identity.auth);
   const metadata = { ...identity, briefPath, slotRunId: slot?.runId, backend: 'codex-exec', threadId: resume || null, sessionId: resume || null,
     steerCount: 0, wakeCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, high, xhigh, max, simple, sol, luna, astra, family, resolvedModel: model, model, tier: effort, serviceTier, review, resumedFrom };
   const production = identity.auth.includes('deploy-prod') || identity.actions.some(action => /生产|部署|发布/.test(action)) ||
@@ -202,7 +204,9 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   log(JSON.stringify({ type: 'model_resolution', family, model, warnings: resolutionLog }));
   const fallback = reason => { metadata.fallbacks.push(reason); log(`\n[codex] fallback: ${reason}\n`); record(); };
   const start = args => {
-    const child = spawn(codexBin, args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, NODE_USE_ENV_PROXY: '1' } });
+    // Global options go before the exec resume subcommand and its positional prompt.
+    const command = [args[0], ...overrides, ...args.slice(1)];
+    const child = spawn(codexBin, command, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, NODE_USE_ENV_PROXY: '1' } });
     activeChild = child;
     activeDescendants = [];
     child.stdin.on('error', () => {});
@@ -310,7 +314,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       try {
         if (metadata.backend === 'codex-app-server' && activeChild?.exitCode === null && activeChild?.signalCode === null)
           await rpc('thread/archive', { threadId: metadata.threadId });
-        else await threadLifecycle(codexBin, 'thread/archive', metadata.threadId);
+        else await threadLifecycle(codexBin, 'thread/archive', metadata.threadId, overrides);
         archived = true;
         record();
       } catch (error) {
@@ -654,7 +658,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
           '--sandbox', 'danger-full-access', '-C', workdir, '-o', resultPath,
           ...(session ? ['resume', session, '-'] : ['-'])];
         if (session) {
-          try { await threadLifecycle(codexBin, 'thread/unarchive', session); }
+          try { await threadLifecycle(codexBin, 'thread/unarchive', session, overrides); }
           catch (error) { fallback(`thread/unarchive failed: ${error.message}; exec resume`); }
           archived = false;
           metadata.resumeCount++;
