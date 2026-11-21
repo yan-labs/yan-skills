@@ -35,7 +35,7 @@ def remote_fleet(configured):
     runtime = Path.home() / '.agent-fleet/runtime/current/agent-fleet/bin/fleet'
     if binary.parts[-4:] == ('yan-skills', 'agent-fleet', 'bin', 'fleet') and runtime.is_file():
         binary = runtime
-    return binary.resolve(strict=True)
+    return binary.resolve()
 """
 TOOLS_MISSING = 'Mini 缺命令：'
 # brief 正文出现这些命令即视为需要；其余命令写在「需要命令: a, b」行。
@@ -85,7 +85,7 @@ def available():
 
 def call(script, payload, timeout=30, kill_group=False):
     data = base64.b64encode(json.dumps(payload, ensure_ascii=False).encode()).decode()
-    cmd = 'python3 -c ' + shlex.quote(REMOTE_FLEET + script) + ' ' + shlex.quote(data)
+    cmd = 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(data)
     if not kill_group:
         return subprocess.run([MM, cmd], capture_output=True, text=True, timeout=timeout)
     proc = subprocess.Popen([MM, cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
@@ -221,7 +221,7 @@ else:
 
 def preflight(meta, paths):
     if not REMOTE_HOME or not REMOTE_BIN: return 'Mini 路径未配置（FLEET_MINI_HOME、FLEET_MINI_BIN）'
-    script = PATH_FIX + """import base64,json,os,pathlib,shutil,subprocess,sys
+    script = PATH_FIX + REMOTE_FLEET + """import base64,json,os,pathlib,shutil,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1]))
 """ + CANONICAL_SCRIPT + """
 p['paths']=[canonical(x) for x in p['paths']]
@@ -335,7 +335,7 @@ def launch(meta, argv):
     payload['session'] = meta.get('dispatch_session') or ''
     payload['parent'] = (os.environ.get('FLEET_SLOT_RUN_ID') or os.environ.get('FLEET_DETACHED_RUN_ID')
                          or os.environ.get('FLEET_PARENT_RUN_ID') or '')
-    script = PATH_FIX + '''import base64,fcntl,json,os,pathlib,subprocess,sys,tempfile
+    script = PATH_FIX + REMOTE_FLEET + '''import base64,fcntl,json,os,pathlib,subprocess,sys,tempfile
 p=json.loads(base64.b64decode(sys.argv[1]));
 ''' + CANONICAL_SCRIPT + '''
 p['args']=[canonical(x) for x in p['args']]; p['cwd']=canonical(p['cwd']); p['repo']=canonical(p['repo']); p['report']=canonical(p['report'])
@@ -381,7 +381,7 @@ r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini'
 STATUS_KEYS = ('runId', 'status', 'state', 'verdict', 'exitCode', 'resultPath', 'startedAt', 'finishedAt', 'model', 'duration', 'heartbeatAt', 'launchDetached', 'activeMs', 'waitMs', 'pollCount', 'pending')
 
 def query(rec, timeout=20, kill_group=False, *, passive=False):
-    script = PATH_FIX + '''import base64,json,pathlib,subprocess,sys
+    script = PATH_FIX + REMOTE_FLEET + '''import base64,json,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1])); binary=remote_fleet(p['bin']); r=subprocess.run([str(binary),'status','--json',*([] if p['passive'] else ['--fresh'])],capture_output=True,text=True,check=True); rows=json.loads(r.stdout); row=next((x for x in rows if x.get('runId')==p['id']),None)
 if row is None: row=json.loads((pathlib.Path.home()/'.agent-fleet/runs'/(p['id']+'.json')).read_text())
 output={k:row.get(k) for k in p['keys']}
@@ -407,7 +407,7 @@ def query_all(recs, since=None, timeout=20, *, fresh=False):
     since 是 epoch 秒：给定时 Mini 端丢弃更早结束的终态行，不传输。
     返回 (rows, missing)：rows 为 {runId: 摘要}，missing 是 Mini 上找不到记录的 runId。
     """
-    script = PATH_FIX + '''import base64,datetime,json,pathlib,subprocess,sys
+    script = PATH_FIX + REMOTE_FLEET + '''import base64,datetime,json,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1])); binary=remote_fleet(p['bin'])
 try: live={x.get('runId'):x for x in json.loads(subprocess.run([str(binary),'status','--json',*(['--fresh'] if p['fresh'] else [])],capture_output=True,text=True,check=True).stdout)}
 except Exception: sys.exit(3)
@@ -516,7 +516,7 @@ print(json.dumps({'text':tail(p['log'],6000)+'\\n'+tail(p['result'],3000),'codex
         pass
 
 def wait_events(run, terminal):
-    script = PATH_FIX + '''import base64,json,pathlib,subprocess,sys
+    script = PATH_FIX + REMOTE_FLEET + '''import base64,json,pathlib,subprocess,sys
 binary, data = json.loads(base64.b64decode(sys.argv[1]))
 binary = remote_fleet(binary)
 sys.exit(subprocess.run([str(binary), 'watch', '--serve'], input=json.dumps(['wait-events', data]), text=True).returncode)
@@ -528,7 +528,7 @@ sys.exit(subprocess.run([str(binary), 'watch', '--serve'], input=json.dumps(['wa
 
 
 def progress_chunk(rec, row, offset):
-    script = PATH_FIX + """import base64,json,pathlib,subprocess,sys
+    script = PATH_FIX + REMOTE_FLEET + """import base64,json,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1])); binary=remote_fleet(p['bin'])
 module=binary.resolve().parent.parent/'src/live-progress.mjs'
 code="const m=await import(process.argv[1]); const r=m.readProgress(process.argv[2], Number(process.argv[3]), process.argv[4]); r.reports=m.reportProgress(process.argv[5]); console.log(JSON.stringify(r))"
@@ -617,7 +617,7 @@ def _wait(rec, pull=False, quiet=False):
             print('Mini 连接中断，等待重连…', file=sys.stderr, flush=True); time.sleep(5)
 
 def forward(args):
-    p = call(PATH_FIX + '''import base64,json,pathlib,subprocess,sys
+    p = call(PATH_FIX + REMOTE_FLEET + '''import base64,json,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1])); p[0]=str(remote_fleet(p[0])); r=subprocess.run(p, text=True); sys.exit(r.returncode)
 ''', [REMOTE_BIN, *args], timeout=90)
     sys.stdout.write(p.stdout); sys.stderr.write(p.stderr)

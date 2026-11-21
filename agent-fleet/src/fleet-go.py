@@ -910,7 +910,7 @@ def doctor(root):
         print('## 远端执行机')
         fetched = False
         if mini.REMOTE_BIN:
-            script = mini.PATH_FIX + 'import base64,datetime,json,os,shlex,subprocess,sys\nfrom pathlib import Path\n'
+            script = mini.PATH_FIX + mini.REMOTE_FLEET + 'import base64,datetime,json,os,shlex,subprocess,sys\nfrom pathlib import Path\n'
             script += '\n'.join(inspect.getsource(fn) for fn in (machine_checks, recently_used_scenes, ledger_rows))
             script += """
 bin_path, config, project, cutoff = json.loads(base64.b64decode(sys.argv[1]))
