@@ -2,6 +2,7 @@
 
 ## 目录
 - 启动与接续
+- 发布与回滚
 - 清理
 - 底层命令速查
 - 网关模型配置
@@ -16,6 +17,14 @@
 - `--name <短名>`、`--report <路径>` 未传时从 brief 的归类行和 `REPORT:` 行提取。
 - 新会话接手：`fleet status --running --json`，对每个未结束任务各发一条 `fleet wait <id>`（`run_in_background: true`）。`wait` / `tail` 可用短名或唯一 runId 前缀；`latest` 是当前 cwd 最近的任务。
 - 杀掉 fleet 外壳不等于杀掉 codex：重派进同一个 worktree 前先 `pgrep -fl 'codex exec.*<worktree>'`，底层进程存活就沿用原任务等待；重派以旧任务和底层进程都已结束为前提。
+
+## 发布与回滚
+
+- 修改 agent-fleet 在独立 worktree 进行，合入 `origin/main` 后，两台机器各运行一次 `fleet-deploy <SHA>`。省略 SHA 发布远端 main 的当前提交。在 MacBook 可用 `fleet-deploy --host mini <SHA>` 发布 Mini。
+- 首次迁移前将旧安装的本机 `.env` 以 0600 权限复制到 `~/.agent-fleet/.env`（已有文件时先核对），每次新版本发布时从这里复制。源码仓只用于 Git，也可用 `--repo` 指定其他克隆。
+- 首次发布从已合入的源码调用 `agent-fleet/bin/fleet-deploy`。冒烟通过后，将 PATH 中的 `fleet`、`fleet-go`、`fleet-deploy` 链到 `~/.agent-fleet/runtime/current/agent-fleet/bin/` 对应文件，两处 Skill 链到同一版本下的 `agent-fleet/skill`。先用 `which -a` 和 `readlink` 盘点，原子替换软链，每换一个入口就跑 `fleet status --json`，记录当前 SHA。旧主检出保留给在跑的监督进程。若已安装 LaunchAgent，下次正常加载时使用发布目录下的 watcher 入口。
+- 发布导出 Git 提交并用 `pnpm install --frozen-lockfile` 安装依赖。四项冒烟通过才切换 `current`。保留五个版本，仍被进程引用或刚切出的旧版延后清理。
+- `fleet-deploy --rollback` 验证并切回上一版。再次运行可切回刚离开的版本，也可明确指定 SHA。用 `readlink ~/.agent-fleet/runtime/current` 和 `fleet status --json` 回读。
 
 ## 清理
 
