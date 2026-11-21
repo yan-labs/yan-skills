@@ -507,7 +507,7 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
     assert.equal(strict('改代码', '').status, 1);
     const badWord = strict('只读、错字', entry); assert.match(badWord.stderr, /错字.*动作: 只读/);
     const annotated = strict('部署（生产数据删除）、只读', '## 入口\n仓库：/tmp（说明）\n可写路径：/tmp/example(说明)\n', ['--auth','local-commit,deploy-prod']);
-    assert.equal(annotated.status,0,annotated.stderr); assert.match(annotated.stdout,/动作: 部署（生产数据删除） \/ 只读/);
+    assert.equal(annotated.status,1); assert.match(annotated.stderr,/删除数据需要/);
     assert.equal(strict('本地提交',entry,['--auth','local-commit']).status,0);
     assert.equal(strict('推送 / 部署',entry,['--auth','local-commit,deploy-prod']).status,0);
     assert.equal(strict('付费',entry,['--auth','paid']).status,0);
@@ -571,6 +571,42 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
     const secret = preview('secret-lite','修正类型',entry + 'token=' + fake);
     assert.equal(secret.status,1);
     assert.doesNotMatch(secret.stdout+secret.stderr, new RegExp(fake));
+  });
+  test('敏感动作全文、授权隔离及规则描述', () => {
+    const cases = [
+      ['## 背景\n部署生产环境', [], false],
+      ['## 背景\n部署本地并上线', [], false],
+      ['## 背景\n规则说明：“部署”“付费”“删除数据”属于敏感动作。', [], true],
+      ['## 背景\n规则说明：“部署”“付费”属于敏感动作并部署生产环境。', [], false],
+      ['## 目标\n执行者收尾并部署生产环境', [], false],
+      ['## 目标\n删除测试数据', ['deploy-prod'], false],
+      ['## 背景\n保留硬拦（只留这些）：生产/线上数据写入、付费、删数据而 brief 与调用方都没有任何对应授权声明。', [], true],
+      ['## 背景\n保留硬拦：生产/线上数据写入、付费、删数据而 brief 与调用方都没有任何对应授权声明；执行者收尾并部署生产环境', [], false],
+    ];
+    const code = `import sys, runpy, json
+sys.path.insert(0, sys.argv[1] + '/src')
+m=runpy.run_path(sys.argv[1] + '/src/fleet-go.py')
+try:
+ m['check_sensitive_actions'](sys.argv[2], json.loads(sys.argv[3]))
+except ValueError:
+ sys.exit(1)
+`;
+    for (const [body, auth, allowed] of cases) {
+      const r = rawSpawnSync('python3', ['-c', code, root, body, JSON.stringify(auth)], {encoding:'utf8'});
+      assert.equal(r.status === 0, allowed, body + r.stderr);
+    }
+  });
+  test('amend say 只检查新增文字', () => {
+    const name='amend-sensitive';
+    assert.equal(run(['new',name,'--to','gpt','--goal','修复','--action','只读','--no-launch'],{FLEET_STRICT:''}).status,0);
+    const file=join(path.slice(0,path.lastIndexOf('/')),name+'.brief.md');
+    writeFileSync(file,readFileSync(file,'utf8')+'\n## 旧内容\n删除测试数据\n');
+    writeFileSync(states, JSON.stringify([{name,status:'running',runId:'amend-sensitive-run'}]));
+    const r=run(['amend',name,'只描述缺陷','--say'],{FLEET_STRICT:''});
+    assert.equal(r.status,0,r.stderr);
+    const blocked=run(['amend',name,'删除测试数据','--say'],{FLEET_STRICT:''});
+    assert.equal(blocked.status,1);
+    writeFileSync(states,'[]');
   });
   test('豁免样板的任务重派及修订授权动作', () => {
     const body=join(temp,'dx-entry.md');

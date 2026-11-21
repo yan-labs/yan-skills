@@ -79,8 +79,12 @@ for punctuation in '「」『』（）【】，。、；：！？“”‘’\u3
     assert mini.referenced_paths('/home/a/file.md' + punctuation + '说明') == ['/home/a/file.md']
 assert not mini.referenced_paths('https://example.com/a ../x /api/foo `/api/events`')
 with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, json.dumps({'missing':['/home/b/a'], 'ready':False}), '')):
-    reason = mini.preflight({'to':'claude'}, ['/home/a/a'])
-    assert 'Mini 缺少路径：/home/b/a' in reason and 'claude 通道不可用' in reason
+    with patch.dict(os.environ, {'FLEET_STRICT': '1'}):
+        reason = mini.preflight({'to':'claude'}, ['/home/a/a'])
+        assert 'Mini 缺少路径：/home/b/a' in reason and 'claude 通道不可用' in reason
+    with patch.dict(os.environ, {'FLEET_STRICT': '0'}):
+        reason = mini.preflight({'to':'claude'}, ['/home/a/a'])
+        assert 'Mini 缺少路径：/home/b/a' not in reason and 'claude 通道不可用' in reason
 with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 0, json.dumps({'missing':[], 'ready':True}), '')) as remote:
     assert mini.preflight({'to':'gpt', 'name':'unit', 'report':'/tmp/report.md'}, ['/tmp/unit/', '/tmp/report.md', '/tmp/report.checkpoint.md', '/tmp/input']) is None
     assert remote.call_args.args[1]['paths'][-1:] == ['/tmp/input']
@@ -215,7 +219,8 @@ echo '[{"runId":"old-run","status":"done"}]'
         assert remote_file.read_text() == 'input content' and source_dir.is_dir() and remote_dir.is_dir()
         assert (target_home / '.agent-reports/existing/nested/data.md').read_text() == 'nested'
         assert mini.launch(sync_meta, ['fleet','code',str(brief),'--report',sync_meta['report']]) == 0
-        assert '缺少路径' in mini.preflight(sync_meta, [str(source_home/'missing-repo')])
+        with patch.dict(os.environ, {'FLEET_STRICT': '1'}):
+            assert '缺少路径' in mini.preflight(sync_meta, [str(source_home/'missing-repo')])
         runs = target_home / '.agent-fleet/runs'; runs.mkdir(parents=True)
         historical = target_home / '.agent-reports/day/historical.md'
         result = runs / 'old.result.md'; result.write_text('historical result')
@@ -224,7 +229,8 @@ echo '[{"runId":"old-run","status":"done"}]'
         assert historical.read_text() == 'historical result'
         historical.unlink()
         (runs / 'old.json').write_text(json.dumps({'status':'running','reportPath':str(historical),'resultPath':str(result)}))
-        assert '缺少路径' in mini.preflight(sync_meta, [str(historical)])
+        with patch.dict(os.environ, {'FLEET_STRICT': '1'}):
+            assert '缺少路径' in mini.preflight(sync_meta, [str(historical)])
 
         with patch.object(mini, 'sync_reports', side_effect=OSError('failed')):
             assert '同步失败' in mini.preflight(sync_meta, [str(source_reports/'missing')])
@@ -242,8 +248,9 @@ echo '[{"runId":"old-run","status":"done"}]'
         # 需要的命令：显式行 + 已知命令；否定句不算。Mini 缺命令时给出原因。
         assert mini.required_commands('先 kubectl get pods\n禁止用 aws 写\n需要命令: jq、`fleet-no-such-tool`\nkubectl logs') == ['kubectl', 'jq', 'fleet-no-such-tool']
         need = tmp / 'need.brief.md'; need.write_text('需要命令: fleet-no-such-tool\n')
-        reason = mini.preflight({**sync_meta, 'brief': str(need)}, [])
-        assert reason.startswith(mini.TOOLS_MISSING + 'fleet-no-such-tool'), reason
+        with patch.dict(os.environ, {'FLEET_STRICT': '1'}):
+            reason = mini.preflight({**sync_meta, 'brief': str(need)}, [])
+            assert reason.startswith(mini.TOOLS_MISSING + 'fleet-no-such-tool'), reason
     # Remote case-preserving filesystem spelling applies to the whole brief and cwd.
     project = tmp / 'PROJECT'; project.mkdir()
     (project / 'repo').mkdir()
@@ -262,7 +269,8 @@ echo '[{"runId":"old-run","status":"done"}]'
         codex = fake_bin / 'codex'; codex.write_text('#!/bin/sh\nexit 0\n'); codex.chmod(0o755)
         with patch.dict(os.environ, {'PATH': str(fake_bin) + ':' + os.environ['PATH']}), patch.object(mini.os, 'getcwd', return_value=str(tmp)):
             assert mini.preflight({'to':'gpt'}, ['/home/a/Project/repo', '/home/a/Project/writable']) is None
-            assert '缺少路径' in mini.preflight({'to':'gpt'}, ['/home/a/Project/missing'])
+            with patch.dict(os.environ, {'FLEET_STRICT': '1'}):
+                assert '缺少路径' in mini.preflight({'to':'gpt'}, ['/home/a/Project/missing'])
     # A failed transport is unknown, while a successful missing-path check is an error.
     with patch.object(mini, 'call', return_value=subprocess.CompletedProcess([], 255, '', 'unreachable')):
         assert not fleet_go.lint(entry, on='mini')
@@ -329,7 +337,7 @@ fi
     assert proc.returncode != 0 and 'Mini 缺少路径' in proc.stderr, (proc.stdout, proc.stderr)
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','unready','--to','claude','--on','mini','--read','/home/a/missing','--goal','x','--no-lint'], env=env, text=True, capture_output=True)
     assert proc.returncode != 0
-    assert 'Mini 缺少路径：/home/b/missing' in proc.stderr and 'claude 通道不可用' in proc.stderr and '补齐' in proc.stderr
+    assert 'Mini 缺少路径：/home/b/missing' in proc.stderr and 'claude 通道不可用' in proc.stderr and '补齐' in proc.stderr, (proc.stdout, proc.stderr)
     proc = subprocess.run([str(root/'bin/fleet-go'),'new','recheck','--to','gpt','--sol','--read','/home/a/original','--goal','x','--no-lint','--no-launch'], env=env, text=True, capture_output=True)
     assert proc.returncode == 0, proc.stderr
     # 原 brief 标记 Mini，但最新同名 run 在本机时 amend 不应同步到 Mini。

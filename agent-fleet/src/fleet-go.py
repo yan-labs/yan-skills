@@ -295,7 +295,7 @@ def infer_local_auth(text, auth):
     return auth
 
 
-def check_sensitive_actions(text, auth=()):
+def check_sensitive_actions(text, auth=(), action_text=None):
     sections = re.findall(r'^## ([^\n]+)\n(.*?)(?=^## |\Z)', text, re.M | re.S)
     grants = '\n'.join(line for key, value in sections if key in ('授权覆盖', '授权')
                        for line in value.splitlines()
@@ -303,29 +303,36 @@ def check_sensitive_actions(text, auth=()):
     declared = set(auth)
     for match in re.finditer(r'^(?:授权块[：:][ \t]*([a-z,-]+)[ \t]*$|(deploy-prod|paid)[：:][ \t]*(?:已授权|允许))', grants, re.M):
         declared.update((match.group(1) or match.group(2)).split(','))
-    action_lines = re.findall(r'^动作[ \t]*[:：][ \t]*(.*)$', text, re.M)
-    clauses = [*action_lines, *(value for key, value in sections
-                                       if key in ('目标', '正文', '做什么', '验收') or key.startswith('【修订'))]
-    for clause in re.split(r'[。；;\n]', '\n'.join(clauses)):
+    actions = text if action_text is None else action_text
+    # Only remove exact generated templates; user text adjacent to a template remains visible.
+    for name in ('auth-local', 'auth-local-commit', 'auth-readonly-web', 'auth-deploy-prod', 'auth-paid', 'auth-review', 'worktree-close'):
+        template = block(name)
+        pattern = re.escape(template)
+        pattern = re.sub(r'\\\{[A-Za-z_]+\\\}', r'[^\\n]+?', pattern)
+        actions = re.sub(pattern, '', actions)
+    actions = actions.replace('推送范围：仅允许动作行明确要求的代码分支推送，部署、环境分支合入和线上写入须另有授权。', '')
+    actions = re.sub(r'(?:[“"「](?:部署|上线|付费|充值|删除数据|清空数据)[”"」][、，,\s]*)+(?:属于|是)(?:需要授权的)?敏感动作', '', actions)
+    # This is a list of actions to be gated when authorization is absent, not a request to execute them.
+    actions = re.sub(r'生产/线上数据写入、付费、删数据而 brief 与调用方都没有任何对应授权声明', '', actions)
+    for clause in re.split(r'[。；;\n]', actions):
+        # A question about an action is not itself an instruction to perform it.
+        clause = re.sub(r'(?:检查|核查|确认|描述|说明|模拟)是否\s*(?:部署|上线|发布|付费(?:验证)?|充值|删(?:除)?数据)', '', clause)
         # Remove negated actions individually so a prohibition cannot mask another action.
         clause = re.sub(r'(?:不(?:要|会|得|做|进行|允许|涉及)?|禁止|无需)\s*(?:直接)?(?:部署|上线|发布|付费(?:验证)?|充值|删(?:除)?数据)', '', clause)
-        if re.search(r'执行者收尾|未合回则|^\s*受阻', clause):
-            continue
+        clause = re.sub(r'(?:本地|TEST|测试环境)\s*(?:上|里)?(?:部署|发布)|(?:部署|发布)(?:到|至)?\s*(?:本地|TEST\b|测试环境)', '', clause, flags=re.I)
         for kind, pattern, permission in (
             ('部署或线上写入', r'部署|上线|发布到|\b(?:wrangler|vercel|flyctl)\s+deploy\b|\b(?:deploy|write|update|mutate)\b.{0,24}\bprod(?:uction)?\b|(?:生产|线上).{0,16}(?:写入|修改|更新|删除|变更|清空|迁移)|(?:写入|修改|更新|删除|变更|清空|迁移).{0,16}(?:生产|线上)', r'^(?:[-*] )?(?:允许(?:范围[：:]\s*)?|明确授权|已授权)(?:在|对)?(?:生产|线上|部署|上线|正文明确指定的服务与环境（test、生产）上的发布全流程)'),
-            ('付费', r'付费|充值|购买订阅|变更套餐|扣(?:除)?积分|\b(?:paid (?:call|test|verification)|buy (?:credits|subscription))\b', r'^(?:[-*] )?(?:允许(?:范围[：:]\s*)?|明确授权|已授权)(?:当前目标必要的|必要的)?付费'),
+            ('付费', r'付费(?!空间)|充值|购买订阅|变更套餐|扣(?:除)?积分|\b(?:paid (?:call|test|verification)|buy (?:credits|subscription))\b', r'^(?:[-*] )?(?:允许(?:范围[：:]\s*)?|明确授权|已授权)(?:当前目标必要的|必要的)?付费'),
             ('删除数据', r'(?:删除|清空|擦除|清理)[^，。；]{0,12}(?:数据|记录)|(?:数据|记录)[^，。；]{0,12}(?:删除|清空|擦除)|\b(?:DROP|TRUNCATE)\s+TABLE\b|\b(?:delete|wipe|purge)\b.{0,24}\b(?:data|records|database)\b', r'^(?:[-*] )?(?:允许(?:范围[：:]\s*)?|明确授权|已授权)(?:在[^。；]{1,12})?(?:删除|清空).{0,20}(?:数据|记录|数据库)'),
         ):
-            if not re.search(pattern, clause, re.I) or re.search(r'(?:检查|核查|确认|描述|说明|模拟)是否|^\s*(?:仅|只)读', clause):
-                continue
-            if kind == '部署或线上写入' and re.search(r'(?:本地|TEST|测试环境)\s*(?:上|里)?(?:部署|发布)|(?:部署|发布)(?:到|至)?\s*(?:本地|TEST\b|测试环境)', clause, re.I) and not re.search(r'生产|线上|\bprod(?:uction)?\b', clause, re.I):
+            if not re.search(pattern, clause, re.I):
                 continue
             if kind == '付费' and re.search(r'充值|购买订阅|变更套餐|\bbuy (?:credits|subscription)\b', clause, re.I):
                 if not re.search(r'^(?:[-*] )?(?:允许|明确授权|已授权)(?:充值|购买订阅|变更套餐)', grants, re.M):
                     raise ValueError('充值、购买订阅或变更套餐需要独立授权。')
                 continue
             block_grants = ('paid' in declared if kind == '付费'
-                            else 'deploy-prod' in declared and (kind == '部署或线上写入' or re.search(r'生产|线上|测试|\b(?:prod(?:uction)?|test)\b', clause, re.I)))
+                            else kind == '部署或线上写入' and 'deploy-prod' in declared)
             if not block_grants and not re.search(permission, grants, re.M):
                 raise ValueError(f'{kind}需要 brief 或调用方明确授权。')
 
@@ -472,12 +479,12 @@ def retry_command():
     return cmd if sanitized == cmd and not list(secret_findings(cmd)) else None
 
 
-def checked(text, to, simple=False, on='local', extra=False, sol=False, no_lint=False, project=None, auth=()):
+def checked(text, to, simple=False, on='local', extra=False, sol=False, no_lint=False, project=None, auth=(), sensitive_text=None):
     secrets = list(secret_findings(text))
     if secrets:
         raise ValueError('\n'.join(secrets))
     if not strict_dispatch():
-        check_sensitive_actions(text, auth)
+        check_sensitive_actions(text, auth, sensitive_text)
     errors = lint(text, to, simple, on, extra, sol, no_lint, project)
     if errors and not strict_dispatch():
         warnings = [e for e in errors if not e.startswith(('示例', '缺授权块'))]
@@ -1370,10 +1377,11 @@ def amend(args):
         meta['auth'] = infer_local_auth(original, previous_auth)
         if meta['auth'] != previous_auth:
             original = original.replace('## 授权覆盖\n', '## 授权覆盖\n授权块：local-commit\n', 1)
+    sensitive_text = (args.message + '\n' + (args.task_action or '')) if args.say and not strict_dispatch() else None
     if args.auth is not None or args.task_action is not None:
-        checked(original, meta['to'], gpt_tier(meta) == 'terra' and meta['to'] == 'gpt', args.on or meta.get('on') or 'local', True, gpt_tier(meta) in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project'), auth=meta.get('auth', ()))
+        checked(original, meta['to'], gpt_tier(meta) == 'terra' and meta['to'] == 'gpt', args.on or meta.get('on') or 'local', True, gpt_tier(meta) in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project'), auth=meta.get('auth', ()), sensitive_text=sensitive_text)
     else:
-        checked(original, meta['to'], no_lint=meta.get('no_lint', False), auth=meta.get('auth', ()))
+        checked(original, meta['to'], no_lint=meta.get('no_lint', False), auth=meta.get('auth', ()), sensitive_text=sensitive_text)
     original = normalize_actions(original)
     path.write_text(original)
     if not (latest_revision and original[latest_revision.end():].startswith(args.message + '\n\n')):
