@@ -1,3 +1,17 @@
+import { delimiter } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const shimPath = fileURLToPath(new URL('../shims', import.meta.url));
+
+export function codexCommandEnvironment(env = process.env) {
+  const path = [shimPath, ...(env.PATH ?? '').split(delimiter).filter(entry => entry && entry !== shimPath)].join(delimiter);
+  return {
+    env: { ...env, PATH: path, NODE_USE_ENV_PROXY: '1' },
+    // Login startup can replace PATH (for example via macOS path_helper).
+    overrides: ['-c', 'allow_login_shell=false', '-c', `shell_environment_policy.set.PATH=${JSON.stringify(path)}`],
+  };
+}
+
 const headlessOverrides = [
   'features.computer_use=false',
   'mcp_servers.node_repl.enabled=false',

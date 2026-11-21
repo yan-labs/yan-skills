@@ -48,6 +48,7 @@ def heavy(args):
                 owner = {'pid': os.getpid(), 'command': Path(command[0]).name}
                 os.write(fd, json.dumps(owner).encode())
                 print(f'[fleet heavy] acquired {i + 1}/{capacity} pid={owner["pid"]}', file=sys.stderr, flush=True)
+                os.environ['FLEET_HEAVY_LEASE_PID'] = str(owner['pid'])
                 exec_with_lease(fd, command)
             try:
                 owner = json.loads((ROOT / name).read_text())

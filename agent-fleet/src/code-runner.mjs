@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { codexSessionOverrides } from './codex-headless.mjs';
+import { codexCommandEnvironment, codexSessionOverrides } from './codex-headless.mjs';
 import { resolveCodexModel } from './model-family.mjs';
 import { readJSON, readYield, resolveYield, writeYield, localCondition, stageState, saveStages, alignStage } from './yield.mjs';
 import { saveCodexQuota, taskIdentity, queueRecord, setSlotState, acquireSlot } from './queue.mjs';
@@ -126,7 +126,8 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const slot = process.env.FLEET_SLOT_RUN_ID ? queueRecord(process.env.FLEET_SLOT_RUN_ID) : null;
   briefPath ??= slot?.briefPath;
   const identity = taskIdentity({ ...slot, briefPath, review });
-  const overrides = codexSessionOverrides(prompt, identity.auth);
+  const { env: codexEnv, overrides: commandOverrides } = codexCommandEnvironment();
+  const overrides = [...codexSessionOverrides(prompt, identity.auth), ...commandOverrides];
   const metadata = { ...identity, briefPath, slotRunId: slot?.runId, backend: 'codex-exec', threadId: resume || null, sessionId: resume || null,
     steerCount: 0, wakeCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, high, xhigh, max, simple, sol, luna, astra, family, resolvedModel: model, model, tier: effort, serviceTier, review, resumedFrom };
   const production = identity.auth.includes('deploy-prod') || identity.actions.some(action => /生产|部署|发布/.test(action)) ||
@@ -206,7 +207,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const start = args => {
     // Global options go before the exec resume subcommand and its positional prompt.
     const command = [args[0], ...overrides, ...args.slice(1)];
-    const child = spawn(codexBin, command, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, NODE_USE_ENV_PROXY: '1' } });
+    const child = spawn(codexBin, command, { stdio: ['pipe', 'pipe', 'pipe'], env: codexEnv });
     activeChild = child;
     activeDescendants = [];
     child.stdin.on('error', () => {});
