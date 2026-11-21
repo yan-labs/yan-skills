@@ -316,7 +316,11 @@ def check_sensitive_actions(text, auth=()):
             ('付费', r'付费|充值|购买订阅|变更套餐|扣(?:除)?积分|\b(?:paid (?:call|test|verification)|buy (?:credits|subscription))\b', r'^(?:[-*] )?(?:允许(?:范围[：:]\s*)?|明确授权|已授权)(?:当前目标必要的|必要的)?付费'),
             ('删除数据', r'(?:删除|清空|擦除|清理)[^，。；]{0,12}(?:数据|记录)|(?:数据|记录)[^，。；]{0,12}(?:删除|清空|擦除)|\b(?:DROP|TRUNCATE)\s+TABLE\b|\b(?:delete|wipe|purge)\b.{0,24}\b(?:data|records|database)\b', r'^(?:[-*] )?(?:允许(?:范围[：:]\s*)?|明确授权|已授权)(?:在[^。；]{1,12})?(?:删除|清空).{0,20}(?:数据|记录|数据库)'),
         ):
-            if not re.search(pattern, clause, re.I) or re.search(r'(?:检查|核查|确认|描述|说明|模拟)是否|^\s*(?:仅|只)读', clause):
+            checked = clause
+            if kind == '付费':
+                checked = re.sub(r'付费(?=(?:空间|用户|会员|套餐|版|(?:\s*Notion\s*)?导入))', '', checked, flags=re.I)
+                checked = re.sub(r'(?:只有|若|如果)[^。；;\n]*?(?:才停(?:下)?|则停(?:下)?)', lambda m: m.group().replace('付费', ''), checked)
+            if not re.search(pattern, checked, re.I) or re.search(r'(?:检查|核查|确认|描述|说明|模拟)是否|^\s*(?:仅|只)读', clause):
                 continue
             if kind == '部署或线上写入' and re.search(r'(?:本地|TEST|测试环境)\s*(?:上|里)?(?:部署|发布)|(?:部署|发布)(?:到|至)?\s*(?:本地|TEST\b|测试环境)', clause, re.I) and not re.search(r'生产|线上|\bprod(?:uction)?\b', clause, re.I):
                 continue
