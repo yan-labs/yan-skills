@@ -312,6 +312,7 @@ def check_sensitive_actions(text, auth=(), action_text=None):
         actions = re.sub(pattern, '', actions)
     actions = actions.replace('推送范围：仅允许动作行明确要求的代码分支推送，部署、环境分支合入和线上写入须另有授权。', '')
     actions = re.sub(r'(?:[“"「](?:部署|上线|付费|充值|删除数据|清空数据)[”"」][、，,\s]*)+(?:属于|是)(?:需要授权的)?敏感动作', '', actions)
+    actions = re.sub(r'(?:敏感动作|敏感操作)(?:包括|包含|有|为|[:：])\s*(?:(?:部署|上线|付费|充值|删除数据|清空数据)[、，,\s]*)+', '', actions)
     # This is a list of actions to be gated when authorization is absent, not a request to execute them.
     actions = re.sub(r'生产/线上数据写入、付费、删数据而 brief 与调用方都没有任何对应授权声明', '', actions)
     for clause in re.split(r'[。；;\n]', actions):
