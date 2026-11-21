@@ -526,6 +526,7 @@ def command(meta):
     for option in ['review', 'low', 'high', 'xhigh', 'max', 'fast', 'no-fast', 'subagents', 'expect-changes']:
         if meta.get(option):
             args.append('--' + option)
+    if os.environ.get('FLEET_WAIT_QUIET') == '1': args.append('--quiet')
     if meta.get('model'):
         args.extend(['--model', meta['model']])
     return args
@@ -1959,6 +1960,7 @@ def build_parser():
     parser = DispatchParser(description='fleet-go：短参数组装标准 brief；前台执行 fleet。')
     sub = parser.add_subparsers(dest='action', required=True)
     p = sub.add_parser('new')
+    p.add_argument('--quiet', action='store_true')
     p.add_argument('name')
     p.add_argument('--to', choices=PRODUCTS, required=True)
     p.add_argument('--on', choices=['mini', 'local'])
@@ -1994,6 +1996,7 @@ def build_parser():
     p.add_argument('manifest')
     p.add_argument('--dry-run', action='store_true')
     p = sub.add_parser('amend')
+    p.add_argument('--quiet', action='store_true')
     p.add_argument('--local-reason')
     p.add_argument('name')
     p.add_argument('message')
@@ -2012,6 +2015,7 @@ def build_parser():
     group.add_argument('--say', action='store_true')
     group.add_argument('--restart', action='store_true')
     p = sub.add_parser('relaunch')
+    p.add_argument('--quiet', action='store_true')
     p.add_argument('name')
     p.add_argument('--keep-brief', action='store_true', help='沿用已拼装 brief，跳过正文文件更新')
     p.add_argument('--worktree', nargs='?', const='')
@@ -2079,6 +2083,7 @@ def main():
         raise ValueError('请使用 --to gpt|openai|claude|grok|gemini|jev。')
     args = parser.parse_args()
     try:
+        if getattr(args, 'quiet', False): os.environ['FLEET_WAIT_QUIET'] = '1'
         if args.action in ('new', 'amend', 'relaunch') and getattr(args, 'on', None) == 'mini' and mini.on_mini():
             raise ValueError('已在 Mini 上；请使用 --on local --local-reason <理由> 或在派单机执行 --on mini。')
         if hasattr(args, 'name') and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.name) and not (args.action in ('relaunch', 'amend', 'worktree') and args.name.endswith('.brief.md')):

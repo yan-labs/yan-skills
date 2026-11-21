@@ -157,13 +157,13 @@ with tempfile.TemporaryDirectory() as d:
     pulled = tmp/'pulled.md'
     row = {'status':'done', 'verdict':'ok', 'resultPath':'/home/b/.agent-fleet/runs/run-123.result.md'}
     data = base64.b64encode('/home/b/result\nsecond\nthird\n'.encode()).decode()
-    with patch.object(mini, 'wait_events', return_value=['help：fixture']) as receipt, patch.object(mini, 'query', side_effect=[ConnectionError(), row]), patch.object(mini.time, 'sleep'), patch.object(mini, 'call', return_value=subprocess.CompletedProcess([],0,json.dumps(data),'')), patch.dict(os.environ, {'HOME':str(tmp)}, clear=False):
+    with patch.object(mini, 'progress_chunk', return_value={'offset':0,'lines':[]}), patch.object(mini, 'wait_events', return_value=['help：fixture']) as receipt, patch.object(mini, 'query', side_effect=[ConnectionError(), row]), patch.object(mini.time, 'sleep'), patch.object(mini, 'call', return_value=subprocess.CompletedProcess([],0,json.dumps(data),'')), patch.dict(os.environ, {'HOME':str(tmp)}, clear=False):
         assert mini.wait({'id':'run-123','report':str(pulled)}) == 0
         receipt.assert_called_once_with('run-123', True)
         assert not pulled.exists()
         assert mini.read({'id':'run-123','report':str(pulled)}, 'report', pull=True, row=row) == 0
     assert pulled.read_text().startswith('/home/b/result')
-    with patch.object(mini, 'wait_events', side_effect=ConnectionError()), patch.object(mini, 'query', return_value={'status':'failed', 'verdict':'fail', 'exitCode':1, 'resultPath':None}):
+    with patch.object(mini, 'progress_chunk', return_value={'offset':0,'lines':[]}), patch.object(mini, 'wait_events', side_effect=ConnectionError()), patch.object(mini, 'query', return_value={'status':'failed', 'verdict':'fail', 'exitCode':1, 'resultPath':None}):
         assert mini.wait({'id':'failed-run','report':str(tmp/'absent.md')}) == 1
     with patch.object(mini, "MM", str(tmp / "missing-mm")):
         assert not mini.available()
@@ -477,3 +477,25 @@ with tempfile.TemporaryDirectory() as d:
         got = fg.running(False)
         assert len(got) == 301 and got[1]['status'] == 'unreachable'
 print('PASS: path rewrite, mini command assembly, unavailable fallback')
+
+# Remote follow reconnects once and never polls faster than three seconds.
+with patch.object(mini, 'query', side_effect=[ConnectionError(), {'status':'running','model':'codex'}, {'status':'done','verdict':'ok'}]), \
+     patch.object(mini, 'progress_chunk', side_effect=[{'offset':1,'lines':['12:00:00 [codex] 运行 a']}, {'offset':1,'lines':[]}]), \
+     patch.object(mini, 'wait_events', return_value=[]), patch.object(mini, 'record_quota_order'), \
+     patch.object(mini.time, 'sleep') as pause, patch('sys.stderr', new_callable=io.StringIO) as errors:
+    assert mini.wait({'id':'reconnect','report':'/tmp/report'}) == 0
+    assert [call.args[0] for call in pause.call_args_list] == [3, 3]
+    assert errors.getvalue().count('Mini 连接中断') == 1
+
+# Exercise the actual remote payload locally, including its Node module resolution.
+with tempfile.TemporaryDirectory() as tmp:
+    result = Path(tmp) / 'job.result.md'
+    log = Path(tmp) / 'job.log'
+    log.write_text(json.dumps({'method':'item/started','params':{'item':{'type':'commandExecution','command':'pnpm test'}}}) + '\n')
+    def local_progress(script, payload, timeout=30):
+        data = base64.b64encode(json.dumps(payload).encode()).decode()
+        return subprocess.run([sys.executable,'-c',script,data],capture_output=True,text=True,timeout=timeout)
+    with patch.object(mini, 'call', local_progress), patch.object(mini, 'REMOTE_BIN', str(root/'bin/fleet')):
+        chunk = mini.progress_chunk({'id':'job'}, {'resultPath':str(result),'model':'codex'}, 0)
+        assert len(chunk['lines']) == 1 and '运行 pnpm test' in chunk['lines'][0]
+        assert mini.progress_chunk({'id':'job'}, {'resultPath':str(result),'model':'codex'}, chunk['offset'])['lines'] == []

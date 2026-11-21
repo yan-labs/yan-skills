@@ -214,6 +214,7 @@ export function buildBrief(result, { briefLines = DEFAULT_BRIEF_LINES, expectCha
     totalCostUsd: result?.totalCostUsd ?? null,
     ...(result?.billingProvider === 'openai-api' ? { billingProvider: result.billingProvider, providerUsage: result.providerUsage } : {}),
     numTurns: result?.numTurns ?? null,
+    ...(result?.usage !== undefined ? { usage: result.usage, modelUsage: result.modelUsage ?? null } : {}),
     ...(result?.continuation ? { continueCount: result.continueCount, continuation: result.continuation, continueStop: result.continueStop, continuationChecks: result.continuationChecks } : {}),
     preview,
     ...(result?.reportBackfilled ? { reportBackfilled: true } : {}),
@@ -258,6 +259,12 @@ export function formatBriefHuman(brief) {
   if (brief.failureReport) lines.push(`失败事实: ${JSON.stringify(brief.failureReport)}`);
   if (brief.judgeSkipped) lines.push(`judge: ${brief.judgeSkipped}`);
   if (brief.resumedFrom) lines.push(`resumedFrom: ${brief.resumedFrom}`);
+  if (brief.usage) {
+    const u = brief.usage;
+    const values = [u.input_tokens, u.cache_read_input_tokens, u.cache_creation_input_tokens];
+    const total = values.every(Number.isFinite) ? values.reduce((a, b) => a + b, 0) : 0;
+    lines.push(`缓存命中率 ${total > 0 ? (100 * u.cache_read_input_tokens / total).toFixed(2) + '%' : '未知'}`);
+  }
   if (brief.signal) lines.push(`signal: ${brief.signal}`);
   if (brief.error && !brief.ok) lines.push(`error: ${brief.error}`);
   return `${lines.join('\n')}\n`;

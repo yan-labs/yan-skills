@@ -1,3 +1,4 @@
+import { readProgress, reportProgress, progressLimiter } from './live-progress.mjs';
 import { isCodexModel } from './model-family.mjs';
 import { dispatchSession, watchBinding, watchRequest } from './yield.mjs';
 import { spawn } from 'node:child_process';
@@ -307,18 +308,21 @@ function failureFacts(rec) {
     ...inspectGit(rec.cwd, snapshotGit(rec.cwd)) };
 }
 
-export async function waitDetached(spec, { cwd, timeout, originalOutput = false } = {}) {
+export async function waitDetached(spec, { cwd, timeout, originalOutput = false, quiet = false } = {}) {
   const resume = await releaseParentSlot();
   try {
   const id = resolveDetached(spec, cwd);
   const started = Date.now();
-  let warnedAbnormal = false, warnedMailbox = false, nextMailbox = 0;
+  let warnedAbnormal = false, warnedMailbox = false, nextMailbox = 0, offset = 0;
+  const reports = new Set();
+  const progress = progressLimiter(line => process.stdout.write(line + '\n'));
   for (;;) {
     const rec = reconcileDetached(readState(id));
     if (!rec) throw new Error(`找不到 detach 任务 ${id}`);
     const state = detachedState(rec);
+    if (!quiet) { const chunk = readProgress(rec.logPath, offset, rec.model); offset = chunk.offset; for (const line of chunk.lines) progress.add(line); for (const line of reportProgress(rec.reportPath)) { const key = line.slice(9); if (!reports.has(key)) { reports.add(key); progress.add(line); } } }
     const terminal = !['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(state);
-    if (terminal || Date.now() >= nextMailbox) {
+    if (!quiet && (terminal || Date.now() >= nextMailbox)) {
       nextMailbox = Date.now() + 5000;
       try {
         for (const summary of watchRequest('wait-events', { run: id, terminal })) {
@@ -329,11 +333,12 @@ export async function waitDetached(spec, { cwd, timeout, originalOutput = false 
         warnedMailbox = true;
       }
     }
-    if (state === 'abnormal' && !warnedAbnormal) {
+    if (!quiet && state === 'abnormal' && !warnedAbnormal) {
       process.stdout.write(`[agent-fleet] 【心跳异常】${id} 仍有存活进程；wait 继续等待终态，可用 fleet status / fleet stop 检查处理。\n`);
       warnedAbnormal = true;
     }
     if (terminal) {
+      if (!quiet) progress.finish();
       const brief = state === 'abnormal' ? buildBrief({ ...failureFacts(rec), ok: false,
         error: `异常终止；最后心跳 ${rec.heartbeatAt}`, resultPath: rec.resultPath, logPath: rec.logPath })
         : rec.brief ?? buildBrief({ ...failureFacts(rec), ok: false, stopped: state === 'stopped', error: rec.error,
@@ -344,10 +349,14 @@ export async function waitDetached(spec, { cwd, timeout, originalOutput = false 
       if ((!originalOutput || rec.output === undefined || ['abnormal', 'stopped'].includes(state)) && isCodexModel(rec.model)) {
         process.stdout.write(`Codex：steer ${brief.steerCount ?? rec.steerCount ?? 0} 次，resume ${brief.resumeCount ?? rec.resumeCount ?? 0} 次，降级 ${(brief.fallbacks ?? rec.fallbacks)?.length ?? 0} 次\n`);
       }
+      if (!(originalOutput && rec.output !== undefined && /^\s*[\[{]/.test(rec.output))) {
+        const entries = Array.isArray(brief) ? brief : [brief];
+        process.stdout.write(`终态摘要：${entries.map(b => `${b.model || rec.model || 'fleet'} ${b.verdict}`).join('；')}\n`);
+      }
       return (Array.isArray(brief) ? brief.every(b => b.verdict === 'ok') : brief.verdict === 'ok') ? 0 : rec.exitCode || 1;
     }
     if (timeout !== undefined && Date.now() - started >= Number(timeout) * 1000) throw new Error(`等待 ${id} 超时；任务继续运行。`);
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
   } finally { await resume(); }
 }

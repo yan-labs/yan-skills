@@ -437,6 +437,8 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
     subtype: finalResult.subtype,
     stopReason: finalResult.stop_reason ?? null,
     numTurns: finalResult.num_turns,
+    usage: finalResult.usage ?? null,
+    modelUsage: finalResult.modelUsage ?? null,
     durationMs: wallClockDurationMs(startedAt),
     sdkDurationMs: finalResult.duration_ms,
     totalCostUsd: bridge ? null : finalResult.total_cost_usd,
@@ -467,6 +469,7 @@ function logSdkMessage(log, message) {
     if (block?.type === 'text' && block.text) {
       log(oneLine(block.text, 120));
     } else if (block?.type === 'tool_use') {
+      log(redactEvidence(JSON.stringify({ type: 'tool_use', name: block.name, input: block.input })));
       log(`tool=${block.name ?? '?'} ${oneLine(JSON.stringify(block.input ?? {}), 80)}`);
     }
   }

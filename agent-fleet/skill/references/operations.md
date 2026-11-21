@@ -10,7 +10,7 @@
 
 ## 启动与接续
 
-`fleet` / `fleet-go` 任务从会话中启动时，一条后台工具调用只放一条命令。Bash 工具可用 `run_in_background: true`，命令本身保持前台运行以接收终态。
+`fleet` / `fleet-go` 任务从会话中启动时，一条后台工具调用只放一条命令。Bash 工具可用 `run_in_background: true`，命令本身保持前台运行以接收终态。后台启动命令不要接 `| tail`、`| head`、`grep` 等可能缓冲输出的管道，让过程直接输出。
 
 - 任务默认独立运行：监督进程脱离派发者，launcher 等到终态才退出并给简报，关闭 Claude 不影响任务；launcher 或 `fleet wait` 退出时触发完成通知。脚本需要立即返回用 `--no-wait`，旧的前台行为用 `--attach`。
 - `--name <短名>`、`--report <路径>` 未传时从 brief 的归类行和 `REPORT:` 行提取。

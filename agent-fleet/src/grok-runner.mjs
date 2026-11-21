@@ -95,6 +95,8 @@ export async function runGrok({ prompt, cwd = process.cwd(), model, review = fal
             timeline(timing);
             if (event.type === 'tool_call_update') toolIds.delete(event.toolCallId);
           }
+          if (event.type === 'tool_call' && event.rawInput?.command) timeline({ type: 'tool_call', input: { command: String(event.rawInput.command).trim().split(/\s+/)[0] } });
+          if (event.type === 'tool_call' && /edit|write|patch/i.test(event.name || event.toolName || '') && (event.rawInput?.file_path || event.rawInput?.path)) timeline(JSON.parse(redactEvidence({ type: 'tool_call', name: event.name || event.toolName, input: { path: event.rawInput.file_path || event.rawInput.path } })));
           // 不落盘 thought/signature 和工具参数，日志只保留正文、计时和结束状态。
           if (event.type === 'text') {
             if (typeof event.data !== 'string') { parseError = 'Grok text 事件缺少 data 正文'; return; }

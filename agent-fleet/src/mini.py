@@ -364,7 +364,7 @@ r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini'
     STORE.mkdir(parents=True, exist_ok=True)
     (STORE / (rec['id'] + '.json')).write_text(json.dumps(rec, ensure_ascii=False) + '\n')
     print('Mini runId: ' + rec['id'], flush=True)
-    return wait(rec, meta.get('pull', False))
+    return wait(rec, meta.get('pull', False), '--quiet' in argv)
 
 STATUS_KEYS = ('runId', 'status', 'state', 'verdict', 'exitCode', 'resultPath', 'startedAt', 'finishedAt', 'model', 'duration', 'heartbeatAt', 'launchDetached', 'activeMs', 'waitMs', 'pollCount', 'pending')
 
@@ -372,7 +372,9 @@ def query(rec, timeout=20, kill_group=False):
     script = PATH_FIX + '''import base64,json,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary; r=subprocess.run([str(binary),'status','--json'],capture_output=True,text=True,check=True); rows=json.loads(r.stdout); row=next((x for x in rows if x.get('runId')==p['id']),None)
 if row is None: row=json.loads((pathlib.Path.home()/'.agent-fleet/runs'/(p['id']+'.json')).read_text())
-print(json.dumps({k:row.get(k) for k in p['keys']}))
+output={k:row.get(k) for k in p['keys']}
+brief=row.get('brief'); output['usage']=brief.get('usage') if isinstance(brief,dict) else None
+print(json.dumps(output))
 '''
     if kill_group:
         p = call(script, {**rec, 'bin': REMOTE_BIN, 'keys': STATUS_KEYS}, timeout=timeout, kill_group=True)
@@ -471,9 +473,9 @@ def parent_slot_released():
         if lease.returncode: raise ValueError('父单恢复槽位失败')
 
 
-def wait(rec, pull=False):
+def wait(rec, pull=False, quiet=False):
     with parent_slot_released():
-        return _wait(rec, pull)
+        return _wait(rec, pull, quiet)
 
 
 def record_quota_order(rec, row):
@@ -514,24 +516,71 @@ sys.exit(subprocess.run([str(binary), 'watch', '--serve'], input=json.dumps(['wa
     return json.loads(reply.stdout)
 
 
-def _wait(rec, pull=False):
+def progress_chunk(rec, row, offset):
+    script = PATH_FIX + """import base64,json,pathlib,subprocess,sys
+p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary
+module=binary.resolve().parent.parent/'src/live-progress.mjs'
+code="const m=await import(process.argv[1]); const r=m.readProgress(process.argv[2], Number(process.argv[3]), process.argv[4]); r.reports=m.reportProgress(process.argv[5]); console.log(JSON.stringify(r))"
+result=subprocess.run(['node','--input-type=module','-e',code,module.as_uri(),p['log'],str(p['offset']),p['model'],p['report']],capture_output=True,text=True,check=True)
+print(result.stdout,end='')
+"""
+    result_path = row.get('resultPath') or ''
+    log = result_path.removesuffix('.result.md') + '.log' if result_path else ''
+    result = call(script, {'bin': REMOTE_BIN, 'log': log, 'offset': offset, 'model': row.get('model') or 'fleet', 'report': remote_path(rec.get('report') or '')}, timeout=12)
+    if result.returncode: raise ConnectionError('Mini 过程日志暂不可读')
+    return json.loads(result.stdout)
+
+
+def _wait(rec, pull=False, quiet=False):
     warned_mailbox = False
+    offset = 0
+    last = None
+    repeated = count = omitted = 0
+    disconnected = False
+    reports = set()
+    def emit(line):
+        print(line, flush=True)
     while True:
         try:
             row = query(rec)
+            if not quiet:
+                chunk = progress_chunk(rec, row, offset)
+                offset = chunk['offset']
+                fresh_reports = [line for line in chunk.get('reports', []) if line[9:] not in reports]
+                reports.update(line[9:] for line in fresh_reports)
+                for line in chunk['lines'] + fresh_reports:
+                    key = re.match(r'^\S+ (\[[^]]+\] (?:运行|改|更新计划|等待外部条件|已唤醒|等待执行槽位))', line)
+                    key = key.group(1) if key else line
+                    if key == last:
+                        repeated += 1
+                        continue
+                    if repeated:
+                        if count < 300:
+                            emit(f'           [progress] 同类事件另有 {repeated} 条'); count += 1
+                        else: omitted += repeated
+                        repeated = 0
+                    last = key
+                    if count < 300: emit(line); count += 1
+                    else: omitted += 1
+            disconnected = False
             terminal = row.get('status') not in ('running', 'queued', 'parked', 'waiting', 'abnormal')
             try:
-                for summary in wait_events(rec['id'], terminal):
+                for summary in ([] if quiet else wait_events(rec['id'], terminal)):
                     print(f"[agent-fleet] 【待答复 ask】runId={rec['id']} {summary}，用 fleet say {rec['id']} 回复。", flush=True)
             except (ConnectionError, OSError, subprocess.SubprocessError, ValueError):
                 if not warned_mailbox:
                     print('Mini 信箱暂不可读。', file=sys.stderr, flush=True)
                     warned_mailbox = True
             if terminal:
+                if repeated:
+                    if count < 300: emit(f'           [progress] 同类事件另有 {repeated} 条')
+                    else: omitted += repeated
+                if omitted: emit(f'           [progress] 超出上限，省略 {omitted} 条事件')
                 break
         except (ConnectionError, OSError, subprocess.TimeoutExpired, ValueError):
-            print('Mini 连接中断，等待重连…', file=sys.stderr, flush=True)
-        time.sleep(5)
+            if not disconnected: print('Mini 连接中断，等待重连…', file=sys.stderr, flush=True)
+            disconnected = True
+        time.sleep(3)
     record_quota_order(rec, row)
     while True:
         try:
@@ -546,6 +595,12 @@ def _wait(rec, pull=False):
                 report_error = read(rec, 'report', pull=True, row=row)
                 result_error = read(rec, 'result', pull=True, row=row)
                 if report_error or result_error: return row.get('exitCode') or 1
+            usage = row.get('usage')
+            if isinstance(usage, dict):
+                values = [usage.get(k) for k in ('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens')]
+                total = sum(values) if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in values) else 0
+                print('缓存命中率 ' + (f'{100 * values[1] / total:.2f}%' if total > 0 else '未知'))
+            print('终态摘要：' + str(row.get('verdict')))
             return 0 if row.get('verdict') == 'ok' else (row.get('exitCode') or 1)
         except (ConnectionError, OSError, subprocess.TimeoutExpired):
             print('Mini 连接中断，等待重连…', file=sys.stderr, flush=True); time.sleep(5)
@@ -565,5 +620,5 @@ if __name__ == '__main__':
         sys.exit(0)
     if rec.get('local'): sys.exit(2)
     if sys.argv[1] == 'has': sys.exit(0)
-    if sys.argv[1] == 'wait': sys.exit(wait(rec, '--pull' in sys.argv[3:]))
+    if sys.argv[1] == 'wait': sys.exit(wait(rec, '--pull' in sys.argv[3:], '--quiet' in sys.argv[3:]))
     sys.exit(forward([sys.argv[1], rec['id'], *sys.argv[3:]]))

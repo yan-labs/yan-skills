@@ -414,7 +414,7 @@ async function cmdResume(argv) {
     }
     const nextId = await launchDetached(fileURLToPath(import.meta.url), args, { cwd: flags.cwd ? resolvePath(flags.cwd) : rec.cwd || process.cwd(), model: `grok-cli:${model}`,
       review: Boolean(rec.review || flags.review), auth: rec.auth, actions: rec.actions, briefPath: rec.briefPath, name: flags.name ?? rec.name, reportPath: flags.report ?? rec.reportPath, noWait: Boolean(flags['no-wait']) });
-    if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true });
+    if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true, quiet: Boolean(flags.quiet || flags.json) });
     return;
   }
   if (isCodexModel(rec.model)) {
@@ -448,7 +448,7 @@ async function cmdResume(argv) {
     }
     const nextId = await launchDetached(fileURLToPath(import.meta.url), args, { cwd, model: rec.model,
       review: Boolean(rec.review || flags.review), auth: rec.auth, actions: rec.actions, briefPath: rec.briefPath, name, reportPath, noWait: Boolean(flags['no-wait']) });
-    if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true });
+    if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true, quiet: Boolean(flags.quiet || flags.json) });
     return;
   }
   if (!rec.sessionId) {
@@ -668,7 +668,7 @@ async function main() {
         finishAttached = await enterAttachedSlot(launchOptions);
       } else {
         const runId = await launchDetached(fileURLToPath(import.meta.url), [command, ...positionals, ...args], launchOptions);
-        if (!flags['no-wait']) process.exitCode = await waitDetached(runId, { originalOutput: true });
+        if (!flags['no-wait']) process.exitCode = await waitDetached(runId, { originalOutput: true, quiet: Boolean(flags.quiet || flags.json) });
         return;
       }
     }
@@ -694,7 +694,7 @@ async function main() {
       case 'wait': {
         const { flags, positionals } = splitShortArgs(rest);
         if (!positionals[0]) throw new Error('用法: fleet wait <runId|latest> [--timeout 秒]');
-        process.exitCode = await waitDetached(positionals[0], { cwd: matchCwd(flags), timeout: flags.timeout });
+        process.exitCode = await waitDetached(positionals[0], { cwd: matchCwd(flags), timeout: flags.timeout, quiet: Boolean(flags.quiet || flags.json) });
         break;
       }
       case 'copy':
