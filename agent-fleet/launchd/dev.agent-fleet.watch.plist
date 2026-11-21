@@ -6,8 +6,8 @@
   <string>dev.agent-fleet.watch</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/python3</string>
-    <string>/ABSOLUTE/PATH/TO/.agent-fleet/runtime/current/agent-fleet/bin/fleet-watch.py</string>
+    <string>/ABSOLUTE/PATH/TO/.agent-fleet/runtime/current/agent-fleet/bin/fleet</string>
+    <string>watch</string>
     <string>--dispatch</string>
   </array>
   <key>EnvironmentVariables</key>

@@ -32,9 +32,8 @@ def remote_fleet(configured):
     if binary.is_dir():
         binary /= 'fleet'
     # Migrate legacy transport configuration without changing local config files.
-    legacy = Path.home() / 'PROJECT/kcsx/macmini/yan-skills/agent-fleet/bin/fleet'
     runtime = Path.home() / '.agent-fleet/runtime/current/agent-fleet/bin/fleet'
-    if binary == legacy and runtime.is_file():
+    if binary.parts[-4:] == ('yan-skills', 'agent-fleet', 'bin', 'fleet') and runtime.is_file():
         binary = runtime
     return binary.resolve(strict=True)
 """

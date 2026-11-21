@@ -261,7 +261,12 @@ def timer_run(timer):
     return 'timer-' + hashlib.sha256(key.encode()).hexdigest()
 
 
-def dispatch(db, now, fleet=FLEET / 'bin/fleet'):
+def dispatch(db, now, fleet=None):
+    if fleet is None:
+        # A resident watcher stays pinned while newly started jobs use current.
+        runtime = Path.home() / '.agent-fleet/runtime'
+        fleet = (runtime / 'current/agent-fleet/bin/fleet'
+                 if FLEET.parent.parent == runtime else FLEET / 'bin/fleet')
     timers = db.execute('SELECT * FROM timers WHERE due<=? ORDER BY due,id', (now,)).fetchall()
     for timer in timers:
         try:
