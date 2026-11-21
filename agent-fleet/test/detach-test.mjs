@@ -587,7 +587,7 @@ with mini.parent_slot_released():
     const separate=await start('separate',[join(scratch,'repo-wt','separate')]);
     await until(()=>began(separate),'independent worktree starts');release(separate);await waitDetached(separate);
     const frontCollision=await cliRun(['code',join(queueRuns,'writer.brief.md'),'--cwd',scratch,'--attach'],{AGENT_FLEET_RUNS_DIR:queueRuns,FLEET_SLOT_CAPACITY:'5'});
-    assert.equal(frontCollision.code,1);assert.match(frontCollision.stderr,/可写路径重叠/);
+    assert.equal(frontCollision.code,1);assert.match(frontCollision.stderr,/任务名或报告与运行中任务冲突/);
     const after=await start('after',[join(scratch,'repo','src')],'writer');
     assert.equal(queueRecord(after).state,'queued');assert(!began(after));
     await setSlotState(writer,'parked');await sleep(350);assert(!began(after),'park retains dependency/path ownership');
