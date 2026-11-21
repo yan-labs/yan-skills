@@ -2,7 +2,7 @@
 
 ## Brief
 
-围绕一个目标写 brief。CLI 生成归类、REPORT 和[六条思维准则](../templates/blocks/thinking-principles.md)。路径、环境和证据先核实。项目内长期固定的约定放进项目场景，本单正文补变化项。
+围绕一个目标写 brief。CLI 生成归类、REPORT 和[六条思维准则](../templates/blocks/thinking-principles.md)。路径、环境和证据先核实。项目内长期固定的约定放进项目场景，本单正文补变化项。放行行为见[派单检查](fleet-go.md#派单检查)。
 
 | 要核实的事 | 写法 |
 |---|---|

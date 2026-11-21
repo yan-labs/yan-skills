@@ -123,6 +123,7 @@ export async function launchDetached(cli, args, { cwd, model, briefPath, name, r
     child.once('message', msg => {
       clearTimeout(timer);
       if (!msg.ready) return reject(new Error(msg.error || 'detach 启动失败'));
+      for (const warning of msg.warnings ?? []) console.error(warning);
       child.unref();
       resolve();
     });
@@ -223,11 +224,12 @@ export async function supervise(cli) {
   try {
     writePidRecord(rec.runId, { pid: rec.pid, command: rec.command, model: rec.model, cwd: rec.cwd,
       startedAt: rec.startedAt, logPath: rec.logPath, finished: false });
-    await registerQueue(rec);
+    const warnings = [];
+    await registerQueue(rec, warning => warnings.push(redactEvidence(warning)));
     const admitted = await acquireSlot(rec.runId);
     if (!admitted) {
       appendFileSync(rec.logPath, queueEvent('queued'));
-      process.send?.({ ready: true });
+      process.send?.({ ready: true, warnings });
     }
     while (!stopping && !(await acquireSlot(rec.runId))) await new Promise(r => setTimeout(r, 250));
     if (stopping) throw new Error('排队任务已停止。');
@@ -261,7 +263,7 @@ export async function supervise(cli) {
     rec.childPid = child.pid;
     rec.childCommand = processCommand(child.pid);
     beat();
-    if (admitted) process.send?.({ ready: true });
+    if (admitted) process.send?.({ ready: true, warnings });
     if (stopping) stop();
     const { code, signal } = await outcome;
     // 执行器退出也清掉它留下的进程组/子孙，终态不留下后台子任务。

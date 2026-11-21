@@ -279,6 +279,9 @@ print(json.dumps({'missing':missing,'ready':ready,'tools':tools,'timed_out':time
         if value['missing']: reasons.append('Mini 缺少路径：' + value['missing'][0] + '\n'
                                                   + '\n'.join('- ' + p for p in value['missing'][1:])
                                                   + '\n请检查路径是否存在、是否分隔符写错。')
+        if reasons and os.environ.get('FLEET_STRICT') != '1':
+            print('提示：' + '；'.join(reasons).replace('\n', ' '), file=sys.stderr)
+            reasons.clear()
         if not value['ready']: reasons.append('Mini 的 ' + meta['to'] + ' 通道不可用')
         return '；'.join(reasons) if reasons else None
     except (OSError, subprocess.TimeoutExpired, ValueError, KeyError):
@@ -314,11 +317,13 @@ def launch(meta, argv):
     match = re.search(r'^\s*仓库\s*[:：]\s*(/[^\s`]+)', Path(meta['brief']).read_text(), re.M)
     repo = remote_path(match.group(1)) if match else ''
     payload = {'files': files, 'args': args, 'cwd': remote_path(os.getcwd()), 'repo': repo, 'report': remote_path(meta['report']), 'home': REMOTE_HOME, 'temporary_cwd': meta.get('temporary_cwd', False)}
+    payload['name'] = meta['name']
+    payload['strict'] = os.environ.get('FLEET_STRICT', '')
     payload['seat'] = meta.get('watch_seat') or ''
     payload['session'] = meta.get('dispatch_session') or ''
     payload['parent'] = (os.environ.get('FLEET_SLOT_RUN_ID') or os.environ.get('FLEET_DETACHED_RUN_ID')
                          or os.environ.get('FLEET_PARENT_RUN_ID') or '')
-    script = PATH_FIX + '''import base64,json,os,pathlib,subprocess,sys,tempfile
+    script = PATH_FIX + '''import base64,fcntl,json,os,pathlib,subprocess,sys,tempfile
 p=json.loads(base64.b64decode(sys.argv[1]));
 ''' + CANONICAL_SCRIPT + '''
 p['args']=[canonical(x) for x in p['args']]; p['cwd']=canonical(p['cwd']); p['repo']=canonical(p['repo']); p['report']=canonical(p['report'])
@@ -329,15 +334,29 @@ if not pathlib.Path(p['cwd']).is_dir():
  print('Mini 工作目录不存在，改用：' + p['cwd'], flush=True)
 p['files']={canonical(k):canonical(v) for k,v in p['files'].items()}
 binary=pathlib.Path(p['args'][0]); p['args'][0]=str(binary/'fleet' if binary.is_dir() else binary)
+transfer_lock=pathlib.Path(p['args'][2]).parent/'.dispatch.lock'
+transfer_lock.parent.mkdir(parents=True,exist_ok=True)
+lock=transfer_lock.open('a')
+fcntl.flock(lock,fcntl.LOCK_EX)
+if any(pathlib.Path(name).exists() for name in p['files']):
+ state=subprocess.run([p['args'][0],'status','--json'],capture_output=True,text=True,check=True)
+ for row in json.loads(state.stdout):
+  if row.get('status') not in ('running','queued','parked','waiting','abnormal'): continue
+  brief=row.get('briefPath')
+  if row.get('name')==p['name'] or (brief and str(pathlib.Path(brief).resolve()) in p['files']):
+   sys.exit('[fleet-queue-rejected] 任务名或 brief 与 Mini 运行中任务冲突。')
 for name,text in p['files'].items():
  f=pathlib.Path(name); f.parent.mkdir(parents=True,exist_ok=True); f.write_text(text)
 pathlib.Path(p['report']).parent.mkdir(parents=True,exist_ok=True)
-r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini','FLEET_SEAT':p['seat'],'FLEET_LINE':'','FLEET_DISPATCH_SESSION':p['session'],'FLEET_PARENT_RUN_ID':p['parent']},capture_output=True,text=True); print(r.stdout,end=''); print(r.stderr,end='',file=sys.stderr); sys.exit(r.returncode)
+r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini','FLEET_STRICT':p['strict'],'FLEET_SEAT':p['seat'],'FLEET_LINE':'','FLEET_DISPATCH_SESSION':p['session'],'FLEET_PARENT_RUN_ID':p['parent']},capture_output=True,text=True); print(r.stdout,end=''); print(r.stderr,end='',file=sys.stderr); sys.exit(r.returncode)
 '''
     p = call(script, payload)
     if p.returncode and '[fleet-queue-rejected]' in (p.stderr or ''):
         raise QueueRejected((p.stderr or '')[-2000:])
     if p.returncode: raise ValueError('Mini 启动失败；请检查 Mini 端任务状态，避免重复启动。\n' + ((p.stderr or '') + (p.stdout or ''))[-600:])
+    for line in (p.stderr or '').splitlines():
+        if line.startswith(('提示：重复问题：', '提示：可写路径重叠：')):
+            print(line, file=sys.stderr)
     if p.stdout.startswith('Mini 工作目录不存在'): print(p.stdout.splitlines()[0], flush=True)
     m = re.search(r'^runId: (\S+)', p.stdout, re.M)
     if not m: raise ValueError('Mini 启动回执缺少 runId；请先检查 Mini 端状态。')

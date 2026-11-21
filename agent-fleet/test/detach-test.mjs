@@ -63,7 +63,7 @@ writeFileSync(loader, `export async function resolve(specifier, context, next) {
 }`);
 const cfg = join(scratch, 'models.json');
 writeFileSync(cfg, JSON.stringify({ stub: { model: 'stub-gemini', baseURL:'http://127.0.0.1:1', apiKeyEnv:'FLEET_TEST_KEY' } }));
-const env = { ...process.env, FLEET_TEST_SLEEP:'1', FLEET_TEST_EXIT:'0', AGENT_FLEET_RUNS_DIR:runs, FLEET_CODEX_BIN:stub, FLEET_CODEX_BACKEND:'exec', FLEET_NO_ARCHIVE_SWEEP:'1',
+const env = { ...process.env, FLEET_STRICT:'1', FLEET_TEST_SLEEP:'1', FLEET_TEST_EXIT:'0', AGENT_FLEET_RUNS_DIR:runs, FLEET_CODEX_BIN:stub, FLEET_CODEX_BACKEND:'exec', FLEET_NO_ARCHIVE_SWEEP:'1',
   FLEET_TEST_PIDS:join(scratch,'pids'), FLEET_TEST_RESULT:join(scratch,'gateway-result'),
   FLEET_TEST_KEY:'fake-test-key', NODE_OPTIONS:`--no-warnings --experimental-loader=${pathToFileURL(loader).href}` };
 // 测试启动器不能继承宿主 fleet 的执行器身份。
@@ -389,6 +389,10 @@ console.log(`PASS detach integration; artifacts: ${scratch}`);
   const queueRuns = join(scratch, 'queue-runs');
   mkdirSync(queueRuns);
   const oldRuns = process.env.AGENT_FLEET_RUNS_DIR;
+  const oldStrict = process.env.FLEET_STRICT;
+  const oldQuotaLimit = process.env.FLEET_CODEX_QUOTA_LIMIT;
+  process.env.FLEET_CODEX_QUOTA_LIMIT = '80';
+  process.env.FLEET_STRICT = '1';
   process.env.AGENT_FLEET_RUNS_DIR = queueRuns;
   const { launchDetached, waitDetached, detachedState } = await import('../src/detach.mjs');
   const { queueRecord, setSlotState, saveCodexQuota, pathsOverlap, canonicalPath, slotPool, registerQueue, taskIdentity, releaseParentSlot, acquireSlot } = await import('../src/queue.mjs');
@@ -553,6 +557,21 @@ with mini.parent_slot_released():
     const writer=await start('writer',[join(scratch,'repo')]);
     await until(()=>began(writer),'writer starts');
     await assert.rejects(start('collision',[join(scratch,'repo','src')]), err => { assert.match(err.message,/可写路径重叠/); assert.ok(err.message.includes(join(scratch,'repo','src'))); assert.ok(err.message.includes(join(scratch,'repo'))); assert.match(err.message,/fleet-go relaunch 'collision' --worktree[\s\S]*--after 'writer'/); assert.doesNotMatch(err.message,/fleet say/); return true; });
+    process.env.FLEET_STRICT = '';
+    try {
+      const existing = queueRecord(writer);
+      await assert.rejects(registerQueue({...existing, runId:'same-live-name'}), /任务名或报告与运行中任务冲突/);
+      const briefPath = join(scratch, 'relaxed-overlap.brief.md');
+      writeFileSync(briefPath, 'fixture');
+      writeFileSync(briefPath.replace(/\.md$/, '.json'), JSON.stringify({object:existing.object}));
+      const messages = [];
+      await registerQueue({runId:'relaxed-overlap', name:'relaxed-overlap', briefPath, model:'mock'},
+        message => messages.push(message));
+      assert(messages.some(message => message.includes('可写路径重叠')));
+      await setSlotState('relaxed-overlap','done');
+    } finally {
+      process.env.FLEET_STRICT = '1';
+    }
     mkdirSync(join(scratch,'repo-wt','linked'), {recursive:true});
     symlinkSync(join(scratch,'repo'), join(scratch,'repo-wt','linked','link'));
     await assert.rejects(start('wt-link',[join(scratch,'repo-wt','linked','link')],null,'mini','mock','wt-link',5,{worktree:{repo:join(scratch,'repo'),path:join(scratch,'repo-wt','linked')}}), /可写路径重叠/);
@@ -614,6 +633,8 @@ with mini.parent_slot_released():
   } finally {
     for(const id of launched) release(id);
     for(const id of launched) await waitDetached(id);
+    if(oldQuotaLimit===undefined) delete process.env.FLEET_CODEX_QUOTA_LIMIT; else process.env.FLEET_CODEX_QUOTA_LIMIT=oldQuotaLimit;
+    if(oldStrict===undefined) delete process.env.FLEET_STRICT; else process.env.FLEET_STRICT=oldStrict;
     if(oldRuns===undefined) delete process.env.AGENT_FLEET_RUNS_DIR; else process.env.AGENT_FLEET_RUNS_DIR=oldRuns;
   }
   console.log('queue: fifth/sixth, automatic completion/park admission, overlap, --after and duplicate question passed');

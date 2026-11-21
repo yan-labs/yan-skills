@@ -53,7 +53,7 @@ if(args[0]==='code' && process.env.QUEUE_RESULT) {
 }
 `, { mode: 0o755 });
 writeFileSync(join(bin, 'pgrep'), '#!/bin/sh\nif [ -n "${RESIDUAL:-}" ]; then\n printf "%s\\n" "$RESIDUAL"\n exit 0\nfi\nexit 1\n', { mode: 0o755 });
-const env = { ...process.env, FLEET_DEFAULT_ON: 'local', HOME: home, PATH: bin + ':' + process.env.PATH, CALLS: calls, STATES: states };
+const env = { ...process.env, FLEET_STRICT: '1', FLEET_DEFAULT_ON: 'local', HOME: home, PATH: bin + ':' + process.env.PATH, CALLS: calls, STATES: states };
 const run = (args, extra={}) => spawnSync(script, ['new','lint'].includes(args[0]) ? [...args, '--no-lint'] : args, { encoding:'utf8', env:{...env,...extra}, input:'' });
 const history = () => existsSync(calls) ? readFileSync(calls,'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [];
 const reset = () => writeFileSync(calls, '');
@@ -523,7 +523,7 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
       ['未知动作',entry,[],/未知或空动作/],
     ]) { r=strict(action,body,opts); assert.equal(r.status,1,action); assert.match(r.stderr,expected); assert.match(r.stderr,/示例（按实际任务和授权修改）/); }
     r=strict('错误动作',entry); assert.match(r.stderr,/合法集合：只读、改代码、本地提交、推送、部署、付费/);
-    r=strict('只读','## 入口\n仓库：/tmp\n自己找 token=abcdefghijklmnopqrstuv'); assert.equal(r.status,1); assert.match(r.stderr,/命中原文：自己找/); assert.doesNotMatch(r.stderr,/abcdefghijklmnopqrstuv/);
+    r=strict('只读','## 入口\n仓库：/tmp\n自己找 token=abcdefghijklmnopqrstuv'); assert.equal(r.status,1); assert.match(r.stderr,/发现疑似密钥字面量/); assert.doesNotMatch(r.stderr,/abcdefghijklmnopqrstuv/);
     assert.equal(strict('只读','## 入口\n仓库：/tmp\n未知',['--sol']).status,0);
     r=strict('本地提交',entry+'PR 合入后装到 launchd 路径并回读。',['--auth','local-commit']); assert.equal(r.status,1); assert.match(r.stderr,/deploy-prod/);
     assert.equal(strict('只读',readEntry+'核查是否部署。').status,0);
@@ -536,6 +536,41 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
     writeFileSync(f,readFileSync(f,'utf8').replace('动作: 只读','动作: 本地提交'));
     r=spawnSync(script,['lint',f,'--on','local'],{encoding:'utf8',env}); assert.equal(r.status,1); assert.match(r.stderr,/local-commit/);
     assert.equal(spawnSync(script,['lint',f,'--no-lint','--on','local'],{encoding:'utf8',env}).status,1);
+  });
+  test('默认宽松预览，严格模式和敏感动作仍拒绝', () => {
+    const entry = `## 入口\n仓库：${temp}\n`;
+    const preview = (name, action, body = entry, strict = false, extra = []) =>
+      spawnSync(script, ['new', name, '--to', 'gpt', '--goal', '整理代码', '--dry-run', '--action', action, ...extra],
+        {encoding:'utf8', env:{...env,FLEET_STRICT:strict ? '1' : ''}, input:body});
+    for (const [name, action] of [['push-lite','推送'], ['write-lite','改代码'], ['free-action','修正类型']]) {
+      const r = preview(name, action);
+      assert.equal(r.status, 0, r.stderr);
+      assert.match(r.stdout, /可写路径:/);
+      assert.equal(preview(name, action, entry, true).status, 1);
+      if (action === '推送') assert.match(r.stdout, /授权块：local-commit/);
+    }
+    const prior = 'prior-lite';
+    assert.equal(run(['new',prior,'--to','gpt','--goal','旧任务','--action','只读','--no-launch']).status,0);
+    writeFileSync(states, JSON.stringify([{name:prior,status:'done'}]));
+    const reused = preview(prior,'改代码');
+    assert.equal(reused.status,0,reused.stderr);
+    assert.match(reused.stderr, /本次改用 prior-lite-2/);
+    writeFileSync(states, JSON.stringify([{name:prior,status:'running'}]));
+    assert.match(preview(prior,'改代码').stderr, /同名任务仍未结束/);
+    writeFileSync(states, '[]');
+
+    for (const action of ['推送 / 部署', '同步生产数据并写入', '跑付费验证', '删除测试数据', '不部署；删除历史数据']) {
+      const r = preview('risk-lite', action);
+      assert.equal(r.status, 1, action);
+      assert.match(r.stderr, /需要 brief 或调用方明确授权/);
+    }
+    assert.equal(preview('push-negative','推送 / 不部署').status,0);
+    assert.equal(preview('paid-authorized','付费验证',entry,false,['--auth','paid']).status,0);
+    assert.equal(preview('delete-authorized','删除测试数据',entry+'## 授权\n允许删除指定测试数据。').status,0);
+    const fake = 'abcdefghijklmnopqrstuv';
+    const secret = preview('secret-lite','修正类型',entry + 'token=' + fake);
+    assert.equal(secret.status,1);
+    assert.doesNotMatch(secret.stdout+secret.stderr, new RegExp(fake));
   });
   test('豁免样板的任务重派及修订授权动作', () => {
     const body=join(temp,'dx-entry.md');

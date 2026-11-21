@@ -35,11 +35,11 @@
 - 场景按源码样板、全局场景、兼容旧项目路径 `.rankup/dispatch-scenes/`、项目新路径依次覆盖同名场景。
 - 场景文件由两行 `---` 围住 JSON 头，后接 Markdown 正文。字段包括 `description`、`keywords`、`auth`、`action`、`tier`、`writes`、`acceptance`。`keywords`、`writes`、`acceptance` 用数组。验收项按 [Brief 规则](dispatch-discipline.md#brief) 写编号和 owner；编号冲突会调整。
 - `new --scene` 接受逗号分隔的场景名，`--scene none` 跳过匹配。省略时按 goal 与正文中的关键词子串查找，唯一匹配自动选用，多项须显式选择。显式授权、动作和档位优先；多场景默认值冲突需显式指定，写入模板由派单方填写。
-- 可选的 `.agent-fleet/project.json` 用 `briefGates` 声明必填节，例如 `{"briefGates":[{"when":{"action":"改代码"},"section":"验收环境","fields":["入口","版本"],"hint":"填写已核实的值"}]}`。匹配指定动作时，正文需要对应二级标题以及每个非空的字段行。
+- 可选的 `.agent-fleet/project.json` 用 `briefGates` 声明必填节，例如 `{"briefGates":[{"when":{"action":"改代码"},"section":"验收环境","fields":["入口","版本"],"hint":"填写已核实的值"}]}`。匹配指定动作时检查对应二级标题和非空字段。
 
 ## 预览与预检
 
-`--dry-run` 把 brief 写到 stdout，把各样板字符数、它们相对于完整 brief 的占比、将执行的命令和适用的默认回滚提示写到 stderr。用 `--no-launch` 仅生成 brief。`fleet-go lint` 检查样板及凭据泄漏，`--no-lint` 仍保留入口和授权检查。`fleet-go batch` 读取每项为 `new` 参数数组的 JSON 清单，输出路径重叠矩阵。
+`--dry-run` 把 brief 写到 stdout，把各样板字符数、它们相对于完整 brief 的占比、将执行的命令和适用的默认回滚提示写到 stderr。用 `--no-launch` 仅生成 brief。`fleet-go lint` 可单独检查 brief。`fleet-go batch` 读取每项为 `new` 参数数组的 JSON 清单，输出路径重叠矩阵。
 
 以下代码块供仓库的示例测试读取。入口使用现存的临时目录，命令只预览。直接可运行的写法见[快速派单](../SKILL.md#快速派单)。
 
@@ -52,9 +52,15 @@ V1 核对 README 的文档入口｜owner：本单
 BRIEF
 ```
 
+## 派单检查
+
+默认补齐归类、报告和样板。未填可写路径时使用明确的写路径、仓库/项目或报告目录。明确的本地提交或代码推送记入 `local-commit`，仅限指定分支推送。生产部署、线上写入、付费和删数据须在 brief 或调用参数中明确授权。检查拒绝凭据字面量和运行中任务的同名或报告冲突。已结束的同名任务使用新后缀，原产物保留。
+
+入口字段、动作词、项目验收字段、Mini 路径、重复问题和写范围重叠默认提示，样板占比随预览显示。用 `FLEET_STRICT=1` 恢复这些检查原有的严格行为。无效的启动选项、不可用的通道、明确的调遣停用和前置依赖仍需解决。槽位满时排队，额度按已有额度策略处理。
+
 ## 重叠与工作树
 
-可写路径重叠有三种修法。缩小到真实互斥的子目录，给同仓写入者各建 `--worktree`，或者用 `--after` 明确串行。REPORT 和 checkpoint 按任务分配，勿将共享报告根当作写入范围。报错给出占用者和冲突路径。已有任务重新划分写入范围时需更新 brief 与保存的范围，或另建新任务。
+可写路径重叠有三种修法。缩小到真实互斥的子目录，给同仓写入者各建 `--worktree`，或者用 `--after` 明确串行。REPORT 和 checkpoint 按任务分配，勿将共享报告根当作写入范围。提示给出占用者和冲突路径。已有任务重新划分写入范围时需更新 brief 与保存的范围，或另建新任务。
 
 工作树基于入口仓库，缺入口才由写入路径推断。合回并推送后用 `fleet-go worktree prune` 清理本单工作树与本地分支。未合回时保留并记录释放条件。已清理的任务需要续做时，按提示用 `fleet-go worktree recreate`，手工基线可用 `--base`。
 

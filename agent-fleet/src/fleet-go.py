@@ -280,6 +280,56 @@ def repository_free(text, actions):
     return not re.search(r'代码|源码|仓库|worktree|git\b', scope, re.I)
 
 
+def strict_dispatch():
+    return os.environ.get('FLEET_STRICT') == '1'
+
+
+def declared_action(text):
+    match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', text, re.M)
+    return match.group(1) if match else ''
+
+
+def infer_local_auth(text, auth):
+    if not strict_dispatch() and re.search(r'本地提交|推送|\bgit (?:commit|push)\b', declared_action(text), re.I):
+        return list(dict.fromkeys([*(a for a in auth if a != 'local'), 'local-commit']))
+    return auth
+
+
+def check_sensitive_actions(text, auth=()):
+    sections = re.findall(r'^## ([^\n]+)\n(.*?)(?=^## |\Z)', text, re.M | re.S)
+    grants = '\n'.join(line for key, value in sections if key in ('授权覆盖', '授权')
+                       for line in value.splitlines()
+                       if re.match(r'^(?:[-*] )?(?:授权块|允许|明确授权|已授权|local-commit|deploy-prod|paid)', line))
+    declared = set(auth)
+    for match in re.finditer(r'^(?:授权块[：:][ \t]*([a-z,-]+)[ \t]*$|(deploy-prod|paid)[：:][ \t]*(?:已授权|允许))', grants, re.M):
+        declared.update((match.group(1) or match.group(2)).split(','))
+    action_lines = re.findall(r'^动作[ \t]*[:：][ \t]*(.*)$', text, re.M)
+    clauses = [*action_lines, *(value for key, value in sections
+                                       if key in ('目标', '正文', '做什么', '验收') or key.startswith('【修订'))]
+    for clause in re.split(r'[。；;\n]', '\n'.join(clauses)):
+        # Remove negated actions individually so a prohibition cannot mask another action.
+        clause = re.sub(r'(?:不(?:要|会|得|做|进行|允许|涉及)?|禁止|无需)\s*(?:直接)?(?:部署|上线|发布|付费(?:验证)?|充值|删(?:除)?数据)', '', clause)
+        if re.search(r'执行者收尾|未合回则|^\s*受阻', clause):
+            continue
+        for kind, pattern, permission in (
+            ('部署或线上写入', r'部署|上线|发布到|\b(?:wrangler|vercel|flyctl)\s+deploy\b|\b(?:deploy|write|update|mutate)\b.{0,24}\bprod(?:uction)?\b|(?:生产|线上).{0,16}(?:写入|修改|更新|删除|变更|清空|迁移)|(?:写入|修改|更新|删除|变更|清空|迁移).{0,16}(?:生产|线上)', r'^(?:[-*] )?(?:允许(?:范围[：:]\s*)?|明确授权|已授权)(?:在|对)?(?:生产|线上|部署|上线|正文明确指定的服务与环境（test、生产）上的发布全流程)'),
+            ('付费', r'付费|充值|购买订阅|变更套餐|扣(?:除)?积分|\b(?:paid (?:call|test|verification)|buy (?:credits|subscription))\b', r'^(?:[-*] )?(?:允许(?:范围[：:]\s*)?|明确授权|已授权)(?:当前目标必要的|必要的)?付费'),
+            ('删除数据', r'(?:删除|清空|擦除|清理)[^，。；]{0,12}(?:数据|记录)|(?:数据|记录)[^，。；]{0,12}(?:删除|清空|擦除)|\b(?:DROP|TRUNCATE)\s+TABLE\b|\b(?:delete|wipe|purge)\b.{0,24}\b(?:data|records|database)\b', r'^(?:[-*] )?(?:允许(?:范围[：:]\s*)?|明确授权|已授权)(?:在[^。；]{1,12})?(?:删除|清空).{0,20}(?:数据|记录|数据库)'),
+        ):
+            if not re.search(pattern, clause, re.I) or re.search(r'(?:检查|核查|确认|描述|说明|模拟)是否|^\s*(?:仅|只)读', clause):
+                continue
+            if kind == '部署或线上写入' and re.search(r'(?:本地|TEST|测试环境)\s*(?:上|里)?(?:部署|发布)|(?:部署|发布)(?:到|至)?\s*(?:本地|TEST\b|测试环境)', clause, re.I) and not re.search(r'生产|线上|\bprod(?:uction)?\b', clause, re.I):
+                continue
+            if kind == '付费' and re.search(r'充值|购买订阅|变更套餐|\bbuy (?:credits|subscription)\b', clause, re.I):
+                if not re.search(r'^(?:[-*] )?(?:允许|明确授权|已授权)(?:充值|购买订阅|变更套餐)', grants, re.M):
+                    raise ValueError('充值、购买订阅或变更套餐需要独立授权。')
+                continue
+            block_grants = ('paid' in declared if kind == '付费'
+                            else 'deploy-prod' in declared and (kind == '部署或线上写入' or re.search(r'生产|线上|测试|\b(?:prod(?:uction)?|test)\b', clause, re.I)))
+            if not block_grants and not re.search(permission, grants, re.M):
+                raise ValueError(f'{kind}需要 brief 或调用方明确授权。')
+
+
 def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lint=False, project=None):
     errors = []
     first = text.splitlines()[0] if text else ''
@@ -422,8 +472,18 @@ def retry_command():
     return cmd if sanitized == cmd and not list(secret_findings(cmd)) else None
 
 
-def checked(text, to, simple=False, on='local', extra=False, sol=False, no_lint=False, project=None):
+def checked(text, to, simple=False, on='local', extra=False, sol=False, no_lint=False, project=None, auth=()):
+    secrets = list(secret_findings(text))
+    if secrets:
+        raise ValueError('\n'.join(secrets))
+    if not strict_dispatch():
+        check_sensitive_actions(text, auth)
     errors = lint(text, to, simple, on, extra, sol, no_lint, project)
+    if errors and not strict_dispatch():
+        warnings = [e for e in errors if not e.startswith(('示例', '缺授权块'))]
+        if warnings:
+            print('提示：' + '；'.join(warnings).replace('\n', ' '), file=sys.stderr)
+        return
     if errors:
         retry = retry_command()
         lines = []
@@ -434,6 +494,8 @@ def checked(text, to, simple=False, on='local', extra=False, sol=False, no_lint=
             elif retry:
                 lines.append('修改后重跑：' + retry)
         raise ValueError('\n'.join(lines))
+    if strict_dispatch():
+        check_sensitive_actions(text, auth)
 
 
 OBSTACLE_NOTE = '遇到缺文件、工具不可用等阻碍必须在报告「未完成」里写明，不得略过。'
@@ -586,6 +648,23 @@ def entry_paths(text):
     return [*([repo] if (repo := entry_repo(text)) else []), *entry_write_paths(entry)]
 
 
+def fill_entry_writes(body, action, writes, project, report):
+    if set(parse_actions(action)) == {'只读'}:
+        return body
+    repo = entry_repo(body)
+    paths = ', '.join(writes or [repo or str(project or Path(report).parent)])
+    header = re.search(r'^## 入口[ \t]*$', body, re.M)
+    if not header:
+        base = repo or project
+        return body.rstrip() + '\n\n## 入口\n' + (f'仓库: {base}\n' if base else '') + f'可写路径: {paths}\n'
+    end = re.search(r'^## ', body[header.end():], re.M)
+    stop = header.end() + end.start() if end else len(body)
+    entry = body[header.start():stop]
+    if entry_write_paths(entry):
+        return body
+    return body[:stop].rstrip() + f'\n可写路径: {paths}\n' + body[stop:]
+
+
 def refresh_body(path, meta, text):
     """--body 文件改过就把新正文换进 brief，修订块和其余样板原样保留。"""
     legacy = 'body_text' not in meta
@@ -595,6 +674,9 @@ def refresh_body(path, meta, text):
     body = body_path.read_text().strip()
     if meta.get('report'):
         body = narrow_report_entry(body, meta['report'])
+        if not strict_dispatch() and not meta.get('review') and not legacy:
+            body = fill_entry_writes(body, declared_action(body) or declared_action(text),
+                                     meta.get('writes'), meta.get('project'), meta['report']).strip()
     old = meta.get('body_text')
     if legacy and body_path.stat().st_mtime <= path.stat().st_mtime:
         return text
@@ -886,7 +968,11 @@ def select_scenes(args, body, project):
         names = [name for name, (data, _) in scenes.items()
                  if any(keyword.casefold() in query for keyword in data['keywords'] if keyword.strip())]
         if len(names) > 1:
-            raise ValueError('匹配多个场景：' + ', '.join(names) + '。请指定 --scene <名> 或 --scene none。')
+            message = '匹配多个场景：' + ', '.join(names) + '。请指定 --scene <名> 或 --scene none。'
+            if strict_dispatch():
+                raise ValueError(message)
+            print('提示：' + message + ' 本次跳过自动场景。', file=sys.stderr)
+            return []
         if names:
             print('已自动带场景 ' + names[0], file=sys.stderr)
     return [(name, *scenes[name]) for name in names]
@@ -896,7 +982,11 @@ def scene_default(scenes, field):
     values = {data[field] for _, data, _ in scenes if data.get(field)}
     if len(values) > 1:
         option = '档位（如 --simple、--sol、--tier）' if field == 'tier' else '--' + field
-        raise ValueError(f'场景默认值冲突，请显式指定 {option}。')
+        message = f'场景默认值冲突，请显式指定 {option}。'
+        if strict_dispatch():
+            raise ValueError(message)
+        print('提示：' + message + ' 本次使用命令默认值。', file=sys.stderr)
+        return None
     return next(iter(values), None)
 
 
@@ -966,16 +1056,22 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         simple = fast = no_fast = luna = high = xhigh = max = low = sol = astra = False
         meta['fallback_deviation'] = fallback
     deviation = dispatch_gate(attempt, 'order', lambda: order.gate(to or meta['to'], override))
+    text = path.read_text()
+    if not keep_brief:
+        text = refresh_body(path, meta, text)
+    secrets = list(secret_findings(text))
+    if secrets:
+        raise ValueError('\n'.join(secrets))
+    if not strict_dispatch():
+        check_sensitive_actions(text, meta.get('auth', []))
     if fallback:
-        lines = path.read_text().splitlines(keepends=True)
-        path.write_text(''.join(lines[:2]) + '\n' + fallback + '\n' + ''.join(lines[2:]))
+        lines = text.splitlines(keepends=True)
+        text = ''.join(lines[:2]) + '\n' + fallback + '\n' + ''.join(lines[2:])
     if deviation:
         meta['order_override'] = override
-        text = path.read_text()
         if '调遣令偏差：' not in text:
             lines = text.splitlines(keepends=True)
-            path.write_text(''.join(lines[:2]) + '\n' + deviation + '\n' + ''.join(lines[2:]))
-        path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
+            text = ''.join(lines[:2]) + '\n' + deviation + '\n' + ''.join(lines[2:])
     candidates = [r for r in running(False) if r.get('briefPath') == str(path) or r.get('name') == name]
     if any(r.get('status') in ('running', 'queued', 'parked', 'waiting', 'unreachable') for r in candidates):
         raise ValueError('同名任务仍未结束；需要重启请用 amend --restart，未重复派发。')
@@ -1023,13 +1119,9 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         raise ValueError('--fast 仅用于 --to gpt。')
     if (low or high or xhigh) and target not in ('gpt', 'gemini'):
         raise ValueError('--low、--high 和 --xhigh 仅用于 --to gpt|gemini。')
-    text = path.read_text()
-    if not keep_brief:
-        text = refresh_body(path, meta, text)
     text = ensure_principles(dispatch_lessons(text))
     if target == 'gpt' and selected in ('sol', 'astra') and OBSTACLE_NOTE not in text:
         text = text.replace(rule(), OBSTACLE_NOTE + '\n\n' + rule(), 1)
-    path.write_text(text)
     if on != 'local' and not mini.available():
         raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
     recorded, recorded_location = recorded_worktree(meta)
@@ -1055,11 +1147,11 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
             worktree_call(wt, meta.get('worktree_location', location))
         else:
             text = rewrite_worktree(text, meta, wt, location)
-            path.write_text(text)
     meta['paths'] = list(dict.fromkeys([*meta.get('parameterPaths', meta.get('writes', [])), *entry_paths(text)]))
     text = normalize_brief(text, target, meta.get('report'))
+    meta['auth'] = infer_local_auth(text, meta.get('auth', []))
+    dispatch_gate(attempt, 'lint', lambda: checked(text, target, bool(selected_simple), on or 'mini', True, target == 'gpt' and selected in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project'), auth=meta.get('auth', ())))
     path.write_text(text)
-    dispatch_gate(attempt, 'lint', lambda: checked(text, target, bool(selected_simple), on or 'mini', True, target == 'gpt' and selected in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project')))
     if target != meta['to']:
         meta.pop('tier', None)
         for option, products in [('tier', ['claude']), ('review', ['gpt', 'grok']),
@@ -1245,7 +1337,11 @@ def amend(args):
         meta['on'] = args.on
     if meta['to'] == 'gpt' and meta.get('tier') not in ('terra', 'sol', 'luna', 'astra'):
         meta['tier'] = gpt_tier(meta)
-    original = normalize_brief(path.read_text(), meta['to'], meta.get('report'))
+    original = path.read_text()
+    secrets = list(secret_findings(original + '\n' + args.message))
+    if secrets:
+        raise ValueError('\n'.join(secrets))
+    original = normalize_brief(original, meta['to'], meta.get('report'))
     if meta['to'] == 'gpt' and gpt_tier(meta) in ('sol', 'astra') and OBSTACLE_NOTE not in original:
         original = original.replace(rule(), OBSTACLE_NOTE + '\n\n' + rule(), 1)
     if args.auth is not None:
@@ -1253,7 +1349,7 @@ def amend(args):
         if any(a not in AUTH for a in auth): raise ValueError('未知授权块。可用：' + ','.join(AUTH))
         if 'local-commit' in auth: auth = [a for a in auth if a != 'local']
         values = {'NAME': args.name, 'REPORT': meta['report'], 'DATE': datetime.date.today().isoformat()}
-        original = re.sub(r'(?<=## 授权覆盖\n).*?(?=\n动作[ \t]*[:：]|\n## |\Z)', lambda _: '\n\n'.join(block('auth-' + a, values) for a in dict.fromkeys(auth)) + '\n', original, count=1, flags=re.S)
+        original = re.sub(r'(?<=## 授权覆盖\n).*?(?=\n动作[ \t]*[:：]|\n## |\Z)', lambda _: (('授权块：' + ','.join(auth) + '\n') if not strict_dispatch() else '') + '\n\n'.join(block('auth-' + a, values) for a in dict.fromkeys(auth)) + '\n', original, count=1, flags=re.S)
         meta['auth'] = auth
     if args.task_action is not None:
         if re.search(r'^动作[ \t]*[:：]', original, re.M):
@@ -1269,10 +1365,15 @@ def amend(args):
         stamp = datetime.datetime.now().isoformat(timespec='seconds')
         revised = ''.join(lines[:2]) + f'\n## 【修订 {max(numbers, default=0) + 1}（{stamp}）】\n{args.message}\n\n' + ''.join(lines[2:])
         original = revised
+    if not strict_dispatch():
+        previous_auth = meta.get('auth', [])
+        meta['auth'] = infer_local_auth(original, previous_auth)
+        if meta['auth'] != previous_auth:
+            original = original.replace('## 授权覆盖\n', '## 授权覆盖\n授权块：local-commit\n', 1)
     if args.auth is not None or args.task_action is not None:
-        checked(original, meta['to'], gpt_tier(meta) == 'terra' and meta['to'] == 'gpt', args.on or meta.get('on') or 'local', True, gpt_tier(meta) in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project'))
+        checked(original, meta['to'], gpt_tier(meta) == 'terra' and meta['to'] == 'gpt', args.on or meta.get('on') or 'local', True, gpt_tier(meta) in ('sol', 'astra'), meta.get('no_lint', False), project=meta.get('project'), auth=meta.get('auth', ()))
     else:
-        checked(original, meta['to'], no_lint=meta.get('no_lint', False))
+        checked(original, meta['to'], no_lint=meta.get('no_lint', False), auth=meta.get('auth', ()))
     original = normalize_actions(original)
     path.write_text(original)
     if not (latest_revision and original[latest_revision.end():].startswith(args.message + '\n\n')):
@@ -1514,6 +1615,9 @@ def new(args, prepare=False):
         body = sys.stdin.read() if args.body == '-' or not sys.stdin.isatty() else ''
     if not args.goal and not body.strip():
         raise ValueError('请提供 --goal、--body 或 stdin 正文。')
+    secrets = list(secret_findings(body + '\n' + '\n'.join(sys.argv[1:])))
+    if secrets:
+        raise ValueError('\n'.join(secrets))
     args.write = [mini.expand_path(path) for path in mini.split_paths(args.write or [])]
     project = resolve_project(args.project, entry_repo(body))
     scenes = select_scenes(args, body, project)
@@ -1561,11 +1665,29 @@ def new(args, prepare=False):
     folder = clean.report_roots()[0] / day
     path = folder / (args.name + '.brief.md')
     retry = retry_metadata(path) if path.exists() and not args.dry_run else None
+    if not strict_dispatch():
+        if report_matches(args.name + '.brief.md'):
+            candidates = [r for r in running(False) if r.get('name') == args.name]
+            if any(r.get('status', r.get('state')) in ('running', 'queued', 'parked', 'waiting', 'abnormal', 'unreachable') for r in candidates):
+                raise ValueError('同名任务仍未结束；未重复派发。')
+            if retry is None and candidates:
+                if args.report and Path(args.report).expanduser().exists():
+                    raise ValueError('指定报告已存在；请为新任务使用新报告路径。')
+                original = args.name
+                suffix = 2
+                while report_matches(f'{original}-{suffix}.brief.md') or (folder / f'{original}-{suffix}.md').exists():
+                    suffix += 1
+                args.name = f'{original}-{suffix}'
+                path = folder / (args.name + '.brief.md')
+                print(f'提示：{original} 已结束，本次改用 {args.name}，保留原产物。', file=sys.stderr)
     if any((root / day / path.name).exists() and (root / day / path.name != path or retry is None) for root in clean.report_roots()) and not args.dry_run:
         raise ValueError(f'同名 brief 已存在，拒绝覆盖：{path}\n改需求后重派：fleet-go amend {args.name} "<修订说明>" --say\n原样重派（--body 文件改过会自动换进 brief）：fleet-go relaunch {args.name}\n另起一单：把名字换成 {args.name}-2 重跑原命令')
     report = str(Path(args.report).expanduser().absolute()) if args.report else str(folder / (args.name + '.md'))
     body = narrow_report_entry(body, report)
-    auth = args.auth.split(',')
+    action = args.task_action or declared_action(body)
+    auth = infer_local_auth('动作: ' + action, args.auth.split(','))
+    if not strict_dispatch() and not args.review:
+        body = fill_entry_writes(body, action, args.write, project, report)
     if any(a not in AUTH for a in auth):
         raise ValueError('未知授权块。可用：' + ','.join(AUTH))
     if 'local-commit' in auth:
@@ -1596,7 +1718,9 @@ def new(args, prepare=False):
     waiting = block('executor-wait', values) if args.to == 'gpt' else ''
     role = '\n'.join(part for part in (discipline, model_role, waiting) if part)
     parts = [f'归类：{classification}；理由：{args.why or classification + "任务，按既有路由执行"}\nREPORT: {report}', style + '\n' + role, block('time-box', values),
-             '## 授权覆盖\n' + '\n\n'.join(block('auth-' + a, values) for a in dict.fromkeys(auth))]
+             '## 授权覆盖\n' + (('授权块：' + ','.join(auth) + '\n') if not strict_dispatch() else '') + '\n\n'.join(block('auth-' + a, values) for a in dict.fromkeys(auth))
+             + ('\n\n推送范围：仅允许动作行明确要求的代码分支推送，部署、环境分支合入和线上写入须另有授权。'
+                if not strict_dispatch() and 'local-commit' in auth and '推送' in action else '')]
     if args.task_action:
         parts.append('动作: ' + args.task_action)
     if args.budget:
@@ -1604,7 +1728,10 @@ def new(args, prepare=False):
     if args.goal:
         parts.append('## 目标\n' + args.goal)
     if body.strip():
-        parts.append(body.strip())
+        content = body.strip()
+        if not strict_dispatch() and not content.startswith(('## ', '动作:', '动作：')):
+            content = '## 正文\n' + content
+        parts.append(content)
     if project:
         general = project / '.agent-fleet/README.md'
         if general.is_file():
@@ -1665,7 +1792,7 @@ def new(args, prepare=False):
     location = args.on or 'mini'
     if location == 'mini' and not (args.dry_run or args.no_launch or prepare) and not mini.available():
         raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
-    dispatch_gate(args, 'lint', lambda: checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna or args.astra), location, True, args.sol or args.astra, args.no_lint, project))
+    dispatch_gate(args, 'lint', lambda: checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna or args.astra), location, True, args.sol or args.astra, args.no_lint, project, auth=auth))
     action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', body, re.M)
     actions = args.task_action or (action_match.group(1) if action_match else '')
     parameter_paths = [*(mini.expand_path(p) for p in (args.read or [])), *report_writes(args.write, report)]
@@ -1935,6 +2062,9 @@ def build_parser():
 
 
 def main():
+    secrets = list(secret_findings('\n'.join(sys.argv[1:])))
+    if secrets:
+        raise ValueError('\n'.join(secrets))
     parser = build_parser()
     if any(a == '--kind' or a.startswith('--kind=') for a in sys.argv[1:]):
         raise ValueError('请使用 --to gpt|openai|claude|grok|gemini|jev。')
@@ -2025,6 +2155,9 @@ def main():
     elif args.action == 'lint':
         brief_path = Path(args.brief)
         original = brief_path.read_text()
+        secrets = list(secret_findings(original))
+        if secrets:
+            raise ValueError('\n'.join(secrets))
         normalized = normalize_brief(original, args.to, str(brief_path.resolve().with_suffix('.report.md')))
         checked(normalized, args.to, args.to == 'gpt' and not args.sol, args.on, True, args.sol, args.no_lint, args.project)
         if normalized != original:

@@ -1,6 +1,6 @@
 // Machine-local admission state. Supervisors wait here without starting a model.
 import { existsSync, statSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, extname, join, resolve } from 'node:path';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -121,7 +121,7 @@ export function slotPool(model) {
 function poolCapacity(pool) {
   return Number(process.env[pool === 'light' ? 'FLEET_LIGHT_CAPACITY' : 'FLEET_CODE_CAPACITY'] || (pool === 'light' ? 10 : 4));
 }
-export async function registerQueue(rec) {
+export async function registerQueue(rec, warn = console.error) {
   const quote = s => "'" + String(s).replaceAll("'", "'\\''") + "'";
   let category = 'registration';
   try {
@@ -133,6 +133,22 @@ export async function registerQueue(rec) {
         machine: hostname(), model: rec.model, briefPath: rec.briefPath, object, ...identity, after: object?.after,
         watchSeat: rec.watchSeat, parentRunId: rec.parentRunId,
         createdAt: Date.now(), state: 'queued' };
+      const strict = process.env.FLEET_STRICT === '1';
+      const artifacts = (brief, report) => [
+        ...(brief ? [brief, brief.replace(/\.md$/, '.json')] : []),
+        ...(report ? [report, report.slice(0, report.length - extname(report).length) + '.checkpoint.md'] : []),
+      ].map(canonicalPath);
+      row.reportPath = rec.reportPath && canonicalPath(rec.reportPath);
+      const outputs = artifacts(row.briefPath, rec.reportPath);
+      for (const other of rows) {
+        if (!live.has(other.state) || other.runId === row.runId) continue;
+        const sameName = row.name && row.name === other.name;
+        const previousReport = outputs.length && (other.reportPath ?? read(join(runsDir(), other.runId + '.json'))?.reportPath);
+        if (sameName || (outputs.length && artifacts(other.briefPath, previousReport).some(path => outputs.includes(path)))) {
+          category = 'artifact-conflict';
+          throw new Error(`任务名或报告与运行中任务冲突：${other.name || other.runId}。`);
+        }
+      }
       if (row.after && !dependency(rows, row.after)) {
         category = 'missing-predecessor';
         throw new Error(`--after 找不到前置单 ${row.after}。如已生成 brief，先运行：fleet-go relaunch ${quote(row.after)}`);
@@ -141,15 +157,17 @@ export async function registerQueue(rec) {
         if (!object || !other.object || other.runId === row.runId) continue;
         if (live.has(other.state) && pathsOverlap(object.writes, other.object.writes) && !follows(rows, row, other)) {
           const pairs = object.writes.flatMap(a => other.object.writes.filter(b => pathsOverlap([a], [b])).map(b => `${a} ↔ ${b}`));
-          category = 'write-overlap';
-          throw new Error(`可写路径重叠：${other.name || other.runId}\n${pairs.join('\n')}\nfleet-go relaunch ${quote(row.name)} --worktree\nfleet-go relaunch ${quote(row.name)} --after ${quote(other.name || other.runId)}`);
+          if (strict) category = 'write-overlap';
+          if (strict) throw new Error(`可写路径重叠：${other.name || other.runId}\n${pairs.join('\n')}\nfleet-go relaunch ${quote(row.name)} --worktree\nfleet-go relaunch ${quote(row.name)} --after ${quote(other.name || other.runId)}`);
+          warn(`提示：可写路径重叠：${other.name || other.runId}，${pairs.join('、')}。`);
         }
         if ((live.has(other.state) || Date.now() - (other.finishedAt || other.createdAt) < 86_400_000) &&
             object.question && object.repo === other.object.repo && object.environment === other.object.environment &&
             object.question.trim() === other.object.question?.trim() && (object.window ?? '') === (other.object.window ?? '') &&
             other.name !== row.name && !follows(rows, row, other)) {
-          category = 'duplicate-target';
-          throw new Error(`重复问题：${other.name || other.runId}。运行：fleet say ${quote(other.name || other.runId)} '请接续该目标'`);
+          if (strict) category = 'duplicate-target';
+          if (strict) throw new Error(`重复问题：${other.name || other.runId}。运行：fleet say ${quote(other.name || other.runId)} '请接续该目标'`);
+          warn(`提示：重复问题：${other.name || other.runId}，可用独立名称区分。`);
         }
       }
       write(row);
@@ -180,9 +198,12 @@ export async function acquireSlot(id) {
     if (!row || row.state !== 'queued') return row?.state === 'running';
     const dep = row.after && dependency(rows, row.after);
     if (dep && live.has(dep.state)) return false;
-    if (row.readonly) { row.state = 'running'; row.startedAt ??= Date.now(); write(row); return true; }
     const quota = read(join(runsDir(), 'codex-quota.json'));
-    if (/^gpt-/.test(row.model) && quota?.usedPercent > Number(process.env.FLEET_CODEX_QUOTA_LIMIT || 90) && (!quota.resetsAt || quota.resetsAt * 1000 > Date.now())) return false;
+    const quotaLimit = process.env.FLEET_CODEX_QUOTA_LIMIT || (process.env.FLEET_STRICT === '1' ? '90' : '');
+    const quotaLimited = quota && (!quota.resetsAt || quota.resetsAt * 1000 > Date.now()) &&
+      (quota.usedPercent >= 100 || (quotaLimit && quota.usedPercent > Number(quotaLimit)));
+    if (/^gpt-/.test(row.model) && quotaLimited) return false;
+    if (row.readonly) { row.state = 'running'; row.startedAt ??= Date.now(); write(row); return true; }
     const pool = slotPool(row.model);
     const totalOverride = process.env.FLEET_SLOT_CAPACITY;
     const samePool = r => totalOverride || slotPool(r.model) === pool;
@@ -202,7 +223,7 @@ export async function acquireSlot(id) {
     const earlier = rows.some(r => r.state === 'queued' && !r.readonly && slotPool(r.model) === pool &&
       (r.createdAt < row.createdAt || (r.createdAt === row.createdAt && r.runId < row.runId)) &&
       (!r.after || !live.has(dependency(rows, r.after)?.state)) &&
-      !(/^gpt-/.test(r.model) && quota?.usedPercent > Number(process.env.FLEET_CODEX_QUOTA_LIMIT || 90) && (!quota.resetsAt || quota.resetsAt * 1000 > Date.now())));
+      !(/^gpt-/.test(r.model) && quotaLimited));
     if (earlier) return false;
     row.state = 'running'; row.startedAt = Date.now(); write(row); return true;
   });
