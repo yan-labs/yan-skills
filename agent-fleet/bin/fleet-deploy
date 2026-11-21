@@ -51,7 +51,8 @@ def smoke(release):
         ([fleet_go, "--help"], "fleet-go --help"),
         ([fleet, "status", "--json"], "fleet status --json"),
         ([fleet_go, "new", "fleet-runtime-smoke", "--to", "gpt", "--scene", "none",
-          "--action", "只读", "--goal", "核对版本。", "--dry-run"], "fleet-go new --dry-run"),
+          "--action", "只读", "--goal", "核对版本。", "--on", "local",
+          "--local-reason", "仅在本机预览 brief", "--dry-run"], "fleet-go new --dry-run"),
     ]
     for command, label in commands:
         result = subprocess.check_output(command, cwd=package, stdin=subprocess.DEVNULL, text=True)

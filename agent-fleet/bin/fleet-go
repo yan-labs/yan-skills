@@ -9,5 +9,7 @@ while [ -L "$script" ]; do
   esac
 done
 dir=$(CDPATH= cd -P "$(dirname "$script")"; pwd -P)
-export PATH="$dir:$PATH"
+if [ -f "$dir/../../.fleet-release" ]; then
+  export PATH="$dir:$PATH"
+fi
 exec python3 "$dir/../src/fleet-go.py" "$@"
