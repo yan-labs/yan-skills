@@ -10,6 +10,10 @@ while [ -L "$script" ]; do
 done
 dir=$(CDPATH= cd -P "$(dirname "$script")" && pwd -P)
 case "${1:-}" in
+  status)
+    shift
+    exec python3 "$dir/../src/status-cache.py" "$@"
+    ;;
   watch)
     shift
     if [ "${1:-}" = hook ]; then exec python3 "$dir/../hooks/fleet-seat.py"; fi
