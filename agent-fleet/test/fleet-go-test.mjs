@@ -575,6 +575,13 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
   test('敏感动作全文、授权隔离及规则描述', () => {
     const cases = [
       ['## 背景\n部署生产环境', [], false],
+      ['## 背景\n严格模式过去允许 deploy-prod 顶替删除授权', [], true],
+      ['## 背景\n严格模式过去允许 deploy-prod 顶替删除授权，并部署生产环境', [], false],
+      ['## 修订\n只读单被判成付费需授权，补上 paid 后又报部署需授权。', [], true],
+      ['## 修订\n只读单被判成付费需授权；部署生产环境', [], false],
+      ['动作: 只读验收 / 截图\n## 目标\nTEST 验收对话页实色 header', ['review'], true],
+      ['## 项目派单总则\n> 生产部署需授权，付费验证需授权。', ['review'], true],
+      ['## 项目派单总则\n> 生产部署需授权，并部署生产环境。', ['review'], false],
       ['## 背景\n部署本地并上线', [], false],
       ['## 背景\n规则说明：“部署”“付费”“删除数据”属于敏感动作。', [], true],
       ['## 背景\n敏感动作包括部署、付费、删除数据。', [], true],
@@ -598,6 +605,24 @@ except ValueError:
       assert.equal(r.status === 0, allowed, body + r.stderr);
     }
   });
+  test('只读 TEST 项目场景和项目规则中的授权说明', () => {
+    const project = join(temp, 'readonly-project');
+    const layer = join(project, '.agent-fleet');
+    mkdirSync(join(layer, 'scenes'), {recursive:true});
+    writeFileSync(join(layer, 'README.md'), '生产部署需授权，付费验证需授权。');
+    writeFileSync(join(layer, 'scenes', 'test-ui.md'), '---\n' + JSON.stringify({description:'TEST 验收', keywords:['TEST'], acceptance:[]}) + '\n---\n只读截图；付费验证需授权。\n');
+    const body = `## 入口\n仓库: ${project}\n`;
+    const args = ['new','readonly-scene','--to','gpt','--auth','review','--action','只读验收 / 截图','--goal','TEST 验收对话页实色 header','--project',project,'--dry-run'];
+    const r = spawnSync(script,args,{encoding:'utf8',env:{...env,FLEET_STRICT:''},input:body});
+    assert.equal(r.status,0,r.stderr);
+    assert.match(r.stdout,/派单场景 · test-ui/);
+    assert.match(r.stdout,/项目派单总则/);
+    assert.match(r.stderr,/授权标识或规则描述/);
+    writeFileSync(join(layer, 'scenes', 'test-ui.md'), '---\n' + JSON.stringify({description:'TEST 验收', keywords:['TEST'], acceptance:[]}) + '\n---\n生产部署需授权；部署生产环境。\n');
+    const blocked = spawnSync(script,args,{encoding:'utf8',env:{...env,FLEET_STRICT:''},input:body});
+    assert.equal(blocked.status,1);
+    assert.match(blocked.stderr,/部署或线上写入需要/);
+  });
   test('amend say 只检查新增文字', () => {
     const name='amend-sensitive';
     assert.equal(run(['new',name,'--to','gpt','--goal','修复','--action','只读','--no-launch'],{FLEET_STRICT:''}).status,0);
@@ -606,6 +631,8 @@ except ValueError:
     writeFileSync(states, JSON.stringify([{name,status:'running',runId:'amend-sensitive-run'}]));
     const r=run(['amend',name,'只描述缺陷','--say'],{FLEET_STRICT:''});
     assert.equal(r.status,0,r.stderr);
+    const described=run(['amend',name,'只读单被判成付费需授权，补上 paid 后又报部署需授权。','--say'],{FLEET_STRICT:''});
+    assert.equal(described.status,0,described.stderr);
     const blocked=run(['amend',name,'删除测试数据','--say'],{FLEET_STRICT:''});
     assert.equal(blocked.status,1);
     writeFileSync(states,'[]');
