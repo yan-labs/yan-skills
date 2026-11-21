@@ -682,6 +682,22 @@ except ValueError:
     assert.equal(r.status,1,r.stderr); assert.match(r.stderr,/--auth .*deploy-prod/);
     writeFileSync(states,'[]');
   });
+  test('自然动作在 new、amend、relaunch 均检查授权', () => {
+    const runNatural = args => run(args, {FLEET_STRICT:''});
+    const body=join(temp,'natural-entry.md');
+    writeFileSync(body,`## 入口\n仓库: ${temp}\n可写路径: ${temp}/project\n`);
+    const base=['new','natural','--to','gpt','--action','付费验证','--body',body];
+    let r=runNatural([...base,'--dry-run']); assert.equal(r.status,1); assert.match(r.stderr,/paid/);
+    r=runNatural([...base,'--auth','paid','--dry-run']); assert.equal(r.status,0,r.stderr);
+    r=runNatural([...base,'--auth','paid','--no-launch']); assert.equal(r.status,0,r.stderr);
+    r=runNatural(['amend','natural','修改动作','--action','推送 test','--auth','local']); assert.equal(r.status,1); assert.match(r.stderr,/local-commit/);
+    r=runNatural(['amend','natural','修改动作','--action','推送 test','--auth','local-commit']); assert.equal(r.status,0,r.stderr);
+    const file=join(path.slice(0,path.lastIndexOf('/')),'natural.brief.md');
+    writeFileSync(file,readFileSync(file,'utf8').replace(/^动作:.*$/m,'动作: 部署 TEST'));
+    r=runNatural(['relaunch','natural']); assert.equal(r.status,1); assert.match(r.stderr,/deploy-prod/);
+    r=runNatural(['amend','natural','补授权','--auth','deploy-prod']); assert.equal(r.status,0,r.stderr);
+    r=runNatural(['relaunch','natural']); assert.equal(r.status,7,r.stderr);
+  });
   test('豁免样板的任务重派及修订授权动作', () => {
     const body=join(temp,'dx-entry.md');
     writeFileSync(body,`## 入口\n仓库: ${temp}\n可写路径: ${temp}/project\n`);

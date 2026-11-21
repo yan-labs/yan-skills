@@ -235,7 +235,11 @@ VALID_ACTIONS = {'只读', '改代码', '本地提交', '推送', '部署', '付
 
 def parse_actions(value):
     value = re.sub(r'[（(].*?[）)]', '', value)
-    return [part for part in re.split(r'[/、,，;；\s和]+', value.strip()) if part]
+    parts = [part for part in re.split(r'[/、,，;；\s和]+', value.strip()) if part]
+    return [action for part in parts for action in (
+        [name for name, pattern in (('推送', r'推送|push'), ('部署', r'部署|deploy'),
+                                    ('付费', r'付费|paid')) if re.search(pattern, part, re.I)] or [part]
+    )]
 
 
 def normalize_actions(text):
