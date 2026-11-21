@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+execFileSync(process.execPath, [resolve('test/assert-helper.mjs'), '--isolated', process.execPath, resolve('test/detach-ipc-test.mjs')], {stdio:'inherit'});
 const { killGroup } = await import('../src/detach.mjs');
 const realKill = process.kill;
 try { process.kill = () => { throw Object.assign(new Error('denied'), {code:'EPERM'}); }; assert.doesNotThrow(() => killGroup(99999999, 'SIGTERM')); } finally { process.kill = realKill; }
