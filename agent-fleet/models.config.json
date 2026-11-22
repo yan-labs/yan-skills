@@ -42,10 +42,10 @@
     "subagentModel": "deepseek-v4.1-flash"
   },
   "kollab-gateway-copy": {
-    "description": "Kollab 网关,文案/创意用途:批量营销文案、社媒帖子、标题党变体、创意头脑风暴等对准确性要求不高、追求速度和多样性的写作任务。模型 gemini-4-argon(官方价输入 $4/百万、输出 $20/百万),2026-10-15 经 fleet copy 真实验证可用。和默认 kollab-gateway 当前指向同一个模型,单独命名是为了不依赖默认值以后可能的调整,任务里显式写 --model kollab-gateway-copy 更稳。",
+    "description": "Kollab 网关文案默认：Gemini 4 Hydrogen；原默认可用 kollab-gateway-argon 显式选择。",
     "baseURL": "https://kollab.im/api/llm",
     "maxOutputTokens": 16000,
-    "model": "gemini-4-argon",
+    "model": "gemini-4-hydrogen",
     "apiKeyEnv": "KOLLAB_PROD_API_KEY",
     "authHeader": "x-api-key",
     "subagentModel": "deepseek-v4.1-flash"
@@ -163,6 +163,15 @@
     "baseURL": "https://kollab.im/api/llm",
     "maxOutputTokens": 16000,
     "model": "gemini-4-hydrogen",
+    "apiKeyEnv": "KOLLAB_PROD_API_KEY",
+    "authHeader": "x-api-key",
+    "subagentModel": "deepseek-v4.1-flash"
+  },
+  "kollab-gateway-argon": {
+    "description": "Kollab 网关，Gemini 4 Argon；原文案默认模型的显式别名。",
+    "baseURL": "https://kollab.im/api/llm",
+    "maxOutputTokens": 16000,
+    "model": "gemini-4-argon",
     "apiKeyEnv": "KOLLAB_PROD_API_KEY",
     "authHeader": "x-api-key",
     "subagentModel": "deepseek-v4.1-flash"

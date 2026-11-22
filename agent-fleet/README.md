@@ -38,7 +38,7 @@ fleet team  # 五产品能力、顺位链与可用性；只显示存在性/登�
 - Claude 额度档：按任务和 Codex 额度规则选择 Claude、Terra 或 Gemini。
 - GPT 档：正常开发默认 Terra→ 非常严谨才用 Sol（medium、不开 fast，默认不派）→ 周用量 ≥ 95% 改 Gemini 4；最简单且可机械验证的子任务用 Luna（`--luna`）。
 
-Codex 周用量取最新 rollout 的 `rate_limits.primary`（`window_minutes=10080`）的 `used_percent`；≥ 95% 或用尽时停派 Codex，改 `fleet-go new --to gemini`，默认 Gemini 4 `gemini-4-argon`（默认 xhigh 推理档），经 Claude Agent SDK，也可编码。非非常重要的编程交 Gemini，非常重要的交 Claude Sonnet，难的 Opus。模型额度和到期时间以账户当前状态为准；Codex 用尽可让 Kollab 派任务执行充值脚本，付款前须先向用户确认金额。严苛架构或成本收缩、清理每秒 1000 行等硬指标多轮未达标时，派 executor-fable 子代理调研方案，再派执行者。
+Codex 周用量取最新 rollout 的 `rate_limits.primary`（`window_minutes=10080`）的 `used_percent`；≥ 95% 或用尽时停派 Codex，改 `fleet-go new --to gemini`，默认 Gemini 4 `gemini-4-hydrogen`（默认 xhigh 推理档），经 Claude Agent SDK，也可编码。非非常重要的编程交 Gemini，非常重要的交 Claude Sonnet，难的 Opus。模型额度和到期时间以账户当前状态为准；Codex 用尽可让 Kollab 派任务执行充值脚本，付款前须先向用户确认金额。严苛架构或成本收缩、清理每秒 1000 行等硬指标多轮未达标时，派 executor-fable 子代理调研方案，再派执行者。
 
 ## xAI Grok Build CLI
 
@@ -127,7 +127,7 @@ Agent 能力去驱动它们的模型——你拿到的不是"一问一答",而�
 | `kimi` | Moonshot(Kimi) | `https://api.moonshot.cn/anthropic`,`Authorization: Bearer` 鉴权 | 官方 Anthropic 兼容端点(中国站)。国际站把 `baseURL` 换成 `https://api.moonshot.ai/anthropic` 即可,鉴权方式不变 |
 | `gemini` | Google | **没有官方端点** | 见下方说明,需要你自备网关 |
 | `kollab-gateway` | Kollab 自己的公开 LLM 网关 | `https://kollab.im/api/llm`(生产环境),`x-api-key` 鉴权，使用已有 `KOLLAB_PROD_API_KEY` | 不需要申请任何第三方官方 key,模型范围不限白名单。默认模型是 `gemini-4-argon`(**故意不用** `claude-sonnet-4-6`——那样账单虽然走 Kollab 自己的 Space 额度,但底层实际还在消耗 Claude,没有分担成本的效果);已做过真实端到端验证,见下方「验证情况」。费用从这把 key 绑定的 Kollab Space 额度实时扣除,当前配置已使用生产环境 |
-| `kollab-gateway-copy` | 同上 | 同上,`model: "gemini-4-argon"` | 文案/创意用途的命名别名,和默认模型相同,单独命名是为了不依赖默认值以后的调整 |
+| `kollab-gateway-copy` | 同上 | 同上,`model: "gemini-4-hydrogen"` | 文案默认；旧模型可显式选 `kollab-gateway-argon` |
 | `kollab-gateway-research` | 同上 | 同上,`model: "grok-4.7"` | 通用调研摘要用途 |
 | `kollab-gateway-bulk` | 同上 | 同上,`model: "gemini-3.5-flash-lite"` | 批量翻译/格式转换等机械任务用途,目录里响应最快的免费档模型之一 |
 | `kollab-gateway-gpt-sol` | Kollab | 线上托管网关，`model: "sol"` | Sol |
@@ -193,7 +193,7 @@ node bin/agent-fleet.mjs judge --model jev --state-file state.txt --questions-fi
 | 任务类型 | 推荐模型 / 友好名字 | 理由 |
 |---|---|---|
 | 写代码 / 修 bug / 补测试 | Codex Terra（默认），默认 medium；非常严谨时 Sol | Codex 周额度 ≥ 95% 改 Gemini 4 |
-| 写作 / 翻译 / 调研 / 母语校对（写文档、写报告、核实资料） | `kollab-gateway-copy`(`gemini-4-argon`)或 `kollab-gateway`(默认同款) | 文案默认 `gemini-4-argon`(官方价输入 $4/百万、输出 $20/百万、缓存读 $0.20/百万)，2026-10-15 经 `fleet copy` 通道真实验证可用(verdict=ok，账本显示实际模型为 gemini-4-argon)；需 fleet key 绑定空间余额高于其最坏预留(约 845 积分)。长报告换 `gemini-3.1-pro`；批量继续 `fleet bulk`。**注意：实测 `gemini-3.8-flash` 做多文件代码改动容易跑满轮数零产出，绝对不要派它写代码** |
+| 写作 / 翻译 / 调研 / 母语校对（写文档、写报告、核实资料） | `kollab-gateway-copy`(`gemini-4-hydrogen`) | 文案默认 Hydrogen；旧默认可选 `kollab-gateway-argon`。批量继续 `fleet bulk`。**注意：实测 `gemini-3.8-flash` 做多文件代码改动容易跑满轮数零产出，绝对不要派它写代码** |
 | 批量翻译 / 格式转换 | `deepseek-v4.1-flash`(需配 `DEEPSEEK_API_KEY`)或 `kollab-gateway-bulk`(`gemini-3.5-flash-lite`,即用免配置) | 官方 Flash 档更便宜;没有 DeepSeek key 时 `kollab-gateway-bulk` 是免第三方审批的平替 |
 | 简单调研摘要 | `kimi`(需配 `MOONSHOT_API_KEY`,自带联网搜索)或 `kollab-gateway-research`(`grok-4.7`,即用免配置) | Kimi 官方端点自带联网检索能力,适合真正需要查资料的调研;不想等 key 审批时用 `kollab-gateway-research` 顶上 |
 | 高质量单次产出(长文案定稿、复杂推理) | `deepseek-v4-pro`(需配 `DEEPSEEK_API_KEY`) | DeepSeek 官方 Opus 档位映射目标,适合一次成型、不想反复返工的任务 |

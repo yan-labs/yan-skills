@@ -20,6 +20,8 @@ const priorBackend = process.env.FLEET_CODEX_BACKEND;
 process.env.AGENT_FLEET_RUNS_DIR = scratch;
 try {
   assert(shortRunOptions('copy', ['复核代码并写临时测试脚本']).prompt.includes('临时测试'), 'Gemini 不按任务关键词限制工具用途');
+  const models = JSON.parse(readFileSync(join(root, 'models.config.json'), 'utf8'));
+  assert(models[MODEL_ALIASES.copy].model === 'gemini-4-hydrogen' && models['kollab-gateway-argon'].model === 'gemini-4-argon', '文案默认 Hydrogen，旧 Argon 可显式选择');
   const brief = join(scratch, 'brief.md');
   writeFileSync(brief, '来自文件的任务');
   for (const [alias, model] of Object.entries({
