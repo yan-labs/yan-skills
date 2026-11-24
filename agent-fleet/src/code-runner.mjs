@@ -446,6 +446,20 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     }
     return missing;
   };
+  let reportRecoveryPrompt = null;
+  const recoverEmptyReport = state => {
+    if (reportRecoveryPrompt || !reportPath || !metadata.threadId || metadata.continueStop ||
+        noContinue || process.env.FLEET_NO_CONTINUE === '1' || state.report.trim() ||
+        state.acceptance?.verdict !== 'needs-review' || state.acceptance.pending !== 'none') return null;
+    metadata.continueRequired = true;
+    metadata.continueCount++;
+    log('[codex] 具名验收报告为空，原线程补交报告');
+    record();
+    reportRecoveryPrompt = `上轮执行已正常结束，但具名验收报告为空或缺失。只根据当前线程已有记录和现有证据，补交七节报告到 ${JSON.stringify(reportPath)} 并给出最终回复。
+每个具名验收项都在「## 结论」标题下、下一节之前单独写一行，格式为「Vn｜状态｜证据或原因」。Vn 用 brief 的实际编号，状态填已过、未过、等外部、待下游、已回滚或不适用。
+只可写此报告，不重跑任务，不派新单，不交班、挂起、提交、推送、发布或写入外部系统。证据不足的验收写明实际缺口，不报已过。`;
+    return reportRecoveryPrompt;
+  };
   const checkProgress = (state, handoff) => {
     if (previous) {
       const progress = continuationProgress(previous, state);
@@ -620,6 +634,16 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
           metadata.reportConclusion = state.conclusion;
           if (/^(?:阻塞|受阻)/.test(state.conclusion)) log(fleetEvent(FLEET_EVENTS.BLOCKED));
           checkProgress(state);
+          if (nextPrompt === reportRecoveryPrompt) {
+            metadata.continueRequired = false;
+            record();
+            break;
+          }
+          const reportPrompt = completed?.status === 'completed' && recoverEmptyReport(state);
+          if (reportPrompt) {
+            nextPrompt = reportPrompt;
+            continue;
+          }
           let missing = [], judgment;
           if (state.acceptance && !noContinue && process.env.FLEET_NO_CONTINUE !== '1') {
             missing = namedMissing(state);
@@ -717,6 +741,17 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         state.finalReply = readFileSync(resultPath, 'utf8');
         metadata.reportConclusion = state.conclusion;
         checkProgress(state);
+        if (nextPrompt === reportRecoveryPrompt) {
+          metadata.continueRequired = false;
+          record();
+          break;
+        }
+        const reportPrompt = recoverEmptyReport(state);
+        if (reportPrompt) {
+          session = metadata.threadId;
+          nextPrompt = reportPrompt;
+          continue;
+        }
         const missing = state.acceptance ? (!noContinue && process.env.FLEET_NO_CONTINUE !== '1' ? namedMissing(state) : [])
           : continueEnabled && reportPath && !review ? continuationRules(state, prompt, workdir, initial) : [];
         metadata.continueRequired = missing.length > 0;
