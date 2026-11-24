@@ -465,7 +465,11 @@ try {
     assert.equal(result.continueCount, turns - 1, mode);
     assert.equal(result.continueRequired, false, mode);
     assert.equal(result.acceptance.verdict, verdict, mode);
-    if (turns === 2) assert.match(starts[1].params.input[0].text, /只可写此报告，不重跑任务，不派新单/);
+    if (turns === 2) {
+      const recovery = starts[1].params.input[0].text;
+      assert.match(recovery, /「## 结论」标题下、下一节之前单独写一行，格式为「Vn｜状态｜证据或原因」/);
+      assert.match(recovery, /只可写此报告，不重跑任务，不派新单/);
+    }
   }
   console.log('PASS - empty named reports get one report-only app-server turn; unmet, waits and opt-out keep their existing disposition');
   for (const mode of ['review-complete', 'deviation-complete']) {

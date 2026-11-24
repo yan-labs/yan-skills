@@ -455,7 +455,9 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     metadata.continueCount++;
     log('[codex] 具名验收报告为空，原线程补交报告');
     record();
-    reportRecoveryPrompt = `上轮执行已正常结束，但具名验收报告为空或缺失。只根据当前线程已有记录和现有证据，补交七节报告到 ${JSON.stringify(reportPath)} 并给出最终回复。只可写此报告，不重跑任务，不派新单，不交班、挂起、提交、推送、发布或写入外部系统。证据不足的验收写明实际缺口，不报已过。`;
+    reportRecoveryPrompt = `上轮执行已正常结束，但具名验收报告为空或缺失。只根据当前线程已有记录和现有证据，补交七节报告到 ${JSON.stringify(reportPath)} 并给出最终回复。
+每个具名验收项都在「## 结论」标题下、下一节之前单独写一行，格式为「Vn｜状态｜证据或原因」。Vn 用 brief 的实际编号，状态填已过、未过、等外部、待下游、已回滚或不适用。
+只可写此报告，不重跑任务，不派新单，不交班、挂起、提交、推送、发布或写入外部系统。证据不足的验收写明实际缺口，不报已过。`;
     return reportRecoveryPrompt;
   };
   const checkProgress = (state, handoff) => {
