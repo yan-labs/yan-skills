@@ -134,7 +134,7 @@ export async function localCondition(condition, { id, entry, cwd, replies = [] }
     const results = await Promise.all(JSON.parse(value).map(c => localCondition(c, { id, entry, cwd, replies })));
     if (kind === 'any') {
       if (results.some(r => r?.status === 'done')) return { status: 'done', results };
-      return results.every(Boolean) ? results[0] : null;
+      return results.find(r => r?.status === 'failed') || null;
     }
     const failed = results.find(r => r && r.status !== 'done');
     if (failed) return failed;
