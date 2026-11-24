@@ -83,6 +83,15 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
    if (mode === 'review-complete') report = '## 结论\\n不可放行，列出必修项\\nV1｜未过｜问题一\\nV2｜已过｜已核验\\nLEDGER: blockers=1 verdict=fail';
    if (mode === 'deviation-complete') report = '## 结论\\n' + Array.from({length:5}, (_, i) => 'V' + (i+1) + '｜已过' + (i === 2 ? '（目标分支偏差）' : '') + '｜已核验').join('\\n');
    if (mode === 'named-stuck' || mode === 'named-external') report = '## 结论\\nV1｜' + (mode === 'named-stuck' ? '未过' : '等外部') + '｜fixture';
+   if (mode.startsWith('named-empty')) {
+    if (count === 1 || mode === 'named-empty-stuck') {
+     if (mode === 'named-empty-missing') fs.rmSync(process.env.REPORT_FILE, { force: true });
+     else fs.writeFileSync(process.env.REPORT_FILE, mode === 'named-empty-stuck' ? '\\n' : '');
+     send({method:'turn/completed',params:{turn:{id,status:'completed'}}});
+     return;
+    }
+    report = report.replace('## 结论\\n', '## 结论\\nV1｜' + (mode === 'named-empty-unmet' ? '未过' : '已过') + '｜已读取隔离夹具退出状态 0\\n');
+   }
    if (mode === 'progress') fs.writeFileSync(process.env.REPORT_FILE + '.artifact', String(count));
    fs.writeFileSync(process.env.REPORT_FILE, report);
    send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:mode === 'acceptance' && count === 1 ? '证书未核实' : conclusion}}});
@@ -435,6 +444,30 @@ try {
     if (wanted) assert.match(result.continueStop, /无新证据/);
     else assert.equal(buildBrief(result).pending, 'external');
   }
+  for (const [mode, owner, options, turns, verdict] of [
+    ['named-empty-missing', '本单', {}, 2, 'ok'],
+    ['named-empty-unmet', '本单', {}, 2, 'partial'],
+    ['named-empty-stuck', '本单', {}, 2, 'needs-review'],
+    ['named-empty-disabled', '本单', { noContinue: true }, 1, 'needs-review'],
+    ['named-empty-external', '外部：服务', {}, 1, 'ok'],
+    ['named-empty-downstream', '下游：服务', {}, 1, 'ok'],
+  ]) {
+    process.env.MODE = mode;
+    process.env.FLEET_DETACHED_RUN_ID = mode;
+    process.env.TRACE = join(scratch, mode + '.trace');
+    process.env.REPORT_FILE = join(scratch, mode + '.md');
+    const result = await runCode({ prompt: `REPORT: ${process.env.REPORT_FILE}\n## 验收\nV1 fixture｜owner：${owner}`, cwd: scratch, codexBin: mock, ...options });
+    const trace = readFileSync(process.env.TRACE, 'utf8').trim().split('\n').map(JSON.parse);
+    const starts = trace.filter(event => event.method === 'turn/start');
+    assert.equal(starts.length, turns, mode);
+    assert.equal(trace.filter(event => event.method === 'thread/start').length, 1, mode);
+    assert(starts.every(event => event.params.threadId === 'same-thread'), mode);
+    assert.equal(result.continueCount, turns - 1, mode);
+    assert.equal(result.continueRequired, false, mode);
+    assert.equal(result.acceptance.verdict, verdict, mode);
+    if (turns === 2) assert.match(starts[1].params.input[0].text, /只可写此报告，不重跑任务，不派新单/);
+  }
+  console.log('PASS - empty named reports get one report-only app-server turn; unmet, waits and opt-out keep their existing disposition');
   for (const mode of ['review-complete', 'deviation-complete']) {
     process.env.MODE = mode;
     process.env.FLEET_DETACHED_RUN_ID = mode;
@@ -459,6 +492,15 @@ const fs = require('node:fs');
 if (process.argv[2] === 'app-server') process.exit(1);
 let count = 0; try { count = Number(fs.readFileSync(process.env.EXEC_COUNT)); } catch {}
 fs.writeFileSync(process.env.EXEC_COUNT, String(++count));
+if (process.env.EXEC_EMPTY_REPORT === '1') {
+ const prompt = fs.readFileSync(0, 'utf8');
+ fs.appendFileSync(process.env.TRACE, JSON.stringify({ args: process.argv.slice(2), prompt }) + '\\n');
+ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
+ if (count === 1) return;
+ fs.writeFileSync(process.env.REPORT_FILE, '## 结论\\nV1｜已过｜已读取隔离夹具退出状态 0');
+ fs.writeFileSync(process.argv[process.argv.indexOf('-o') + 1], '报告已写入');
+ return;
+}
 fs.writeFileSync(process.env.REPORT_FILE, count === 1 ? '## 结论\\n未完成' : '# 测试\\n## 规则回执\\n测试\\n## 结论\\n完成\\n## 实际执行\\n测试\\n## 改动与产物\\n测试\\n## 验证证据\\n测试\\n## 偏差\\n无\\n## 未完成/风险/需要用户决定的事\\n无');
 fs.writeFileSync(process.argv[process.argv.indexOf('-o') + 1], '完成');
 console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
@@ -474,6 +516,22 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
     assert.equal(result.continueRequired, false);
     assert.equal(buildBrief(result).verdict, 'ok');
   }
+  process.env.FLEET_CODEX_BACKEND = 'exec';
+  process.env.FLEET_DETACHED_RUN_ID = 'exec-empty-report';
+  process.env.EXEC_EMPTY_REPORT = '1';
+  process.env.EXEC_COUNT = join(scratch, 'exec-empty-report.count');
+  process.env.REPORT_FILE = join(scratch, 'exec-empty-report.md');
+  process.env.TRACE = join(scratch, 'exec-empty-report.trace');
+  const execRecovery = await runCode({ prompt: `REPORT: ${process.env.REPORT_FILE}\n## 验收\nV1 fixture｜owner：本单`, cwd: scratch, codexBin: execMock });
+  const execTurns = readFileSync(process.env.TRACE, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(execTurns.length, 2);
+  assert.deepEqual(execTurns[1].args.slice(-3), ['resume', 'exec-thread', '-']);
+  assert.match(execTurns[1].prompt, /只可写此报告，不重跑任务，不派新单/);
+  assert.equal(execRecovery.continueCount, 1);
+  assert.equal(execRecovery.continueRequired, false);
+  assert.equal(execRecovery.acceptance.verdict, 'ok');
+  console.log('PASS - empty named reports resume the same exec thread for one report-only turn');
+  delete process.env.EXEC_EMPTY_REPORT;
   delete process.env.FLEET_CODEX_BACKEND;
   process.env.MODE = 'missing-sections';
   process.env.TRACE = join(scratch, 'document.trace');
