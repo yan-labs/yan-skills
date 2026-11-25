@@ -18,6 +18,7 @@ import { snapshotGit, inspectGit, attachArtifacts, redactEvidence } from './brie
 import { runsDir } from './progress.mjs';
 import { readPidRecord, patchPidRecord, processCommand, collectDescendantPids, readPidPpidTable, isPidAlive } from './pid.mjs';
 import { watchInbox } from './inbox.mjs';
+import { readState } from './detach.mjs';
 import { createSupervision, commandObservation, escalationAction, sleepSeconds } from './supervision.mjs';
 import { SCOPE_LOCK } from './scope.mjs';
 import { fleetEvent, FLEET_EVENTS } from './timeline.mjs';
@@ -204,12 +205,14 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   };
   log(JSON.stringify({ type: 'model_resolution', family, model, warnings: resolutionLog }));
   const fallback = reason => { metadata.fallbacks.push(reason); log(`\n[codex] fallback: ${reason}\n`); record(); };
+  const protectedChildren = new Map();
   const start = args => {
     // Global options go before the exec resume subcommand and its positional prompt.
     const command = [args[0], ...overrides, ...args.slice(1)];
     const child = spawn(codexBin, command, { stdio: ['pipe', 'pipe', 'pipe'], env: codexEnv });
     activeChild = child;
     activeDescendants = [];
+    protectedChildren.clear();
     child.stdin.on('error', () => {});
     child.stderr.on('data', chunk => { stderr += chunk; log(chunk); });
     closed = new Promise(done => {
@@ -221,8 +224,19 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   };
   const captureChildren = () => {
     if (!activeChild?.pid || activeChild.exitCode !== null || activeChild.signalCode !== null) return;
-    const current = collectDescendantPids(activeChild.pid, readPidPpidTable())
+    const rows = readPidPpidTable();
+    const current = collectDescendantPids(activeChild.pid, rows)
       .map(pid => ({ pid, command: processCommand(pid) }));
+    // Detached child runs own their process trees, even while their launcher waits.
+    for (const child of current) {
+      const id = child.command.match(/(?:^|\s)__supervise\s+(\S+)(?:\s|$)/)?.[1];
+      const rec = id && readState(id);
+      if (!rec || rec.parentRunId !== runId || rec.status !== 'running' || rec.pid !== child.pid || rec.command !== child.command) continue;
+      for (const pid of [child.pid, ...collectDescendantPids(child.pid, rows)]) {
+        const command = processCommand(pid);
+        if (command) protectedChildren.set(pid, command);
+      }
+    }
     activeDescendants = [...new Map([...activeDescendants, ...current].map(child => [child.pid, child])).values()];
   };
   const interrupt = async ({ forPark = false } = {}) => {
@@ -243,7 +257,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       } catch { /* SIGINT is the fallback when the protocol is unavailable */ }
     }
     captureChildren();
-    const descendants = activeDescendants;
+    const descendants = activeDescendants.filter(({ pid, command }) => protectedChildren.get(pid) !== command);
     if (!forPark && metadata.backend === 'codex-app-server') await archive();
     if (!alreadyExited) {
       if (forPark) child.stdin.end();
