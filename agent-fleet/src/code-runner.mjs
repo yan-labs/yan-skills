@@ -470,6 +470,43 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     commandEvidence.add(createHash('sha256').update(command).update('\0').update(output).digest('hex'));
   };
   let previousCommandEvidence = 0, acceptanceStagnant = 0, turnUsedTool = false;
+  // Zero-tool stalls are independent of shared worktree changes and stale wait text.
+  let zeroToolStreak = 0, turnReport = '';
+  const resetTurn = () => {
+    turnUsedTool = false;
+    try { turnReport = reportPath ? readFileSync(resolve(workdir, reportPath), 'utf8') : ''; }
+    catch { turnReport = ''; }
+  };
+  const zeroToolStop = state => {
+    zeroToolStreak = metadata.numTurns > 1 && !turnUsedTool && state.report === turnReport ? zeroToolStreak + 1 : 0;
+    metadata.zeroToolStreak = zeroToolStreak;
+    return zeroToolStreak >= 2;
+  };
+  const retryZeroTool = state => {
+    if (metadata.zeroToolRetry || zeroToolStreak < 2 || !/(工具|shell|终端|命令执行|tools?|exec_command).{0,40}(不可用|无法|不能|缺失|未提供|无权限|not available|unavailable|disabled|not accessible)|(?:无法|不能|没有|缺少|无权).{0,30}(工具|shell|终端|执行命令|tools?)/i.test(state.finalReply || '')) return false;
+    metadata.zeroToolRetry = 1;
+    metadata.zeroToolStreak = 0;
+    metadata.zeroToolOldThread = metadata.threadId;
+    delete metadata.continueStop;
+    zeroToolStreak = stagnant = acceptanceStagnant = 0;
+    previous = undefined;
+    lastAcceptance = state;
+    previousCommandEvidence = commandEvidence.size;
+    reportRecoveryPrompt = null;
+    log('[codex] 零工具停机：保留原 brief，归档旧会话并新开一次');
+    record();
+    return true;
+  };
+  const settleZeroTool = state => {
+    metadata.continueRequired = true;
+    if (retryZeroTool(state)) return true;
+    metadata.continueStop = NO_PROGRESS_STOP;
+    log(fleetEvent(FLEET_EVENTS.BLOCKED));
+    record();
+    return false;
+  };
+  const namedZeroPending = state => !noContinue && process.env.FLEET_NO_CONTINUE !== '1' &&
+    (state.acceptance?.unmet.length || (state.acceptance?.verdict === 'needs-review' && state.acceptance.pending === 'none' && !state.report.trim()));
   const namedMissing = state => {
     const count = commandEvidence.size;
     const { missing } = acceptanceContinuation(lastAcceptance, state, count > previousCommandEvidence);
@@ -638,6 +675,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           completed = null;
           turnId = null;
           tools.clear();
+          resetTurn();
           interruptedForPark = false;
           const turnDone = turnFinished = new Promise(resolve => { finishTurn = resolve; });
           writeFileSync(resultPath, '');
@@ -670,6 +708,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           }
           if (yielded?.blocked) break;
           if (yielded?.prompt) {
+            zeroToolStreak = 0;
             if (yielded.parked) stagnant = 0;
             nextPrompt = yielded.prompt;
             if (!activeChild) wakePrompt = nextPrompt;
@@ -681,6 +720,20 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           metadata.reportConclusion = state.conclusion;
           if (/^(?:阻塞|受阻)/.test(state.conclusion)) log(fleetEvent(FLEET_EVENTS.BLOCKED));
           checkProgress(state);
+          const stalled = zeroToolStop(state);
+          if (stalled && namedZeroPending(state)) {
+            if (settleZeroTool(state)) {
+              await archive();
+              metadata.threadId = metadata.sessionId = null;
+              const fresh = await rpc('thread/start', { cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
+              metadata.threadId = metadata.sessionId = fresh.thread.id;
+              archived = false;
+              nextPrompt = fullPrompt + '\n' + CONTINUE_ACTION;
+              record();
+              continue;
+            }
+            break;
+          }
           if (nextPrompt === reportRecoveryPrompt) {
             metadata.continueRequired = false;
             record();
@@ -704,6 +757,16 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
             metadata.continuationChecks.push({ turn: metadata.numTurns, rules: missing, judge: judgment ?? null });
           }
           metadata.continueRequired = missing.length > 0;
+          if (metadata.continueRequired && stalled && settleZeroTool(state)) {
+            await archive();
+            metadata.threadId = metadata.sessionId = null;
+            const fresh = await rpc('thread/start', { cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
+            metadata.threadId = metadata.sessionId = fresh.thread.id;
+            archived = false;
+            nextPrompt = fullPrompt + '\n' + CONTINUE_ACTION;
+            record();
+            continue;
+          }
           if (!state.acceptance && metadata.continueRequired && !metadata.continueStop && stagnant >= 2) metadata.continueStop = NO_PROGRESS_STOP;
           record();
           if (!metadata.continueRequired || metadata.continueStop) break;
@@ -726,6 +789,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
       let session = metadata.threadId;
       let nextPrompt = session ? [wakePrompt, ...offsetQueue.splice(0)].filter(Boolean).join('\n\n') || fullPrompt : fullPrompt;
       do {
+        resetTurn();
         writeFileSync(resultPath, '');
         const args = ['exec', '--skip-git-repo-check', '--json', '-m', model, ...(serviceTier ? ['-c', 'service_tier="priority"'] : []), '-c', `model_reasoning_effort=${effort}`,
           '--sandbox', 'danger-full-access', '-C', workdir, '-o', resultPath,
@@ -773,6 +837,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
         inbox.pump(); await drain;
         if (stopping || yielded?.blocked) break;
         if (yielded?.prompt) {
+          zeroToolStreak = 0;
           if (yielded.parked) stagnant = 0;
           if (yielded.handoff) {
             if (checkHandoff(yielded)) break;
@@ -795,6 +860,18 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
         state.finalReply = readFileSync(resultPath, 'utf8');
         metadata.reportConclusion = state.conclusion;
         checkProgress(state);
+        const stalled = zeroToolStop(state);
+        if (stalled && namedZeroPending(state)) {
+          if (settleZeroTool(state)) {
+            await archive();
+            session = null;
+            metadata.threadId = metadata.sessionId = null;
+            nextPrompt = fullPrompt + '\n' + CONTINUE_ACTION;
+            record();
+            continue;
+          }
+          break;
+        }
         if (nextPrompt === reportRecoveryPrompt) {
           metadata.continueRequired = false;
           record();
@@ -809,6 +886,14 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
         const missing = state.acceptance ? (!noContinue && process.env.FLEET_NO_CONTINUE !== '1' ? namedMissing(state) : [])
           : continueEnabled && reportPath && !review ? continuationRules(state, prompt, workdir, initial) : [];
         metadata.continueRequired = missing.length > 0;
+        if (metadata.continueRequired && stalled && settleZeroTool(state)) {
+          await archive();
+          session = null;
+          metadata.threadId = metadata.sessionId = null;
+          nextPrompt = fullPrompt + '\n' + CONTINUE_ACTION;
+          record();
+          continue;
+        }
         metadata.continuationChecks.push({ turn: metadata.numTurns, rules: missing, judge: null });
         if (!state.acceptance && metadata.continueRequired && !metadata.continueStop && stagnant >= 2) metadata.continueStop = NO_PROGRESS_STOP;
         if (!metadata.continueRequired || metadata.continueStop) break;

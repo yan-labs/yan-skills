@@ -34,6 +34,11 @@ if (process.argv[2] === 'exec') {
   const args = process.argv.slice(2);
   fs.appendFileSync(process.env.TRACE,JSON.stringify({args,prompt})+'\\n');
   send({type:'thread.started',thread_id:'exec-thread-'+n});
+  if (process.env.MODE.startsWith('zero-loop')) {
+    if (n === 1) { send({type:'item.completed',item:{id:'plan-tool',type:'command_execution',command:'fleet plan',aggregated_output:'ok',exit_code:0}}); fs.writeFileSync(process.env.YIELD_FILE,JSON.stringify({type:'plan',text:'执行验证',at:Date.now()})); }
+    fs.writeFileSync(args[args.indexOf('-o')+1],process.env.MODE === 'zero-loop-retry' ? '工具不可用' : '未完成');
+    return;
+  }
   if (n === 1 || (process.env.MODE === 'handoff-stuck' && n < 6)) fs.writeFileSync(process.env.YIELD_FILE,JSON.stringify(process.env.MODE === 'plan'
    ? {type:'plan',text:'实现：完成',at:Date.now()}
    : {type:'handoff',text:'已完成及证据；决定及理由；未决外部事项；坑勿重做；下一步',next:'继续',at:Date.now()}));
@@ -64,6 +69,11 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
   }
   setTimeout(() => {
    const mode = process.env.MODE;
+   if (mode.startsWith('zero-loop')) {
+    if (count === 1) { send({method:'item/completed',params:{item:{id:'plan-tool',type:'commandExecution',command:'fleet plan',aggregatedOutput:'ok',exitCode:0}}}); fs.writeFileSync(process.env.YIELD_FILE,JSON.stringify({type:'plan',text:'执行验证',at:Date.now()})); }
+    send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:mode === 'zero-loop-retry' ? '工具不可用' : '未完成'}}});
+    send({method:'turn/completed',params:{turn:{id,status:'completed'}}}); return;
+   }
    if (['named-stuck','named-rewrite','zero-proof','evidence-proof'].includes(mode) && (mode !== 'zero-proof' || count > 1)) send({method:'item/completed',params:{item:{id:'tool-'+count,type:'commandExecution',command:'check',aggregatedOutput:mode === 'evidence-proof' && count === 3 ? 'new' : 'same',exitCode:0}}});
    if ((mode === 'zero-proof' && count > 1) || (mode === 'evidence-proof' && count > 3)) { fs.writeFileSync(process.env.REPORT_FILE, '## 结论\\nV1｜已过｜fixture'); send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:'完成'}}}); send({method:'turn/completed',params:{turn:{id,status:'completed'}}}); return; }
    if ((mode === 'plan' && count === 1) || (mode === 'replan' && count === 2)) fs.writeFileSync(process.env.YIELD_FILE,JSON.stringify({type:'plan',text:'实现：假测试通过\\n验收点：报告完成',at:Date.now()}));
@@ -485,6 +495,27 @@ try {
     if (wanted) assert.match(result.continueStop, /无进展停续做/);
     else assert.equal(buildBrief(result).pending, 'external');
   }
+  for (const backend of ['app', 'exec']) for (const mode of ['zero-loop-stop', 'zero-loop-retry']) {
+    if (backend === 'exec') process.env.FLEET_CODEX_BACKEND = 'exec'; else delete process.env.FLEET_CODEX_BACKEND;
+    const id = `${backend}-${mode}`;
+    process.env.MODE = mode; process.env.FLEET_DETACHED_RUN_ID = id;
+    process.env.TRACE = join(scratch, id + '.trace'); process.env.REPORT_FILE = join(scratch, id + '.md');
+    process.env.YIELD_FILE = join(scratch, id + '.yield');
+    writeFileSync(process.env.REPORT_FILE, '## 结论\nV1｜未过｜fixture');
+    const result = await runCode({ prompt: `REPORT: ${process.env.REPORT_FILE}\n## 验收\nV1 fixture｜owner：本单`, cwd: scratch, codexBin: mock });
+    const trace = readFileSync(process.env.TRACE, 'utf8').trim().split('\n').map(JSON.parse);
+    const turns = trace.filter(e => backend === 'exec' ? e.args : e.method === 'turn/start');
+    assert.equal(turns.length, mode === 'zero-loop-retry' ? 5 : 3, id);
+    assert.equal(result.zeroToolRetry, mode === 'zero-loop-retry' ? 1 : undefined, id);
+    assert.equal(result.zeroToolStreak, 2, id);
+    assert.match(result.continueStop, /连续两次续做无进展/, id);
+    if (mode === 'zero-loop-retry') {
+      assert.equal(backend === 'exec' ? turns.filter(e => !e.args.includes('resume')).length : trace.filter(e => e.method === 'thread/start').length, 2, id);
+      assert.match(backend === 'exec' ? turns[3].prompt : turns[3].params.input[0].text, /V1 fixture/, id);
+    }
+  }
+  delete process.env.FLEET_CODEX_BACKEND;
+  console.log('PASS - plan zero-tool stalls stop after two turns; one fresh brief retry only in both backends');
   for (const [mode, turns] of [['zero-proof', 2], ['evidence-proof', 4]]) {
     process.env.MODE = mode; process.env.FLEET_DETACHED_RUN_ID = mode;
     process.env.TRACE = join(scratch, mode + '.trace'); process.env.REPORT_FILE = join(scratch, mode + '.md');
