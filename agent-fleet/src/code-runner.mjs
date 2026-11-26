@@ -466,14 +466,16 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     if (!command || !output) return;
     commandEvidence.add(createHash('sha256').update(command).update('\0').update(output).digest('hex'));
   };
-  let previousCommandEvidence = 0;
+  let previousCommandEvidence = 0, acceptanceStagnant = 0, turnUsedTool = false;
   const namedMissing = state => {
     const count = commandEvidence.size;
-    const { missing, blocked } = acceptanceContinuation(lastAcceptance, state, count > previousCommandEvidence);
+    const { missing } = acceptanceContinuation(lastAcceptance, state, count > previousCommandEvidence);
+    const blocked = !continuationProgress(lastAcceptance, state).progress && count === previousCommandEvidence;
+    acceptanceStagnant = !turnUsedTool || !blocked || state.externalWait?.waiting ? 0 : acceptanceStagnant + 1;
     previousCommandEvidence = count;
     lastAcceptance = state;
-    if (blocked) {
-      metadata.continueStop = '受阻：本单验收未过且无新证据';
+    if (acceptanceStagnant >= 2) {
+      metadata.continueStop = NO_PROGRESS_STOP;
       log(fleetEvent(FLEET_EVENTS.BLOCKED));
     }
     return missing;
@@ -559,6 +561,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
             record();
           }
           if (/^item\/(started|completed)$/.test(event.method) && params.item && /^(commandExecution|mcpToolCall|dynamicToolCall|fileChange|webSearch|collabAgentToolCall)$/.test(params.item.type)) {
+            turnUsedTool = true;
             if (metadata.numTurns === 1) firstTurnUsedTool = true;
             countToolCall(params.item.id, event.method === 'item/started');
             if (event.method === 'item/started') tools.set(params.item.id, params.item);
@@ -698,11 +701,12 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
             metadata.continuationChecks.push({ turn: metadata.numTurns, rules: missing, judge: judgment ?? null });
           }
           metadata.continueRequired = missing.length > 0;
-          if (metadata.continueRequired && !metadata.continueStop && stagnant >= 2) metadata.continueStop = NO_PROGRESS_STOP;
+          if (!state.acceptance && metadata.continueRequired && !metadata.continueStop && stagnant >= 2) metadata.continueStop = NO_PROGRESS_STOP;
           record();
           if (!metadata.continueRequired || metadata.continueStop) break;
           metadata.continueCount++;
-          nextPrompt = `继续完成本任务，具体缺项：\n${missing.map(item => `- ${item}`).join('\n')}\n只做 brief 已授权范围；做完更新报告七节及要求的交付凭据，中途自查不是最终交付。`;
+          nextPrompt = `${!turnUsedTool ? "本单是实际执行任务，直接调用工具开工。\n" : ""}继续完成本任务，具体缺项：\n${missing.map(item => `- ${item}`).join('\n')}\n只做 brief 已授权范围；做完更新报告七节及要求的交付凭据，中途自查不是最终交付。`;
+          turnUsedTool = false;
           log(`[codex] 续做 ${metadata.continueCount} 次`);
         }
         if (completed?.status === 'completed' || metadata.yield?.external) outcome = { code: 0 };
@@ -742,6 +746,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
               const event = JSON.parse(line);
               if (event.type === 'thread.started') { metadata.threadId = metadata.sessionId = event.thread_id; record(); schedule(); }
               if (/^item\.(started|completed)$/.test(event.type) && /^(command_execution|mcp_tool_call|dynamic_tool_call|file_change|web_search|collab_agent_tool_call)$/.test(event.item?.type || '')) {
+                turnUsedTool = true;
                 if (metadata.numTurns === 1) firstTurnUsedTool = true;
                 countToolCall(event.item?.id, event.type === 'item.started');
               }
@@ -802,12 +807,13 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           : continueEnabled && reportPath && !review ? continuationRules(state, prompt, workdir, initial) : [];
         metadata.continueRequired = missing.length > 0;
         metadata.continuationChecks.push({ turn: metadata.numTurns, rules: missing, judge: null });
-        if (metadata.continueRequired && !metadata.continueStop && stagnant >= 2) metadata.continueStop = NO_PROGRESS_STOP;
+        if (!state.acceptance && metadata.continueRequired && !metadata.continueStop && stagnant >= 2) metadata.continueStop = NO_PROGRESS_STOP;
         if (!metadata.continueRequired || metadata.continueStop) break;
         if (!metadata.threadId) { metadata.continueStop = '缺少 threadId，无法续做'; break; }
         metadata.continueCount++;
         session = metadata.threadId;
-        nextPrompt = `继续完成本任务，具体缺项：\n${missing.map(item => `- ${item}`).join('\n')}\n只做 brief 已授权范围；做完更新报告七节及要求的交付凭据，中途自查不是最终交付。`;
+        nextPrompt = `${!turnUsedTool ? "本单是实际执行任务，直接调用工具开工。\n" : ""}继续完成本任务，具体缺项：\n${missing.map(item => `- ${item}`).join('\n')}\n只做 brief 已授权范围；做完更新报告七节及要求的交付凭据，中途自查不是最终交付。`;
+        turnUsedTool = false;
         log(`[codex] 续做 ${metadata.continueCount} 次`);
       } while (true);
       if (outcome.code !== 0 && metadata.resumeCount) fallback('exec resume failed；改方向请用 --restart');

@@ -64,6 +64,8 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
   }
   setTimeout(() => {
    const mode = process.env.MODE;
+   if (['named-stuck','named-rewrite','zero-proof','evidence-proof'].includes(mode) && (mode !== 'zero-proof' || count > 1)) send({method:'item/completed',params:{item:{id:'tool-'+count,type:'commandExecution',command:'check',aggregatedOutput:mode === 'evidence-proof' && count === 3 ? 'new' : 'same',exitCode:0}}});
+   if ((mode === 'zero-proof' && count > 1) || (mode === 'evidence-proof' && count > 3)) { fs.writeFileSync(process.env.REPORT_FILE, '## 结论\\nV1｜已过｜fixture'); send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:'完成'}}}); send({method:'turn/completed',params:{turn:{id,status:'completed'}}}); return; }
    if ((mode === 'plan' && count === 1) || (mode === 'replan' && count === 2)) fs.writeFileSync(process.env.YIELD_FILE,JSON.stringify({type:'plan',text:'实现：假测试通过\\n验收点：报告完成',at:Date.now()}));
    if ((mode === 'handoff' && count === 1) || (mode === 'handoff-stuck' && count < 6) || (mode === 'replan' && (count === 1 || count === 3)))
      fs.writeFileSync(process.env.YIELD_FILE, JSON.stringify({type:'handoff',text:'已完成及证据；决定及理由；未决外部事项；坑勿重做；下一步',next:'继续',at:Date.now()}));
@@ -82,7 +84,7 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
    if (mode === 'missing-sections' || (['finish', 'stuck', 'progress', 'env-off'].includes(mode) && !(mode === 'finish' && count > 1) && !(mode === 'progress' && count > 5))) report = '## 结论\\n' + conclusion + (mode === 'progress' ? count : '');
    if (mode === 'review-complete') report = '## 结论\\n不可放行，列出必修项\\nV1｜未过｜问题一\\nV2｜已过｜已核验\\nLEDGER: blockers=1 verdict=fail';
    if (mode === 'deviation-complete') report = '## 结论\\n' + Array.from({length:5}, (_, i) => 'V' + (i+1) + '｜已过' + (i === 2 ? '（目标分支偏差）' : '') + '｜已核验').join('\\n');
-   if (mode === 'named-stuck' || mode === 'named-external') report = '## 结论\\nV1｜' + (mode === 'named-stuck' ? '未过' : '等外部') + '｜fixture';
+   if (['named-stuck', 'named-external', 'zero-proof', 'evidence-proof'].includes(mode)) report = '## 结论\\nV1｜' + (mode === 'named-external' ? '等外部' : '未过') + '｜fixture';
    if (mode === 'rewrite-only') report = '## 结论\\n部分完成：仅改写文字第 ' + count + ' 轮';
    if (mode === 'named-rewrite') report = '## 结论\\nV1｜未过｜仅改写证据文字第 ' + count + ' 轮';
    if (mode === 'park-exempt') {
@@ -446,7 +448,7 @@ try {
     const result = await runCode({ prompt: '归类：只读复核\n## 目标\n复核证书', cwd: scratch, codexBin: mock, ...options });
     assert.equal(result.continueCount, 0, 'legacy prose does not trigger the retired Terra keyword scan');
   }
-  for (const [mode, wanted, verdict] of [['named-stuck', 1, 'partial'], ['named-external', 0, 'ok']]) {
+  for (const [mode, wanted, verdict] of [['named-stuck', 2, 'needs-review'], ['named-external', 0, 'ok']]) {
     process.env.MODE = mode;
     process.env.FLEET_DETACHED_RUN_ID = mode;
     process.env.TRACE = join(scratch, mode + '.trace');
@@ -454,8 +456,16 @@ try {
     const result = await runCode({ prompt: `REPORT: ${process.env.REPORT_FILE}\n## 验收\nV1 fixture｜owner：${mode === 'named-external' ? '外部：服务' : '本单'}`, cwd: scratch, codexBin: mock });
     assert.equal(result.continueCount, wanted, mode);
     assert.equal(buildBrief(result).verdict, verdict, mode);
-    if (wanted) assert.match(result.continueStop, /无新证据/);
+    if (wanted) assert.match(result.continueStop, /无进展停续做/);
     else assert.equal(buildBrief(result).pending, 'external');
+  }
+  for (const [mode, turns] of [['zero-proof', 2], ['evidence-proof', 4]]) {
+    process.env.MODE = mode; process.env.FLEET_DETACHED_RUN_ID = mode;
+    process.env.TRACE = join(scratch, mode + '.trace'); process.env.REPORT_FILE = join(scratch, mode + '.md');
+    const result = await runCode({ prompt: `REPORT: ${process.env.REPORT_FILE}\n## 验收\nV1 fixture｜owner：本单`, cwd: scratch, codexBin: mock });
+    const starts = readFileSync(process.env.TRACE, 'utf8').trim().split('\n').map(JSON.parse).filter(e => e.method === 'turn/start');
+    assert.equal(starts.length, turns); assert.equal(buildBrief(result).verdict, 'ok');
+    if (mode === 'zero-proof') { assert.match(JSON.stringify(starts[1]), /本单是实际执行任务，直接调用工具开工/); console.log('零工具桩：首轮零工具 → 原线程续做；提示：本单是实际执行任务，直接调用工具开工'); }
   }
   for (const [mode, owner, options, turns, verdict] of [
     ['named-empty-zero', '本单', {}, 2, 'ok'],
