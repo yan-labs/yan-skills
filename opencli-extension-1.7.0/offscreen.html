@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>OpenCLI offscreen</title>
+</head>
+<body>
+  <!--
+    Hidden host for chrome.offscreen document-based clipboard I/O (MV3
+    service workers have no document, and a normal tab's document.execCommand
+    / navigator.clipboard calls are gated behind document focus — this
+    offscreen document is the documented exemption for clipboard access).
+    opacity/position, not display:none — a display:none element can't
+    receive focus/paste in some Chromium versions.
+  -->
+  <textarea id="paste-target" style="position:fixed; top:0; left:0; opacity:0;"></textarea>
+  <script type="module" src="dist/offscreen.js"></script>
+</body>
+</html>

@@ -279,6 +279,9 @@ print(json.dumps({'missing':missing,'ready':ready,'tools':tools,'timed_out':time
         if value['missing']: reasons.append('Mini 缺少路径：' + value['missing'][0] + '\n'
                                                   + '\n'.join('- ' + p for p in value['missing'][1:])
                                                   + '\n请检查路径是否存在、是否分隔符写错。')
+        if reasons and os.environ.get('FLEET_STRICT') != '1':
+            print('提示：' + '；'.join(reasons).replace('\n', ' '), file=sys.stderr)
+            reasons.clear()
         if not value['ready']: reasons.append('Mini 的 ' + meta['to'] + ' 通道不可用')
         return '；'.join(reasons) if reasons else None
     except (OSError, subprocess.TimeoutExpired, ValueError, KeyError):
@@ -314,11 +317,13 @@ def launch(meta, argv):
     match = re.search(r'^\s*仓库\s*[:：]\s*(/[^\s`]+)', Path(meta['brief']).read_text(), re.M)
     repo = remote_path(match.group(1)) if match else ''
     payload = {'files': files, 'args': args, 'cwd': remote_path(os.getcwd()), 'repo': repo, 'report': remote_path(meta['report']), 'home': REMOTE_HOME, 'temporary_cwd': meta.get('temporary_cwd', False)}
+    payload['name'] = meta['name']
+    payload['strict'] = os.environ.get('FLEET_STRICT', '')
     payload['seat'] = meta.get('watch_seat') or ''
     payload['session'] = meta.get('dispatch_session') or ''
     payload['parent'] = (os.environ.get('FLEET_SLOT_RUN_ID') or os.environ.get('FLEET_DETACHED_RUN_ID')
                          or os.environ.get('FLEET_PARENT_RUN_ID') or '')
-    script = PATH_FIX + '''import base64,json,os,pathlib,subprocess,sys,tempfile
+    script = PATH_FIX + '''import base64,fcntl,json,os,pathlib,subprocess,sys,tempfile
 p=json.loads(base64.b64decode(sys.argv[1]));
 ''' + CANONICAL_SCRIPT + '''
 p['args']=[canonical(x) for x in p['args']]; p['cwd']=canonical(p['cwd']); p['repo']=canonical(p['repo']); p['report']=canonical(p['report'])
@@ -329,15 +334,29 @@ if not pathlib.Path(p['cwd']).is_dir():
  print('Mini 工作目录不存在，改用：' + p['cwd'], flush=True)
 p['files']={canonical(k):canonical(v) for k,v in p['files'].items()}
 binary=pathlib.Path(p['args'][0]); p['args'][0]=str(binary/'fleet' if binary.is_dir() else binary)
+transfer_lock=pathlib.Path(p['args'][2]).parent/'.dispatch.lock'
+transfer_lock.parent.mkdir(parents=True,exist_ok=True)
+lock=transfer_lock.open('a')
+fcntl.flock(lock,fcntl.LOCK_EX)
+if any(pathlib.Path(name).exists() for name in p['files']):
+ state=subprocess.run([p['args'][0],'status','--json','--fresh'],capture_output=True,text=True,check=True)
+ for row in json.loads(state.stdout):
+  if row.get('status') not in ('running','queued','parked','waiting','abnormal'): continue
+  brief=row.get('briefPath')
+  if row.get('name')==p['name'] or (brief and str(pathlib.Path(brief).resolve()) in p['files']):
+   sys.exit('[fleet-queue-rejected] 任务名或 brief 与 Mini 运行中任务冲突。')
 for name,text in p['files'].items():
  f=pathlib.Path(name); f.parent.mkdir(parents=True,exist_ok=True); f.write_text(text)
 pathlib.Path(p['report']).parent.mkdir(parents=True,exist_ok=True)
-r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini','FLEET_SEAT':p['seat'],'FLEET_LINE':'','FLEET_DISPATCH_SESSION':p['session'],'FLEET_PARENT_RUN_ID':p['parent']},capture_output=True,text=True); print(r.stdout,end=''); print(r.stderr,end='',file=sys.stderr); sys.exit(r.returncode)
+r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini','FLEET_STRICT':p['strict'],'FLEET_SEAT':p['seat'],'FLEET_LINE':'','FLEET_DISPATCH_SESSION':p['session'],'FLEET_PARENT_RUN_ID':p['parent']},capture_output=True,text=True); print(r.stdout,end=''); print(r.stderr,end='',file=sys.stderr); sys.exit(r.returncode)
 '''
     p = call(script, payload)
     if p.returncode and '[fleet-queue-rejected]' in (p.stderr or ''):
         raise QueueRejected((p.stderr or '')[-2000:])
     if p.returncode: raise ValueError('Mini 启动失败；请检查 Mini 端任务状态，避免重复启动。\n' + ((p.stderr or '') + (p.stdout or ''))[-600:])
+    for line in (p.stderr or '').splitlines():
+        if line.startswith(('提示：重复问题：', '提示：可写路径重叠：')):
+            print(line, file=sys.stderr)
     if p.stdout.startswith('Mini 工作目录不存在'): print(p.stdout.splitlines()[0], flush=True)
     m = re.search(r'^runId: (\S+)', p.stdout, re.M)
     if not m: raise ValueError('Mini 启动回执缺少 runId；请先检查 Mini 端状态。')
@@ -345,20 +364,22 @@ r=subprocess.run(p['args'],cwd=p['cwd'],env={**os.environ,'FLEET_MACHINE':'mini'
     STORE.mkdir(parents=True, exist_ok=True)
     (STORE / (rec['id'] + '.json')).write_text(json.dumps(rec, ensure_ascii=False) + '\n')
     print('Mini runId: ' + rec['id'], flush=True)
-    return wait(rec, meta.get('pull', False))
+    return wait(rec, meta.get('pull', False), '--quiet' in argv)
 
 STATUS_KEYS = ('runId', 'status', 'state', 'verdict', 'exitCode', 'resultPath', 'startedAt', 'finishedAt', 'model', 'duration', 'heartbeatAt', 'launchDetached', 'activeMs', 'waitMs', 'pollCount', 'pending')
 
-def query(rec, timeout=20, kill_group=False):
+def query(rec, timeout=20, kill_group=False, *, passive=False):
     script = PATH_FIX + '''import base64,json,pathlib,subprocess,sys
-p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary; r=subprocess.run([str(binary),'status','--json'],capture_output=True,text=True,check=True); rows=json.loads(r.stdout); row=next((x for x in rows if x.get('runId')==p['id']),None)
+p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary; r=subprocess.run([str(binary),'status','--json',*([] if p['passive'] else ['--fresh'])],capture_output=True,text=True,check=True); rows=json.loads(r.stdout); row=next((x for x in rows if x.get('runId')==p['id']),None)
 if row is None: row=json.loads((pathlib.Path.home()/'.agent-fleet/runs'/(p['id']+'.json')).read_text())
-print(json.dumps({k:row.get(k) for k in p['keys']}))
+output={k:row.get(k) for k in p['keys']}
+brief=row.get('brief'); output['usage']=brief.get('usage') if isinstance(brief,dict) else None
+print(json.dumps(output))
 '''
     if kill_group:
-        p = call(script, {**rec, 'bin': REMOTE_BIN, 'keys': STATUS_KEYS}, timeout=timeout, kill_group=True)
+        p = call(script, {**rec, 'bin': REMOTE_BIN, 'keys': STATUS_KEYS, 'passive': passive}, timeout=timeout, kill_group=True)
     else:
-        p = call(script, {**rec, 'bin': REMOTE_BIN, 'keys': STATUS_KEYS}, timeout=timeout)
+        p = call(script, {**rec, 'bin': REMOTE_BIN, 'keys': STATUS_KEYS, 'passive': passive}, timeout=timeout)
     if p.returncode: raise ConnectionError('Mini 状态暂不可读')
     return json.loads(p.stdout)
 
@@ -368,7 +389,7 @@ class StatusError(ConnectionError):
         super().__init__(reason)
         self.reason = reason
 
-def query_all(recs, since=None, timeout=20):
+def query_all(recs, since=None, timeout=20, *, fresh=False):
     """一次 ssh 取 recs 的 run 摘要（Mini 端只跑一次 fleet status，再补读 24 小时外的 run 文件）。
 
     since 是 epoch 秒：给定时 Mini 端丢弃更早结束的终态行，不传输。
@@ -376,7 +397,7 @@ def query_all(recs, since=None, timeout=20):
     """
     script = PATH_FIX + '''import base64,datetime,json,pathlib,subprocess,sys
 p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary
-try: live={x.get('runId'):x for x in json.loads(subprocess.run([str(binary),'status','--json'],capture_output=True,text=True,check=True).stdout)}
+try: live={x.get('runId'):x for x in json.loads(subprocess.run([str(binary),'status','--json',*(['--fresh'] if p['fresh'] else [])],capture_output=True,text=True,check=True).stdout)}
 except Exception: sys.exit(3)
 runs=pathlib.Path.home()/'.agent-fleet/runs'; rows={}; missing=[]
 def stamp(row):
@@ -393,7 +414,7 @@ for i in p['ids']:
     rows[i]={k:row.get(k) for k in p['keys']}
 print(json.dumps({'rows':rows,'missing':missing}))
 '''
-    payload = {'ids': [r['id'] for r in recs], 'bin': REMOTE_BIN, 'since': since, 'keys': STATUS_KEYS}
+    payload = {'ids': [r['id'] for r in recs], 'bin': REMOTE_BIN, 'since': since, 'fresh': fresh, 'keys': STATUS_KEYS}
     try:
         p = call(script, payload, timeout=timeout, kill_group=True)
     except subprocess.TimeoutExpired:
@@ -452,9 +473,9 @@ def parent_slot_released():
         if lease.returncode: raise ValueError('父单恢复槽位失败')
 
 
-def wait(rec, pull=False):
+def wait(rec, pull=False, quiet=False):
     with parent_slot_released():
-        return _wait(rec, pull)
+        return _wait(rec, pull, quiet)
 
 
 def record_quota_order(rec, row):
@@ -495,24 +516,71 @@ sys.exit(subprocess.run([str(binary), 'watch', '--serve'], input=json.dumps(['wa
     return json.loads(reply.stdout)
 
 
-def _wait(rec, pull=False):
+def progress_chunk(rec, row, offset):
+    script = PATH_FIX + """import base64,json,pathlib,subprocess,sys
+p=json.loads(base64.b64decode(sys.argv[1])); binary=pathlib.Path(p['bin']); binary=binary/'fleet' if binary.is_dir() else binary
+module=binary.resolve().parent.parent/'src/live-progress.mjs'
+code="const m=await import(process.argv[1]); const r=m.readProgress(process.argv[2], Number(process.argv[3]), process.argv[4]); r.reports=m.reportProgress(process.argv[5]); console.log(JSON.stringify(r))"
+result=subprocess.run(['node','--input-type=module','-e',code,module.as_uri(),p['log'],str(p['offset']),p['model'],p['report']],capture_output=True,text=True,check=True)
+print(result.stdout,end='')
+"""
+    result_path = row.get('resultPath') or ''
+    log = result_path.removesuffix('.result.md') + '.log' if result_path else ''
+    result = call(script, {'bin': REMOTE_BIN, 'log': log, 'offset': offset, 'model': row.get('model') or 'fleet', 'report': remote_path(rec.get('report') or '')}, timeout=12)
+    if result.returncode: raise ConnectionError('Mini 过程日志暂不可读')
+    return json.loads(result.stdout)
+
+
+def _wait(rec, pull=False, quiet=False):
     warned_mailbox = False
+    offset = 0
+    last = None
+    repeated = count = omitted = 0
+    disconnected = False
+    reports = set()
+    def emit(line):
+        print(line, flush=True)
     while True:
         try:
-            row = query(rec)
+            row = query(rec, kill_group=True, passive=True)
+            if not quiet:
+                chunk = progress_chunk(rec, row, offset)
+                offset = chunk['offset']
+                fresh_reports = [line for line in chunk.get('reports', []) if line[9:] not in reports]
+                reports.update(line[9:] for line in fresh_reports)
+                for line in chunk['lines'] + fresh_reports:
+                    key = re.match(r'^\S+ (\[[^]]+\] (?:运行|改|更新计划|等待外部条件|已唤醒|等待执行槽位))', line)
+                    key = key.group(1) if key else line
+                    if key == last:
+                        repeated += 1
+                        continue
+                    if repeated:
+                        if count < 300:
+                            emit(f'           [progress] 同类事件另有 {repeated} 条'); count += 1
+                        else: omitted += repeated
+                        repeated = 0
+                    last = key
+                    if count < 300: emit(line); count += 1
+                    else: omitted += 1
+            disconnected = False
             terminal = row.get('status') not in ('running', 'queued', 'parked', 'waiting', 'abnormal')
             try:
-                for summary in wait_events(rec['id'], terminal):
+                for summary in ([] if quiet else wait_events(rec['id'], terminal)):
                     print(f"[agent-fleet] 【待答复 ask】runId={rec['id']} {summary}，用 fleet say {rec['id']} 回复。", flush=True)
             except (ConnectionError, OSError, subprocess.SubprocessError, ValueError):
                 if not warned_mailbox:
                     print('Mini 信箱暂不可读。', file=sys.stderr, flush=True)
                     warned_mailbox = True
             if terminal:
+                if repeated:
+                    if count < 300: emit(f'           [progress] 同类事件另有 {repeated} 条')
+                    else: omitted += repeated
+                if omitted: emit(f'           [progress] 超出上限，省略 {omitted} 条事件')
                 break
         except (ConnectionError, OSError, subprocess.TimeoutExpired, ValueError):
-            print('Mini 连接中断，等待重连…', file=sys.stderr, flush=True)
-        time.sleep(5)
+            if not disconnected: print('Mini 连接中断，等待重连…', file=sys.stderr, flush=True)
+            disconnected = True
+        time.sleep(15)
     record_quota_order(rec, row)
     while True:
         try:
@@ -527,6 +595,12 @@ def _wait(rec, pull=False):
                 report_error = read(rec, 'report', pull=True, row=row)
                 result_error = read(rec, 'result', pull=True, row=row)
                 if report_error or result_error: return row.get('exitCode') or 1
+            usage = row.get('usage')
+            if isinstance(usage, dict):
+                values = [usage.get(k) for k in ('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens')]
+                total = sum(values) if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in values) else 0
+                print('缓存命中率 ' + (f'{100 * values[1] / total:.2f}%' if total > 0 else '未知'))
+            print('终态摘要：' + str(row.get('verdict')))
             return 0 if row.get('verdict') == 'ok' else (row.get('exitCode') or 1)
         except (ConnectionError, OSError, subprocess.TimeoutExpired):
             print('Mini 连接中断，等待重连…', file=sys.stderr, flush=True); time.sleep(5)
@@ -546,5 +620,5 @@ if __name__ == '__main__':
         sys.exit(0)
     if rec.get('local'): sys.exit(2)
     if sys.argv[1] == 'has': sys.exit(0)
-    if sys.argv[1] == 'wait': sys.exit(wait(rec, '--pull' in sys.argv[3:]))
+    if sys.argv[1] == 'wait': sys.exit(wait(rec, '--pull' in sys.argv[3:], '--quiet' in sys.argv[3:]))
     sys.exit(forward([sys.argv[1], rec['id'], *sys.argv[3:]]))

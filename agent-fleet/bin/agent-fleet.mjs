@@ -36,7 +36,7 @@ import { tailLatestLog } from '../src/tail-log.mjs';
 import { timelineFile } from '../src/timeline.mjs';
 import { buildBrief, DEFAULT_BRIEF_LINES, renderManyOutput, renderRunOutput, failureReport, redactEvidence, inspectGit, fillReport } from '../src/brief.mjs';
 import { collectStatus, deliverSay, formatStatusHuman, requestStop } from '../src/control.mjs';
-import { readPidRecord, resolveRunId, isRecordedProcessAlive, patchPidRecord, runIdFromLogPath } from '../src/pid.mjs';
+import { readPidRecord, resolveRunId, isRecordedProcessAlive, patchPidRecord, runIdFromLogPath, sameCwd } from '../src/pid.mjs';
 import { shortRunOptions, splitShortArgs, resolveBrief } from '../src/shortcuts.mjs';
 import { runCode, launchArchiveSweep } from '../src/code-runner.mjs';
 import { runGrok } from '../src/grok-runner.mjs';
@@ -321,9 +321,10 @@ function matchCwd(flags) {
   return flags.cwd ? resolvePath(flags.cwd) : process.cwd();
 }
 
-function cmdStatus(argv) {
+function cmdStatus(argv, cachedRows) {
   const flags = parseFlags(argv);
-  const rows = collectStatus(flags.cwd ? { cwd: resolvePath(flags.cwd) } : {});
+  const cwd = flags.cwd ? resolvePath(flags.cwd) : undefined;
+  const rows = cachedRows ? cachedRows.filter(r => !cwd || sameCwd(r.cwd, cwd)) : collectStatus({ cwd });
   const selected = rows.filter(r => !flags.running || ['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(r.state));
   process.stdout.write(flags.json ? `${JSON.stringify(selected, null, 2)}\n`
     : selected.length ? selected.map(r =>
@@ -414,7 +415,7 @@ async function cmdResume(argv) {
     }
     const nextId = await launchDetached(fileURLToPath(import.meta.url), args, { cwd: flags.cwd ? resolvePath(flags.cwd) : rec.cwd || process.cwd(), model: `grok-cli:${model}`,
       review: Boolean(rec.review || flags.review), auth: rec.auth, actions: rec.actions, briefPath: rec.briefPath, name: flags.name ?? rec.name, reportPath: flags.report ?? rec.reportPath, noWait: Boolean(flags['no-wait']) });
-    if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true });
+    if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true, quiet: Boolean(flags.quiet || flags.json) });
     return;
   }
   if (isCodexModel(rec.model)) {
@@ -448,7 +449,7 @@ async function cmdResume(argv) {
     }
     const nextId = await launchDetached(fileURLToPath(import.meta.url), args, { cwd, model: rec.model,
       review: Boolean(rec.review || flags.review), auth: rec.auth, actions: rec.actions, briefPath: rec.briefPath, name, reportPath, noWait: Boolean(flags['no-wait']) });
-    if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true });
+    if (!flags['no-wait']) process.exitCode = await waitDetached(nextId, { originalOutput: true, quiet: Boolean(flags.quiet || flags.json) });
     return;
   }
   if (!rec.sessionId) {
@@ -668,7 +669,7 @@ async function main() {
         finishAttached = await enterAttachedSlot(launchOptions);
       } else {
         const runId = await launchDetached(fileURLToPath(import.meta.url), [command, ...positionals, ...args], launchOptions);
-        if (!flags['no-wait']) process.exitCode = await waitDetached(runId, { originalOutput: true });
+        if (!flags['no-wait']) process.exitCode = await waitDetached(runId, { originalOutput: true, quiet: Boolean(flags.quiet || flags.json) });
         return;
       }
     }
@@ -694,7 +695,7 @@ async function main() {
       case 'wait': {
         const { flags, positionals } = splitShortArgs(rest);
         if (!positionals[0]) throw new Error('用法: fleet wait <runId|latest> [--timeout 秒]');
-        process.exitCode = await waitDetached(positionals[0], { cwd: matchCwd(flags), timeout: flags.timeout });
+        process.exitCode = await waitDetached(positionals[0], { cwd: matchCwd(flags), timeout: flags.timeout, quiet: Boolean(flags.quiet || flags.json) });
         break;
       }
       case 'copy':
@@ -757,6 +758,9 @@ async function main() {
         break;
       case 'status':
         cmdStatus(rest);
+        break;
+      case 'status-render':
+        cmdStatus(rest, JSON.parse(readFileSync(0, 'utf8')));
         break;
       case 'say':
         cmdSay(rest);

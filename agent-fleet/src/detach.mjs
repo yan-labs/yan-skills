@@ -114,8 +114,6 @@ export async function launchDetached(cli, args, { cwd, model, briefPath, name, r
   } finally { closeSync(fd); }
   try { await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      writeFileSync(stopPath(runId), 'stop');
-      child.kill('SIGTERM');
       reject(new Error('detach 监督进程启动超时，未退回前台。'));
     }, 15000);
     child.once('error', err => { clearTimeout(timer); reject(err); });
@@ -131,8 +129,6 @@ export async function launchDetached(cli, args, { cwd, model, briefPath, name, r
     });
   });
   } catch (err) {
-    writeFileSync(stopPath(runId), 'stop');
-    child.kill('SIGTERM');
     if (child.connected) child.disconnect();
     child.unref();
     throw err;
@@ -166,6 +162,11 @@ export function killGroup(pid, signal) {
 }
 export async function supervise(cli) {
   process.on('SIGHUP', () => {});
+  process.on('error', err => {
+    if (err.code === 'EPIPE' || err.code === 'ERR_IPC_CHANNEL_CLOSED') console.error(`[agent-fleet] 父 IPC 已断开: ${err.code}`);
+    else throw err;
+  });
+  process.on('disconnect', () => console.error('[agent-fleet] 父 IPC 已断开'));
   let stopping = false;
   let child;
   let rec;
