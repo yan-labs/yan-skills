@@ -60,6 +60,7 @@ allowed-tools: Bash(fleet-go context*)
 | 架构与复杂判断 | `executor-fable` / `--to gpt --astra` |
 | 只读代码复核 | `--to gpt --review` |
 | 文案、翻译、批量写作 | `--to gemini`，批量用 `--bulk` |
+| 点名 Gemini 的编码、调研、搜索、复核 | `--to gemini`；当前仅走文本 copy，不能调用工具或操作文件，agy 会员通道需启用且失败会回退 |
 | 视觉设计、复杂编码、轻量核对 | `--to claude --tier sonnet` / `opus` / `haiku` |
 | 视频、图片、实时社媒调研 | `--to grok`，媒体按需加 `--make` |
 | 结构化判断 | `--to jev` 或 `fleet judge` |
