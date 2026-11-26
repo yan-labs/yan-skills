@@ -5,7 +5,7 @@ import { readJSON, readYield, resolveYield, writeYield, localCondition, stageSta
 import { saveCodexQuota, taskIdentity, queueRecord, setSlotState, acquireSlot } from './queue.mjs';
 // Codex 执行层：管理 app-server 回合、插话、自动续做与 exec 降级。
 import { acceptanceResult } from './verdict.mjs';
-import { readContinuationState, continuationProgress, continuationRules, judgeContinuation, acceptanceContinuation, NO_PROGRESS_STOP, parkWaitReason } from './code-continue.mjs';
+import { readContinuationState, continuationProgress, continuationRules, judgeContinuation, acceptanceContinuation, CONTINUE_ACTION, NO_PROGRESS_STOP, parkWaitReason } from './code-continue.mjs';
 import { judgeTask } from './judge-task.mjs';
 import { loadModelsConfig } from './config.mjs';
 import { spawn } from 'node:child_process';
@@ -365,7 +365,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       persistStages();
       if (entry.type === 'plan') {
         resolveYield(runId, entry, { status: 'accepted' });
-        return { prompt: '阶段计划已记录，按计划直接继续完成当前阶段：\n' + plan };
+        return { prompt: '阶段计划已记录，按计划直接继续完成当前阶段：\n' + plan + '\n' + CONTINUE_ACTION };
       }
     }
     if (entry.type === 'handoff') {
@@ -708,7 +708,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           record();
           if (!metadata.continueRequired || metadata.continueStop) break;
           metadata.continueCount++;
-          nextPrompt = `${!turnUsedTool ? "本单是实际执行任务，直接调用工具开工。\n" : ""}继续完成本任务，具体缺项：\n${missing.map(item => `- ${item}`).join('\n')}\n只做 brief 已授权范围；做完更新报告七节及要求的交付凭据，中途自查不是最终交付。`;
+          nextPrompt = `${!turnUsedTool ? "本单是实际执行任务，直接调用工具开工。\n" : ""}继续完成本任务，具体缺项：\n${missing.map(item => `- ${item}`).join('\n')}\n只做 brief 已授权范围；做完更新报告七节及要求的交付凭据，中途自查不是最终交付。\n${CONTINUE_ACTION}`;
           turnUsedTool = false;
           log(`[codex] 续做 ${metadata.continueCount} 次`);
         }
@@ -815,7 +815,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
         if (!metadata.threadId) { metadata.continueStop = '缺少 threadId，无法续做'; break; }
         metadata.continueCount++;
         session = metadata.threadId;
-        nextPrompt = `${!turnUsedTool ? "本单是实际执行任务，直接调用工具开工。\n" : ""}继续完成本任务，具体缺项：\n${missing.map(item => `- ${item}`).join('\n')}\n只做 brief 已授权范围；做完更新报告七节及要求的交付凭据，中途自查不是最终交付。`;
+        nextPrompt = `${!turnUsedTool ? "本单是实际执行任务，直接调用工具开工。\n" : ""}继续完成本任务，具体缺项：\n${missing.map(item => `- ${item}`).join('\n')}\n只做 brief 已授权范围；做完更新报告七节及要求的交付凭据，中途自查不是最终交付。\n${CONTINUE_ACTION}`;
         turnUsedTool = false;
         log(`[codex] 续做 ${metadata.continueCount} 次`);
       } while (true);

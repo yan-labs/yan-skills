@@ -7,6 +7,7 @@ import { acceptanceResult } from './verdict.mjs';
 import { redactEvidence } from './brief.mjs';
 
 export const CONTINUE_PROMPT = '报告写的是部分完成。把『未完成』里授权范围内能做的步骤继续做完——包括等 runner 空闲、推送、发布、读回——外部等待登记终态后用 fleet park；只有真正缺授权或缺必需输入的那一步才可以停。做完更新报告七节及 brief 已授权且明确要求的交付凭据。';
+export const CONTINUE_ACTION = '在当前已授权且可用的工具范围内直接执行下一步，不要只回复文字结束回合；若需等待已启动的后台作业，使用 fleet park --until job:<id> 登记等待；工具确不可用或权限不足时如实记录，不扩大授权。';
 export const NO_PROGRESS_STOP = '连续两次续做无进展；无进展停续做，交派单方裁定';
 
 /** 把 park 的 --until 条件脱敏为类型标记，绝不带参数或凭据。 */

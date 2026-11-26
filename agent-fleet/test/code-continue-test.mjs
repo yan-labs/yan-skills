@@ -159,7 +159,7 @@ try {
       assert(checks.every(p=>p.state.kind === 'handoff'),'no restatement approval turn');
     }
     const stage = JSON.parse(readFileSync(join(scratch,`${id}.stages.json`),'utf8'));
-    if (mode === 'plan') { assert.equal(stage.stage,0); assert.equal(stage.baton,1); assert.equal(stage.stages.length,2); }
+    if (mode === 'plan') { assert.match(turns[1].params.input[0].text, /fleet park --until job:<id>/); assert.equal(stage.stage,0); assert.equal(stage.baton,1); assert.equal(stage.stages.length,2); }
     if (mode === 'handoff') { assert.equal(stage.stage,verdict === 'pass' ? 1 : 0); assert.equal(stage.baton,10); }
     assert.match(readFileSync(join(scratch,`${id}.log`),'utf8'),/自动放行|自动接力/);
   }
@@ -446,6 +446,7 @@ try {
     assert.equal(starts.length, expected + 1);
     assert(starts.every(event => event.params.threadId === 'same-thread'));
     assert(starts.slice(1).every(event => /具体缺项/.test(event.params.input[0].text) || event.params.input[0].text === CONTINUE_PROMPT));
+    assert(starts.slice(1).every(event => event.params.input[0].text.includes('fleet park --until job:<id>')));
     if (mode === 'judge-missing') assert.match(starts[1].params.input[0].text, /缺少 brief 要求的文件/);
     if (mode.startsWith('judge-')) assert(result.continuationChecks.every(check => check.judge));
     const brief = buildBrief(result);
