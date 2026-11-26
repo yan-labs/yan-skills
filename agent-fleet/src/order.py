@@ -15,12 +15,12 @@ import subprocess
 import sys
 import tempfile
 
-EXECUTORS = ('codex', 'openai-api', 'claude-sub', 'claude-api', 'grok', 'gemini', 'jev', '全局')
+EXECUTORS = ('codex', 'openai-api', 'claude-sub', 'claude-api', 'grok', 'gemini', 'gemini-sub', 'jev', '全局')
 ALIASES = {'gpt': 'codex', 'openai': 'openai-api', 'claude': 'claude-api', 'sub': 'claude-sub', 'subagent': 'claude-sub',
            'global': '全局'}
 STATES = ('优先', '正常', '省着用', '停用')
 # fleet-go --to 对应的调遣令执行者；claude-sub（Agent 工具 executor-*）不经 fleet，只能手动记。
-TO_EXECUTOR = {'gpt': 'codex', 'openai': 'openai-api', 'claude': 'claude-api', 'grok': 'grok', 'gemini': 'gemini', 'jev': 'jev'}
+TO_EXECUTOR = {'gpt': 'codex', 'openai': 'openai-api', 'claude': 'claude-api', 'grok': 'grok', 'gemini': 'gemini', 'gemini-sub': 'gemini-sub', 'jev': 'jev'}
 NO_LIMIT = '用户另说'
 HEADER = ('执行者', '状态', '有效至', '原因与用户原话')
 # 解析出的重置时间距现在不足这么久，视为瞬时限流，不记账。
@@ -30,7 +30,7 @@ MIN_RESET_SECONDS = 600
 # 人读版见 skill/references/fallback-chains.md「什么算不可用」；这里是唯一的机读版。
 # reset：重置时间的取法，依次尝试；'est:' 开头是估计（reason 里会标「估计」），'none' 表示没有自动重置，写「用户另说」。
 ROUTE_EXECUTOR = [(r'^gpt-', 'codex'), (r'^openai-', 'openai-api'), (r'^claude-', 'claude-api'), (r'^grok', 'grok'),
-                  (r'^kollab-gateway-(?:copy|bulk|research)|gemini', 'gemini'), (r'^jev', 'jev')]
+                  (r'^agy', 'gemini-sub'), (r'^kollab-gateway-(?:copy|bulk|research)|gemini', 'gemini'), (r'^jev', 'jev')]
 HTTP_402 = r'(?:status|http|code)["\s:=]{0,4}402\b|\b402\s+payment'
 QUOTA_RULES = {
     'codex': {'match': r'usage[_ ]limit|hit your usage|weekly (?:usage|limit)|周用量|额度已用尽|额度用尽',
@@ -41,10 +41,11 @@ QUOTA_RULES = {
                    'reset': ['fields', 'try_again', 'est:month'], 'label': 'Claude API 月度额度'},
     'grok': {'match': r'usage balance exhausted|payment required|' + HTTP_402,
              'reset': ['fields', 'try_again', 'est:week'], 'label': 'Grok Build 额度'},
+    'gemini-sub': {'match': r'quota|rate.?limit|exhausted|\b429\b', 'reset': ['est:5h'], 'label': 'agy 额度'},
     'gemini': {'match': r'payment required|budget|预算|insufficient (?:credits?|balance)|余额不足|' + HTTP_402,
                'reset': ['fields', 'est:hour'], 'label': 'Gemini 网关预算'},
 }
-ESTIMATES = {'24h': '按 24 小时估计', 'week': '按周重置估计（7 天）', 'month': '按每月 1 日 00:00 UTC 重置估计',
+ESTIMATES = {'5h': '按 5 小时估计', '24h': '按 24 小时估计', 'week': '按周重置估计（7 天）', 'month': '按每月 1 日 00:00 UTC 重置估计',
              'hour': '按网关下一整点（UTC）估计'}
 
 
@@ -383,6 +384,7 @@ def parse_try_again(text, now):
 
 
 def estimate(kind, now):
+    if kind == '5h': return now + datetime.timedelta(hours=5)
     utc = now.astimezone(datetime.timezone.utc)
     if kind == '24h':
         return now + datetime.timedelta(hours=24)

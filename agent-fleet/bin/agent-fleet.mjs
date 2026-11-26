@@ -42,6 +42,8 @@ import { runCode, launchArchiveSweep } from '../src/code-runner.mjs';
 import { runGrok } from '../src/grok-runner.mjs';
 import { launchDetached, readState, resolveDetached, supervise, waitDetached } from '../src/detach.mjs';
 import { runMedia } from '../src/media.mjs';
+import { runAgy } from '../src/agy-runner.mjs';
+import { runGeminiApi } from '../src/gemini-api-runner.mjs';
 
 const PKG_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const PKG_VERSION = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8')).version;
@@ -73,6 +75,8 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
   fleet say <id|latest> "消息" | stop <id|latest> | resume <id|latest>
   fleet media list | run <tool> --model <id> --prompt "..." [--input-json '{}'] [--out dir]
   fleet media models [--source openrouter] [--search text]
+  fleet media run image|video --provider gemini-api --prompt "..." [--dry-run]
+  fleet research|analyze --to gemini-api --prompt "..." [--input file] [--dry-run]
   fleet team | list-models | help | --version
 
 run 默认不限轮数、安静、当前目录；--verbose 显示进度。--quiet、--max-turns、--cwd、
@@ -549,6 +553,17 @@ function flagArgs(flags, omitted = []) {
 
 async function cmdShortRun(command, argv) {
   const options = shortRunOptions(command, argv);
+  if (command === 'copy' && process.env.FLEET_GEMINI_SUB === '1' && options.model === 'kollab-gateway-copy') {
+    const result = await runAgy({ prompt: options.prompt, cwd: options.cwd, noVoice: Boolean(options.flags['no-voice']) });
+    if (result) {
+      result.reportPath = options.flags.report;
+      const config = loadModelsConfig(options.flags['models-config'] ? resolvePath(options.flags['models-config']) : undefined);
+      await printRunResult(result, outputOptions(options.flags, config));
+      process.exitCode = buildBrief(result, outputOptions(options.flags, config)).verdict === 'ok' ? 0 : 1;
+      return;
+    }
+    console.error('agy 不可用，回退 Kollab 网关');
+  }
   await cmdRun(['--model', options.model, '--prompt', options.prompt, ...flagArgs(options.flags, ['model', 'prompt'])], { copyVoice: command === 'copy' });
 }
 
@@ -611,7 +626,7 @@ async function main() {
       delete process.env.FLEET_DETACHED_BATCH;
     }
   }
-  if (!['media', 'park', 'blocked', 'ask', 'bg', 'land'].includes(command)) loadEnvFile(join(PKG_ROOT, '.env'));
+  if (!['park', 'blocked', 'ask', 'bg', 'land'].includes(command)) loadEnvFile(join(PKG_ROOT, '.env'));
 
   if (!command || command === 'help' || command === '--help' || command === '-h') {
     console.log(HELP_TEXT);
@@ -716,6 +731,21 @@ async function main() {
       case 'code':
         await cmdCode(rest);
         break;
+      case 'research':
+      case 'analyze': {
+        const flags = parseFlags(rest);
+        if (flags.to !== 'gemini-api') throw new Error('请指定 --to gemini-api');
+        const result = runGeminiApi(command, { prompt: flags.prompt, input: flags.input, model: flags.model, dryRun: Boolean(flags['dry-run']) });
+        if (result.unavailable) {
+          console.error(`${result.error}，回退 Kollab 网关`);
+          const prompt = command === 'analyze' ? `${flags.prompt}\n\n请读取并分析文件：${flags.input}` : flags.prompt;
+          await cmdRun(['--model', 'kollab-gateway-research', '--prompt', prompt]);
+          break;
+        }
+        if (result.error) throw new Error(result.error);
+        console.log(result.output);
+        break;
+      }
       case 'media':
         process.exitCode = runMedia(rest);
         break;

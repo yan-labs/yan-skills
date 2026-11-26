@@ -1,5 +1,6 @@
 // Kollab 多模态短命令：只转调本机 kollab CLI，下载与认证由它处理。
 import { spawnSync } from 'node:child_process';
+import { runGeminiApi } from './gemini-api-runner.mjs';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
@@ -26,7 +27,7 @@ function call(args) {
 /** 参数沿用 fleet 短命令的 --name value 写法。 */
 function options(argv) {
   const flags = {};
-  for (let i = 0; i < argv.length; i++) if (argv[i].startsWith('--')) flags[argv[i].slice(2)] = argv[++i];
+  for (let i = 0; i < argv.length; i++) if (argv[i].startsWith('--')) { const key = argv[i].slice(2); flags[key] = key === 'dry-run' ? true : argv[++i]; }
   return flags;
 }
 
@@ -72,7 +73,18 @@ export function runMedia(argv) {
   if (!command || command === '--help' || command === 'help') { console.log(HELP); return 0; }
   try {
     if (command === 'list') { list(); return 0; }
-    if (command === 'run') return run(rest[0], options(rest.slice(1)));
+    if (command === 'run') {
+      const flags = options(rest.slice(1));
+      if (flags.provider === 'gemini-api') {
+        const kind = ({ generate_image: 'image', generate_video: 'video', image: 'image', video: 'video' })[rest[0]];
+        if (!kind) throw new Error('gemini-api 支持 image / video');
+        const result = runGeminiApi(kind, { prompt: flags.prompt, input: flags.input, out: flags.out, model: flags.model, dryRun: flags['dry-run'] });
+        if (!result.unavailable) { if (result.error) throw new Error(result.error); console.log(result.output); return 0; }
+        console.error(`${result.error}，回退 Kollab`);
+      }
+      const tool = ({ image: 'generate_image', video: 'generate_video' })[rest[0]] || rest[0];
+      return run(tool, flags);
+    }
     if (command === 'models') {
       const flags = options(rest);
       const args = ['model', 'list'];

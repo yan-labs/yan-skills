@@ -100,3 +100,5 @@ allowed-tools: Bash(fleet-go context*)
 - [文案规范](references/copy-voice.md) · 写作、翻译与验收用户可见文本时读。
 - [多模态](references/media.md) · 查实时模型目录和媒体落盘时读。
 - [JEV](references/judge.md) · 配置结构化判断时读。
+
+文案 `copy` 可通过 `FLEET_GEMINI_SUB=1` 优先使用 agy 会员通道（`FLEET_AGY_BIN` 和 `FLEET_AGY_MODEL` 可选）；并发上限固定为 1（`FLEET_AGY_MAX_PARALLEL=1`）；未登录、额度不足、超时或失败时回退 Kollab，额度不足自动暂停约五小时。`bulk` 仍走 Kollab。Google 媒体、文件分析和调研入口见[多模态](references/media.md)。

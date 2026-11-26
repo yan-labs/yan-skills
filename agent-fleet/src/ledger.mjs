@@ -46,6 +46,7 @@ export function executorOf(model = '', resolved = '') {
   if (/luna/.test(m)) return 'luna';
   if (/astra/.test(m)) return 'astra';
   if (/sol/.test(m)) return 'sol';
+  if (/^agy(?:\s|$)/.test(m)) return 'gemini-sub';
   if (/grok/.test(m)) return 'grok';
   if (/gemini|kollab-gateway-(copy|bulk)|^kollab-gateway\b/.test(m)) return 'gemini';
   const claude = /claude-(haiku|sonnet|opus|fable)/.exec(m);
