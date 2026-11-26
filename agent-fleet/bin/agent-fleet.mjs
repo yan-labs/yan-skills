@@ -739,7 +739,7 @@ async function main() {
         if (result.unavailable) {
           console.error(`${result.error}，回退 Kollab 网关`);
           const prompt = command === 'analyze' ? `${flags.prompt}\n\n请读取并分析文件：${flags.input}` : flags.prompt;
-          await cmdRun(['--model', 'kollab-gateway-research', '--prompt', prompt]);
+          await cmdRun(['--model', 'kollab-gateway-research', '--prompt', prompt, ...flagArgs(flags, ['model', 'prompt', 'to', 'input', 'dry-run'])]);
           break;
         }
         if (result.error) throw new Error(result.error);
