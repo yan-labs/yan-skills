@@ -70,7 +70,7 @@ export async function runAgy({ prompt, cwd, noVoice = false, effort }) {
       return null;
     }
     const resultPath = writeResultFile(progress.logPath, stdout.trim());
-    return attachArtifacts({ ok: true, result: stdout.trim(), model: 'agy', tier: process.env.FLEET_AGY_MODEL || 'default', durationMs: Date.now() - startedMs, cwd, resultPath, logPath: progress.logPath, totalCostUsd: null }, progress.logPath, inspectGit(cwd, before));
+    return attachArtifacts({ ok: true, result: stdout.trim(), model: 'agy', route: 'agy', toolCalls: 0, promptTemplate: noVoice ? 'copy/no-voice' : 'copy/voice', tier: process.env.FLEET_AGY_MODEL || 'default', durationMs: Date.now() - startedMs, cwd, resultPath, logPath: progress.logPath, totalCostUsd: null }, progress.logPath, inspectGit(cwd, before));
   } finally {
     record(true);
     progress.stop();

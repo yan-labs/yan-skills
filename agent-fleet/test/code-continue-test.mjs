@@ -83,6 +83,13 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
    if (mode === 'review-complete') report = '## 结论\\n不可放行，列出必修项\\nV1｜未过｜问题一\\nV2｜已过｜已核验\\nLEDGER: blockers=1 verdict=fail';
    if (mode === 'deviation-complete') report = '## 结论\\n' + Array.from({length:5}, (_, i) => 'V' + (i+1) + '｜已过' + (i === 2 ? '（目标分支偏差）' : '') + '｜已核验').join('\\n');
    if (mode === 'named-stuck' || mode === 'named-external') report = '## 结论\\nV1｜' + (mode === 'named-stuck' ? '未过' : '等外部') + '｜fixture';
+   if (mode === 'rewrite-only') report = '## 结论\\n部分完成：仅改写文字第 ' + count + ' 轮';
+   if (mode === 'named-rewrite') report = '## 结论\\nV1｜未过｜仅改写证据文字第 ' + count + ' 轮';
+   if (mode === 'park-exempt') {
+    if (count === 3) fs.writeFileSync(process.env.YIELD_FILE, JSON.stringify({type:'park',until:'file:park-exempt-ready',say:'park唤醒后继续完成',at:Date.now(),timeoutMs:5000,timeouts:0}));
+    if (count >= 4) report = '# 测试\\n## 规则回执\\n测试\\n## 结论\\n完成。\\n## 实际执行\\n测试\\n## 改动与产物\\n测试\\n## 验证证据\\n测试\\n## 偏差\\n无\\n## 未完成/风险/需要用户决定的事\\n无';
+    else report = '## 结论\\n部分完成：第 ' + count + ' 轮';
+   }
    if (mode.startsWith('named-empty')) {
     if (count === 1 && mode !== 'named-empty-zero') send({method:'item/completed',params:{item:{id:'tool',type:'commandExecution',command:'true',aggregatedOutput:'ok',exitCode:0}}});
     if (count === 1 || mode === 'named-empty-stuck') {
@@ -415,12 +422,16 @@ try {
     if (mode === 'judge-missing') assert.match(starts[1].params.input[0].text, /缺少 brief 要求的文件/);
     if (mode.startsWith('judge-')) assert(result.continuationChecks.every(check => check.judge));
     const brief = buildBrief(result);
-    assert.equal(brief.verdict, mode === 'fail' ? 'fail' : ['finish', 'progress', 'complete', 'judge-done', 'judge-low', 'judge-fail', 'judge-throw'].includes(mode) ? 'ok' : 'partial');
+    const stoppedNoProgress = ['stuck', 'missing-sections', 'judge-missing'].includes(mode) && expected === 2;
+    assert.equal(brief.verdict, mode === 'fail' ? 'fail' : ['finish', 'progress', 'complete', 'judge-done', 'judge-low', 'judge-fail', 'judge-throw'].includes(mode) ? 'ok' : stoppedNoProgress ? 'needs-review' : 'partial');
     assert.match(formatBriefHuman(brief), new RegExp(`续做 ${expected} 次`));
     assert.match(readFileSync(result.resultPath, 'utf8'), new RegExp(`续做 ${expected} 次`));
-    if (mode === 'stuck' && expected === 2) {
+    if (stoppedNoProgress) {
       assert(result.continuation.every(step => !step.progress));
       assert.match(result.continueStop, /连续两次续做无进展/);
+      assert.match(result.continueStop, /无进展停续做，交派单方裁定/);
+      assert.match(readFileSync(result.resultPath, 'utf8'), /无进展停续做，交派单方裁定/);
+      assert.equal(brief.verdictNote, '无进展停续做，交派单方裁定');
     }
     if (mode === 'progress') {
       assert(result.continuation.every(step => step.progress && step.report));
@@ -795,6 +806,65 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   assert(continuationProgress(b, c).files);
   git(['add', '.']); git(['commit', '-m', 'progress']);
   assert(continuationProgress(c, readContinuationState(repo)).commits);
+  // V1 续做闸门专项验证：文字改写不续做第三轮（普通+具名验收）、有新产物继续、park 豁免、流水线等待豁免。
+  for (const [mode, promptText] of [
+    ['rewrite-only', `REPORT: ${join(scratch, 'rewrite-only.md')}\n测试仅改写报告文字`],
+    ['named-rewrite', `REPORT: ${join(scratch, 'named-rewrite.md')}\n## 验收\nV1 核验｜owner：本单`],
+  ]) {
+    process.env.MODE = mode;
+    process.env.FLEET_DETACHED_RUN_ID = mode;
+    process.env.TRACE = join(scratch, mode + '.trace');
+    process.env.REPORT_FILE = join(scratch, mode + '.md');
+    const result = await runCode({ prompt: promptText, cwd: scratch, codexBin: mock });
+    const starts = readFileSync(process.env.TRACE, 'utf8').trim().split('\n').map(JSON.parse).filter(e => e.method === 'turn/start');
+    assert.equal(starts.length, 3, `${mode} 不续做第三轮`);
+    assert.equal(result.continueCount, 2, `${mode} 仅续做两次`);
+    assert.match(result.continueStop, /无进展停续做，交派单方裁定/, mode);
+    const brief = buildBrief(result);
+    assert.equal(brief.verdict, 'needs-review', `${mode} verdict 标 needs-review`);
+    assert.equal(brief.verdictNote, '无进展停续做，交派单方裁定', mode);
+    assert.match(readFileSync(result.resultPath, 'utf8'), /无进展停续做，交派单方裁定/, mode);
+  }
+  {
+    const id = 'park-exempt';
+    process.env.MODE = id;
+    process.env.FLEET_DETACHED_RUN_ID = process.env.FLEET_SLOT_RUN_ID = id;
+    process.env.TRACE = join(scratch, id + '.trace');
+    process.env.YIELD_FILE = join(scratch, id + '.yield');
+    process.env.REPORT_FILE = join(scratch, id + '.md');
+    await registerQueue({ runId: id, model: 'gpt-6.1-terra' });
+    assert(await acquireSlot(id));
+    const pending = runCode({ prompt: `REPORT: ${process.env.REPORT_FILE}\n测试 park 豁免`, cwd: scratch, codexBin: mock });
+    for (let i = 0; i < 500 && queueRecord(id)?.state !== 'parked'; i++) await delay(10);
+    assert.equal(queueRecord(id).state, 'parked', '第 3 轮进入 park');
+    writeFileSync(join(scratch, 'park-exempt-ready'), 'done');
+    const result = await pending;
+    await setSlotState(id, 'done');
+    delete process.env.FLEET_SLOT_RUN_ID;
+    const starts = readFileSync(process.env.TRACE, 'utf8').trim().split('\n').map(JSON.parse).filter(e => e.method === 'turn/start');
+    assert.equal(starts.length, 4, 'park 唤醒后继续第 4 轮完成');
+    assert.equal(result.continueStop, undefined, 'park 豁免不触发无进展停机');
+    assert.equal(buildBrief(result).verdict, 'ok', 'park 豁免后正常完成');
+    assert.deepEqual(result.externalWait, { waiting: true, reason: 'park:file' }, '记录 park 外部等待');
+  }
+  {
+    const namedBrief = '## 验收\n- V1 验证｜owner：本单\n- V2 外部｜owner：外部:CI';
+    const r1 = '## 结论\nV1｜未过｜尝试一\nV2｜等外部｜等待 CI';
+    const r2 = '## 结论\nV1｜未过｜仅改写证据文字尝试二\nV2｜等外部｜等待 CI';
+    const r3 = '## 结论\nV1｜已过｜测试通过\nV2｜等外部｜等待 CI';
+    const s1 = { head: 'h1', files: 'f1', report: r1, acceptance: acceptanceResult(namedBrief, r1), externalWait: { waiting: false, reason: null, key: null } };
+    const s2 = { head: 'h1', files: 'f1', report: r2, acceptance: acceptanceResult(namedBrief, r2), externalWait: { waiting: false, reason: null, key: null } };
+    const s3 = { head: 'h1', files: 'f1', report: r3, acceptance: acceptanceResult(namedBrief, r3), externalWait: { waiting: false, reason: null, key: null } };
+    assert.equal(continuationProgress(s1, s2).progress, false, '仅改写具名验收文字不算进展');
+    assert.equal(continuationProgress(s2, s3).progress, true, '具名验收状态变化算进展');
+    assert.equal(continuationProgress(s2, s3).acceptance, true, '标记 acceptance 变化');
+    const w1 = { head: 'h1', files: 'f1', report: 'a', acceptance: null, externalWait: { waiting: true, reason: 'pipeline-wait', key: 'pipeline:1' } };
+    const w2 = { head: 'h1', files: 'f1', report: 'b', acceptance: null, externalWait: { waiting: true, reason: 'pipeline-wait', key: 'pipeline:1' } };
+    assert.equal(continuationProgress(w1, w2).externalWaitExempt, true, '等待流水线豁免无进展停机');
+    const w3 = { head: 'h1', files: 'f1', report: 'c', acceptance: null, externalWait: { waiting: true, reason: 'pipeline-wait', key: 'pipeline:2' } };
+    assert.equal(continuationProgress(w2, w3).externalWait, true, '外部等待状态变化算进展');
+  }
+  console.log('PASS - V1 续做闸门：文字改写不续做第三轮(needs-review)、有新产物继续、park 与等待流水线豁免');
   console.log('PASS - 部分完成同线程续做、终态/开关/review 跳过、连续两次无进展停止、超过三次的进展续做');
 } finally {
   for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];

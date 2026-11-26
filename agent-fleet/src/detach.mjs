@@ -249,6 +249,12 @@ export async function supervise(cli) {
         summary = msg.brief;
         if (!Array.isArray(summary)) {
           rec.model = summary.model ?? rec.model;
+          if (summary.route) rec.route = summary.route;
+          if (Number.isFinite(summary.toolCalls)) rec.toolCalls = summary.toolCalls;
+          if (summary.externalWait) rec.externalWait = summary.externalWait;
+          if (summary.promptTemplate) rec.promptTemplate = summary.promptTemplate;
+          if (summary.reroute) rec.reroute = summary.reroute;
+          if (summary.acceptanceCounts) rec.acceptance = { verdict: summary.verdict, pending: summary.pending, counts: summary.acceptanceCounts };
         }
       }
       if (msg.grokMetadata || msg.codexMetadata) {

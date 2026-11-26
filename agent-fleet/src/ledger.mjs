@@ -6,9 +6,11 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { outcomeFor } from './verdict.mjs';
+import { acceptanceResult, outcomeFor } from './verdict.mjs';
 import { timelineFile } from './timeline.mjs';
 import { recordQuotaOrder } from './order-hook.mjs';
+import { redactEvidence } from './brief.mjs';
+import { parkWaitReason } from './code-continue.mjs';
 
 export const LEDGER_VERSION = 1;
 const TERMINAL = new Set(['done', 'failed', 'stopped', 'blocked']);
@@ -61,6 +63,13 @@ const AUTH = /unrecognized_model|\b401\b|\b403\b|unauthori[sz]ed|invalid[_ ]api[
 const KILLED = /退出 SIG(?:TERM|KILL|INT)|被外部信号/;
 const STRICT_QUOTA = /status 402|Payment Required|usage balance exhausted/i;
 const CAPABILITY_NOTE = /控制 token|结果为空|max-turns|零提交|复述 Skill/;
+const TIMEOUT_ERR = /\b(?:ETIMEDOUT|ESOCKETTIMEDOUT|504)\b|timed?\s*out|timeout|超时/i;
+const NETWORK_ERR = /\b(?:ECONNREFUSED|ECONNRESET|ECONNABORTED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|EPIPE|502|503)\b|fetch failed|\bssl\b|\btls\b|certificate|hostname mismatch|network error|socket hang up|connection reset|代理|不可达/i;
+const AUTH_ERR = /\b(?:401|403)\b|unauthori[sz]ed|invalid[_ ]api[_ ]key|authentication|not logged in|login (?:required|expired)|登录失效|鉴权|failed to refresh|not scoped to a workspace|unrecognized_model|unsupported_role|permission denied|无权限|缺授权/i;
+const REFUSAL_ERR = /refus(?:al|ed)|content[_ ]policy|safety[_ ]filter|policy violation|cannot assist|can't assist|unable to fulfill|cannot comply|拒做|拒绝执行|安全策略/i;
+const ZERO_TOOL_TEXT = /首轮没有任何工具调用|零工具|zero[- ]tool/i;
+const NON_TOOL_ROUTES = new Set(['agy', 'jev', 'kollab-gateway-copy', 'kollab-gateway-bulk']);
+const TOOL_ITEM_RE = /^(?:commandExecution|mcpToolCall|dynamicToolCall|fileChange|webSearch|collabAgentToolCall|command_execution|mcp_tool_call|dynamic_tool_call|file_change|web_search|collab_agent_tool_call)$/;
 
 /** 失败原因分类:能从记录里自动判的自动判,判不了写 unknown;成功与部分完成不分类。 */
 export function classifyFailure(rec) {
@@ -78,6 +87,164 @@ export function classifyFailure(rec) {
   if (rec.status === 'stopped' || verdict === 'stopped' || KILLED.test(text)) return 'stopped';
   if (verdict === 'suspect' || CAPABILITY_NOTE.test(text)) return 'capability';
   return 'unknown';
+}
+
+/** 结构化失败/未达标原因枚举，覆盖 zero-tool、auth、quota、network、refusal、timeout、acceptance-gap、external-wait 等。 */
+export function classifyFailureReason(rec, { toolCalls = null, acceptance = null, externalWait = null } = {}) {
+  const brief = rec.brief && !Array.isArray(rec.brief) ? rec.brief : {};
+  const verdict = rec.verdict ?? brief.verdict ?? null;
+  if (verdict === 'ok') return null;
+  const report = brief.failureReport ?? {};
+  const continueStop = rec.continueStop ?? brief.continueStop ?? '';
+  const text = [rec.error, rec.stopReason, brief.verdictNote, continueStop, report.error, String(report.stderr ?? '').slice(-1500), String(rec.stderr ?? '').slice(-1500)]
+    .filter(Boolean).join('\n');
+  const logTail = safeRead(rec.logPath, 6000);
+  if (rec.abnormalExit || /死进程|监督进程与执行进程均已不存在/.test(text)) return 'zombie';
+  if (QUOTA.test(text) || STRICT_QUOTA.test(logTail)) return 'quota';
+  if (CAPACITY.test(text)) return 'capacity';
+  if (TIMEOUT_ERR.test(text)) return 'timeout';
+  if (NETWORK_ERR.test(text)) return 'network';
+  if (AUTH_ERR.test(text)) return 'auth';
+  if (REFUSAL_ERR.test(text)) return 'refusal';
+  if (rec.status === 'stopped' || verdict === 'stopped' || KILLED.test(text)) return 'stopped';
+  const pending = brief.pending ?? rec.pending ?? 'none';
+  if (externalWait?.waiting || pending === 'external' || rec.yield?.type === 'park' || rec.yield?.external || rec.yield?.type === 'blocked') {
+    return 'external-wait';
+  }
+  if (ZERO_TOOL_TEXT.test(text)) return 'zero-tool';
+  if ((acceptance && (acceptance.failed > 0 || acceptance.missing > 0)) || /无进展|无新证据/.test(continueStop)) {
+    return 'acceptance-gap';
+  }
+  const route = rec.route ?? brief.route ?? rec.model ?? '';
+  if (toolCalls === 0 && !NON_TOOL_ROUTES.has(route) && (verdict === 'fail' || verdict === 'suspect' || /没有写出结果|结果为空/.test(text))) {
+    return 'zero-tool';
+  }
+  if (verdict === 'partial' || verdict === 'needs-review') return 'acceptance-gap';
+  return 'unknown';
+}
+
+function countLogToolCalls(logPath) {
+  const raw = safeRead(logPath, 2_000_000);
+  if (!raw) return null;
+  const ids = new Set();
+  let anon = 0;
+  let sawStructured = false;
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('{')) continue;
+    let event;
+    try { event = JSON.parse(trimmed); } catch { continue; }
+    if (!event || typeof event !== 'object') continue;
+    sawStructured = true;
+    if ((event.method === 'item/started' || event.method === 'item/completed') && TOOL_ITEM_RE.test(event.params?.item?.type || '')) {
+      const id = event.params?.item?.id;
+      if (id != null) ids.add(String(id));
+      else if (event.method === 'item/started') anon++;
+    } else if ((event.type === 'item.started' || event.type === 'item.completed') && TOOL_ITEM_RE.test(event.item?.type || '')) {
+      const id = event.item?.id;
+      if (id != null) ids.add(String(id));
+      else if (event.type === 'item.started') anon++;
+    } else if (event.method === 'grok/tool/started') {
+      const id = event.params?.item?.id;
+      if (id != null) ids.add(`grok:${id}`);
+      else anon++;
+    } else if (event.type === 'tool_use') {
+      anon++;
+    }
+  }
+  return sawStructured ? ids.size + anon : null;
+}
+
+function safeTag(value, max = 80) {
+  if (value == null) return null;
+  const cleaned = redactEvidence(String(value)).replace(/\s+/g, ' ').trim();
+  return cleaned ? cleaned.slice(0, max) : null;
+}
+
+function readYieldFile(rec) {
+  if (rec.yield && typeof rec.yield === 'object') return rec.yield;
+  const path = rec.logPath ? rec.logPath.replace(/\.log$/, '.yield') : null;
+  if (!path || !existsSync(path)) return null;
+  try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
+}
+
+function resolveExternalWait(rec, brief, pending, timeline) {
+  const direct = rec.externalWait ?? brief.externalWait;
+  if (direct && typeof direct === 'object' && typeof direct.waiting === 'boolean') {
+    return { waiting: direct.waiting, reason: direct.waiting ? safeTag(direct.reason || 'external-wait', 48) : null };
+  }
+  const yielded = readYieldFile(rec);
+  if (yielded?.type === 'park') {
+    return { waiting: true, reason: parkWaitReason(yielded.until) };
+  }
+  if (yielded?.external) {
+    return { waiting: true, reason: yielded.type === 'blocked' ? 'park-timeout' : 'park-external' };
+  }
+  if (pending === 'external') {
+    return { waiting: true, reason: 'acceptance-external' };
+  }
+  if (timeline?.parkedMs > 0) {
+    return { waiting: true, reason: 'park' };
+  }
+  return { waiting: false, reason: null };
+}
+
+function normalizeAcceptanceCounts(counts) {
+  if (!counts || typeof counts !== 'object') return null;
+  const out = {
+    passed: Number(counts.passed) || 0,
+    failed: Number(counts.failed) || 0,
+    external: Number(counts.external) || 0,
+    downstream: Number(counts.downstream) || 0,
+    rolledBack: Number(counts.rolledBack) || 0,
+    na: Number(counts.na) || 0,
+    missing: Number(counts.missing) || 0,
+    total: Number(counts.total) || 0,
+  };
+  return out;
+}
+
+function resolveAcceptance(rec, brief, report, useReport) {
+  const existing = rec.acceptance?.counts ?? brief.acceptanceCounts ?? brief.acceptance?.counts;
+  if (existing) return normalizeAcceptanceCounts(existing);
+  if (!useReport || !rec.briefPath || !existsSync(rec.briefPath)) return null;
+  try {
+    const briefText = readFileSync(rec.briefPath, 'utf8');
+    const parsed = acceptanceResult(briefText, report, rec.yield);
+    return parsed?.counts ? normalizeAcceptanceCounts(parsed.counts) : null;
+  } catch { return null; }
+}
+
+function resolvePromptTemplate(rec, brief, meta) {
+  const explicit = meta.prompt_template ?? rec.promptTemplate ?? brief.promptTemplate;
+  if (explicit) return safeTag(explicit, 64);
+  if (rec.briefPath && existsSync(rec.briefPath)) {
+    try {
+      const text = readFileSync(rec.briefPath, 'utf8').slice(0, 8000);
+      const hasPrinciples = /## 思维准则/.test(text);
+      const isOrch = /role-orchestrator|你是[^\n]{0,12}总管/.test(text);
+      const isSingle = /role-single|你是这单的负责人/.test(text);
+      if (isOrch || isSingle) {
+        const ver = hasPrinciples ? 'v1' : 'legacy';
+        return `${ver}/${isOrch ? 'role-orchestrator' : 'role-single'}`;
+      }
+    } catch { /* ignore */ }
+  }
+  const route = rec.route ?? brief.route ?? rec.model ?? '';
+  if (route === 'agy' || route === 'kollab-gateway-copy') return 'copy/voice';
+  if (rec.review) return 'direct/review';
+  return null;
+}
+
+function resolveReroute(rec, brief, meta, prev, executor) {
+  const explicit = rec.reroute ?? brief.reroute ?? meta.reroute_reason;
+  if (explicit) return safeTag(explicit, 64);
+  if (meta.fallback_deviation) return 'quota-fallback';
+  if (rec.fallbackWarning) return 'env-fallback';
+  if (prev && prev.executor && prev.executor !== executor) {
+    return prev.failure ? `relaunch-after-${prev.failure}` : `executor-switch:${prev.executor}->${executor}`;
+  }
+  return null;
 }
 
 /** 报告「结论」首句的口径:完成 / 部分(含未完成、局部、阻塞) / 失败;读不出返回 null。 */
@@ -160,11 +327,20 @@ export function buildRow(rec, index, { useReport = true, backfilled = false } = 
   const trailer = parseTrailer(result) ?? parseTrailer(report);
   const isReview = meta.type === 'review' || (!meta.type && Boolean(rec.review || meta.review || meta.for || guessMakerName(name)));
   const executor = executorOf(rec.model, brief.resolvedModel);
+  const route = rec.route ?? brief.route ?? rec.model ?? null;
+  const timeline = timelineFile(rec.logPath);
+  const toolCalls = Number.isFinite(rec.toolCalls) ? rec.toolCalls
+    : Number.isFinite(brief.toolCalls) ? brief.toolCalls
+    : countLogToolCalls(rec.logPath);
+  const externalWait = resolveExternalWait(rec, brief, pending, timeline);
+  const acceptance = resolveAcceptance(rec, brief, report, useReport);
+  const promptTemplate = resolvePromptTemplate(rec, brief, meta);
+  const failureReason = classifyFailureReason(rec, { toolCalls, acceptance, externalWait });
   const row = {
     v: LEDGER_VERSION, runId: rec.runId, name,
     date: localDate(rec.startedAt), startedAt: rec.startedAt, finishedAt: rec.finishedAt ?? null,
     durationSec: rec.finishedAt ? Math.round((Date.parse(rec.finishedAt) - Date.parse(rec.startedAt)) / 1000) : null,
-    executor, family: rec.family ?? brief.family ?? executor, model: brief.resolvedModel ?? rec.resolvedModel ?? rec.model, route: rec.model,
+    executor, family: rec.family ?? brief.family ?? executor, model: brief.resolvedModel ?? rec.resolvedModel ?? rec.model, route,
     effort: rec.tier ?? brief.effort ?? (rec.max || meta.max ? 'max' : rec.xhigh || meta.xhigh ? 'xhigh' : rec.high || meta.high ? 'high' : rec.low || meta.low ? 'low' : executor === 'gemini' ? 'xhigh' : null),
     level: meta.level ?? null,
     ...(meta.scenes?.length ? { scenes: meta.scenes, project: tilde(meta.project) } : {}),
@@ -174,6 +350,12 @@ export function buildRow(rec, index, { useReport = true, backfilled = false } = 
     type: meta.type ?? (isReview ? 'review' : /orchestrat/i.test(name) ? 'orchestrate' : 'work'),
     status: rec.status, verdict, outcome, pending,
     noProgress: /无进展|无新证据/.test(rec.continueStop ?? brief.continueStop ?? ''), failure: classifyFailure(rec),
+    failureReason,
+    toolCalls,
+    externalWait,
+    acceptance,
+    promptTemplate,
+    reroute: null,
     continues: rec.continueCount ?? 0,
     prevRunId: null, prevExecutor: null, prevFailure: null,
     reviewOf: null, pairSource: null,
@@ -181,10 +363,11 @@ export function buildRow(rec, index, { useReport = true, backfilled = false } = 
     report: tilde(rec.reportPath),
     tokens: rec.usage?.total?.totalTokens ?? null, costUsd: rec.totalCostUsd ?? brief.totalCostUsd ?? null,
     backfilled,
-    ...timelineFile(rec.logPath),
+    ...timeline,
   };
   const prev = (rec.resumedFrom && index.byId.get(rec.resumedFrom)) || index.prevOf(row);
   if (prev) Object.assign(row, { prevRunId: prev.runId, prevExecutor: prev.executor, prevFailure: prev.failure });
+  row.reroute = resolveReroute(rec, brief, meta, prev, executor);
   if (row.type === 'review') {
     const maker = meta.for ?? index.makerNameFor(row);
     if (maker) Object.assign(row, { reviewOf: maker, pairSource: meta.for ? 'explicit' : 'inferred' });

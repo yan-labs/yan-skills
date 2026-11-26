@@ -1029,6 +1029,8 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     if on == 'local' and not (local_reason or '').strip(): raise ValueError('--on local 必须同时提供 --local-reason 理由。')
     if local_reason and on != 'local': raise ValueError('--local-reason 仅用于 --on local。')
     path, meta = locate(name)
+    old_to = meta['to']
+    old_tier = gpt_tier(meta) if old_to == 'gpt' else meta.get('tier')
     name = meta.get('name') or path.name[:-len('.brief.md')]
     override = override_order or meta.get('order_override')
     original = ', '.join([gpt_tier(meta)] + [f'--{k}' for k, v in [('simple', simple), ('sol', sol), ('astra', astra), ('luna', luna), ('fast', fast), ('no-fast', no_fast), ('low', low), ('high', high), ('xhigh', xhigh), ('max', max)] if v])
@@ -1195,6 +1197,12 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     if target == 'jev' and not meta.get('questions'):
         meta['questions'] = str(path.with_suffix('.questions.json'))
         Path(meta['questions']).write_text(json.dumps({'decision': {'type': 'noul', 'instructions': text}}, ensure_ascii=False) + '\n')
+    if fallback:
+        meta['reroute_reason'] = 'quota-fallback:codex->openai'
+    elif target != old_to:
+        meta['reroute_reason'] = f'relaunch:{old_to}->{target}'
+    elif target == 'gpt' and selected != old_tier:
+        meta['reroute_reason'] = f'relaunch:tier:{old_tier}->{selected}'
     path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     dispatch_gate(attempt, 'lint', lambda: launch(meta), category='preflight')
 
@@ -1792,6 +1800,8 @@ def new(args, prepare=False):
             'paths': list(dict.fromkeys([*parameter_paths, *([repo] if repo else []), *report_writes(entry_writes, report)])),
             'writes': report_writes(args.write, report),
             'body': body_file, 'body_text': body.strip(), 'order_override': args.override_order if deviation else None, 'fallback_deviation': fallback,
+            'prompt_template': f"v1/{'role-orchestrator' if orchestrator else 'role-single'}/{'model-' + responsibility if model_role else ('review' if is_review else args.to)}",
+            'reroute_reason': 'quota-fallback:codex->openai' if fallback else None,
             'on': args.on or 'mini', 'local_reason': args.local_reason, 'pull': args.pull, 'object': object_ if object_['repo'] or object_['writes'] or object_.get('window') else None, 'after': args.after, 'level': args.level, 'type': (args.type or ('review' if is_review else 'media' if args.make else None)), 'for': args.for_name}
     if project:
         meta['project'] = str(project)

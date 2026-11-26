@@ -9,19 +9,25 @@
 | `runId` `name` | run 标识与任务名（同名多次运行 = relaunch / 续派）。 |
 | `date` `startedAt` `finishedAt` `durationSec` | 本机日期、起止时间、秒数。僵尸记录的时长不可信，score 不用时长。 |
 | `executor` | 执行者族含 `astra` `sol` `terra`，另保留历史档位标签；主要通道还有  `grok` `gemini` `sonnet` `opus` `haiku` `fable` `jev`。官方 API、网关、Codex 通道统一归并（如 `openai-gpt-terra` 记为 `terra`）。 |
-| `model` `route` `effort` | 实际模型、fleet 路由名、推理档位（Codex 的 medium/xhigh 等，读不到为空）。 |
+| `model` `route` `effort` | 实际模型、真实执行路由（如 `agy`、`kollab-gateway-copy`、`gpt-6.1-terra`、`grok-cli:...`）、推理档位（Codex 的 medium/xhigh 等，读不到为空）。 |
 | `level` | 难度档 `L1`–`L4`，由 `fleet-go new --level` 传入，缺省为空。L1 单文件/小脚本，L2 单模块，L3 跨模块或根因定位，L4 生产高风险或架构级（总管按 L4）。 |
 | `orderOverride` | 派单时用 `--override-order` 放行了被调遣令「停用」的执行者，这里记放行理由；平时为空。 |
 | `type` | `work`（默认）`review` `orchestrate` `media` 等。`--type` 显式传；`--review` / `--for` 自动记 `review`，`--make` 记 `media`，名字含 orchestrat 记 `orchestrate`。 |
 | `status` `verdict` `outcome` | fleet 终态、verdict、折算结果：`complete`（真完成）/ `partial` / `failed` / `stopped`。当前依据 verdict 和 pending 折算，旧记录回填可参考报告结论。 |
 | `pending` | `none`、`external`、`downstream`、`rolled-back`、`handoff`。verdict 为 ok 时，非 none 值也作为 outcome。 |
-| `failure` | 失败原因，自动判：`quota`（402、月度额度）、`capacity`（模型容量、429 并发）、`zombie`（死进程）、`stopped`（被主线程停 / 信号终止）、`auth-gateway`（鉴权、网关、网络超时）、`capability`（suspect、空结果、裸 tool-call 等）、`unknown`（判不了）。ok 与 partial 为空。前五项都是非能力因素。 |
+| `failure` | 旧兼容失败原因分类：`quota`、`capacity`、`zombie`、`stopped`、`auth-gateway`、`capability`、`unknown`。ok 与 partial 为空。前五项都是非能力因素，供 `score` 兼容使用。 |
+| `failureReason` | 结构化失败/未达标原因枚举：`zero-tool`、`auth`、`quota`、`capacity`、`network`、`refusal`、`timeout`、`acceptance-gap`、`external-wait`、`zombie`、`stopped`、`unknown`；`verdict=ok` 时为空。按错误文本与状态归类，不落原文。 |
+| `toolCalls` | 本单工具调用总数（整数；旧记录或无结构化日志时为空）。 |
+| `externalWait` | 外部等待对象 `{waiting: boolean, reason: string|null}`，记录是否命中 `park`、流水线等待或验收等外部状态及脱敏分类原因（不落命令/URL 参数或密钥）。 |
+| `acceptance` | 具名验收各状态计数对象 `{passed, failed, external, downstream, rolledBack, na, missing, total}`，非具名验收单为空，不落验收正文。 |
+| `promptTemplate` | 样板版本与角色标记（如 `v1/role-single/model-terra`、`v1/role-orchestrator/model-orchestrator`、`copy/voice`），缺省为空。 |
+| `reroute` | 改派或自动回退原因分类（如 `agy-unavailable-fallback`、`quota-fallback:codex->openai`、`relaunch:gpt->grok`、`relaunch-after-capacity`），无改派为空。 |
 | `continues` | Codex 续做闸门续做次数。 |
 | `prevRunId` `prevExecutor` `prevFailure` | 同名上一个 run（或 `resumedFrom`）及其执行者、失败原因：看得出谁换手、为什么换。 |
 | `reviewOf` `pairSource` | 复核单对应的被复核任务名，`explicit`（`--for`）或 `inferred`（同名前缀推测），缺省为空。 |
 | `blockers` `reviewVerdict` | 复核尾注里的必修项数与结论，没有尾注为空。 |
 | `report` `tokens` `costUsd` | 报告路径（`~` 缩写）、token 总量、费用（有就记）。 |
-| `backfilled` | 回填行为 `true`，实时写入为 `false`。 |
+| `backfilled` | 回填行为 `true`，实时写入为 `false`。旧记录缺少新增字段时读取与 `score` 均兼容不报错。 |
 
 ## 复核尾注
 

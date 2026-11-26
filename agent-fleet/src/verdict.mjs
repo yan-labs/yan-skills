@@ -104,7 +104,7 @@ export function acceptanceResult(brief = '', report = '', yielded = null) {
   }
   const conclusion = report.match(/^## 结论[ \t]*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/m)?.[1] ?? '';
   const handoff = yielded?.type === 'handoff' || /^巡检换班[，,:：]/m.test(conclusion);
-  if (handoff) return { verdict: 'ok', pending: 'handoff', unmet: [], table: '' };
+  if (handoff) return { verdict: 'ok', pending: 'handoff', unmet: [], counts: null, table: '' };
   if (!items.size) return null;
   const rows = new Map();
   const reviewComplete = /(?:只读复核|只读审查)/.test(brief) && (/^LEDGER:[ \t]*blockers=\d+[ \t]+verdict=(?:pass|fail)[ \t]*$/im.test(report) || /不可放行/.test(conclusion));
@@ -113,9 +113,19 @@ export function acceptanceResult(brief = '', report = '', yielded = null) {
   }
   const rollback = /^(?:[- ]*回滚(?:条件|出口|方案)[：:] *[^\s]|授权块：[^\r\n]*deploy-prod\b)|正文没写回滚条件时，用/m.test(brief);
   const unmet = [], missing = [];
+  const counts = { passed: 0, failed: 0, external: 0, downstream: 0, rolledBack: 0, na: 0, missing: 0, total: items.size };
   let pending = 'none';
   for (const [id, owner] of items) {
     const status = rows.get(id)?.status;
+    if (!status) counts.missing++;
+    else if (status === '已过') {
+      if (owner === '本单' && !hasEvidence(rows.get(id)?.evidence)) counts.missing++;
+      else counts.passed++;
+    } else if (status === '未过') counts.failed++;
+    else if (status === '等外部') counts.external++;
+    else if (status === '待下游') counts.downstream++;
+    else if (status === '已回滚') counts.rolledBack++;
+    else if (status === '不适用') counts.na++;
     if (owner === '本单') {
       if (status === '未过' && !reviewComplete) unmet.push(id);
       else if (!status || status === '等外部' || status === '待下游' || (status === '已回滚' && !rollback) || (status === '已过' && !hasEvidence(rows.get(id)?.evidence))) missing.push(id);
@@ -127,7 +137,7 @@ export function acceptanceResult(brief = '', report = '', yielded = null) {
   if (yielded?.external || yielded?.type === 'park') pending = 'external';
   return {
     verdict: unmet.length ? 'partial' : missing.length ? 'needs-review' : 'ok',
-    pending, unmet, table: JSON.stringify([...items.keys()].sort().map(id => [id, rows.get(id)])),
+    pending, unmet, counts, table: JSON.stringify([...items.keys()].sort().map(id => [id, rows.get(id)])),
   };
 }
 

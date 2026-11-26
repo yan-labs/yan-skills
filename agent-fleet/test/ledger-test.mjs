@@ -191,6 +191,96 @@ try {
   assert(review.status === 0 && review.stdout.includes('LEDGER: blockers=<n>'), '--for 的 brief 带复核尾注说明');
   const badLevel = spawnSync(join(root, 'bin/fleet-go'), ['new', 'x', '--to', 'gpt', '--level', '7', '--goal', '目标', '--dry-run', '--no-lint'], { encoding: 'utf8', env: process.env, input: '' });
   assert(badLevel.status !== 0 && /L1.L4/.test(badLevel.stderr), '难度档非法时报错');
+
+  // 11. 新增结构化埋点字段：failureReason、toolCalls、externalWait、acceptance、promptTemplate、reroute、route 及脱敏与旧记录兼容
+  const reason = (r, ctx) => L.classifyFailureReason(r, ctx);
+  assert(reason(rec()) === null, 'ok → failureReason=null');
+  assert(reason(failed('Codex 没有写出结果'), { toolCalls: 0 }) === 'zero-tool', '零工具无结果 → zero-tool');
+  assert(reason(failed('首轮没有任何工具调用')) === 'zero-tool', '显式零工具文本 → zero-tool');
+  assert(reason(failed('API Error: 401 unauthorized invalid_api_key')) === 'auth', '401 → auth');
+  assert(reason(failed('API Error: 402 credit balance exhausted')) === 'quota', '402 → quota');
+  assert(reason(failed('SSL certificate hostname mismatch')) === 'network', 'SSL mismatch → network');
+  assert(reason(failed('fetch failed ECONNREFUSED')) === 'network', 'ECONNREFUSED → network');
+  assert(reason(failed('Policy violation: cannot assist with this refusal')) === 'refusal', 'refusal → refusal');
+  assert(reason(failed('request timed out ETIMEDOUT')) === 'timeout', 'timeout → timeout');
+  assert(reason(rec({ status: 'failed', verdict: 'needs-review', continueStop: '连续两次续做无进展；无进展停续做，交派单方裁定' })) === 'acceptance-gap', '无进展停续做 → acceptance-gap');
+  assert(reason(rec({ status: 'blocked', verdict: 'partial', yield: { type: 'park', until: 'gh-run:1' } }), { externalWait: { waiting: true, reason: 'park:gh-run' } }) === 'external-wait', 'park 阻塞 → external-wait');
+  assert(reason(failed('Codex 退出码 1'), { toolCalls: 3 }) === 'unknown', '有工具调用且原因不明 → unknown');
+
+  // 12. buildRow 输出全部结构化新字段并确保脱敏
+  const accBrief = join(scratch, 'acc.brief.md');
+  const accReport = join(scratch, 'acc.report.md');
+  writeFileSync(accBrief, '## 思维准则（每单首要）\n你是这单的负责人\n## 验收\nV1 编译｜owner：本单\nV2 单测｜owner：本单\nV3 流水线｜owner：外部：CI\n');
+  writeFileSync(accBrief.replace(/\.md$/, '.json'), JSON.stringify({ prompt_template: 'v1/role-single/model-terra', reroute_reason: 'relaunch:gpt->grok' }));
+  writeFileSync(accReport, '## 结论\nV1｜已过｜编译退出码 0\nV2｜未过｜单测失败\nV3｜等外部｜CI 运行中\n');
+  const richRec = rec({
+    status: 'failed', verdict: 'partial', model: 'gpt-6.1-terra', route: 'gpt-6.1-terra',
+    briefPath: accBrief, reportPath: accReport, toolCalls: 7,
+    externalWait: { waiting: true, reason: 'park:gh-run' },
+  });
+  const richRow = L.buildRow(richRec, new L.LedgerIndex());
+  assert(richRow.route === 'gpt-6.1-terra', 'route 记录真实路由');
+  assert(richRow.toolCalls === 7, 'toolCalls 记录工具调用数');
+  assert(richRow.externalWait.waiting === true && richRow.externalWait.reason === 'park:gh-run', 'externalWait 记录布尔+原因');
+  assert(richRow.acceptance.passed === 1 && richRow.acceptance.failed === 1 && richRow.acceptance.external === 1 && richRow.acceptance.total === 3, 'acceptance 记录各具名验收状态计数');
+  assert(richRow.promptTemplate === 'v1/role-single/model-terra', 'promptTemplate 记录样板版本/角色');
+  assert(richRow.reroute === 'relaunch:gpt->grok', 'reroute 记录改派原因');
+  assert(richRow.failureReason === 'external-wait', 'failureReason 记录结构化失败枚举');
+
+  const secretToken = 'sk-' + 'SecretLeakCheckToken987654321';
+  const secretRec = rec({
+    status: 'failed', verdict: 'fail', model: 'gpt-6.1-terra',
+    error: `401 unauthorized token=${secretToken}`,
+    externalWait: { waiting: true, reason: `park:cmd token=${secretToken}` },
+    reroute: `fallback key=${secretToken}`,
+  });
+  const secretRowJson = JSON.stringify(L.buildRow(secretRec, new L.LedgerIndex()));
+  assert(!secretRowJson.includes(secretToken), '账本埋点绝不落盘任何密钥明文');
+
+  // 13. 旧记录兼容：缺少全部新字段的旧行可正常读取且 fleet-go score 不报错
+  const compatLedger = join(scratch, 'compat.jsonl');
+  writeFileSync(compatLedger, JSON.stringify({
+    v: 1, runId: 'legacy-1', name: 'legacy-task', date: '2026-11-15',
+    startedAt: '2026-11-15T01:00:00.000Z', finishedAt: '2026-11-15T01:01:00.000Z',
+    durationSec: 60, executor: 'terra', model: 'gpt-6.1-terra',
+    status: 'done', verdict: 'ok', outcome: 'complete', backfilled: false,
+  }) + '\n');
+  const compatRows = L.readLedger(compatLedger);
+  assert(compatRows.length === 1 && compatRows[0].runId === 'legacy-1', '旧记录缺新字段正常读取');
+  const compatScore = spawnSync(join(root, 'bin/fleet-go'), ['score'], { encoding: 'utf8', env: { ...process.env, AGENT_FLEET_LEDGER: compatLedger } });
+  assert(compatScore.status === 0 && /terra/.test(compatScore.stdout), '含旧记录账本 score 正常运行不报错');
+
+  // 14. 端到端测试桩：fleet copy (agy 路由) 落盘 ledger 包含全部新增字段
+  const e2eLedger = join(scratch, 'e2e-copy.jsonl');
+  const e2eRuns = join(scratch, 'e2e-runs');
+  mkdirSync(e2eRuns, { recursive: true });
+  const agyStub = join(scratch, 'agy-stub');
+  writeFileSync(agyStub, '#!/bin/sh\nprintf "文案已生成：测试通过\\n"\n');
+  const { chmodSync } = await import('node:fs');
+  chmodSync(agyStub, 0o755);
+  const orderStub = join(scratch, 'order.md');
+  writeFileSync(orderStub, '| 执行者 | 状态 | 有效至 | 原因与用户原话 |\n| --- | --- | --- | --- |\n| gemini-sub | 正常 | 用户另说 | 测试 |\n');
+  const copyRun = spawnSync(process.execPath, [join(root, 'bin/agent-fleet.mjs'), 'copy', '写一句测试文案', '--cwd', scratch, '--name', 'copy-e2e'], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      AGENT_FLEET_RUNS_DIR: e2eRuns,
+      AGENT_FLEET_LEDGER: e2eLedger,
+      AGENT_FLEET_ORDER_FILE: orderStub,
+      FLEET_GEMINI_SUB: '1',
+      FLEET_AGY_BIN: agyStub,
+      FLEET_NO_ARCHIVE_SWEEP: '1',
+    },
+    timeout: 30000,
+  });
+  assert(copyRun.status === 0, `fleet copy agy 测试桩运行成功 (${copyRun.stderr.trim()})`);
+  const e2eRows = L.readLedger(e2eLedger);
+  assert(e2eRows.length === 1, 'fleet copy 写入 1 行账本');
+  const e2eRow = e2eRows[0];
+  for (const field of ['failureReason', 'toolCalls', 'externalWait', 'acceptance', 'promptTemplate', 'reroute', 'route']) {
+    assert(field in e2eRow, `新单 ledger 含字段 ${field}`);
+  }
+  assert(e2eRow.route === 'agy' && e2eRow.toolCalls === 0 && e2eRow.promptTemplate === 'copy/voice' && e2eRow.externalWait.waiting === false && e2eRow.failureReason === null, 'fleet copy agy 账本字段值正确');
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }

@@ -144,7 +144,7 @@ export function attachArtifacts(result, logPath, gitInfo) {
     }
     output.failureReport = failureReport(output);
   }
-  const continueNote = output.continuation ? `\n\n续做 ${output.continueCount} 次${output.continueStop ? `；${output.continueStop}` : ''}\n${output.continuation.map(step => `第 ${step.attempt} 次：${step.progress ? '有进展' : '无进展'}（提交：${step.commits ? '有' : '无'}，文件：${step.files ? '有' : '无'}，报告：${step.report ? '有' : '无'}）`).join('\n')}\n` : '';
+  const continueNote = output.continuation ? `\n\n续做 ${output.continueCount} 次${output.continueStop ? `；${output.continueStop}` : ''}\n${output.continuation.map(step => `第 ${step.attempt} 次：${step.progress ? '有进展' : step.externalWaitExempt ? '外部等待豁免' : '无进展'}（提交：${step.commits ? '有' : '无'}，文件：${step.files ? '有' : '无'}，验收：${step.acceptance ? '有' : '无'}，外部等待：${step.externalWait ? '有' : '无'}，报告：${step.report ? '有' : '无'}）`).join('\n')}\n` : '';
   const body = (output.result ?? output.error ?? '') + (output.backend?.startsWith('codex-')
     ? `\n\nmodel: ${output.model}\nservice_tier: ${output.serviceTier ?? 'unset'}\n` : '') + continueNote + (output.continuationChecks ? `\n续做判断记录：\n${JSON.stringify(output.continuationChecks, null, 2)}\n` : '');
   writeResultFile(logPath, output.failureReport ? `${redactEvidence(body)}\n\n## 失败事实\n${JSON.stringify(output.failureReport, null, 2)}\n` : body);
@@ -199,21 +199,29 @@ export function buildBrief(result, { briefLines = DEFAULT_BRIEF_LINES, expectCha
   let report = '';
   try { const path = result?.reportPath ?? result?.prompt?.match(/^REPORT: (.+)$/m)?.[1]; if (path) report = readFileSync(resolve(result.cwd ?? process.cwd(), path), 'utf8'); } catch {}
   const acceptance = result?.acceptance ?? acceptanceResult(result?.prompt, report, result?.yield);
+  const noProgressStop = /无进展停续做|连续两次续做无进展/.test(result?.continueStop || '');
   const preview = previewLines(result?.ok ? result?.result : redactEvidence(result?.result ?? ''), briefLines);
   return {
     ok: Boolean(result?.ok),
     verdict: !result?.ok && !result?.stopped ? 'fail'
       : judged.verdict === 'fail' || judged.verdict === 'stopped' ? judged.verdict
+      : result?.ok && noProgressStop ? 'needs-review'
       : acceptance ? acceptance.verdict
       : result?.ok && result?.reportConclusion?.startsWith('失败') ? 'fail'
       : result?.ok && (result?.yield || /^(?:部分完成|未完成)/.test(result?.reportConclusion || '') || result?.continueRequired) ? 'partial' : judged.verdict,
     ...(acceptance ? { pending: acceptance.pending } : {}),
-    verdictNote: !result?.ok ? null : judged.note ?? null,
+    ...(acceptance?.counts ? { acceptanceCounts: acceptance.counts } : {}),
+    verdictNote: !result?.ok ? null : noProgressStop ? '无进展停续做，交派单方裁定' : judged.note ?? null,
     durationMs: result?.durationMs ?? null,
     sdkDurationMs: result?.sdkDurationMs ?? null,
     totalCostUsd: result?.totalCostUsd ?? null,
     ...(result?.billingProvider === 'openai-api' ? { billingProvider: result.billingProvider, providerUsage: result.providerUsage } : {}),
     numTurns: result?.numTurns ?? null,
+    ...(Number.isFinite(result?.toolCalls) ? { toolCalls: result.toolCalls } : {}),
+    ...(result?.externalWait ? { externalWait: result.externalWait } : {}),
+    ...(result?.promptTemplate ? { promptTemplate: result.promptTemplate } : {}),
+    ...(result?.reroute ? { reroute: result.reroute } : {}),
+    ...(result?.route ? { route: result.route } : {}),
     ...(result?.usage !== undefined ? { usage: result.usage, modelUsage: result.modelUsage ?? null } : {}),
     ...(result?.continuation ? { continueCount: result.continueCount, continuation: result.continuation, continueStop: result.continueStop, continuationChecks: result.continuationChecks } : {}),
     preview,

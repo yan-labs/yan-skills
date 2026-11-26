@@ -27,6 +27,7 @@ export async function runGrok({ prompt, cwd = process.cwd(), model, review = fal
   const before = snapshotGit(workdir);
   let result = '', error = null, git = {}, stderrEvidence = '', errorObject, httpStatus, signal;
   let metadata = { sessionId: resume || null, review, subagents, maxTurns, reasoningEffort,
+    toolCalls: 0, promptTemplate: review ? 'grok/review' : 'grok/default',
     stopReason: null, numTurns: null, totalCostUsd: null, usage: null, modelUsage: null, costSource: 'grok 自报' };
   let suspectNote = null;
   const timeline = event => appendFileSync(logPath, `\n${JSON.stringify(event)}\n`);
@@ -88,7 +89,10 @@ export async function runGrok({ prompt, cwd = process.cwd(), model, review = fal
           if (!event || typeof event !== 'object' || Array.isArray(event)) {
             parseError = 'Grok streaming-json 事件必须是对象'; return;
           }
-          if (event.type === 'tool_call' && event.toolCallId != null) toolIds.set(event.toolCallId, ++toolSequence);
+          if (event.type === 'tool_call') {
+            metadata.toolCalls = ++toolSequence;
+            if (event.toolCallId != null) toolIds.set(event.toolCallId, toolSequence);
+          }
           const toolId = toolIds.get(event.toolCallId);
           const timing = toolId && grokTimelineEvent(event, Date.now(), toolId);
           if (timing) {
@@ -179,5 +183,5 @@ export async function runGrok({ prompt, cwd = process.cwd(), model, review = fal
     record(true);
   }
   return attachArtifacts({ ...metadata, suspectNote, resumedFrom, ok: !error && Boolean(result), result, error, progress: { phase }, tier: selectedModel || 'default', stderr: stderrEvidence.split(/\r?\n/).slice(-20).join('\n'), errorObject, httpStatus, signal, durationMs: Date.now() - startedAt,
-    model: `grok-cli:${selectedModel || 'default'}`, cwd: workdir, resultPath, logPath }, logPath, Object.keys(git).length ? git : inspectGit(workdir, before));
+    model: `grok-cli:${selectedModel || 'default'}`, route: `grok-cli:${selectedModel || 'default'}`, cwd: workdir, resultPath, logPath }, logPath, Object.keys(git).length ? git : inspectGit(workdir, before));
 }

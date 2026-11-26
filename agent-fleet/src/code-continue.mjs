@@ -7,9 +7,46 @@ import { acceptanceResult } from './verdict.mjs';
 import { redactEvidence } from './brief.mjs';
 
 export const CONTINUE_PROMPT = '报告写的是部分完成。把『未完成』里授权范围内能做的步骤继续做完——包括等 runner 空闲、推送、发布、读回——外部等待登记终态后用 fleet park；只有真正缺授权或缺必需输入的那一步才可以停。做完更新报告七节及 brief 已授权且明确要求的交付凭据。';
+export const NO_PROGRESS_STOP = '连续两次续做无进展；无进展停续做，交派单方裁定';
+
+/** 把 park 的 --until 条件脱敏为类型标记，绝不带参数或凭据。 */
+export function parkWaitReason(until) {
+  const raw = String(until || '').trim();
+  if (!raw) return 'park';
+  if (raw === 'reply') return 'park:reply';
+  const kind = raw.split(':', 1)[0].toLowerCase();
+  if (['file', 'run', 'job', 'after', 'at', 'cmd', 'gh-run', 'gh-pr', 'land', 'lock', 'all', 'any'].includes(kind)) {
+    return `park:${kind}`;
+  }
+  return 'park:other';
+}
+
+/** 识别有效外部等待（park、等待流水线、具名验收等外部），单纯改写报告不命中。 */
+export function detectExternalWait(report = '', acceptance = null, yielded = null) {
+  if (yielded?.type === 'park' && !yielded.resolvedAt) {
+    const reason = parkWaitReason(yielded.until);
+    return { waiting: true, reason, key: `${reason}:${createHash('sha256').update(String(yielded.until || '')).digest('hex').slice(0, 12)}` };
+  }
+  if (yielded?.external) {
+    return { waiting: true, reason: yielded.type === 'blocked' ? 'park-timeout' : 'park-external', key: `external:${yielded.type || 'yield'}` };
+  }
+  if (acceptance?.pending === 'external') {
+    return { waiting: true, reason: 'acceptance-external', key: `acceptance:external:${acceptance.counts?.external ?? 0}` };
+  }
+  const text = String(report || '');
+  const pipelineRef = text.match(/\bgh-run:[^\s`"'）)]+|https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/\d+/i)?.[0];
+  if (pipelineRef && /等待|进行中|排队|running|queued|in_progress|pending|park/i.test(text)) {
+    return { waiting: true, reason: 'pipeline-wait', key: `pipeline:${createHash('sha256').update(pipelineRef).digest('hex').slice(0, 12)}` };
+  }
+  const pipelineLine = text.match(/^[ \t]*(?:[-*][ \t]*)?(?:等待流水线|流水线等待|等待\s*(?:CI|Actions|构建|部署流水线))[^\r\n]*?(?:run[#:\s]*\d+|job[#:\s]*\S+|#[0-9]+|in_progress|queued|pending)[^\r\n]*/im)?.[0];
+  if (pipelineLine) {
+    return { waiting: true, reason: 'pipeline-wait', key: `pipeline:${createHash('sha256').update(pipelineLine.trim()).digest('hex').slice(0, 12)}` };
+  }
+  return { waiting: false, reason: null, key: null };
+}
 
 /** 读取回合结束时的实际状态；文件内容指纹能识别同一脏文件再次修改。 */
-export function readContinuationState(cwd, reportPath, brief = '') {
+export function readContinuationState(cwd, reportPath, brief = '', yielded = null) {
   let report = '';
   try { if (reportPath) report = readFileSync(resolve(cwd, reportPath), 'utf8'); } catch { /* 无可读报告时不猜测续做 */ }
   const conclusion = report.match(/^## 结论[^\S\r\n]*\r?\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1]?.trim().split(/\r?\n/)[0]?.replace(/^\*\*/, '') || '';
@@ -35,15 +72,27 @@ export function readContinuationState(cwd, reportPath, brief = '') {
     hash.update(fingerprints[path]);
     hash.update('\0');
   }
-  return { conclusion, report, acceptance: acceptanceResult(brief, report), head: git(['rev-parse', 'HEAD']).trim(), fingerprints, files: hash.digest('hex') };
+  const acceptance = acceptanceResult(brief, report, yielded);
+  const externalWait = detectExternalWait(report, acceptance, yielded);
+  return { conclusion, report, acceptance, externalWait, head: git(['rev-parse', 'HEAD']).trim(), fingerprints, files: hash.digest('hex') };
 }
 
-/** 对比相邻回合；只有提交或产物变化才算进展，单独改报告不算。 */
+/** 对比相邻回合；仅提交、文件/产物、具名验收状态或外部等待状态变化算进展，报告文字改写不算。 */
 export function continuationProgress(before, after) {
   const commits = before.head !== after.head;
   const files = before.files !== after.files;
   const report = before.report !== after.report;
-  return { progress: commits || files, commits, files, report };
+  const statuses = state => {
+    try { return JSON.stringify(JSON.parse(state?.acceptance?.table || '[]').map(([id, row]) => [id, row?.status ?? null])); } catch { return '[]'; }
+  };
+  const acceptance = statuses(before) !== statuses(after);
+  const waitKey = state => {
+    if (state?.externalWait) return `${state.externalWait.waiting ? '1' : '0'}:${state.externalWait.key || state.externalWait.reason || ''}`;
+    return `pending:${state?.acceptance?.pending ?? 'none'}`;
+  };
+  const externalWait = before.acceptance?.pending !== after.acceptance?.pending || waitKey(before) !== waitKey(after);
+  const externalWaitExempt = Boolean(after?.externalWait?.waiting);
+  return { progress: commits || files || acceptance || externalWait, commits, files, report, acceptance, externalWait, externalWaitExempt };
 }
 
 const REPORT_SECTIONS = ['规则回执', '结论', '实际执行', '改动与产物', '验证证据', '偏差', '未完成/风险/需要用户决定的事'];

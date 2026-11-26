@@ -5,7 +5,7 @@ import { readJSON, readYield, resolveYield, writeYield, localCondition, stageSta
 import { saveCodexQuota, taskIdentity, queueRecord, setSlotState, acquireSlot } from './queue.mjs';
 // Codex 执行层：管理 app-server 回合、插话、自动续做与 exec 降级。
 import { acceptanceResult } from './verdict.mjs';
-import { readContinuationState, continuationProgress, continuationRules, judgeContinuation, acceptanceContinuation } from './code-continue.mjs';
+import { readContinuationState, continuationProgress, continuationRules, judgeContinuation, acceptanceContinuation, NO_PROGRESS_STOP, parkWaitReason } from './code-continue.mjs';
 import { judgeTask } from './judge-task.mjs';
 import { loadModelsConfig } from './config.mjs';
 import { spawn } from 'node:child_process';
@@ -129,8 +129,24 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const identity = taskIdentity({ ...slot, briefPath, review });
   const { env: codexEnv, overrides: commandOverrides } = codexCommandEnvironment();
   const overrides = [...codexSessionOverrides(prompt, identity.auth), ...commandOverrides];
-  const metadata = { ...identity, briefPath, slotRunId: slot?.runId, backend: 'codex-exec', threadId: resume || null, sessionId: resume || null,
-    steerCount: 0, wakeCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, fallbacks: [], low, high, xhigh, max, simple, sol, luna, astra, family, resolvedModel: model, model, tier: effort, serviceTier, review, resumedFrom };
+  const briefMetaInit = briefPath && readJSON(briefPath.replace(/\.md$/, '.json'));
+  const metadata = { ...identity, briefPath, slotRunId: slot?.runId, backend: 'codex-exec', route: model, threadId: resume || null, sessionId: resume || null,
+    steerCount: 0, wakeCount: 0, resumeCount: 0, continueCount: 0, continuation: [], continuationChecks: [], numTurns: 0, toolCalls: 0,
+    externalWait: { waiting: false, reason: null }, promptTemplate: briefMetaInit?.prompt_template ?? (review ? 'codex/review' : 'codex/default'),
+    fallbacks: [], low, high, xhigh, max, simple, sol, luna, astra, family, resolvedModel: model, model, tier: effort, serviceTier, review, resumedFrom };
+  const countedToolIds = new Set();
+  let anonToolCalls = 0;
+  const countToolCall = (id, isStart) => {
+    if (id != null) {
+      if (!countedToolIds.has(id)) {
+        countedToolIds.add(id);
+        metadata.toolCalls = countedToolIds.size + anonToolCalls;
+      }
+    } else if (isStart) {
+      anonToolCalls++;
+      metadata.toolCalls = countedToolIds.size + anonToolCalls;
+    }
+  };
   const production = identity.auth.includes('deploy-prod') || identity.actions.some(action => /生产|部署|发布/.test(action)) ||
     /^(?:动作[：:]\s*.*(?:部署|发布|生产)|允许范围：正文明确指定的服务与环境.*发布全流程)/m.test(prompt);
   const supervision = createSupervision(startedAt, { production, previous: readPidRecord(resumedFrom || runId)?.supervision });
@@ -392,6 +408,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     metadata.activeMs = parkedAt - startedAt - waited;
     metadata.waitMs = waited;
     metadata.pollCount ??= 0;
+    metadata.externalWait = { waiting: true, reason: parkWaitReason(entry.until) };
     record();
     await setSlotState(slotId, 'parked');
     supervision.pause(parkedAt);
@@ -418,6 +435,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       writeYield(runId, { type: 'blocked', need: 'input', what: `同条件第二次超时：${entry.until}`, tried: '本地条件等待两次', who: '派单主会话' });
       const blocked = await handleYield();
       metadata.yield.external = true;
+      metadata.externalWait = { waiting: true, reason: 'park-timeout' };
       record();
       return blocked;
     }
@@ -436,7 +454,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     log(fleetEvent(FLEET_EVENTS.WAKE)); record();
     activeSince = Date.now();
     supervision.pause(activeSince);
-    return { prompt: `${entry.say}\n条件：${entry.until}\n终态：${JSON.stringify(result)}${replies.length ? '\n答复：' + replies.join('\n\n') : ''}` };
+    return { parked: true, prompt: `${entry.say}\n条件：${entry.until}\n终态：${JSON.stringify(result)}${replies.length ? '\n答复：' + replies.join('\n\n') : ''}` };
   };
   let previous, previousHandoff, stagnant = 0;
   let lastAcceptance = initial;
@@ -477,19 +495,22 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
     return reportRecoveryPrompt;
   };
   const checkProgress = (state, handoff) => {
+    if (state.externalWait?.waiting && !metadata.externalWait?.waiting) {
+      metadata.externalWait = { waiting: true, reason: state.externalWait.reason || 'external-wait' };
+    }
     if (previous) {
       const progress = continuationProgress(previous, state);
       if (handoff !== undefined && previousHandoff !== undefined && handoff !== previousHandoff) progress.progress = true;
       metadata.continuation.push({ attempt: metadata.continueCount, ...progress });
-      stagnant = progress.progress ? 0 : stagnant + 1;
+      stagnant = progress.progress || progress.externalWaitExempt ? 0 : stagnant + 1;
     }
     previous = state;
     previousHandoff = handoff;
   };
   const checkHandoff = yielded => {
-    checkProgress(readContinuationState(workdir, reportPath, prompt), stages.latest);
+    checkProgress(readContinuationState(workdir, reportPath, prompt, metadata.yield), stages.latest);
     metadata.continueRequired = true;
-    if (stagnant >= 2) metadata.continueStop = '连续两次续做无进展';
+    if (stagnant >= 2) metadata.continueStop = NO_PROGRESS_STOP;
     else metadata.continueCount++;
     record();
     return Boolean(metadata.continueStop);
@@ -539,6 +560,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           }
           if (/^item\/(started|completed)$/.test(event.method) && params.item && /^(commandExecution|mcpToolCall|dynamicToolCall|fileChange|webSearch|collabAgentToolCall)$/.test(params.item.type)) {
             if (metadata.numTurns === 1) firstTurnUsedTool = true;
+            countToolCall(params.item.id, event.method === 'item/started');
             if (event.method === 'item/started') tools.set(params.item.id, params.item);
           }
           if (event.method === 'item/completed' && params.item) tools.delete(params.item.id);
@@ -642,12 +664,13 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           }
           if (yielded?.blocked) break;
           if (yielded?.prompt) {
+            if (yielded.parked) stagnant = 0;
             nextPrompt = yielded.prompt;
             if (!activeChild) wakePrompt = nextPrompt;
             continue;
           }
           if (offsetQueue.length) break;
-          const state = readContinuationState(workdir, reportPath, prompt);
+          const state = readContinuationState(workdir, reportPath, prompt, metadata.yield);
           state.finalReply = readFileSync(resultPath, 'utf8');
           metadata.reportConclusion = state.conclusion;
           if (/^(?:阻塞|受阻)/.test(state.conclusion)) log(fleetEvent(FLEET_EVENTS.BLOCKED));
@@ -675,7 +698,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
             metadata.continuationChecks.push({ turn: metadata.numTurns, rules: missing, judge: judgment ?? null });
           }
           metadata.continueRequired = missing.length > 0;
-          if (metadata.continueRequired && !state.acceptance && stagnant >= 2) metadata.continueStop = '连续两次续做无进展';
+          if (metadata.continueRequired && !metadata.continueStop && stagnant >= 2) metadata.continueStop = NO_PROGRESS_STOP;
           record();
           if (!metadata.continueRequired || metadata.continueStop) break;
           metadata.continueCount++;
@@ -718,7 +741,10 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
             try {
               const event = JSON.parse(line);
               if (event.type === 'thread.started') { metadata.threadId = metadata.sessionId = event.thread_id; record(); schedule(); }
-              if (/^item\.(started|completed)$/.test(event.type) && metadata.numTurns === 1 && /^(command_execution|mcp_tool_call|dynamic_tool_call|file_change|web_search|collab_agent_tool_call)$/.test(event.item?.type || '')) firstTurnUsedTool = true;
+              if (/^item\.(started|completed)$/.test(event.type) && /^(command_execution|mcp_tool_call|dynamic_tool_call|file_change|web_search|collab_agent_tool_call)$/.test(event.item?.type || '')) {
+                if (metadata.numTurns === 1) firstTurnUsedTool = true;
+                countToolCall(event.item?.id, event.type === 'item.started');
+              }
               if (event.type === 'item.completed' && event.item?.type === 'command_execution') recordCommandEvidence(event.item);
               if (event.type === 'turn.completed') {
                 metadata.usage = event.usage;
@@ -739,6 +765,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
         inbox.pump(); await drain;
         if (stopping || yielded?.blocked) break;
         if (yielded?.prompt) {
+          if (yielded.parked) stagnant = 0;
           if (yielded.handoff) {
             if (checkHandoff(yielded)) break;
             await archive();
@@ -756,7 +783,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           log('\n[codex] say: exec resume same thread\n');
           continue;
         }
-        const state = readContinuationState(workdir, reportPath, prompt);
+        const state = readContinuationState(workdir, reportPath, prompt, metadata.yield);
         state.finalReply = readFileSync(resultPath, 'utf8');
         metadata.reportConclusion = state.conclusion;
         checkProgress(state);
@@ -775,7 +802,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           : continueEnabled && reportPath && !review ? continuationRules(state, prompt, workdir, initial) : [];
         metadata.continueRequired = missing.length > 0;
         metadata.continuationChecks.push({ turn: metadata.numTurns, rules: missing, judge: null });
-        if (metadata.continueRequired && !state.acceptance && stagnant >= 2) metadata.continueStop = '连续两次续做无进展';
+        if (metadata.continueRequired && !metadata.continueStop && stagnant >= 2) metadata.continueStop = NO_PROGRESS_STOP;
         if (!metadata.continueRequired || metadata.continueStop) break;
         if (!metadata.threadId) { metadata.continueStop = '缺少 threadId，无法续做'; break; }
         metadata.continueCount++;
@@ -800,7 +827,10 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
   let report = '';
   try { if (reportPath) report = readFileSync(resolve(workdir, reportPath), 'utf8'); } catch {}
   const acceptance = acceptanceResult(prompt, report, metadata.yield);
-  const finalAcceptance = acceptance && { verdict: acceptance.verdict, pending: acceptance.pending };
+  const finalAcceptance = acceptance && { verdict: acceptance.verdict, pending: acceptance.pending, counts: acceptance.counts };
+  if (acceptance?.pending === 'external' && !metadata.externalWait?.waiting) {
+    metadata.externalWait = { waiting: true, reason: 'acceptance-external' };
+  }
   return attachArtifacts({
     ...metadata,
     acceptance: finalAcceptance,

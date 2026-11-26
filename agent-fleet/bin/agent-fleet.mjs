@@ -168,7 +168,7 @@ function resolveEffortFlag(flags) {
   return flags.max ? 'max' : flags.xhigh ? 'xhigh' : flags.high ? 'high' : flags.low ? 'low' : undefined;
 }
 
-async function cmdRun(argv, { copyVoice = false } = {}) {
+async function cmdRun(argv, { copyVoice = false, reroute = null } = {}) {
   const flags = parseFlags(argv);
   if (flags.help) { console.log(HELP_TEXT); return; }
   if (!flags.model || !flags.prompt) {
@@ -181,7 +181,7 @@ async function cmdRun(argv, { copyVoice = false } = {}) {
   const effort = resolveTaskEffort({ effort: resolveEffortFlag(flags), friendlyModel: flags.model, config });
   // 进度行实时打到 stderr,并同步写进 ~/.agent-fleet/runs/<ISO时间>-<模型名>.log(tail 的
   // 数据源);--quiet 时 stderr 静音,文件照写。日志文件路径在启动时已由进度对象打到 stderr。
-  const result = await runTask({ friendlyModel: flags.model, prompt: flags.prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), config, maxTurns: flags['max-turns'] === undefined ? undefined : Number(flags['max-turns']), systemPrompt: flags['system-prompt'], noVoice: Boolean(flags['no-voice']), copyVoice, effort, progress: createProgress({ quiet: !flags.verbose || Boolean(flags.quiet), label: flags.model }) });
+  const result = await runTask({ friendlyModel: flags.model, prompt: flags.prompt, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), config, maxTurns: flags['max-turns'] === undefined ? undefined : Number(flags['max-turns']), systemPrompt: flags['system-prompt'], noVoice: Boolean(flags['no-voice']), copyVoice, reroute, effort, progress: createProgress({ quiet: !flags.verbose || Boolean(flags.quiet), label: flags.model }) });
   result.reportPath = flags.report;
   await printRunResult(result, outputOptions(flags, config));
   process.exitCode = buildBrief(result, outputOptions(flags, config)).verdict === 'ok' ? 0 : 1;
@@ -554,6 +554,7 @@ function flagArgs(flags, omitted = []) {
 
 async function cmdShortRun(command, argv) {
   const options = shortRunOptions(command, argv);
+  let reroute = null;
   if (command === 'copy' && process.env.FLEET_GEMINI_SUB === '1' && options.model === 'kollab-gateway-copy') {
     const result = await runAgy({ prompt: options.prompt, cwd: options.cwd, noVoice: Boolean(options.flags['no-voice']), effort: resolveEffortFlag(options.flags) });
     if (result) {
@@ -563,9 +564,10 @@ async function cmdShortRun(command, argv) {
       process.exitCode = buildBrief(result, outputOptions(options.flags, config)).verdict === 'ok' ? 0 : 1;
       return;
     }
+    reroute = 'agy-unavailable-fallback';
     console.error('agy 不可用，回退 Kollab 网关');
   }
-  await cmdRun(['--model', options.model, '--prompt', options.prompt, ...flagArgs(options.flags, ['model', 'prompt'])], { copyVoice: command === 'copy' });
+  await cmdRun(['--model', options.model, '--prompt', options.prompt, ...flagArgs(options.flags, ['model', 'prompt'])], { copyVoice: command === 'copy', reroute });
 }
 
 async function enterAttachedSlot(options) {
@@ -743,7 +745,7 @@ async function main() {
         if (result.unavailable) {
           console.error(`${result.error}，回退 Kollab 网关`);
           const prompt = command === 'analyze' ? `${flags.prompt}\n\n请读取并分析文件：${flags.input}` : flags.prompt;
-          await cmdRun(['--model', 'kollab-gateway-research', '--prompt', prompt, ...flagArgs(flags, ['model', 'prompt', 'to', 'input', 'dry-run'])]);
+          await cmdRun(['--model', 'kollab-gateway-research', '--prompt', prompt, ...flagArgs(flags, ['model', 'prompt', 'to', 'input', 'dry-run'])], { reroute: 'gemini-api-unavailable-fallback' });
           break;
         }
         if (result.error) throw new Error(result.error);

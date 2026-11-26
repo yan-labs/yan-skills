@@ -125,9 +125,10 @@ export function buildQueryOptions({ resolved, cwd, maxTurns, systemPrompt, resum
  * @param {string} [params.resumedFrom]  被续跑的原 run-id,只进返回值/简报
  * @returns {Promise<object>} 见文件底部的返回形状说明
  */
-export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, systemPrompt, progress, resume, resumedFrom, noVoice, copyVoice, effort }) {
+export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, systemPrompt, progress, resume, resumedFrom, noVoice, copyVoice, effort, reroute = null, promptTemplate = null }) {
   const startedAt = Date.now();
   const effectiveEffort = resolveTaskEffort({ effort, friendlyModel, config });
+  const effectiveTemplate = promptTemplate ?? ((copyVoice || ['copy', 'kollab-gateway-copy'].includes(friendlyModel)) ? (noVoice ? 'copy/no-voice' : 'copy/voice') : null);
 
   // 进度输出对象:调用方(bin 的 run、run-many)注入,各自决定 quiet 和 label;以库方式
   // 直接调用且没传时,退化成一个只写日志文件、不打扰 stderr 的静默进度——日志文件这一层
@@ -169,13 +170,13 @@ export async function runTask({ friendlyModel, prompt, cwd, config, maxTurns, sy
       log: line => output.log(redactEvidence(line)),
       runId,
     });
-    const withMeta = { ...inner, ...(resumedFrom ? { resumedFrom } : {}), ...(effectiveEffort ? { effort: effectiveEffort } : {}) };
+    const withMeta = { ...inner, route: friendlyModel, ...(effectiveTemplate ? { promptTemplate: effectiveTemplate } : {}), ...(reroute ? { reroute } : {}), ...(resumedFrom ? { resumedFrom } : {}), ...(effectiveEffort ? { effort: effectiveEffort } : {}) };
     return attachArtifacts(withMeta, output.logPath, inspectGit(cwd, gitBefore));
   } catch (err) {
     // 未预见的异常:同样补一行 done error 再抛,保住"日志必有 done 行收尾"的不变量,
     // 否则 tail --follow 会对这份日志永远等下去。
     output.log(`done error ${oneLine(redactEvidence(err?.message ?? String(err)), 160)}`);
-    const failed = { ok: false, model: friendlyModel, cwd, error: err.message, durationMs: wallClockDurationMs(startedAt), ...(effectiveEffort ? { effort: effectiveEffort } : {}) };
+    const failed = { ok: false, model: friendlyModel, route: friendlyModel, toolCalls: 0, ...(effectiveTemplate ? { promptTemplate: effectiveTemplate } : {}), ...(reroute ? { reroute } : {}), cwd, error: err.message, durationMs: wallClockDurationMs(startedAt), ...(effectiveEffort ? { effort: effectiveEffort } : {}) };
     return attachArtifacts({ ...failed, httpStatus: err.status ?? err.statusCode, errorObject: err.error ?? { code: err.code, type: err.type, message: err.message }, stderr: err.stderr }, output.logPath, inspectGit(cwd, gitBefore));
   } finally {
     markPidFinished(runId);
@@ -244,7 +245,7 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
       // 这类错误发生在真正发起请求之前;也补一行 done error,保证"每份日志都以 done 行
       // 收尾"的不变量成立——tail --follow 靠这一行判断停止。
       log(`done error ${oneLine(err.message, 160)}`);
-      return { ok: false, model: friendlyModel, prompt, cwd, progress: { phase: '配置加载' }, error: err.message, durationMs: wallClockDurationMs(startedAt) };
+      return { ok: false, model: friendlyModel, route: friendlyModel, toolCalls: 0, prompt, cwd, progress: { phase: '配置加载' }, error: err.message, durationMs: wallClockDurationMs(startedAt) };
     }
     throw err;
   }
@@ -336,9 +337,10 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
 
   let finalResult = null;
   let assistantText = { messageId: null, text: '' };
+  let toolCalls = 0;
   try {
     for await (const message of q) {
-      logSdkMessage(log, message);
+      toolCalls += logSdkMessage(log, message);
       assistantText = collectAssistantText(assistantText, message);
       if (message.type === 'assistant' && !message.parent_tool_use_id && message.message?.model) resolved.actualModel = message.message.model;
       if (runId && message.session_id) {
@@ -373,6 +375,7 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
         : `调用 Claude Agent SDK 失败: ${err.message}`,
       httpStatus: err.status ?? err.statusCode,
       errorObject: err.error ?? { code: err.code, type: err.type, message: err.message }, stderr: err.stderr,
+      toolCalls,
       durationMs: wallClockDurationMs(startedAt),
       stopped: stopRequested || Boolean(signalName),
       signal: signalName,
@@ -400,6 +403,7 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
       error: signalName
         ? `被外部信号 ${signalName} 终止,SDK 没有产出 result 消息`
         : 'SDK 没有产出 result 消息',
+      toolCalls,
       durationMs: wallClockDurationMs(startedAt),
       stopped: stopRequested || Boolean(signalName),
       signal: signalName,
@@ -437,6 +441,7 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
     subtype: finalResult.subtype,
     stopReason: finalResult.stop_reason ?? null,
     numTurns: finalResult.num_turns,
+    toolCalls,
     usage: finalResult.usage ?? null,
     modelUsage: finalResult.modelUsage ?? null,
     durationMs: wallClockDurationMs(startedAt),
@@ -462,17 +467,20 @@ async function runTaskInner({ friendlyModel, prompt, cwd, config, maxTurns, syst
  * user(tool_result)/system/stream_event 等其它消息不打——噪音大,对"跑到哪了"没有增量信息。
  */
 function logSdkMessage(log, message) {
-  if (message.type !== 'assistant') return;
+  if (message.type !== 'assistant') return 0;
   const content = message.message?.content ?? message.content;
-  if (!Array.isArray(content)) return;
+  if (!Array.isArray(content)) return 0;
+  let calls = 0;
   for (const block of content) {
     if (block?.type === 'text' && block.text) {
       log(oneLine(block.text, 120));
     } else if (block?.type === 'tool_use') {
+      calls += 1;
       log(redactEvidence(JSON.stringify({ type: 'tool_use', name: block.name, input: block.input })));
       log(`tool=${block.name ?? '?'} ${oneLine(JSON.stringify(block.input ?? {}), 80)}`);
     }
   }
+  return calls;
 }
 
 /**
