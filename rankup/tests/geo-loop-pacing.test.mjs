@@ -2,12 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { readScript, reviewLinks, waitForLock } from '../scripts/demand/_geo_fixed_script.mjs';
 import { acquireLock, randomMs, windowWait, reserveConversation, healthFailure, checkExit } from '../scripts/demand/_chatgpt_guard.mjs';
 
-const script = resolve('rankup/scripts/geo-loop.mjs');
+// 按本文件位置定位仓库根目录，从哪个目录运行 node --test 都能找到脚本和文档
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const script = resolve(root, 'rankup/scripts/geo-loop.mjs');
 function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), 'geo-loop-pacing-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -124,7 +127,7 @@ test('mocked exit change stops before sending and incomplete sample is retried o
 });
 test('ai-probe shares the same lock and aborts its queue on logged-out temporary pages',t=>{
   const f=fixture(t),dir=join(f.dir,'.cache/rankup');
-  const probeArgs=[resolve('rankup/scripts/demand/ai-probe.mjs'),'--topic','test','--need-prompt','need','--out',join(f.dir,'probe'),'--channel','chatgpt-web','--kinds','N','--reps','2','--multi-turn','--turns','1','--gap-ms','0'];
+  const probeArgs=[resolve(root, 'rankup/scripts/demand/ai-probe.mjs'),'--topic','test','--need-prompt','need','--out',join(f.dir,'probe'),'--channel','chatgpt-web','--kinds','N','--reps','2','--multi-turn','--turns','1','--gap-ms','0'];
   const run=()=>spawnSync(process.execPath,probeArgs,{env:{...f.env,MOCK_GATE:'logout'},encoding:'utf8',timeout:10000});
   const release=acquireLock(dir);const collision=run();assert.notEqual(collision.status,0);assert.match(collision.stderr,/锁冲突/);release();
   const result=run();assert.notEqual(result.status,0);assert.match(result.stderr,/停止后续提问/);
@@ -133,7 +136,7 @@ test('ai-probe shares the same lock and aborts its queue on logged-out temporary
 });
 
 test('fixed script uses exact library text and substitutes only site placeholder', () => {
-  const text = readFileSync(resolve('rankup/references/seo-geo-recommendation-loop.md'), 'utf8');
+  const text = readFileSync(resolve(root, 'rankup/references/seo-geo-recommendation-loop.md'), 'utf8');
   const script = readScript(text, 'https://example.invalid');
   assert.equal(script.WHY, 'Why did you recommend these products? What are their advantages that make them worth recommending to me?');
   assert.match(script.GAPS, /Actually, I have a website too: https:\/\/example.invalid/);
@@ -166,7 +169,7 @@ async function until(check, timeout=15000) {
 }
 test('fixed workflow retains two chats and lock through deployment, sends fresh links before review and closes only on user request', async t => {
   const f=fixture(t), out=join(f.dir,'fixed');
-  const launch=extra=>spawn(process.execPath,[script,'--domain','example.invalid','--prompt','first original','--prompt','second original','--reps','1','--script-file',resolve('rankup/references/seo-geo-recommendation-loop.md'),'--out',out,'--sample-min','0','--sample-max','0','--followup-min','0','--followup-max','0',...extra],{env:f.env,stdio:['ignore','pipe','pipe']});
+  const launch=extra=>spawn(process.execPath,[script,'--domain','example.invalid','--prompt','first original','--prompt','second original','--reps','1','--script-file',resolve(root, 'rankup/references/seo-geo-recommendation-loop.md'),'--out',out,'--sample-min','0','--sample-max','0','--followup-min','0','--followup-max','0',...extra],{env:f.env,stdio:['ignore','pipe','pipe']});
   let child=launch([]);
   let stderr='';child.stderr.on('data',s=>{stderr+=s;});
   let ended=new Promise(resolve=>child.on('exit',code=>resolve(code)));
