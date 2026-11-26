@@ -56,7 +56,7 @@ BRIEF
 
 默认补齐归类、报告和样板。未填可写路径时使用明确的写路径、仓库/项目或报告目录。明确的本地提交或代码推送记入 `local-commit`，仅限指定分支推送。生产部署、线上写入、付费和删数据须在 brief 或调用参数中明确授权。检查拒绝凭据字面量和运行中任务的同名或报告冲突。已结束的同名任务使用新后缀，原产物保留。
 
-入口字段、动作词、项目验收字段、Mini 路径、重复问题和写范围重叠默认提示，样板占比随预览显示。用 `FLEET_STRICT=1` 恢复这些检查原有的严格行为。无效的启动选项、不可用的通道、明确的调遣停用和前置依赖仍需解决。槽位满时排队，额度按已有额度策略处理。
+入口字段、动作词、项目验收字段、Mini 路径、重复问题和写范围重叠默认提示，样板占比随预览显示。用 `FLEET_STRICT=1` 恢复这些检查原有的严格行为。无效的启动选项、不可用的通道、明确的调遣停用和前置依赖仍需解决；`input` 类拦截（已在 Mini 显式传 `--on mini`、`--body` 非文件、同名 brief、缺 `--local-reason`、未知授权块、指定报告已存在、未知场景等）会在报错里给出可直接复制的修正命令。槽位满时排队，额度按已有额度策略处理。
 
 ## 重叠与工作树
 
@@ -78,7 +78,7 @@ Codex 自动续做按实质进展判断：仅新提交、改动文件、产物�
 
 ## 执行位置与读回
 
-默认远端执行，参数仍用 `--on mini`。远端不可用时补齐路径、同步或工具。确需本机用 `--on local` 并传 `--local-reason`。配置用 `FLEET_MINI_HOME` 和 `FLEET_MINI_BIN`，或在 `~/.agent-fleet/mini.json` 用 `remote_home`、`bin`、`local_home`、`mm`、`hostname`。环境变量优先。远端执行机设置 `FLEET_MACHINE=mini`，或设置 `FLEET_MINI_HOSTNAME` / 配置 `hostname` 以识别本机。
+默认远端执行，参数仍用 `--on mini`。Mini 不可达时先自动执行一次 `mm --refresh` 重检连接再判定；仍不可用时补齐路径、同步或工具。确需本机用 `--on local` 并传 `--local-reason`。已在 Mini 本机运行且未显式指定 `--on mini` 时，自动识别本机并填好 `--on local` 及默认理由（不放宽授权）。配置用 `FLEET_MINI_HOME` 和 `FLEET_MINI_BIN`，或在 `~/.agent-fleet/mini.json` 用 `remote_home`、`bin`、`local_home`、`mm`、`hostname`。环境变量优先。远端执行机设置 `FLEET_MACHINE=mini`、设置 `FLEET_MINI_HOSTNAME` / 配置 `hostname`，或让 `mini.json` 的 `local_home` 与 `remote_home` 均指向当前家目录以识别本机。
 
 `fleet-go status` 默认显示非终态和最近一小时任务，`--all` 看全部历史。远端状态取不到时检查 stderr。`fleet-go read` 按任务名读取报告，选 `--report`、`--result` 或 `--log`，可加 `--head` 或 `--pull`。机器汇总看 `fleet status --running --json`，历史汇总看 [账本](ledger.md)。
 

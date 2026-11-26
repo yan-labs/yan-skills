@@ -1259,5 +1259,70 @@ except ValueError:
       }
     }
   });
+  test('V2 预检 input 拦截输出可复制修正命令且 Mini 本机自动识别不放宽授权', () => {
+    const rawRun = (args, extra = {}) => rawSpawnSync(script, args, { encoding: 'utf8', env: { ...env, ...extra }, input: '' });
+    // 1. 已在 Mini 上显式指定 --on mini -> 输出可复制修正命令
+    const onMiniExplicit = rawRun(['new', 'mini-explicit', '--to', 'gpt', '--on', 'mini', '--goal', '核对路由', '--no-lint'], { FLEET_MACHINE: 'mini' });
+    assert.equal(onMiniExplicit.status, 1);
+    assert.match(onMiniExplicit.stderr, /已在 Mini 上/);
+    assert.match(onMiniExplicit.stderr, /可复制修正命令：fleet-go new mini-explicit --to gpt --on local --goal '核对路由' --no-lint --local-reason '已在Mini本机运行'/);
+
+    // 2. --body 非文件（含超长正文触发 ENAMETOOLONG）-> 替换成 --body - 且不回显非法内容
+    const badBody = rawRun(['new', 'bad-body-case', '--to', 'gpt', '--on', 'local', '--local-reason', 'test', '--body', 'not-a-file-body', '--no-lint']);
+    assert.equal(badBody.status, 1);
+    assert.match(badBody.stderr, /--body 不是文件路径/);
+    assert.match(badBody.stderr, /可复制修正命令：fleet-go new bad-body-case --to gpt --on local --local-reason test --body - --no-lint <<'BRIEF'/);
+    assert.doesNotMatch(badBody.stderr, /not-a-file-body/);
+    const longBody = rawRun(['new', 'long-body-case', '--to', 'gpt', '--on', 'local', '--local-reason', 'test', '--body', 'x'.repeat(1200), '--no-lint']);
+    assert.equal(longBody.status, 1);
+    assert.match(longBody.stderr, /--body 不是文件路径/);
+    assert.match(longBody.stderr, /可复制修正命令：fleet-go new long-body-case .*--body - .*<<'BRIEF'/);
+
+    // 3. 同名 brief 已存在 -> 给出新名字的可复制修正命令
+    const dupBrief = rawRun(['new', 'one', '--to', 'gpt', '--on', 'local', '--local-reason', 'test', '--goal', '覆盖', '--no-lint']);
+    assert.equal(dupBrief.status, 1);
+    assert.match(dupBrief.stderr, /同名 brief 已存在/);
+    assert.match(dupBrief.stderr, /可复制修正命令：fleet-go new one-2 --to gpt --on local --local-reason test --goal '覆盖' --no-lint/);
+
+    // 4. 缺 --local-reason（非 Mini）-> 补 --local-reason 的可复制修正命令
+    const missingReason = rawRun(['new', 'no-reason-case', '--to', 'gpt', '--on', 'local', '--goal', '本机运行', '--no-lint']);
+    assert.equal(missingReason.status, 1);
+    assert.match(missingReason.stderr, /--on local 必须同时提供 --local-reason/);
+    assert.match(missingReason.stderr, /可复制修正命令：fleet-go new no-reason-case --to gpt --on local --goal '本机运行' --no-lint --local-reason '本机执行理由'/);
+
+    // 5. 未知授权块 -> 给出最小权限的可复制修正命令（不放宽授权）
+    const badAuth = rawRun(['new', 'bad-auth-case', '--to', 'gpt', '--on', 'local', '--local-reason', 'test', '--auth', 'bogus', '--goal', '测试', '--dry-run', '--no-lint']);
+    assert.equal(badAuth.status, 1);
+    assert.match(badAuth.stderr, /未知授权块：bogus/);
+    assert.match(badAuth.stderr, /可复制修正命令：fleet-go new bad-auth-case --to gpt --on local --local-reason test --auth local --goal '测试' --dry-run --no-lint/);
+
+    // 6. 指定报告已存在 -> 给出新报告路径的可复制修正命令
+    const existingReport = join(temp, 'occupied-report.md');
+    writeFileSync(existingReport, '# existing\n');
+    const occupied = rawRun(['new', 'occupied-report-task', '--to', 'gpt', '--on', 'local', '--local-reason', 'test', '--report', existingReport, '--goal', '测试', '--no-launch', '--no-lint']);
+    assert.equal(occupied.status, 1);
+    assert.match(occupied.stderr, /指定报告已存在/);
+    assert.ok(occupied.stderr.includes(`可复制修正命令：fleet-go new occupied-report-task --to gpt --on local --local-reason test --report ${join(temp, 'occupied-report-2.md')}`), occupied.stderr);
+
+    // 7. 未知场景 -> 给出 --scene none 的可复制修正命令
+    const badScene = rawRun(['new', 'bad-scene-case', '--to', 'gpt', '--on', 'local', '--local-reason', 'test', '--scene', 'no-such-scene', '--goal', '测试', '--dry-run', '--no-lint']);
+    assert.equal(badScene.status, 1);
+    assert.match(badScene.stderr, /未知场景：no-such-scene/);
+    assert.match(badScene.stderr, /可复制修正命令：fleet-go new bad-scene-case --to gpt --on local --local-reason test --scene none --goal '测试' --dry-run --no-lint/);
+
+    // 8. 已在 Mini 本机运行（未传 --on）-> 自动识别本机并填好执行位置，不放宽授权
+    const autoMini = rawRun(['new', 'mini-auto-detect', '--to', 'gpt', '--goal', '在Mini自动识别', '--no-launch', '--no-lint'], { FLEET_MACHINE: 'mini' });
+    assert.equal(autoMini.status, 0, autoMini.stderr);
+    assert.match(autoMini.stderr, /检测到已在 Mini 本机运行，自动使用 --on local（不放宽授权）/);
+    const autoBrief = autoMini.stdout.match(/已生成：(.+)/)[1].trim();
+    const autoMeta = JSON.parse(readFileSync(autoBrief.replace(/\.md$/, '.json'), 'utf8'));
+    assert.equal(autoMeta.on, 'local');
+    assert.equal(autoMeta.local_reason, '已在 Mini 本机运行');
+    assert.match(readFileSync(autoBrief, 'utf8'), /本机执行偏差：已在 Mini 本机运行/);
+    const autoMiniAuthBlocked = rawSpawnSync(script, ['new', 'mini-auto-auth-check', '--to', 'gpt', '--action', '部署', '--goal', '上线', '--dry-run', '--no-lint'], { encoding: 'utf8', env: { ...env, FLEET_MACHINE: 'mini' }, input: '## 入口\n仓库: /tmp\n可写路径: /tmp/example\n' });
+    assert.equal(autoMiniAuthBlocked.status, 1);
+    assert.match(autoMiniAuthBlocked.stderr, /deploy-prod/);
+    assert.match(autoMiniAuthBlocked.stderr, /可复制修正命令：/);
+  });
   console.log(`fleet-go：${checks} 组通过。`);
 } finally { rmSync(temp,{recursive:true,force:true}); }

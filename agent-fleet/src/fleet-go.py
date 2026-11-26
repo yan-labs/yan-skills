@@ -321,7 +321,9 @@ def check_sensitive_actions(text, auth=None, action_text=None, review=False):
     required = {'推送': 'local-commit', '部署': 'deploy-prod', '付费': 'paid'}
     missing = {key for action, key in required.items() if action in declared and key not in auth}
     if missing:
-        raise ValueError('动作行缺少授权，请补 --auth ' + ','.join(key for key in AUTH if key in missing or key in auth))
+        target_auth = ','.join(key for key in AUTH if key in missing or key in auth)
+        hint = fix_hint(lambda argv: replace_option(argv, '--auth', target_auth))
+        raise ValueError('动作行缺少授权，请补 --auth ' + target_auth + hint)
 
 
 def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lint=False, project=None):
@@ -433,16 +435,129 @@ def lint(text, to='gpt', simple=False, on='local', extra=True, sol=False, no_lin
     return errors
 
 
-def retry_command():
-    if len(sys.argv) < 2 or sys.argv[1] not in ('new', 'lint', 'amend', 'relaunch'):
-        return None
-    cmd = shlex.join(['fleet-go', *sys.argv[1:]])
+def replace_option(argv, flag, value=None, *, insert=True):
+    """返回 argv 副本，将 --flag 替换为 value（value 为 None 时移除）。"""
+    out = []
+    i = 0
+    replaced = False
+    prefix = flag + '='
+    while i < len(argv):
+        tok = argv[i]
+        if tok == flag:
+            if not replaced and value is not None:
+                out.extend([flag, value])
+            replaced = True
+            i += 2
+            continue
+        if tok.startswith(prefix):
+            if not replaced and value is not None:
+                out.extend([flag, value])
+            replaced = True
+            i += 1
+            continue
+        out.append(tok)
+        i += 1
+    if not replaced and insert and value is not None:
+        out.extend([flag, value])
+    return out
+
+
+def replace_positional(argv, old_value, new_value):
+    """替换子命令后第一个匹配 old_value 的位置参数。"""
+    out = list(argv)
+    if len(out) < 2:
+        return out
+    value_flags = {
+        '--to', '--on', '--local-reason', '--tier', '--model', '--make',
+        '--why', '--goal', '--body', '--budget', '--forbid', '--pitfalls',
+        '--report', '--after', '--environment', '--question', '--override-order',
+        '--level', '--type', '--for', '--deliverables', '--action', '--auth',
+        '--scene', '--project',
+    }
+    i = 1
+    while i < len(out):
+        tok = out[i]
+        if tok in value_flags:
+            i += 2
+            continue
+        if tok in ('--write', '--read'):
+            i += 1
+            while i < len(out) and not out[i].startswith('-'):
+                i += 1
+            continue
+        if tok == '--worktree':
+            i += 2 if i + 1 < len(out) and not out[i + 1].startswith('-') else 1
+            continue
+        if tok.startswith('-'):
+            i += 1
+            continue
+        if tok == old_value:
+            out[i] = new_value
+            return out
+        i += 1
+    return out
+
+
+def sanitize_command(argv, suffix=''):
+    cmd = shlex.join(['fleet-go', *argv]) + suffix
     redactor = Path(__file__).resolve().parents[1] / 'bin/redact'
     try:
         sanitized = subprocess.run([str(redactor)], input=cmd, capture_output=True, text=True, check=True).stdout.rstrip('\n')
     except (OSError, subprocess.SubprocessError):
         return None
     return cmd if sanitized == cmd and not list(secret_findings(cmd)) else None
+
+
+def fix_hint(transform, *, fallback_argv=None, suffix='', label='可复制修正命令：'):
+    base = list(sys.argv[1:]) if len(sys.argv) >= 2 and sys.argv[1] in ('new', 'lint', 'amend', 'relaunch') else list(fallback_argv or [])
+    if not base:
+        return ''
+    updated = transform(base)
+    cmd = sanitize_command(updated, suffix=suffix)
+    return f'\n{label}{cmd}' if cmd else ''
+
+
+def next_available_name(original, folder):
+    suffix = 2
+    while report_matches(f'{original}-{suffix}.brief.md') or (folder / f'{original}-{suffix}.md').exists():
+        suffix += 1
+    return f'{original}-{suffix}'
+
+
+def next_available_report(report_arg):
+    raw = Path(report_arg)
+    stem, suffix = raw.stem, raw.suffix
+    number = 2
+    while True:
+        candidate = raw.with_name(f'{stem}-{number}{suffix}')
+        if not candidate.expanduser().exists():
+            return str(candidate)
+        number += 1
+
+
+def resolve_on_mini_location(args, *, notify=True):
+    """已在 Mini 本机运行且未显式指定 --on mini 时，自动填好本机执行位置（不放宽授权）。"""
+    if not mini.on_mini():
+        return False
+    if getattr(args, 'on', None) is None:
+        args.on = 'local'
+        if hasattr(args, 'local_reason') and not (args.local_reason or '').strip():
+            args.local_reason = '已在 Mini 本机运行'
+        if notify:
+            print('提示：检测到已在 Mini 本机运行，自动使用 --on local（不放宽授权）。', file=sys.stderr)
+        return True
+    if getattr(args, 'on', None) == 'local' and hasattr(args, 'local_reason') and not (args.local_reason or '').strip():
+        args.local_reason = '已在 Mini 本机运行'
+        if notify:
+            print('提示：检测到已在 Mini 本机运行，已自动补充 --local-reason（不放宽授权）。', file=sys.stderr)
+        return True
+    return False
+
+
+def retry_command():
+    if len(sys.argv) < 2 or sys.argv[1] not in ('new', 'lint', 'amend', 'relaunch'):
+        return None
+    return sanitize_command(sys.argv[1:])
 
 
 def checked(text, to, simple=False, on='local', extra=False, sol=False, no_lint=False, project=None, auth=None, sensitive_text=None, review=False):
@@ -506,7 +621,8 @@ def launch(meta):
     location = meta.get('on') or 'mini'
     if location == 'local':
         if not meta.get('local_reason', '').strip():
-            raise ValueError('--on local 必须同时提供 --local-reason 理由。')
+            hint = fix_hint(lambda argv: replace_option(argv, '--local-reason', '本机执行理由'))
+            raise ValueError('--on local 必须同时提供 --local-reason 理由。' + hint)
         meta['execution'] = 'local'
         meta['watch_seat'] = watch_seat(meta)
         Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
@@ -541,7 +657,11 @@ def launch(meta):
         meta['watch_seat'] = watch_seat(meta)
     Path(meta['brief']).with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
     if reason:
-        raise ValueError(reason + '；请在 Mini 补齐（建 worktree、同步目录）后重派。')
+        hint = (fix_hint(
+            lambda argv: replace_option(replace_option(argv, '--on', 'local'), '--local-reason', 'Mini不可达改本机'),
+            label='如确认改在本机执行，可复制修正命令：',
+        ) if reason == 'Mini 不可达' else '')
+        raise ValueError(reason + '；请在 Mini 补齐（建 worktree、同步目录）后重派。' + hint)
     try:
         sys.exit(mini.launch(meta, command(meta)))
     except mini.QueueRejected:
@@ -944,7 +1064,8 @@ def select_scenes(args, body, project):
         names = list(dict.fromkeys(name.strip() for name in args.scene.split(',')))
         unknown = [name for name in names if name not in scenes]
         if unknown:
-            raise ValueError('未知场景：' + ', '.join(unknown) + '。请用 fleet-go scenes 查看。')
+            hint = fix_hint(lambda argv: replace_option(argv, '--scene', 'none'))
+            raise ValueError('未知场景：' + ', '.join(unknown) + '。请用 fleet-go scenes 查看。' + hint)
     else:
         query = re.sub(r'^##?\s*入口[^\n]*\n.*?(?=^##?\s|\Z)', '', body, flags=re.M | re.S)
         query = ((args.goal or '') + '\n' + query).casefold()
@@ -1026,8 +1147,17 @@ def quota_fallback(target, review, original):
 
 def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None, worktree_base=None, override_order=None, local_reason=None, astra=False, keep_brief=False):
     """复用既有 brief 元信息启动；amend 重启与独立 relaunch 共用此入口。"""
-    if on == 'local' and not (local_reason or '').strip(): raise ValueError('--on local 必须同时提供 --local-reason 理由。')
-    if local_reason and on != 'local': raise ValueError('--local-reason 仅用于 --on local。')
+    if mini.on_mini() and (on is None or (on == 'local' and not (local_reason or '').strip())):
+        if on is None:
+            print('提示：检测到已在 Mini 本机运行，自动使用 --on local（不放宽授权）。', file=sys.stderr)
+        on = 'local'
+        local_reason = (local_reason or '').strip() or '已在 Mini 本机运行'
+    if on == 'local' and not (local_reason or '').strip():
+        hint = fix_hint(lambda argv: replace_option(argv, '--local-reason', '本机执行理由'))
+        raise ValueError('--on local 必须同时提供 --local-reason 理由。' + hint)
+    if local_reason and on != 'local':
+        hint = fix_hint(lambda argv: replace_option(argv, '--on', 'local'))
+        raise ValueError('--local-reason 仅用于 --on local。' + hint)
     path, meta = locate(name)
     old_to = meta['to']
     old_tier = gpt_tier(meta) if old_to == 'gpt' else meta.get('tier')
@@ -1106,7 +1236,11 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
     if target == 'gpt' and selected in ('sol', 'astra') and OBSTACLE_NOTE not in text:
         text = text.replace(rule(), OBSTACLE_NOTE + '\n\n' + rule(), 1)
     if on != 'local' and not mini.available():
-        raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
+        hint = fix_hint(
+            lambda argv: replace_option(replace_option(argv, '--on', 'local'), '--local-reason', 'Mini不可达改本机'),
+            label='如确认改在本机执行，可复制修正命令：',
+        )
+        raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。' + hint)
     recorded, recorded_location = recorded_worktree(meta)
     if recorded and not worktree_call({**recorded, 'action': 'exists'}, recorded_location)['exists']:
         rebuild = shlex.join(['fleet-go', 'worktree', 'recreate', str(path)])
@@ -1335,7 +1469,11 @@ def amend(args):
         original = original.replace(rule(), OBSTACLE_NOTE + '\n\n' + rule(), 1)
     if args.auth is not None:
         auth = args.auth.split(',')
-        if any(a not in AUTH for a in auth): raise ValueError('未知授权块。可用：' + ','.join(AUTH))
+        bad_auth = [a for a in auth if a not in AUTH]
+        if bad_auth:
+            suggested = ','.join(dict.fromkeys(a for a in auth if a in AUTH)) or 'local'
+            hint = fix_hint(lambda argv: replace_option(argv, '--auth', suggested))
+            raise ValueError('未知授权块：' + ','.join(bad_auth) + '。可用：' + ','.join(AUTH) + hint)
         if 'local-commit' in auth: auth = [a for a in auth if a != 'local']
         values = {'NAME': args.name, 'REPORT': meta['report'], 'DATE': datetime.date.today().isoformat()}
         original = re.sub(r'(?<=## 授权覆盖\n).*?(?=\n动作[ \t]*[:：]|\n## |\Z)', lambda _: (('授权块：' + ','.join(auth) + '\n') if not strict_dispatch() else '') + '\n\n'.join(block('auth-' + a, values) for a in dict.fromkeys(auth)) + '\n', original, count=1, flags=re.S)
@@ -1592,19 +1730,35 @@ def new(args, prepare=False):
     """组装标准 brief；预览不写盘，正文文件与 stdin 使用明确输入规则。"""
     args.attempt_id = str(uuid.uuid4())
     args.gate_stage = None
-    if args.on == 'local' and not (args.local_reason or '').strip(): raise ValueError('--on local 必须同时提供 --local-reason 理由。')
-    if args.local_reason and args.on != 'local': raise ValueError('--local-reason 仅用于 --on local。')
+    if not getattr(args, '_mini_resolved', False):
+        resolve_on_mini_location(args)
+        args._mini_resolved = True
+    if args.on == 'local' and not (args.local_reason or '').strip():
+        hint = fix_hint(lambda argv: replace_option(argv, '--local-reason', '本机执行理由'))
+        raise ValueError('--on local 必须同时提供 --local-reason 理由。' + hint)
+    if args.local_reason and args.on != 'local':
+        hint = fix_hint(lambda argv: replace_option(argv, '--on', 'local'))
+        raise ValueError('--local-reason 仅用于 --on local。' + hint)
     if args.body and args.body != '-':
         body_path = Path(args.body).expanduser()
-        if not body_path.is_file():
-            raise ValueError(f'--body 不是文件路径：{diagnostic_path(body_path)}；--body 需要文件路径，用 - 读取 stdin。')
+        try:
+            is_file = body_path.is_file()
+        except OSError:
+            is_file = False
+        if not is_file:
+            hint = fix_hint(
+                lambda argv: replace_option(argv, '--body', '-'),
+                suffix=" <<'BRIEF'\n<正文内容>\nBRIEF",
+            )
+            raise ValueError(f'--body 不是文件路径：{diagnostic_path(body_path)}；--body 需要文件路径，用 - 读取 stdin。' + hint)
         body = body_path.read_text()
         body_file = str(body_path.resolve())
     else:
         body_file = None
         body = sys.stdin.read() if args.body == '-' or not sys.stdin.isatty() else ''
     if not args.goal and not body.strip():
-        raise ValueError('请提供 --goal、--body 或 stdin 正文。')
+        hint = fix_hint(lambda argv: replace_option(argv, '--goal', '请填写任务目标'))
+        raise ValueError('请提供 --goal、--body 或 stdin 正文。' + hint)
     secrets = list(secret_findings(body + '\n' + '\n'.join(sys.argv[1:])))
     if secrets:
         raise ValueError('\n'.join(secrets))
@@ -1659,27 +1813,42 @@ def new(args, prepare=False):
         if report_matches(args.name + '.brief.md'):
             candidates = [r for r in running(False) if r.get('name') == args.name]
             if any(r.get('status', r.get('state')) in ('running', 'queued', 'parked', 'waiting', 'abnormal', 'unreachable') for r in candidates):
-                raise ValueError('同名任务仍未结束；未重复派发。')
+                next_name = next_available_name(args.name, folder)
+                hint = fix_hint(lambda argv: replace_positional(argv, args.name, next_name))
+                raise ValueError('同名任务仍未结束；未重复派发。' + hint)
             if retry is None and candidates:
                 if args.report and Path(args.report).expanduser().exists():
-                    raise ValueError('指定报告已存在；请为新任务使用新报告路径。')
+                    new_report = next_available_report(args.report)
+                    hint = fix_hint(lambda argv: replace_option(argv, '--report', new_report))
+                    raise ValueError('指定报告已存在；请为新任务使用新报告路径。' + hint)
                 original = args.name
-                suffix = 2
-                while report_matches(f'{original}-{suffix}.brief.md') or (folder / f'{original}-{suffix}.md').exists():
-                    suffix += 1
-                args.name = f'{original}-{suffix}'
+                args.name = next_available_name(original, folder)
                 path = folder / (args.name + '.brief.md')
                 print(f'提示：{original} 已结束，本次改用 {args.name}，保留原产物。', file=sys.stderr)
+    if args.report and Path(args.report).expanduser().exists() and not args.dry_run and retry is None:
+        new_report = next_available_report(args.report)
+        hint = fix_hint(lambda argv: replace_option(argv, '--report', new_report))
+        raise ValueError('指定报告已存在；请为新任务使用新报告路径。' + hint)
     if any((root / day / path.name).exists() and (root / day / path.name != path or retry is None) for root in clean.report_roots()) and not args.dry_run:
-        raise ValueError(f'同名 brief 已存在，拒绝覆盖：{path}\n改需求后重派：fleet-go amend {args.name} "<修订说明>" --say\n原样重派（--body 文件改过会自动换进 brief）：fleet-go relaunch {args.name}\n另起一单：把名字换成 {args.name}-2 重跑原命令')
+        next_name = next_available_name(args.name, folder)
+        hint = fix_hint(lambda argv: replace_positional(argv, args.name, next_name))
+        raise ValueError(
+            f'同名 brief 已存在，拒绝覆盖：{path}\n'
+            f'改需求后重派：fleet-go amend {args.name} "<修订说明>" --say\n'
+            f'原样重派（--body 文件改过会自动换进 brief）：fleet-go relaunch {args.name}\n'
+            f'另起一单：把名字换成 {next_name} 重跑原命令' + hint
+        )
     report = str(Path(args.report).expanduser().absolute()) if args.report else str(folder / (args.name + '.md'))
     body = narrow_report_entry(body, report)
     action = args.task_action or declared_action(body)
     auth = infer_local_auth('动作: ' + action, args.auth.split(','))
     if not strict_dispatch() and not args.review:
         body = fill_entry_writes(body, action, args.write, project, report)
-    if any(a not in AUTH for a in auth):
-        raise ValueError('未知授权块。可用：' + ','.join(AUTH))
+    bad_auth = [a for a in auth if a not in AUTH]
+    if bad_auth:
+        suggested = ','.join(dict.fromkeys(a for a in auth if a in AUTH)) or 'local'
+        hint = fix_hint(lambda argv: replace_option(argv, '--auth', suggested))
+        raise ValueError('未知授权块：' + ','.join(bad_auth) + '。可用：' + ','.join(AUTH) + hint)
     if 'local-commit' in auth:
         auth = [a for a in auth if a != 'local']
     pitfalls = args.pitfalls.split(',') if args.pitfalls is not None else [
@@ -1781,7 +1950,11 @@ def new(args, prepare=False):
     text = normalize_actions(dispatch_lessons('\n\n'.join(parts) + '\n'))
     location = args.on or 'mini'
     if location == 'mini' and not (args.dry_run or args.no_launch or prepare) and not mini.available():
-        raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。')
+        hint = fix_hint(
+            lambda argv: replace_option(replace_option(argv, '--on', 'local'), '--local-reason', 'Mini不可达改本机'),
+            label='如确认改在本机执行，可复制修正命令：',
+        )
+        raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。' + hint)
     dispatch_gate(args, 'lint', lambda: checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna or args.astra), location, True, args.sol or args.astra, args.no_lint, project, auth=auth, review=args.review))
     action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', body, re.M)
     actions = args.task_action or (action_match.group(1) if action_match else '')
@@ -1842,7 +2015,9 @@ def new(args, prepare=False):
     with (folder / '.dispatch.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if path.exists() and (not retry or retry_metadata(path) != retry):
-            raise ValueError(f'同名 brief 已存在，拒绝覆盖：{path}')
+            next_name = next_available_name(args.name, folder)
+            hint = fix_hint(lambda argv: replace_positional(argv, args.name, next_name))
+            raise ValueError(f'同名 brief 已存在，拒绝覆盖：{path}' + hint)
         with path.open('w' if retry else 'x') as file:
             file.write(text)
         if args.to == 'jev':
@@ -2043,7 +2218,7 @@ def build_parser():
     p.add_argument('--no-lint', action='store_true', help='仅豁免样板 lint，仍检查入口与授权')
     p.add_argument('--simple', action='store_true')
     p.add_argument('--sol', action='store_true')
-    p.add_argument('--on', choices=['mini', 'local'], default=os.environ.get('FLEET_DEFAULT_ON', 'mini'))
+    p.add_argument('--on', choices=['mini', 'local'], default=None)
     p.add_argument('--to', choices=PRODUCTS, default='gpt')
     order.add_parser(sub)
     sub.add_parser('team')
@@ -2067,7 +2242,19 @@ def main():
     try:
         if getattr(args, 'quiet', False): os.environ['FLEET_WAIT_QUIET'] = '1'
         if args.action in ('new', 'amend', 'relaunch') and getattr(args, 'on', None) == 'mini' and mini.on_mini():
-            raise ValueError('已在 Mini 上；请使用 --on local --local-reason <理由> 或在派单机执行 --on mini。')
+            hint = fix_hint(
+                lambda argv: replace_option(replace_option(argv, '--on', 'local'), '--local-reason', '已在Mini本机运行')
+                if not any(t == '--local-reason' or t.startswith('--local-reason=') for t in argv)
+                else replace_option(argv, '--on', 'local'),
+            )
+            raise ValueError('已在 Mini 上；请使用 --on local --local-reason <理由> 或在派单机执行 --on mini。' + hint)
+        if args.action in ('new', 'relaunch'):
+            resolve_on_mini_location(args)
+            args._mini_resolved = True
+            if args.action == 'new' and args.on is None:
+                args.on = os.environ.get('FLEET_DEFAULT_ON', 'mini')
+        elif args.action == 'lint' and args.on is None:
+            args.on = 'local' if mini.on_mini() else os.environ.get('FLEET_DEFAULT_ON', 'mini')
         if hasattr(args, 'name') and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.name) and not (args.action in ('relaunch', 'amend', 'worktree') and args.name.endswith('.brief.md')):
             raise ValueError('名称只能包含字母、数字、下划线与连字符。')
     except ValueError as error:
@@ -2224,7 +2411,7 @@ if __name__ == '__main__':
             executable = Path(cmd[0]).name if isinstance(cmd, (list, tuple)) and cmd else '未知'
             message = f'子命令 {executable}：{type(error).__name__} exit={getattr(error, "returncode", "未知")}。'
         retry = retry_command()
-        if retry and '修改后重跑：' not in message:
+        if retry and '修改后重跑：' not in message and '可复制修正命令：' not in message:
             message += '\n修改后重跑：' + retry
         print('错误：' + message, file=sys.stderr)
         sys.exit(1)

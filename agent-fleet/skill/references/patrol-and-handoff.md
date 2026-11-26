@@ -45,7 +45,7 @@ Mini 信箱位于 `~/.agent-fleet/watch/mailbox.sqlite3`。监督器对账补录
 5. 有更便宜且可验证的备用路径吗？
 6. 哪条证据能推翻当前判断？
 
-输入使用事实表和最近有效进展后的脱敏日志摘要，每单最多 12 条事件。每单一行，格式为「run｜根因与真问题｜方法及范围｜多余改动｜影响｜替代路径｜反证｜建议动作与 owner」。证据不足先补一个有区分力的观测。用 `fleet watch patrol --record-reviews` 从标准输入写回按 runId 键控的 JSON，值含 `evidence`、`verdict`、`inputTokens`。
+输入使用事实表和最近有效进展后的脱敏日志摘要，每单最多 12 条事件。每单一行，格式为「run｜根因与真问题｜方法及范围｜多余改动｜影响｜替代路径｜反证｜建议动作与 owner」。证据不足先补一个有区分力的观测。用 `fleet watch patrol --record-reviews` 从标准输入写回按 runId 键控的 JSON，值含 `evidence`、`verdict`、`inputTokens`。包括 `parked` 和不动在内的在途裁定均会持久保存，并与当时证据摘要（`evidenceSummary`：日志大小、最后更新时间、产物数）绑定；下轮巡检证据未变则沿用裁定不重查，证据变化则失效并重新进入待复核批次。
 
 ## 交班
 

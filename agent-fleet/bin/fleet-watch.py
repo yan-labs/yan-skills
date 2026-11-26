@@ -170,12 +170,91 @@ def reconcile(db, root, now):
         return collected
 
 
+def evidence_summary(root, run, state, pid, meta, yielded, watch):
+    """Collect log size, latest update timestamp, and artifact count for patrol binding."""
+    mtimes = []
+    log_size = 0
+    log_candidates = [state.get('logPath'), pid.get('logPath'), str(root / (run + '.log'))]
+    child_id = state.get('childRunId')
+    if child_id and RUN_ID.fullmatch(child_id) and child_id not in ('.', '..'):
+        log_candidates.append(str(root / (child_id + '.log')))
+    for candidate in log_candidates:
+        if not candidate:
+            continue
+        log_path = Path(candidate)
+        try:
+            if log_path.is_file():
+                info = log_path.stat()
+                log_size = info.st_size
+                mtimes.append(info.st_mtime)
+                break
+        except OSError:
+            continue
+
+    artifacts = set()
+
+    def record_file(path):
+        try:
+            if path.is_file() and not path.is_symlink():
+                artifacts.add(str(path.resolve()))
+                mtimes.append(path.stat().st_mtime)
+        except OSError:
+            pass
+
+    report_path = state.get('reportPath') or pid.get('reportPath') or meta.get('report')
+    if report_path:
+        rp = Path(report_path)
+        record_file(rp)
+        record_file(rp.with_suffix('.checkpoint.md'))
+    result_path = state.get('resultPath') or pid.get('resultPath') or str(root / (run + '.result.md'))
+    if result_path:
+        record_file(Path(result_path))
+
+    artifact_dirs = []
+    if state.get('artifactDir'):
+        artifact_dirs.append(Path(state['artifactDir']))
+    task_name = state.get('name') or pid.get('name') or meta.get('name')
+    if task_name and RUN_ID.fullmatch(task_name) and task_name not in ('.', '..'):
+        artifact_dirs.append(Path('/tmp') / task_name)
+    for directory in artifact_dirs:
+        try:
+            if directory.is_dir() and not directory.is_symlink():
+                for entry in directory.rglob('*'):
+                    record_file(entry)
+        except OSError:
+            pass
+
+    for item in (*(state.get('artifacts') or ()), *(pid.get('artifacts') or ())):
+        if isinstance(item, str) and item:
+            record_file(Path(item))
+
+    yield_path = root / (run + '.yield')
+    try:
+        if yield_path.is_file():
+            mtimes.append(yield_path.stat().st_mtime)
+    except OSError:
+        pass
+
+    progress_at = watch.get('progressAt')
+    if isinstance(progress_at, (int, float)) and not isinstance(progress_at, bool):
+        mtimes.append(progress_at / 1000.0 if progress_at > 1e12 else float(progress_at))
+
+    return {
+        'logSize': log_size,
+        'lastUpdatedAt': round(max(mtimes), 6) if mtimes else None,
+        'artifactCount': len(artifacts),
+    }
+
+
 def patrol(db, root, now, reviews=None):
     """Batch current facts and retain decisions only for identical evidence."""
     db.execute("""CREATE TABLE IF NOT EXISTS patrol (
         run TEXT PRIMARY KEY, evidence TEXT NOT NULL, due REAL NOT NULL,
-        reviewed REAL, verdict TEXT, input_tokens INTEGER
+        reviewed REAL, verdict TEXT, input_tokens INTEGER, evidence_summary TEXT
     )""")
+    columns = {row['name'] for row in db.execute('PRAGMA table_info(patrol)')}
+    if 'evidence_summary' not in columns:
+        db.execute('ALTER TABLE patrol ADD COLUMN evidence_summary TEXT')
     rows = []
     with db:
         db.execute('BEGIN IMMEDIATE')
@@ -201,12 +280,14 @@ def patrol(db, root, now, reviews=None):
             if row['state'] == 'parked' and not production:
                 interval = 30
             hits = [] if waiting else watch.get('hits', [])
+            summary = evidence_summary(root, run, state, pid, meta, yielded, watch)
             facts = {
                 'runId': run, 'state': row['state'], 'intervalMinutes': interval, 'hits': hits,
                 'decision': None if waiting else watch.get('decision'),
                 'lastProgressAt': watch.get('progressAt'), 'tokenUsage': watch.get('tokenUsage', 'unknown'),
                 'activeMs': pid.get('activeMs'), 'waitMs': pid.get('waitMs'), 'pollCount': pid.get('pollCount'), 'wakeCount': pid.get('wakeCount'),
                 'events': [] if waiting else watch.get('recent', [])[-12:],
+                'evidenceSummary': summary,
             }
             if row['state'] == 'parked':
                 facts.update(waitKind=yielded.get('until', '').split(':')[0],
@@ -219,7 +300,8 @@ def patrol(db, root, now, reviews=None):
                 brief_digest = None
             evidence = hashlib.sha256(json.dumps(
                 [facts['state'], facts['lastProgressAt'], hits, facts['decision'], facts.get('deadlineAt'),
-                 brief_digest, row['progress'] if not watch and not waiting else None], sort_keys=True
+                 brief_digest, row['progress'] if not watch and not waiting else None,
+                 summary['logSize'], summary['lastUpdatedAt'], summary['artifactCount']], sort_keys=True
             ).encode()).hexdigest()
             if facts['decision'] == '交主会话':
                 key = f"{run}:{facts['lastProgressAt']}:{','.join(hits)}"
@@ -232,13 +314,16 @@ def patrol(db, root, now, reviews=None):
             reviewed = saved['reviewed'] if same else None
             verdict = saved['verdict'] if same else None
             input_tokens = saved['input_tokens'] if same else None
-            if review and review.get('evidence') == evidence and not waiting:
+            if review and review.get('evidence') == evidence:
                 verdict = review['verdict']
                 reviewed = now
                 input_tokens = review.get('inputTokens')
-            db.execute('INSERT OR REPLACE INTO patrol VALUES (?,?,?,?,?,?)',
-                       (run, evidence, due, reviewed, verdict, input_tokens))
-            facts.update(evidence=evidence, nextReviewAt=due, reviewRequired=not waiting and verdict is None,
+            db.execute(
+                'INSERT OR REPLACE INTO patrol (run, evidence, due, reviewed, verdict, input_tokens, evidence_summary) VALUES (?,?,?,?,?,?,?)',
+                (run, evidence, due, reviewed, verdict, input_tokens, json.dumps(summary, sort_keys=True)),
+            )
+            review_required = (row['state'] == 'parked' or not waiting) and verdict is None
+            facts.update(evidence=evidence, nextReviewAt=due, reviewRequired=review_required,
                          reusedAt=reviewed, review=verdict, inputTokens=input_tokens)
             rows.append(facts)
     return {'rows': rows, 'reviewBatch': [row['runId'] for row in rows if row['reviewRequired']]}

@@ -499,3 +499,57 @@ with tempfile.TemporaryDirectory() as tmp:
         chunk = mini.progress_chunk({'id':'job'}, {'resultPath':str(result),'model':'codex'}, 0)
         assert len(chunk['lines']) == 1 and '运行 pnpm test' in chunk['lines'][0]
         assert mini.progress_chunk({'id':'job'}, {'resultPath':str(result),'model':'codex'}, chunk['offset'])['lines'] == []
+
+# Mini unreachable refreshes connection detection once before deciding.
+with tempfile.TemporaryDirectory() as tmp_dir:
+    tmp = Path(tmp_dir)
+    log_file = tmp / 'mm-calls.log'
+    state_file = tmp / 'mm-state'
+    mm_stub = tmp / 'mm-refresh-stub'
+    mm_stub.write_text('''#!/bin/sh
+echo "$*" >> "$MM_LOG"
+if [ "$1" = "--refresh" ]; then
+  if [ "$MM_REFRESH_FAIL" = "1" ]; then exit 1; fi
+  echo tailscale > "$MM_STATE"
+  echo "refreshed"
+  exit 0
+fi
+if [ "$1" = "--method" ]; then
+  if [ -f "$MM_STATE" ]; then cat "$MM_STATE"; exit 0; fi
+  exit 1
+fi
+exit 1
+''')
+    mm_stub.chmod(0o755)
+    with patch.object(mini, 'MM', str(mm_stub)):
+        with patch.dict(os.environ, {'MM_LOG': str(log_file), 'MM_STATE': str(state_file), 'MM_REFRESH_FAIL': '0'}):
+            assert mini.available() is True
+            assert log_file.read_text().splitlines() == ['--method', '--refresh', '--method']
+            log_file.write_text('')
+            assert mini.available() is True
+            assert log_file.read_text().splitlines() == ['--method']
+        state_file.unlink()
+        log_file.write_text('')
+        with patch.dict(os.environ, {'MM_LOG': str(log_file), 'MM_STATE': str(state_file), 'MM_REFRESH_FAIL': '1'}):
+            assert mini.available() is False
+            assert log_file.read_text().splitlines() == ['--method', '--refresh']
+
+# Auto-detect Mini host via mini.json (local_home == remote_home == HOME) without relaxing auth.
+with tempfile.TemporaryDirectory() as tmp_dir:
+    tmp = Path(tmp_dir)
+    cfg = tmp / '.agent-fleet/mini.json'
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text(json.dumps({'local_home': str(tmp), 'remote_home': str(tmp), 'bin': str(root / 'bin/fleet')}))
+    orders = tmp / '.agents/dispatch-order.md'
+    orders.parent.mkdir(parents=True)
+    orders.write_text('| 执行者 | 状态 | 有效至 | 原因与用户原话 |\n|---|---|---|---|\n| 全局 | 正常 | 用户另说 | |\n')
+    env = {k: v for k, v in os.environ.items() if k not in ('FLEET_MACHINE', 'FLEET_MINI_HOSTNAME', 'FLEET_LOCAL_HOME', 'FLEET_MINI_HOME', 'FLEET_MINI_BIN', 'FLEET_DEFAULT_ON')}
+    env.update(HOME=str(tmp), FLEET_MINI_MM=str(tmp / 'missing-mm'))
+    detected = subprocess.run([str(root / 'bin/fleet-go'), 'new', 'mini-auto-config', '--to', 'gpt', '--goal', '测试自动识别', '--no-launch', '--no-lint'], env=env, text=True, capture_output=True)
+    assert detected.returncode == 0, (detected.stdout, detected.stderr)
+    assert '检测到已在 Mini 本机运行' in detected.stderr
+    saved_meta = json.loads(next((tmp / '.agent-fleet/reports').glob('*/mini-auto-config.brief.json')).read_text())
+    assert saved_meta['on'] == 'local' and saved_meta['local_reason'] == '已在 Mini 本机运行'
+    blocked = subprocess.run([str(root / 'bin/fleet-go'), 'new', 'mini-auto-auth', '--to', 'gpt', '--action', '部署', '--goal', '上线', '--dry-run', '--no-lint'], env=env, input='## 入口\n仓库: /tmp\n可写路径: /tmp/example\n', text=True, capture_output=True)
+    assert blocked.returncode != 0 and 'deploy-prod' in blocked.stderr and '可复制修正命令：' in blocked.stderr
+print('PASS: mini refresh probe & auto-detect on Mini')

@@ -73,15 +73,38 @@ def rewrite_brief(text):
     return re.sub(PATH_PATTERN, lambda m: remote_path(m.group(0)), text) if LOCAL_HOME and REMOTE_HOME else text
 
 def on_mini():
+    machine = os.environ.get('FLEET_MACHINE')
+    if machine:
+        return machine == 'mini'
     name = os.environ.get('FLEET_MINI_HOSTNAME') or CONFIG.get('hostname', '')
-    return os.environ.get('FLEET_MACHINE') == 'mini' or bool(name and socket.gethostname().lower().split('.')[0] == name.lower().split('.')[0])
+    if name and socket.gethostname().lower().split('.')[0] == name.lower().split('.')[0]:
+        return True
+    if REMOTE_HOME and LOCAL_HOME and REMOTE_HOME == LOCAL_HOME and CONFIG.get('remote_home'):
+        try:
+            return Path.home().resolve() == Path(REMOTE_HOME).resolve()
+        except OSError:
+            return False
+    return False
 
 def available():
+    timeout = float(os.environ.get('FLEET_MINI_PROBE_TIMEOUT', '15'))
+    def probe():
+        try:
+            p = subprocess.run([MM, '--method'], capture_output=True, text=True, timeout=timeout)
+            return p.returncode == 0 and p.stdout.strip() in ('direct', 'tailscale')
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+    if probe():
+        return True
     try:
-        p = subprocess.run([MM, '--method'], capture_output=True, text=True, timeout=5)
-        return p.returncode == 0 and p.stdout.strip() in ('direct', 'tailscale')
+        refreshed = subprocess.run([MM, '--refresh'], capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired):
         return False
+    if refreshed.returncode != 0:
+        return False
+    if refreshed.stdout.strip() in ('direct', 'tailscale'):
+        return True
+    return probe()
 
 def call(script, payload, timeout=30, kill_group=False):
     data = base64.b64encode(json.dumps(payload, ensure_ascii=False).encode()).decode()

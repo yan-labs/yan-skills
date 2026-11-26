@@ -264,6 +264,100 @@ def verify_migration(runs, seat):
     assert store['request']('snapshot', {'seat': seat + '#first'})['unread'] == 2
 
 
+def verify_patrol_review_persistence(root, runs, repo):
+    """V1: parked/hold patrol verdicts persist with evidence summary; unchanged reuses, changed invalidates."""
+    now_iso = store['now_iso']()
+    parked_id = 'fixture-detach-patrol-parked'
+    hold_id = 'fixture-detach-patrol-hold'
+    parked_report = root / 'patrol-parked.md'
+    hold_report = root / 'patrol-hold.md'
+    parked_log = runs / f'{parked_id}.log'
+    hold_log = runs / f'{hold_id}.log'
+    parked_log.write_text('parked initial log\n')
+    hold_log.write_text('hold initial log\n')
+    os.utime(parked_log, (1700000100, 1700000100))
+    os.utime(hold_log, (1700000100, 1700000100))
+    write(runs / f'{parked_id}.json', {
+        'runId': parked_id, 'cwd': str(repo), 'detach': True, 'status': 'running',
+        'heartbeatAt': now_iso, 'startedAt': now_iso, 'reportPath': str(parked_report),
+    })
+    write(runs / f'{parked_id}.yield', {'type': 'park', 'until': 'job:123', 'owner': '本单'})
+    os.utime(runs / f'{parked_id}.yield', (1700000100, 1700000100))
+    write(runs / f'{hold_id}.json', {
+        'runId': hold_id, 'cwd': str(repo), 'detach': True, 'status': 'running',
+        'heartbeatAt': now_iso, 'startedAt': now_iso, 'reportPath': str(hold_report),
+    })
+
+    # Test 1: persist parked & 不动 verdicts via CLI --record-reviews, then reuse when evidence is unchanged.
+    initial = json.loads(run([fleet, 'watch', 'patrol'], check=True).stdout)
+    by_id = {row['runId']: row for row in initial['rows']}
+    assert parked_id in initial['reviewBatch'] and hold_id in initial['reviewBatch']
+    assert by_id[parked_id]['state'] == 'parked'
+    assert by_id[parked_id]['evidenceSummary'] == {
+        'logSize': len('parked initial log\n'), 'lastUpdatedAt': 1700000100.0, 'artifactCount': 0,
+    }
+    assert by_id[hold_id]['evidenceSummary'] == {
+        'logSize': len('hold initial log\n'), 'lastUpdatedAt': 1700000100.0, 'artifactCount': 0,
+    }
+
+    payload = {
+        parked_id: {'evidence': by_id[parked_id]['evidence'], 'verdict': 'parked：等待 job，不动', 'inputTokens': 320},
+        hold_id: {'evidence': by_id[hold_id]['evidence'], 'verdict': '不动：构建正常推进', 'inputTokens': 410},
+    }
+    recorded = json.loads(run([fleet, 'watch', 'patrol', '--record-reviews'], input=json.dumps(payload), check=True).stdout)
+    rec_by_id = {row['runId']: row for row in recorded['rows']}
+    assert rec_by_id[parked_id]['review'] == 'parked：等待 job，不动'
+    assert rec_by_id[hold_id]['review'] == '不动：构建正常推进'
+    assert parked_id not in recorded['reviewBatch'] and hold_id not in recorded['reviewBatch']
+    assert rec_by_id[parked_id]['reusedAt'] is not None and rec_by_id[hold_id]['reusedAt'] is not None
+
+    # Next patrol with identical evidence (even after heartbeat updates) reuses saved verdicts without re-checking.
+    write(runs / f'{parked_id}.json', {
+        'runId': parked_id, 'cwd': str(repo), 'detach': True, 'status': 'running',
+        'heartbeatAt': store['now_iso'](), 'startedAt': now_iso, 'reportPath': str(parked_report),
+    })
+    reused = json.loads(run([fleet, 'watch', 'patrol'], check=True).stdout)
+    reused_by_id = {row['runId']: row for row in reused['rows']}
+    assert reused_by_id[parked_id]['review'] == 'parked：等待 job，不动'
+    assert reused_by_id[parked_id]['reusedAt'] == rec_by_id[parked_id]['reusedAt']
+    assert reused_by_id[hold_id]['review'] == '不动：构建正常推进'
+    assert reused_by_id[hold_id]['reusedAt'] == rec_by_id[hold_id]['reusedAt']
+    assert parked_id not in reused['reviewBatch'] and hold_id not in reused['reviewBatch']
+
+    # Test 2: evidence changes (log size, lastUpdatedAt, artifactCount) invalidate cached verdicts and require re-review.
+    # 2a) Log size grows on parked run -> invalidated.
+    parked_log.write_text('parked initial log\nnew wake output\n')
+    os.utime(parked_log, (1700000100, 1700000100))
+    after_log = json.loads(run([fleet, 'watch', 'patrol'], check=True).stdout)
+    after_log_by_id = {row['runId']: row for row in after_log['rows']}
+    assert after_log_by_id[parked_id]['evidenceSummary']['logSize'] == len('parked initial log\nnew wake output\n')
+    assert after_log_by_id[parked_id]['review'] is None and after_log_by_id[parked_id]['reusedAt'] is None
+    assert parked_id in after_log['reviewBatch']
+    assert hold_id not in after_log['reviewBatch'] and after_log_by_id[hold_id]['review'] == '不动：构建正常推进'
+
+    # Re-record parked verdict, then mutate only lastUpdatedAt (same size, same artifact count) -> invalidated.
+    rerecord = json.loads(run(
+        [fleet, 'watch', 'patrol', '--record-reviews'],
+        input=json.dumps({parked_id: {'evidence': after_log_by_id[parked_id]['evidence'], 'verdict': 'parked：复审不动'}}),
+        check=True,
+    ).stdout)
+    assert parked_id not in rerecord['reviewBatch']
+    os.utime(parked_log, (1700000200, 1700000200))
+    after_mtime = json.loads(run([fleet, 'watch', 'patrol'], check=True).stdout)
+    after_mtime_by_id = {row['runId']: row for row in after_mtime['rows']}
+    assert after_mtime_by_id[parked_id]['evidenceSummary']['lastUpdatedAt'] == 1700000200.0
+    assert after_mtime_by_id[parked_id]['review'] is None and parked_id in after_mtime['reviewBatch']
+
+    # 2b) Artifact count increases on hold run (with same mtime) -> invalidated.
+    hold_report.write_text('# report draft\n')
+    os.utime(hold_report, (1700000100, 1700000100))
+    after_artifact = json.loads(run([fleet, 'watch', 'patrol'], check=True).stdout)
+    after_artifact_by_id = {row['runId']: row for row in after_artifact['rows']}
+    assert after_artifact_by_id[hold_id]['evidenceSummary']['artifactCount'] == 1
+    assert after_artifact_by_id[hold_id]['review'] is None and after_artifact_by_id[hold_id]['reusedAt'] is None
+    assert hold_id in after_artifact['reviewBatch']
+
+
 def main():
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -281,11 +375,12 @@ def main():
         with patch.dict(os.environ, {**dict.fromkeys(worker_keys, ''), 'FLEET_SEAT': seat, 'AGENT_FLEET_RUNS_DIR': str(runs), 'FLEET_WATCH_DIR': str(root / 'db'),
                                      'FLEET_WATCH_CACHE': str(root / 'cache')}):
             verify_mailbox(root, runs, repo, seat)
+            verify_patrol_review_persistence(root, runs, repo)
             verify_timer(root, runs, repo, seat)
             verify_lines(root, runs, repo, seat)
             verify_migration(runs, seat)
             verify_backfill(root, runs, repo, seat)
-    print('PASS SQLite、旧 wait、离线三类事件、接班和迟到确认、定时派发崩溃重放')
+    print('PASS SQLite、旧 wait、离线三类事件、接班和迟到确认、巡检裁定持久化、定时派发崩溃重放')
 
 
 if __name__ == '__main__':
