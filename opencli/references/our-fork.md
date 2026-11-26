@@ -16,6 +16,7 @@
 
 | 日期 | 上游范围 | fork 版本 | 取舍 |
 |---|---|---|---|
+| 2026-11-22 | v2.0.3，合并提交 `b2d2903a` | CLI 2.0.3-yan.1 / 扩展 1.7.1 | 沿用上游命令和桥接协议，移植专用窗口、自动铺放、保活、租约列表和会话名守卫；新写法 `opencli browser --session <会话名> <命令>`，旧写法在会话名不与子命令冲突时仍可用 |
 | 2026-09-25 | v1.8.8 之后 50 个提交（到 `24136945`），合并提交 `931b0cb9`，已推 `fork/main` | CLI 1.11.0 / 扩展 1.3.0 | 保留专用窗口、窗口池、TTL 回收、关窗命令、`daemon logs`；随上游移除 `opencli external`（CLI hub）与站点 sitemap；新增 `OPENCLI_SITE_SESSION`、gmail/dribbble 等 adapter |
 | 2026-09-25（同日，本机部署） | 本机源码 link（`<opencli>`）从 `feat/dedicated-window`（`dc992063`，工作树上有 2026-09-14 遗留的 8 个文件未提交改动）切到 `fork/main`（`931b0cb9`）并实际生效 | CLI 1.10.0 → 1.11.0 / 扩展 1.2.0 → 1.3.0，`opencli doctor` 全绿 | 2026-09-14 遗留改动无损保存到 `wip/2026-09-14-uncommitted`（`6deb94f6`，已推 `fork`），评估后**未**被这次合并覆盖，见下方小节 |
 
