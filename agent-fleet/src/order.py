@@ -29,7 +29,7 @@ MIN_RESET_SECONDS = 600
 # 额度类失败识别表：fleet run 的 route（模型路由名）归到调遣令执行者，再用该执行者自己的规则判断。
 # 人读版见 skill/references/fallback-chains.md「什么算不可用」；这里是唯一的机读版。
 # reset：重置时间的取法，依次尝试；'est:' 开头是估计（reason 里会标「估计」），'none' 表示没有自动重置，写「用户另说」。
-ROUTE_EXECUTOR = [(r'^gpt-', 'codex'), (r'^openai-', 'openai-api'), (r'^claude-cli', 'claude-sub'), (r'^claude-', 'claude-api'), (r'^grok', 'grok'),
+ROUTE_EXECUTOR = [(r'^gpt-', 'codex'), (r'^openai-', 'openai-api'), (r'^claude-', 'claude-api'), (r'^grok', 'grok'),
                   (r'^agy', 'gemini-sub'), (r'^kollab-gateway-research', 'grok-api'), (r'^kollab-gateway-gpt', 'openai-api'), (r'^kollab-gateway-(?:copy|bulk)|gemini', 'gemini'), (r'^jev', 'jev')]
 HTTP_402 = r'(?:status|http|code)["\s:=]{0,4}402\b|\b402\s+payment'
 QUOTA_RULES = {
@@ -42,7 +42,6 @@ QUOTA_RULES = {
     'grok': {'match': r'usage balance exhausted|payment required|' + HTTP_402,
              'reset': ['fields', 'try_again', 'est:week'], 'label': 'Grok Build 额度'},
     'grok-api': {'match': r'payment required|budget|预算|insufficient (?:credits?|balance)|余额不足|' + HTTP_402, 'reset': ['fields', 'est:hour'], 'label': 'Grok 网关预算'},
-    'claude-sub': {'match': r'usage limit|rate.?limit|exhausted|\b429\b', 'reset': ['fields', 'est:5h'], 'label': 'Claude 订阅额度'},
     'gemini-sub': {'match': r'quota|rate.?limit|exhausted|\b429\b', 'reset': ['est:5h'], 'label': 'agy 额度'},
     'gemini': {'match': r'payment required|budget|预算|insufficient (?:credits?|balance)|余额不足|' + HTTP_402,
                'reset': ['fields', 'est:hour'], 'label': 'Gemini 网关预算'},

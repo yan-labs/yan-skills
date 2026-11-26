@@ -44,7 +44,6 @@ import { runGrok } from '../src/grok-runner.mjs';
 import { launchDetached, readState, resolveDetached, supervise, waitDetached } from '../src/detach.mjs';
 import { runMedia } from '../src/media.mjs';
 import { runAgy } from '../src/agy-runner.mjs';
-import { runClaude } from '../src/claude-cli-runner.mjs';
 import { runGeminiApi } from '../src/gemini-api-runner.mjs';
 
 const PKG_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -543,7 +542,7 @@ async function cmdTeam() {
   console.log('产品  | 擅长 | 派用者重派顺位 | 当前可用性');
   console.log(`gpt   | 编码、调研、只读复核 | 失败由派单方改派 | Codex ${available(codex)}`);
   console.log(`openai| ChatGPT API组织额度，默认 GPT-6.1 Sol | 官方 Responses API + 原 Agent SDK | OPENAI_CREDIT_API_KEY ${key('OPENAI_CREDIT_API_KEY')}`);
-  console.log('claude| Claude Code CLI 订阅，默认 sonnet；失败由派单方改派');
+  console.log(`claude| 官方端点，每月 API 赠送额度 | ANTHROPIC_CREDIT_API_KEY ${key('ANTHROPIC_CREDIT_API_KEY')}`);
   console.log(`grok  | 视频与图片、X 平台、编码、检索调研、成人题材 | 由派用者决定 | grok models ${available(grok)}`);
   console.log('gemini| 文案、调研、编码及批量 | agy 订阅 CLI，失败由派单方改派');
   console.log(`jev   | 结构化判断 | 无 | TYPESAFE_API_KEY ${key('TYPESAFE_API_KEY')}`);
@@ -565,7 +564,6 @@ async function cmdShortRun(command, argv) {
   }
   if (command === 'grok') return cmdGrok(argv);
   if (command === 'gpt') return cmdCode(argv);
-  if (['haiku', 'sonnet', 'opus', 'fable'].includes(command)) return cmdClaude(command, options);
   if (['copy', 'bulk'].includes(command)) {
     const result = await runAgy({ prompt: options.prompt, cwd: options.cwd, noVoice: Boolean(options.flags['no-voice']), effort: resolveEffortFlag(options.flags), agent: Boolean(options.flags['agent-mode']) });
     if (result) {
@@ -578,13 +576,6 @@ async function cmdShortRun(command, argv) {
     throw new Error('agy 不可用，请由派单方改派');
   }
   await cmdRun(['--model', options.model, '--prompt', options.prompt, ...flagArgs(options.flags, ['model', 'prompt'])], { copyVoice: command === 'copy' });
-}
-
-async function cmdClaude(command, options) {
-  const result = await runClaude({ prompt: options.prompt, cwd: options.cwd, model: options.flags.model || command });
-  result.reportPath = options.flags.report;
-  await printRunResult(result, outputOptions(options.flags));
-  process.exitCode = buildBrief(result, outputOptions(options.flags)).verdict === 'ok' ? 0 : 1;
 }
 
 async function enterAttachedSlot(options) {

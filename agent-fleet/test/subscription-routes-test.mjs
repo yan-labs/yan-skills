@@ -1,23 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, chmodSync, rmSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { runClaude } from '../src/claude-cli-runner.mjs';
 import { MODEL_ALIASES } from '../src/shortcuts.mjs';
 import { executorOf } from '../src/ledger.mjs';
-const dir = mkdtempSync(join(tmpdir(), 'fleet-subscription-'));
-try {
-  assert.deepEqual([MODEL_ALIASES.copy, MODEL_ALIASES.bulk, MODEL_ALIASES.grok, MODEL_ALIASES.gpt, MODEL_ALIASES.sonnet], ['agy', 'agy', 'grok-cli:default', 'codex', 'claude-cli:sonnet']);
-  assert.deepEqual(['agy', 'grok-cli:default', 'claude-cli:sonnet', 'kollab-gateway-gpt-sol'].map(x => executorOf(x)), ['gemini-sub', 'grok', 'claude-sub', 'openai-api']);
-  const cli = join(dir, 'claude');
-  const capture = join(dir, 'args');
-  process.env.FLEET_CLAUDE_BIN = cli;
-  process.env.AGENT_FLEET_RUNS_DIR = dir;
-  writeFileSync(cli, `#!/bin/sh\nif [ "$1" = auth ]; then echo '{"loggedIn":true,"authMethod":"claude.ai"}'; else printf '%s\\n' "$@" > '${capture}'; echo done; fi\n`); chmodSync(cli, 0o755);
-  const ok = await runClaude({ prompt: 'test', cwd: dir, model: 'sonnet' });
-  assert.equal(ok.ok, true); assert.match(readFileSync(capture, 'utf8'), /--model\nsonnet/);
-  writeFileSync(cli, '#!/bin/sh\nexit 1\n'); chmodSync(cli, 0o755);
-  const failed = await runClaude({ prompt: 'test', cwd: dir, model: 'sonnet' });
-  assert.equal(failed.ok, false); assert.match(failed.error, /claude CLI 未登录/);
-  console.log('PASS subscription CLI defaults, classification and Claude auth failure');
-} finally { rmSync(dir, { recursive: true, force: true }); }
+import { readFileSync } from 'node:fs';
+assert.deepEqual([MODEL_ALIASES.copy, MODEL_ALIASES.bulk, MODEL_ALIASES.grok, MODEL_ALIASES.gpt], ['agy', 'agy', 'grok-cli:default', 'codex']);
+assert.deepEqual(['haiku', 'sonnet', 'opus', 'fable'].map(x => MODEL_ALIASES[x]), ['claude-haiku', 'claude-sonnet', 'claude-opus', 'claude-fable']);
+assert.deepEqual(['agy', 'grok-cli:default', MODEL_ALIASES.sonnet, 'kollab-gateway-gpt-sol'].map(executorOf), ['gemini-sub', 'grok', 'sonnet', 'openai-api']);
+const config = JSON.parse(readFileSync(new URL('../models.config.json', import.meta.url)));
+for (const name of ['haiku', 'sonnet', 'opus', 'fable']) {
+  const model = config[MODEL_ALIASES[name]];
+  assert.equal(model.baseURL, 'https://api.anthropic.com');
+  assert.equal(model.apiKeyEnv, 'ANTHROPIC_CREDIT_API_KEY');
+  assert.ok(!JSON.stringify(model).includes('kollab'));
+}
+console.log('PASS subscription routes and Claude official endpoint');

@@ -6,10 +6,11 @@ export const MODEL_ALIASES = Object.freeze({
   bulk: 'agy',
   gpt: 'codex',
   openai: 'openai-gpt-terra',
-  haiku: 'claude-cli:haiku',
-  sonnet: 'claude-cli:sonnet',
-  opus: 'claude-cli:opus',
-  fable: 'claude-cli:fable',
+  // Claude 官方端点直连，走订阅附赠的每月 API 额度（ANTHROPIC_CREDIT_API_KEY），不占 Claude App 用量。
+  haiku: 'claude-haiku',
+  sonnet: 'claude-sonnet',
+  opus: 'claude-opus',
+  fable: 'claude-fable',
 });
 
 const BOOLEAN_FLAGS = new Set(['quiet', 'verbose', 'low', 'high', 'xhigh', 'max', 'simple', 'sol', 'luna', 'astra', 'fast', 'no-fast', 'review', 'json', 'full', 'expect-changes', 'judge', 'no-voice', 'no-continue', 'no-subagents', 'subagents', 'agent-mode', 'detach', 'attach', 'no-wait', 'wait', 'help']);
