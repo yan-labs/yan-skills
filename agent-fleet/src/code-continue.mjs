@@ -47,7 +47,7 @@ export function detectExternalWait(report = '', acceptance = null, yielded = nul
 }
 
 /** 读取回合结束时的实际状态；文件内容指纹能识别同一脏文件再次修改。 */
-export function readContinuationState(cwd, reportPath, brief = '', yielded = null) {
+export function readContinuationState(cwd, reportPath, brief = '', yielded = null, priorReport) {
   let report = '';
   try { if (reportPath) report = readFileSync(resolve(cwd, reportPath), 'utf8'); } catch { /* 无可读报告时不猜测续做 */ }
   const conclusion = report.match(/^## 结论[^\S\r\n]*\r?\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1]?.trim().split(/\r?\n/)[0]?.replace(/^\*\*/, '') || '';
@@ -73,7 +73,7 @@ export function readContinuationState(cwd, reportPath, brief = '', yielded = nul
     hash.update(fingerprints[path]);
     hash.update('\0');
   }
-  const acceptance = acceptanceResult(brief, report, yielded);
+  const acceptance = acceptanceResult(brief, report, yielded, priorReport === null ? report : priorReport);
   const externalWait = detectExternalWait(report, acceptance, yielded);
   return { conclusion, report, acceptance, externalWait, head: git(['rev-parse', 'HEAD']).trim(), fingerprints, files: hash.digest('hex') };
 }

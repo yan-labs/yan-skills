@@ -94,7 +94,10 @@ function hasEvidence(value) {
   return normalized !== '' && !/^(?:无|暂无|没有|n\/?a|none|略|同上|待补)$/i.test(normalized);
 }
 
-export function acceptanceResult(brief = '', report = '', yielded = null) {
+const conclusionText = report => String(report ?? '').match(/^## 结论[ \t]*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/m)?.[1] ?? '';
+const handoffMarker = report => conclusionText(report).match(/^巡检换班[，,:：][^\r\n]*/m)?.[0]?.trim();
+
+export function acceptanceResult(brief = '', report = '', yielded = null, priorReport) {
   const items = new Map();
   const sections = [...brief.matchAll(/^## (?:验收|派单场景 · [^\r\n]+)[ \t]*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/gm)];
   for (const [, section] of sections) {
@@ -102,10 +105,11 @@ export function acceptanceResult(brief = '', report = '', yielded = null) {
       items.set(id, owner.trim());
     }
   }
-  const conclusion = report.match(/^## 结论[ \t]*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/m)?.[1] ?? '';
-  const handoff = yielded?.type === 'handoff' || /^巡检换班[，,:：]/m.test(conclusion);
-  if (handoff) return { verdict: 'ok', pending: 'handoff', unmet: [], counts: null, table: '' };
-  if (!items.size) return null;
+  const conclusion = conclusionText(report);
+  const marker = handoffMarker(report);
+  // A relaunch may inherit the report, but not the previous executor's patrol handoff.
+  const handoff = yielded?.type === 'handoff' || Boolean(marker && marker !== handoffMarker(priorReport));
+  if (!items.size) return handoff ? { verdict: 'ok', pending: 'handoff', unmet: [], counts: null, table: '' } : null;
   const rows = new Map();
   const reviewComplete = /(?:只读复核|只读审查)/.test(brief) && (/^LEDGER:[ \t]*blockers=\d+[ \t]+verdict=(?:pass|fail)[ \t]*$/im.test(report) || /不可放行/.test(conclusion));
   for (const [, id, status, deviation, evidence] of conclusion.matchAll(/^[ \t]*(?:- )?(V\d+)[ \t]*[｜|][ \t]*(已过|未过|等外部|待下游|已回滚|不适用)(?:[（(]([^）)\r\n]+)[）)])?[ \t]*[｜|][ \t]*([^\s\r\n][^\r\n]*)/gm)) {
@@ -134,15 +138,17 @@ export function acceptanceResult(brief = '', report = '', yielded = null) {
     else if ((status === '待下游' || (!status && owner.startsWith('下游'))) && pending !== 'external') pending = 'downstream';
     else if (status === '已回滚' && rollback && pending === 'none') pending = 'rolled-back';
   }
+  if (handoff) return { verdict: counts.failed === counts.total && !reviewComplete ? 'partial' : 'ok', pending: 'handoff', unmet: [], counts, table: JSON.stringify([...items.keys()].sort().map(id => [id, rows.get(id)])) };
   if (yielded?.external || yielded?.type === 'park') pending = 'external';
   return {
-    verdict: unmet.length ? 'partial' : missing.length ? 'needs-review' : 'ok',
+    verdict: unmet.length || (counts.failed === counts.total && !reviewComplete) ? 'partial' : missing.length ? 'needs-review' : 'ok',
     pending, unmet, counts, table: JSON.stringify([...items.keys()].sort().map(id => [id, rows.get(id)])),
   };
 }
 
 export function outcomeFor(verdict, pending = 'none') {
   if (verdict === 'stopped') return 'stopped';
+  if (pending === 'handoff' && verdict === 'partial') return 'handoff';
   if (verdict === 'ok') return pending === 'none' ? 'complete' : pending;
   return verdict === 'partial' ? 'partial' : 'failed';
 }

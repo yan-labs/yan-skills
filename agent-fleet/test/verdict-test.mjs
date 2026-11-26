@@ -219,4 +219,15 @@ if (acceptanceResult(named, '## 结论\nV1｜已过（目标分支偏差）｜�
 const review = acceptanceResult('归类：只读复核\n' + named, '## 结论\nV1｜未过｜发现必修项\nLEDGER: blockers=1 verdict=fail');
 if (acceptanceResult('归类：只读复核\n' + named, '## 结论\n不可放行，必修项如下\nV1｜未过｜发现必修项').verdict !== 'ok') throw new Error('review without ledger');
 if (review.verdict !== 'ok' || review.unmet.length) throw new Error('completed review');
+const four = '## 验收\n' + Array.from({length: 4}, (_, i) => `V${i + 1} 核验｜owner：本单`).join('\n');
+const failed = Array.from({length: 4}, (_, i) => `V${i + 1}｜未过｜未验证`).join('\n');
+const staleReport = `## 结论\n巡检换班，快照在 previous.checkpoint.md\n${failed}`;
+const inherited = acceptanceResult(four, staleReport, null, staleReport);
+if (inherited.verdict !== 'partial' || inherited.pending !== 'none' || inherited.unmet.length !== 4 || inherited.counts.failed !== 4) throw new Error('stale handoff must not bypass failed acceptance');
+const rewritten = acceptanceResult(four, staleReport + '\n## 偏差\n更新文字', null, staleReport);
+if (rewritten.pending !== 'none' || rewritten.verdict !== 'partial') throw new Error('rewriting other sections does not refresh handoff');
+const freshHandoff = acceptanceResult(four, staleReport.replace('previous.', 'current.'), null, staleReport);
+if (freshHandoff.pending !== 'handoff' || freshHandoff.verdict !== 'partial' || outcomeFor(freshHandoff.verdict, freshHandoff.pending) !== 'handoff') throw new Error('current handoff preserves handoff but all-failed is not ok');
+const explicitHandoff = acceptanceResult(four, staleReport, {type:'handoff'}, staleReport);
+if (explicitHandoff.pending !== 'handoff' || explicitHandoff.verdict !== 'partial') throw new Error('explicit current handoff remains valid');
 finish();

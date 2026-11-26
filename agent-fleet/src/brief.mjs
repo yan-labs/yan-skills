@@ -198,7 +198,7 @@ export function buildBrief(result, { briefLines = DEFAULT_BRIEF_LINES, expectCha
 
   let report = '';
   try { const path = result?.reportPath ?? result?.prompt?.match(/^REPORT: (.+)$/m)?.[1]; if (path) report = readFileSync(resolve(result.cwd ?? process.cwd(), path), 'utf8'); } catch {}
-  const acceptance = result?.acceptance ?? acceptanceResult(result?.prompt, report, result?.yield);
+  const acceptance = Object.hasOwn(result ?? {}, 'acceptance') ? result.acceptance : acceptanceResult(result?.prompt, report, result?.yield);
   const noProgressStop = /无进展停续做|连续两次续做无进展/.test(result?.continueStop || '');
   const preview = previewLines(result?.ok ? result?.result : redactEvidence(result?.result ?? ''), briefLines);
   return {

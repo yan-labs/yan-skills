@@ -110,7 +110,8 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const logPath = `${base}.log`;
   const resultPath = `${base}.result.md`;
   const before = snapshotGit(workdir);
-  const initial = readContinuationState(workdir, reportPath, prompt);
+  const initial = readContinuationState(workdir, reportPath, prompt, null, null);
+  let handoffBaseline = initial.report;
   const startedAt = Date.now();
   writeFileSync(resultPath, '');
   if (!process.env.FLEET_DETACHED_RUN_ID) writeFileSync(logPath, '');
@@ -156,7 +157,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const sample = at => {
     if (at - lastSample < 15_000) return;
     lastSample = at;
-    const state = readContinuationState(workdir, reportPath, prompt);
+    const state = readContinuationState(workdir, reportPath, prompt, null, handoffBaseline);
     if (state.head !== sampled.head || state.acceptance?.table !== sampled.acceptance?.table)
       supervision.progress(at, '提交或验收变化');
     for (const path of new Set([...Object.keys(state.fingerprints), ...Object.keys(sampled.fingerprints)])) {
@@ -478,12 +479,12 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     catch { turnReport = ''; }
   };
   const zeroToolStop = state => {
-    zeroToolStreak = metadata.numTurns > 1 && !turnUsedTool && state.report === turnReport ? zeroToolStreak + 1 : 0;
+    zeroToolStreak = (metadata.numTurns > 1 || initial.acceptance?.unmet.length) && !turnUsedTool && state.report === turnReport ? zeroToolStreak + 1 : 0;
     metadata.zeroToolStreak = zeroToolStreak;
     return zeroToolStreak >= 2;
   };
   const retryZeroTool = state => {
-    if (metadata.zeroToolRetry || zeroToolStreak < 2 || !/(工具|shell|终端|命令执行|tools?|exec_command).{0,40}(不可用|无法|不能|缺失|未提供|无权限|not available|unavailable|disabled|not accessible)|(?:无法|不能|没有|缺少|无权).{0,30}(工具|shell|终端|执行命令|tools?)/i.test(state.finalReply || '')) return false;
+    if (metadata.zeroToolRetry || zeroToolStreak < 2 || !/(工具|shell|终端|命令执行|tools?|exec_command|执行环境|execution environment).{0,40}(不可用|无法|不能|缺失|未提供|无权限|not available|unavailable|disabled|not accessible)|(?:无法|不能|没有|缺少|无权).{0,30}(工具|shell|终端|执行命令|tools?|执行环境|execution environment)/i.test(state.finalReply || '')) return false;
     metadata.zeroToolRetry = 1;
     metadata.zeroToolStreak = 0;
     metadata.zeroToolOldThread = metadata.threadId;
@@ -491,6 +492,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     zeroToolStreak = stagnant = acceptanceStagnant = 0;
     previous = undefined;
     lastAcceptance = state;
+    handoffBaseline = state.report;
     previousCommandEvidence = commandEvidence.size;
     reportRecoveryPrompt = null;
     log('[codex] 零工具停机：保留原 brief，归档旧会话并新开一次');
@@ -510,6 +512,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const namedMissing = state => {
     const count = commandEvidence.size;
     const { missing } = acceptanceContinuation(lastAcceptance, state, count > previousCommandEvidence);
+    if (!missing.length) return missing;
     const blocked = !continuationProgress(lastAcceptance, state).progress && count === previousCommandEvidence;
     acceptanceStagnant = !turnUsedTool || !blocked || state.externalWait?.waiting ? 0 : acceptanceStagnant + 1;
     previousCommandEvidence = count;
@@ -550,7 +553,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
     previousHandoff = handoff;
   };
   const checkHandoff = yielded => {
-    checkProgress(readContinuationState(workdir, reportPath, prompt, metadata.yield), stages.latest);
+    checkProgress(readContinuationState(workdir, reportPath, prompt, metadata.yield, handoffBaseline), stages.latest);
     metadata.continueRequired = true;
     if (stagnant >= 2) metadata.continueStop = NO_PROGRESS_STOP;
     else metadata.continueCount++;
@@ -715,7 +718,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
             continue;
           }
           if (offsetQueue.length) break;
-          const state = readContinuationState(workdir, reportPath, prompt, metadata.yield);
+          const state = readContinuationState(workdir, reportPath, prompt, metadata.yield, handoffBaseline);
           state.finalReply = readFileSync(resultPath, 'utf8');
           metadata.reportConclusion = state.conclusion;
           if (/^(?:阻塞|受阻)/.test(state.conclusion)) log(fleetEvent(FLEET_EVENTS.BLOCKED));
@@ -856,7 +859,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           log('\n[codex] say: exec resume same thread\n');
           continue;
         }
-        const state = readContinuationState(workdir, reportPath, prompt, metadata.yield);
+        const state = readContinuationState(workdir, reportPath, prompt, metadata.yield, handoffBaseline);
         state.finalReply = readFileSync(resultPath, 'utf8');
         metadata.reportConclusion = state.conclusion;
         checkProgress(state);
@@ -920,7 +923,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
   const git = inspectGit(workdir, before);
   let report = '';
   try { if (reportPath) report = readFileSync(resolve(workdir, reportPath), 'utf8'); } catch {}
-  const acceptance = acceptanceResult(prompt, report, metadata.yield);
+  const acceptance = acceptanceResult(prompt, report, metadata.yield, handoffBaseline);
   const finalAcceptance = acceptance && { verdict: acceptance.verdict, pending: acceptance.pending, counts: acceptance.counts };
   if (acceptance?.pending === 'external' && !metadata.externalWait?.waiting) {
     metadata.externalWait = { waiting: true, reason: 'acceptance-external' };
