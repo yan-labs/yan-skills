@@ -10,6 +10,7 @@
 
 import { runTask } from './run-task.mjs';
 import { createProgress } from './progress.mjs';
+import { runAgy } from './agy-runner.mjs';
 
 /**
  * 校验一份 batch 任务数组的形状,提前把明显错误的条目挡在真正发起 SDK 调用之前。
@@ -47,7 +48,7 @@ export async function runMany(tasks, { config, defaultCwd, quiet = false }) {
 
   const settled = await Promise.allSettled(
     tasks.map((task, index) =>
-      runTask({
+      ['gemini', 'copy', 'bulk', 'agy'].includes(task.model) ? runAgy({ prompt: task.prompt, cwd: task.cwd ?? defaultCwd }).then(result => result ?? { ok: false, model: 'agy', error: 'agy 不可用，请由派单方改派' }) : runTask({
         friendlyModel: task.model,
         prompt: task.prompt,
         cwd: task.cwd ?? defaultCwd,

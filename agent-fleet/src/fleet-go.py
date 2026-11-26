@@ -66,7 +66,7 @@ def dispatch_gate(args, stage, operation, category=None):
 BLOCKS = Path(__file__).resolve().parents[1] / 'skill/templates/blocks'
 LEGACY_RULE = "禁止单纯转发，允许分发子步骤：不能把整个任务原样甩给另一个 agent 后只回'已启动/等结果'就结束当轮；可以拆出边界清晰的子步骤交给更便宜的 agent 做，但你必须自己掌握全局、消化并验证子任务结果，最终给出真正的结论作为你的最终答案"
 PRODUCTS = {'gpt': '(a) Codex 编码', 'claude': 'Claude 月度额度', 'openai': 'OpenAI 月度API额度',
-            'grok': 'Grok Build CLI', 'gemini': 'Gemini 文本任务', 'jev': 'JEV 判断'}
+            'grok': 'Grok Build CLI', 'gemini': 'Gemini 订阅 CLI', 'jev': 'JEV 判断'}
 AUTH = ['local', 'local-commit', 'readonly-web', 'deploy-prod', 'paid', 'review']
 WRITE_DECLARATION = re.compile(
     r'^[ \t]*可写路径[ \t]*[:：][ \t]*([^\n]*(?:\n[ \t]*(?:/|~/|\$HOME/)[^\n]*)*)', re.M)
@@ -600,6 +600,8 @@ def command(meta):
     args = ['fleet', entry, meta['brief']]
     if to == 'jev':
         args.append(meta['questions'])
+    if to == 'gemini' and meta.get('gemini_agent') and meta.get('worktree'):
+        args.extend(['--agent-mode', '--cwd', meta['worktree']['path']])
     args.extend(['--name', meta['name'], '--report', meta['report']])
     if to == 'gpt':
         args.append({'terra': '--simple', 'sol': '--sol', 'luna': '--luna', 'astra': '--astra'}[gpt_tier(meta)])
@@ -1137,12 +1139,7 @@ def quota_fallback(target, review, original):
         pass
     if not exhausted:
         return None
-    order.gate('openai')
-    if review:
-        raise ValueError('Codex 订阅额度用完，但 OpenAI API 不支持 --review，无法自动改派。')
-    note = f'Codex 订阅额度用完，按本地配置自动改派 OpenAI API；原档位及参数：{original}。报告「偏差」一节须记录。'
-    print('警告：' + note, file=sys.stderr)
-    return note
+    raise ValueError('Codex 订阅额度已耗尽，请由派单方改派。')
 
 
 def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, luna=False, high=False, xhigh=False, max=False, low=False, on=None, pull=False, sol=False, after=None, worktree_base=None, override_order=None, local_reason=None, astra=False, keep_brief=False):
@@ -1203,8 +1200,6 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
                     path.with_suffix('.json').write_text(json.dumps(meta, ensure_ascii=False) + '\n')
                     os.execvp('fleet', ['fleet', 'resume', run_id])
     target = to or meta['to']
-    if target == 'claude' and (tier or (meta.get('tier') if meta['to'] == 'claude' else None)) == 'fable':
-        raise ValueError('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）')
     if tier and target != 'claude':
         raise ValueError('--tier 仅用于 --to claude。')
     if simple and target != 'gpt':
@@ -1241,6 +1236,11 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
             label='如确认改在本机执行，可复制修正命令：',
         )
         raise ValueError('Mini 不可达；请在 Mini 补齐（建 worktree、同步目录）后重派。' + hint)
+    if target == 'gemini' and meta.get('type') not in ('copy', 'translation') and not meta.get('bulk'):
+        meta['gemini_agent'] = True
+        if worktree_base is None: worktree_base = ''
+    else:
+        meta.pop('gemini_agent', None)
     recorded, recorded_location = recorded_worktree(meta)
     if recorded and not worktree_call({**recorded, 'action': 'exists'}, recorded_location)['exists']:
         rebuild = shlex.join(['fleet-go', 'worktree', 'recreate', str(path)])
@@ -1777,8 +1777,6 @@ def new(args, prepare=False):
         tier = scene_default(scenes, 'tier')
         if tier in ('haiku', 'sonnet', 'opus'):
             args.tier = tier
-    if args.to == 'claude' and args.tier == 'fable':
-        raise ValueError('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）')
     original = ', '.join([('astra' if args.astra else 'sol' if args.sol else 'luna' if args.luna else 'terra')] + [f'--{k.replace("_", "-")}' for k in ('simple', 'sol', 'astra', 'luna', 'fast', 'no_fast', 'low', 'high', 'xhigh', 'max') if getattr(args, k)])
     fallback = dispatch_gate(args, 'order', lambda: quota_fallback(args.to, args.review, original))
     if fallback:
@@ -1980,6 +1978,11 @@ def new(args, prepare=False):
         meta['project'] = str(project)
     if scenes:
         meta['scenes'] = [name for name, _, _ in scenes]
+    if args.to == 'gemini' and args.type not in ('copy', 'translation') and not args.bulk:
+        if not repo and not (args.dry_run or args.no_launch or prepare):
+            raise ValueError('Gemini 非文案任务需要指定仓库以建立独立 worktree。')
+        meta['gemini_agent'] = True
+        if args.worktree is None: args.worktree = ''
     if args.worktree is not None and not (args.dry_run or prepare):
         wt = (retry or {}).get('worktree')
         if not wt or retry.get('worktree_location') != location:

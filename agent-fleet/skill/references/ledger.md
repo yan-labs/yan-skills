@@ -21,7 +21,7 @@
 | `externalWait` | 外部等待对象 `{waiting: boolean, reason: string|null}`，记录是否命中 `park`、流水线等待或验收等外部状态及脱敏分类原因（不落命令/URL 参数或密钥）。 |
 | `acceptance` | 具名验收各状态计数对象 `{passed, failed, external, downstream, rolledBack, na, missing, total}`，非具名验收单为空，不落验收正文。 |
 | `promptTemplate` | 样板版本与角色标记（如 `v1/role-single/model-terra`、`v1/role-orchestrator/model-orchestrator`、`copy/voice`），缺省为空。 |
-| `reroute` | 改派或自动回退原因分类（如 `agy-unavailable-fallback`、`quota-fallback:codex->openai`、`relaunch:gpt->grok`、`relaunch-after-capacity`），无改派为空。 |
+| `reroute` | 改派原因分类（如 `relaunch:gpt->grok`、`relaunch-after-capacity`），无改派为空。 |
 | `continues` | Codex 续做闸门续做次数。 |
 | `prevRunId` `prevExecutor` `prevFailure` | 同名上一个 run（或 `resumedFrom`）及其执行者、失败原因：看得出谁换手、为什么换。 |
 | `reviewOf` `pairSource` | 复核单对应的被复核任务名，`explicit`（`--for`）或 `inferred`（同名前缀推测），缺省为空。 |

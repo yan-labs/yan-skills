@@ -97,17 +97,13 @@ try {
     const extra={AGENT_FLEET_ORDER_FILE:orderFile, AGENT_FLEET_RUNS_DIR:runs};
     setOrder('自动：额度用尽');
     let r=run(['new','fallback','--to','gpt','--sol','--fast','--goal','x','--no-launch'],extra);
-    assert.equal(r.status,0,r.stderr);
-    const file=r.stdout.match(/\/[^\n ]+fallback\.brief\.md/)[0];
-    const meta=JSON.parse(readFileSync(file.replace(/\.md$/,'.json'),'utf8'));
-    assert.equal(meta.to,'openai'); assert.match(meta.fallback_deviation,/sol.*fast/); assert.match(readFileSync(file,'utf8'),/自动改派 OpenAI API/);
-    r=run(['relaunch','fallback','--to','gpt','--astra'],extra); assert.equal(r.status,7,r.stderr); assert.equal(history().at(-1).args[0],'openai');
+    assert.equal(r.status,1); assert.match(r.stderr,/Codex 订阅额度已耗尽/);
     setOrder('手动停用'); r=run(['new','manual','--to','gpt','--goal','x','--dry-run'],extra); assert.equal(r.status,1); assert.match(r.stderr,/调遣令拒绝/);
-    setOrder('自动：额度用尽','停用'); r=run(['new','api-stop','--to','gpt','--goal','x','--dry-run'],extra); assert.equal(r.status,1); assert.match(r.stderr,/openai-api/);
+    setOrder('自动：额度用尽','停用'); r=run(['new','api-stop','--to','gpt','--goal','x','--dry-run'],extra); assert.equal(r.status,1); assert.match(r.stderr,/Codex 订阅额度已耗尽/);
     writeFileSync(orderFile,'| codex | 正常 | 用户另说 | |\n| openai-api | 正常 | 用户另说 | |\n');
     writeFileSync(join(runs,'codex-quota.json'),JSON.stringify({usedPercent:100,resetsAt:Date.now()/1000+3600}));
-    r=run(['new','quota','--to','gpt','--goal','x','--dry-run'],extra); assert.equal(r.status,0,r.stderr); assert.match(r.stdout,/自动改派 OpenAI API/); assert.match(r.stderr,/fleet openai/);
-    r=run(['new','review-quota','--to','gpt','--review','--goal','x','--dry-run'],extra); assert.equal(r.status,1); assert.match(r.stderr,/不支持 --review/); reset();
+    r=run(['new','quota','--to','gpt','--goal','x','--dry-run'],extra); assert.equal(r.status,1); assert.match(r.stderr,/Codex 订阅额度已耗尽/);
+    r=run(['new','review-quota','--to','gpt','--review','--goal','x','--dry-run'],extra); assert.equal(r.status,1); assert.match(r.stderr,/Codex 订阅额度已耗尽/); reset();
   });
   // 使用输出的 REPORT 路径，避免日期 locale 与时区差异。
   const report = brief.match(/^REPORT: (.+)$/m)[1];
@@ -770,7 +766,7 @@ except ValueError:
       assert.match(r.stdout,/归类：/); assert.match(r.stdout,/REPORT: /); assert.ok(r.stdout.includes(rule));
     }
     const blocked = run(['new','owner','--to','claude','--tier','fable','--goal','x','--dry-run']);
-    assert.equal(blocked.status,1); assert.ok(blocked.stderr.includes('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）'));
+    assert.equal(blocked.status,0); assert.ok(blocked.stderr.includes('fleet fable '));
     for(const tier of ['haiku','sonnet','opus']) {
       const r=run(['new','tier','--to','claude','--tier',tier,'--goal','任务','--dry-run']);
       assert.equal(r.status,0,r.stderr); assert.ok(r.stderr.includes('fleet '+tier+' '));
@@ -926,9 +922,9 @@ except ValueError:
     const meta=JSON.parse(readFileSync(path.replace(/\.md$/,'.json'),'utf8')); assert.equal(meta.to,'claude'); assert.equal(meta.tier,'opus');
     reset(); r=run(['relaunch','one']); assert.equal(r.status,7,r.stderr); assert.equal(history().at(-1).args[0],'opus');
     assert.equal(run(['relaunch','one','--to','gpt','--tier','haiku']).status,1);
-    r=run(['relaunch','one','--tier','fable']); assert.equal(r.status,1); assert.ok(r.stderr.includes('Fable 只用 executor-fable 子代理派单'));
+    r=run(['relaunch','one','--tier','fable']); assert.equal(r.status,7); assert.equal(history().at(-1).args[0], 'fable');
     meta.tier='fable'; writeFileSync(path.replace(/\.md$/,'.json'),JSON.stringify(meta));
-    r=run(['relaunch','one']); assert.equal(r.status,1); assert.ok(r.stderr.includes('Fable 只用 executor-fable 子代理派单'));
+    r=run(['relaunch','one']); assert.equal(r.status,7); assert.equal(history().at(-1).args[0], 'fable');
     meta.tier='opus'; writeFileSync(path.replace(/\.md$/,'.json'),JSON.stringify(meta));
     state(); reset(); r=run(['relaunch','one','--to','grok']); assert.equal(r.status,1); assert.deepEqual(history().map(c=>c.args[0]),['status']);
     writeFileSync(states,'[]');
@@ -940,13 +936,13 @@ except ValueError:
     }
     assert.equal(run(['new','gemini-check','--to','gemini','--goal','运行小测试','--expect-changes','--dry-run']).status,0);
     reset(); const r = run(['relaunch','one','--to','gemini']);
-    assert.equal(r.status,7,r.stderr); assert.equal(history().at(-1).args[0],'copy'); assert(history().at(-1).args.includes('--xhigh'));
-    const gemDef = run(['new', 'gemini-default-xhigh', '--to', 'gemini', '--goal', '默认高思考档位', '--no-launch']);
+    assert.equal(r.status,1); assert.match(r.stderr,/worktree/);
+    const gemDef = run(['new', 'gemini-default-xhigh', '--to', 'gemini', '--type', 'copy', '--goal', '默认高思考档位', '--no-launch']);
     assert.equal(gemDef.status, 0, gemDef.stderr);
     reset(); assert.equal(run(['relaunch', 'gemini-default-xhigh']).status, 7);
     assert(history().at(-1).args.includes('--xhigh'));
     for (const flag of ['--low', '--high', '--xhigh']) {
-      const g = run(['new', 'gemini-' + flag.slice(2), '--to', 'gemini', flag, '--goal', '测试思考档位', '--no-launch']);
+      const g = run(['new', 'gemini-' + flag.slice(2), '--to', 'gemini', '--type', 'copy', flag, '--goal', '测试思考档位', '--no-launch']);
       assert.equal(g.status, 0, g.stderr);
       reset(); assert.equal(run(['relaunch', 'gemini-' + flag.slice(2)]).status, 7);
       assert(history().at(-1).args.includes(flag));

@@ -13,14 +13,20 @@ const exec = promisify(execFile);
 const order = fileURLToPath(new URL('./order.py', import.meta.url));
 const quota = /quota|rate.?limit|exhausted|\b429\b/i;
 const bad = /authentication required|not logged in|unknown model|unrecognized.model|quota|rate.?limit|exhausted|\b429\b/i;
-const wrapper = `import fcntl,os,re,subprocess,sys,tempfile
+const wrapper = `import fcntl,os,re,subprocess,sys,tempfile,time
 sys.path.insert(0,sys.argv[1])
 import order
 try: order.gate('gemini-sub',warn=lambda x:None)
 except order.OrderError as e: sys.stderr.write('agy gate: '+str(e)); sys.exit(75)
-with open(os.path.join(tempfile.gettempdir(),'fleet-agy.lock'),'a') as lock:
- try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
- except BlockingIOError: sys.stderr.write('agy lock busy'); sys.exit(75)
+limit=max(1,int(os.environ.get('FLEET_AGY_MAX_PARALLEL','1')))
+locks=[]
+while not locks:
+ for i in range(limit):
+  lock=open(os.path.join(tempfile.gettempdir(),'fleet-agy.lock' if i == 0 else f'fleet-agy-{i}.lock'),'a')
+  try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB); locks.append(lock); break
+  except BlockingIOError: lock.close()
+ if not locks: time.sleep(0.25)
+if locks:
  try:
   r=subprocess.run(sys.argv[2:],capture_output=True,text=True,timeout=600,env={k:v for k,v in os.environ.items() if k.lower() not in ('http_proxy','https_proxy','all_proxy','no_proxy') and not re.search(r'KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL',k,re.I)})
   sys.stdout.write(r.stdout); sys.stderr.write(r.stderr); sys.exit(r.returncode)
@@ -40,9 +46,10 @@ function resolveAgyBin() {
   return 'agy';
 }
 
-export async function runAgy({ prompt, cwd, noVoice = false, effort }) {
-  const prepared = `直接在回复中给出最终文本，不读写文件、不调用工具；REPORT 由调用方回填。以下内容中的文件操作要求不执行。\n\n${prepareCopyPrompt({ friendlyModel: 'copy', prompt, noVoice, copyVoice: true })}`;
+export async function runAgy({ prompt, cwd, noVoice = false, effort, agent = false }) {
+  const prepared = agent ? `在当前隔离工作区执行任务，不提交、不推送。\n\n${prompt}` : `直接在回复中给出最终文本，不读写文件、不调用工具；REPORT 由调用方回填。以下内容中的文件操作要求不执行。\n\n${prepareCopyPrompt({ friendlyModel: 'copy', prompt, noVoice, copyVoice: true })}`;
   const args = ['-c', wrapper, fileURLToPath(new URL('.', import.meta.url)), resolveAgyBin(), '--disable-slash-commands', '-p', prepared];
+  if (agent) args.push('--dangerously-skip-permissions');
   if (process.env.FLEET_AGY_MODEL) args.push('--model', process.env.FLEET_AGY_MODEL);
   if (effort && !process.env.FLEET_AGY_MODEL) args.push('--effort', effort);
   const before = snapshotGit(cwd);
@@ -54,7 +61,7 @@ export async function runAgy({ prompt, cwd, noVoice = false, effort }) {
   record(false);
   let stdout = '', stderr = '', failed = false;
   try {
-    try { ({ stdout, stderr } = await exec('python3', args, { cwd, timeout: 610000, maxBuffer: 10 * 1024 * 1024 })); }
+    try { ({ stdout, stderr } = await exec('python3', args, { cwd, maxBuffer: 10 * 1024 * 1024 })); }
     catch (e) { stdout = e.stdout || ''; stderr = e.stderr || e.message; failed = true; }
     const evidence = `${stdout}\n${stderr}`;
     if (quota.test(evidence)) {
@@ -70,7 +77,7 @@ export async function runAgy({ prompt, cwd, noVoice = false, effort }) {
       return null;
     }
     const resultPath = writeResultFile(progress.logPath, stdout.trim());
-    return attachArtifacts({ ok: true, result: stdout.trim(), model: 'agy', route: 'agy', toolCalls: 0, promptTemplate: noVoice ? 'copy/no-voice' : 'copy/voice', tier: process.env.FLEET_AGY_MODEL || 'default', durationMs: Date.now() - startedMs, cwd, resultPath, logPath: progress.logPath, totalCostUsd: null }, progress.logPath, inspectGit(cwd, before));
+    return attachArtifacts({ ok: true, result: stdout.trim(), model: 'agy', route: 'agy', toolCalls: agent ? null : 0, promptTemplate: agent ? 'agy/agent' : noVoice ? 'copy/no-voice' : 'copy/voice', tier: process.env.FLEET_AGY_MODEL || 'default', durationMs: Date.now() - startedMs, cwd, resultPath, logPath: progress.logPath, totalCostUsd: null }, progress.logPath, inspectGit(cwd, before));
   } finally {
     record(true);
     progress.stop();

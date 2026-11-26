@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, chmodSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync, chmodSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -95,10 +95,9 @@ const fromHome = spawnSync(process.execPath, [cli, 'media', 'run', 'image', '--p
 assert.equal(fromHome.status, 0, fromHome.stderr);
 assert.match(fromHome.stdout, /dry_run/);
 const fallback = spawnSync(process.execPath, [cli, 'media', 'run', 'image', '--provider', 'gemini-api', '--prompt', 'test'], { encoding:'utf8', env:{ ...process.env, PATH:`${dir}:${process.env.PATH}`, GEMINI_API_KEY:'' } });
-assert.equal(fallback.status, 0, fallback.stderr);
-assert.match(fallback.stderr, /回退 Kollab/);
-assert.match(fallback.stdout, /mock.png/);
-assert.match(readFileSync(join(dir, 'kollab-args'), 'utf8'), /gemini-3\.1-flash-image/);
+assert.equal(fallback.status, 1, fallback.stderr);
+assert.match(fallback.stderr, /改派/);
+assert.equal(existsSync(join(dir, 'kollab-args')), false);
 console.log('fleet media: no-key Kollab fallback OK');
 
 } finally { rmSync(dir, { recursive: true, force: true }); }

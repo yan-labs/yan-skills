@@ -264,17 +264,16 @@ for record in (pathlib.Path(p['home'])/'.agent-fleet/runs').glob('*.json'):
   finally: os.unlink(tmp)
  except (OSError,ValueError,TypeError): pass
 missing=[x for x in p['paths'] if not pathlib.Path(x).exists()]; tools=[t for t in p.get('commands',[]) if not shutil.which(t)]
-kind=p['kind']; binary=remote_fleet(p['bin']); root=binary.parent.parent; envnames={'claude':'ANTHROPIC_CREDIT_API_KEY','openai':'OPENAI_CREDIT_API_KEY','gemini':'KOLLAB_PROD_API_KEY','jev':'TYPESAFE_API_KEY'}
+kind=p['kind']; binary=remote_fleet(p['bin']); root=binary.parent.parent; envnames={'openai':'OPENAI_CREDIT_API_KEY','jev':'TYPESAFE_API_KEY'}
 timed_out=False
 try:
- if kind=='gemini':
-  js="import {loadEnvFile} from './src/env.mjs'; import {spawnSync} from 'node:child_process'; loadEnvFile('.env'); const agy=process.env.FLEET_GEMINI_SUB==='1' && spawnSync(process.env.FLEET_AGY_BIN || 'agy',['--version'],{stdio:'ignore',timeout:10000}).status===0; process.exit(agy || process.env.KOLLAB_PROD_API_KEY ? 0 : 1)"
-  cmd=['node','--input-type=module','-e',js]
+ if kind in ('gemini','gemini-sub'):
+  cmd=[os.environ.get('FLEET_AGY_BIN','agy'),'--help']
+ elif kind=='claude':
+  cmd=['claude','auth','status']
  elif kind in envnames:
   js="import {loadEnvFile} from './src/env.mjs'; loadEnvFile('.env'); process.exit(process.env[process.argv[1]] ? 0 : 1)"
   cmd=['node','--input-type=module','-e',js,envnames[kind]]
- elif kind=='gemini-sub':
-  cmd=[os.environ.get('FLEET_AGY_BIN','agy'),'--version']
  elif kind in ('gpt','grok'):
   cmd=['codex','login','status'] if kind=='gpt' else ['grok','models']
  else: cmd=None

@@ -21,17 +21,15 @@ process.env.AGENT_FLEET_RUNS_DIR = scratch;
 try {
   assert(shortRunOptions('copy', ['复核代码并写临时测试脚本']).prompt.includes('临时测试'), 'Gemini 不按任务关键词限制工具用途');
   const models = JSON.parse(readFileSync(join(root, 'models.config.json'), 'utf8'));
-  assert(models[MODEL_ALIASES.copy].model === 'gemini-4-hydrogen' && models['kollab-gateway-argon'].model === 'gemini-4-argon', '文案默认 Hydrogen，旧 Argon 可显式选择');
+  assert(models['kollab-gateway-argon'].model === 'gemini-4-argon', '网关模型可显式选择');
   const brief = join(scratch, 'brief.md');
   writeFileSync(brief, '来自文件的任务');
   for (const [alias, model] of Object.entries({
-    copy: 'kollab-gateway-copy', grok: 'kollab-gateway-research',
-    bulk: 'kollab-gateway-bulk', gpt: 'kollab-gateway-gpt-sol',
+    copy: 'agy', grok: 'grok-cli:default',
+    bulk: 'agy', gpt: 'codex',
   })) assert(MODEL_ALIASES[alias] === model && shortRunOptions(alias, ['任务']).model === model, `${alias} 映射模型`);
   assert(resolveBrief(brief) === '来自文件的任务', '存在的 brief 文件读取内容');
   assert(resolveBrief('直接写的任务') === '直接写的任务', '非文件参数当文本');
-  const blocked = spawnSync(process.execPath, [join(root, 'bin/agent-fleet.mjs'), 'fable', '任务'], { encoding: 'utf8' });
-  assert(blocked.status === 1 && blocked.stderr.includes('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）'), 'fleet fable 拒绝派单');
   const defaults = shortRunOptions('copy', [brief]);
   assert(defaults.prompt === '来自文件的任务' && defaults.maxTurns === undefined && defaults.quiet && defaults.cwd === process.cwd(), '默认 brief、不设轮数上限、安静、cwd');
   const custom = shortRunOptions('copy', ['--verbose', brief, '--model', 'custom', '--max-turns', '12', '--cwd', scratch, '--system-prompt', '额外']);

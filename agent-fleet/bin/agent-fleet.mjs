@@ -44,6 +44,7 @@ import { runGrok } from '../src/grok-runner.mjs';
 import { launchDetached, readState, resolveDetached, supervise, waitDetached } from '../src/detach.mjs';
 import { runMedia } from '../src/media.mjs';
 import { runAgy } from '../src/agy-runner.mjs';
+import { runClaude } from '../src/claude-cli-runner.mjs';
 import { runGeminiApi } from '../src/gemini-api-runner.mjs';
 
 const PKG_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -86,7 +87,7 @@ code/grok-cli/copy/grok/bulk/gpt/run/run-many 默认独立运行并等待；--no
 --name 短名、--report 路径；status [--running] [--json]；wait/tail 支持短名或 runId 前缀。
 code 的 --luna 使用 luna，默认 xhigh，可用 --max，且不开 fast；Terra/Sol 默认 medium；不能与 --simple 或 --review 同用。
 code 的 --review 使用全权限沙箱与内置只读审查提示词；旧 agent-fleet 长命令继续可用。
-copy/bulk（Gemini）默认 xhigh，可用 --low 或 --high 覆盖；copy 自动注入文案语气规范，--no-voice 仅用于纯机械改写（长名 kollab-gateway-copy 同样支持）。
+copy/bulk 使用 agy，默认 xhigh；--no-voice 用于纯机械改写。
 `;
 
 /** 去掉 `--flag value` / `--flag` 后剩下的位置参数。 */
@@ -175,6 +176,10 @@ async function cmdRun(argv, { copyVoice = false, reroute = null } = {}) {
     console.error('缺少必填参数。用法: agent-fleet run --model <name> --prompt "<text>" [选项]');
     process.exitCode = 1;
     return;
+  }
+
+  if (['gemini', 'copy', 'bulk', 'agy'].includes(flags.model)) {
+    return cmdShortRun(flags.model === 'bulk' ? 'bulk' : 'copy', ['--prompt', flags.prompt, ...flagArgs(flags, ['model', 'prompt'])]);
   }
 
   const config = loadModelsConfig(flags['models-config'] ? resolvePath(flags['models-config']) : undefined);
@@ -536,14 +541,14 @@ async function cmdTeam() {
     ? '可用/已登录' : r.error?.code === 'ETIMEDOUT' ? '检查超时（未确认）' : '登录检查失败（未确认）';
   const key = name => process.env[name] ? '已配置' : '未配置';
   console.log('产品  | 擅长 | 派用者重派顺位 | 当前可用性');
-  console.log(`gpt   | 编码、调研、只读复核 | code → 网关 gpt-sol → grok | Codex ${available(codex)}`);
+  console.log(`gpt   | 编码、调研、只读复核 | 失败由派单方改派 | Codex ${available(codex)}`);
   console.log(`openai| ChatGPT API组织额度，默认 GPT-6.1 Sol | 官方 Responses API + 原 Agent SDK | OPENAI_CREDIT_API_KEY ${key('OPENAI_CREDIT_API_KEY')}`);
-  console.log(`claude| 月度额度任务，默认 sonnet | claude → code → 网关 gpt-sol → grok → gemini | ANTHROPIC_CREDIT_API_KEY ${key('ANTHROPIC_CREDIT_API_KEY')}`);
+  console.log('claude| Claude Code CLI 订阅，默认 sonnet；失败由派单方改派');
   console.log(`grok  | 视频与图片、X 平台、编码、检索调研、成人题材 | 由派用者决定 | grok models ${available(grok)}`);
-  console.log(`gemini| 文案、翻译、摘要、批量 | 无；拒绝编码/UI/改文件 | KOLLAB_PROD_API_KEY ${key('KOLLAB_PROD_API_KEY')}`);
+  console.log('gemini| 文案、调研、编码及批量 | agy 订阅 CLI，失败由派单方改派');
   console.log(`jev   | 结构化判断 | 无 | TYPESAFE_API_KEY ${key('TYPESAFE_API_KEY')}`);
   console.log('GPT 档含本机 code 与网关 kollab-gateway-gpt-sol；失败只上报事实，派用者自行判断并用 relaunch --to 重派；状态只检查登录/凭据存在。');
-  console.log('中途插话：fleet say <任务> "新指令" / fleet-go amend <名字> --say；gpt 同轮 steer，grok 同会话续跑，claude/gemini 经收件箱，jev 无需；Codex review 同样支持 steer/resume。');
+  console.log('中途插话：fleet say <任务> "新指令" / fleet-go amend <名字> --say；gpt 同轮 steer，grok 同会话续跑；Codex review 同样支持 steer/resume。');
 }
 
 function flagArgs(flags, omitted = []) {
@@ -554,9 +559,15 @@ function flagArgs(flags, omitted = []) {
 
 async function cmdShortRun(command, argv) {
   const options = shortRunOptions(command, argv);
-  let reroute = null;
-  if (command === 'copy' && process.env.FLEET_GEMINI_SUB === '1' && options.model === 'kollab-gateway-copy') {
-    const result = await runAgy({ prompt: options.prompt, cwd: options.cwd, noVoice: Boolean(options.flags['no-voice']), effort: resolveEffortFlag(options.flags) });
+  if (options.flags.model?.startsWith('kollab-gateway-')) {
+    await cmdRun(['--model', options.model, '--prompt', options.prompt, ...flagArgs(options.flags, ['model', 'prompt'])]);
+    return;
+  }
+  if (command === 'grok') return cmdGrok(argv);
+  if (command === 'gpt') return cmdCode(argv);
+  if (['haiku', 'sonnet', 'opus', 'fable'].includes(command)) return cmdClaude(command, options);
+  if (['copy', 'bulk'].includes(command)) {
+    const result = await runAgy({ prompt: options.prompt, cwd: options.cwd, noVoice: Boolean(options.flags['no-voice']), effort: resolveEffortFlag(options.flags), agent: Boolean(options.flags['agent-mode']) });
     if (result) {
       result.reportPath = options.flags.report;
       const config = loadModelsConfig(options.flags['models-config'] ? resolvePath(options.flags['models-config']) : undefined);
@@ -564,10 +575,16 @@ async function cmdShortRun(command, argv) {
       process.exitCode = buildBrief(result, outputOptions(options.flags, config)).verdict === 'ok' ? 0 : 1;
       return;
     }
-    reroute = 'agy-unavailable-fallback';
-    console.error('agy 不可用，回退 Kollab 网关');
+    throw new Error('agy 不可用，请由派单方改派');
   }
-  await cmdRun(['--model', options.model, '--prompt', options.prompt, ...flagArgs(options.flags, ['model', 'prompt'])], { copyVoice: command === 'copy', reroute });
+  await cmdRun(['--model', options.model, '--prompt', options.prompt, ...flagArgs(options.flags, ['model', 'prompt'])], { copyVoice: command === 'copy' });
+}
+
+async function cmdClaude(command, options) {
+  const result = await runClaude({ prompt: options.prompt, cwd: options.cwd, model: options.flags.model || command });
+  result.reportPath = options.flags.report;
+  await printRunResult(result, outputOptions(options.flags));
+  process.exitCode = buildBrief(result, outputOptions(options.flags)).verdict === 'ok' ? 0 : 1;
 }
 
 async function enterAttachedSlot(options) {
@@ -615,11 +632,6 @@ async function cmdShortJudge(argv) {
 
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
-  if (command === 'fable') {
-    console.error('Fable 只用 executor-fable 子代理派单（Agent 工具，subagent_type=executor-fable）');
-    process.exitCode = 1;
-    return;
-  }
   // 执行器身份只属于监督器直接启动的进程，嵌套 fleet 必须创建自己的 runId 和收件箱。
   if (process.env.FLEET_DETACHED_RUN_ID) {
     const owner = readState(process.env.FLEET_DETACHED_RUN_ID);
@@ -644,25 +656,25 @@ async function main() {
   }
 
   let finishAttached;
-  const resumeParent = ['wait', 'resume', 'code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'run', 'run-many', 'judge'].includes(command) && !rest.includes('--no-wait') && !process.env.FLEET_DETACHED_RUN_ID
+  const resumeParent = ['wait', 'resume', 'code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many', 'judge'].includes(command) && !rest.includes('--no-wait') && !process.env.FLEET_DETACHED_RUN_ID
     ? await releaseParentSlot() : async () => {};
   try {
     const geminiEffortCommands = new Set(['copy', 'bulk', 'run', 'resume']);
-    if (rest.includes('--fast') && command !== 'code') throw new Error('--fast 仅用于 fleet code。');
-    if (rest.includes('--low') && command !== 'code' && !geminiEffortCommands.has(command)) throw new Error('--low 仅用于 fleet code|copy|bulk。');
-    if (rest.includes('--high') && command !== 'code' && !geminiEffortCommands.has(command)) throw new Error('--high 仅用于 fleet code|copy|bulk。');
+    if (rest.includes('--fast') && !['code', 'gpt'].includes(command)) throw new Error('--fast 仅用于 fleet code。');
+    if (rest.includes('--low') && !['code', 'gpt'].includes(command) && !geminiEffortCommands.has(command)) throw new Error('--low 仅用于 fleet code|copy|bulk。');
+    if (rest.includes('--high') && !['code', 'gpt'].includes(command) && !geminiEffortCommands.has(command)) throw new Error('--high 仅用于 fleet code|copy|bulk。');
     if (['--low', '--high', '--xhigh', '--max'].filter(flag => rest.includes(flag)).length > 1) throw new Error('--low、--high、--xhigh 和 --max 不能同用。');
-    if (rest.includes('--max') && (command !== 'resume' && (command !== 'code' || !rest.includes('--luna')))) throw new Error('--max 仅用于 --luna。');
-    if (rest.includes('--xhigh') && (!geminiEffortCommands.has(command) && (command !== 'code' || !rest.includes('--luna')))) throw new Error('--xhigh 仅用于 --luna 或 Gemini（copy/bulk）。');
+    if (rest.includes('--max') && (command !== 'resume' && (!['code', 'gpt'].includes(command) || !rest.includes('--luna')))) throw new Error('--max 仅用于 --luna。');
+    if (rest.includes('--xhigh') && (!geminiEffortCommands.has(command) && (!['code', 'gpt'].includes(command) || !rest.includes('--luna')))) throw new Error('--xhigh 仅用于 --luna 或 Gemini（copy/bulk）。');
     if (rest.includes('--luna')) {
-      if (command !== 'code') throw new Error('--luna 仅用于 fleet code（fleet-go --to gpt）。');
+      if (!['code', 'gpt'].includes(command)) throw new Error('--luna 仅用于 fleet code（fleet-go --to gpt）。');
       if (rest.includes('--simple') || rest.includes('--review')) throw new Error('--luna 不能与 --simple 或 --review 同用。');
     }
     if (rest.includes('--simple')) {
-      if (command !== 'code') throw new Error('--simple 仅用于 fleet code（fleet-go --to gpt）。');
+      if (!['code', 'gpt'].includes(command)) throw new Error('--simple 仅用于 fleet code（fleet-go --to gpt）。');
     }
-    if (rest.includes('--astra') && (command !== 'code' || ['--simple', '--sol', '--luna'].some(flag => rest.includes(flag)))) throw new Error('--astra 仅用于 fleet code，且不能与 --simple、--sol 或 --luna 同用。');
-    if (rest.includes('--sol') && (command !== 'code' || rest.includes('--simple') || rest.includes('--luna'))) throw new Error('--sol 仅用于 fleet code，且不能与 --simple 或 --luna 同用。');
+    if (rest.includes('--astra') && (!['code', 'gpt'].includes(command) || ['--simple', '--sol', '--luna'].some(flag => rest.includes(flag)))) throw new Error('--astra 仅用于 fleet code，且不能与 --simple、--sol 或 --luna 同用。');
+    if (rest.includes('--sol') && (!['code', 'gpt'].includes(command) || rest.includes('--simple') || rest.includes('--luna'))) throw new Error('--sol 仅用于 fleet code，且不能与 --simple 或 --luna 同用。');
     if (command === '__supervise') { await supervise(fileURLToPath(import.meta.url)); return; }
     if (['code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many', 'judge'].includes(command)
       && !process.env.FLEET_DETACHED_RUN_ID && !rest.includes('--help')) launchArchiveSweep();
@@ -676,7 +688,7 @@ async function main() {
       const text = command === 'run-many' ? '' : resolveBrief(brief);
       const args = flagArgs(flags, ['detach', 'attach', 'no-wait', 'name', 'prompt']);
       if (flags.prompt !== undefined) args.push('--prompt', flags.prompt);
-      const selectedModel = command === 'code' ? resolveCodexModel(flags.astra ? 'astra' : flags.luna ? 'luna' : flags.sol ? 'sol' : 'terra', { log: () => {} }) : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : command === 'judge' ? 'jev' : flags.model ?? shortRunOptions(command, rest).model;
+      const selectedModel = ['code', 'gpt'].includes(command) ? resolveCodexModel(flags.astra ? 'astra' : flags.luna ? 'luna' : flags.sol ? 'sol' : 'terra', { log: () => {} }) : command === 'grok-cli' ? `grok-cli:${flags.model || 'default'}` : command === 'run-many' ? 'run-many' : command === 'judge' ? 'jev' : flags.model ?? shortRunOptions(command, rest).model;
       const launchOptions = {
         cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(),
         model: selectedModel,
@@ -743,10 +755,7 @@ async function main() {
         if (flags.to !== 'gemini-api') throw new Error('请指定 --to gemini-api');
         const result = runGeminiApi(command, { prompt: flags.prompt, input: flags.input, model: flags.model, dryRun: Boolean(flags['dry-run']) });
         if (result.unavailable) {
-          console.error(`${result.error}，回退 Kollab 网关`);
-          const prompt = command === 'analyze' ? `${flags.prompt}\n\n请读取并分析文件：${flags.input}` : flags.prompt;
-          await cmdRun(['--model', 'kollab-gateway-research', '--prompt', prompt, ...flagArgs(flags, ['model', 'prompt', 'to', 'input', 'dry-run'])], { reroute: 'gemini-api-unavailable-fallback' });
-          break;
+          throw new Error(`${result.error}，请由派单方改派`);
         }
         if (result.error) throw new Error(result.error);
         console.log(result.output);

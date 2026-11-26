@@ -23,20 +23,30 @@ try {
   const agy = join(dir, 'agy');
   const env = { ...process.env, MOCK_API_KEY: 'fixture', GEMINI_API_KEY: '', FLEET_GEMINI_SUB: '1', FLEET_AGY_BIN: agy,
     AGENT_FLEET_ORDER_FILE: order, AGENT_FLEET_RUNS_DIR: join(dir, 'runs'), HTTP_PROXY: '', HTTPS_PROXY: '', ALL_PROXY: '' };
-  for (const [name, response, expectedRequests] of [['success', 'completed copy', 0], ['login', 'authentication required', 1], ['quota', 'quota exhausted 429', 1]]) {
+  for (const [name, response, expectedRequests] of [['success', 'completed copy', 0], ['login', 'authentication required', 0], ['quota', 'quota exhausted 429', 0]]) {
     resetOrder();
     writeFileSync(agy, `#!/bin/sh\nprintf '%s\\n' '${response}'\n`); chmodSync(agy, 0o755);
     const before = server.receivedRequests.length;
     const r = await run(['copy', 'hello', '--attach', '--no-voice', '--cwd', dir, '--models-config', config, '--full'], env);
-    assert.equal(r.code, 0, `${name}: ${r.stderr} ${r.stdout}`);
+    assert.equal(r.code, name === 'success' ? 0 : 1, `${name}: ${r.stderr} ${r.stdout}`);
     const requests = server.receivedRequests.slice(before).filter(x => x.url?.startsWith('/v1/messages') && !x.url.includes('count_tokens'));
     assert.equal(requests.length, expectedRequests, `${name}: gateway requests`);
-    assert.ok(r.stdout.includes(name === 'success' ? 'completed copy' : FIXED_REPLY_TEXT));
-    if (name !== 'success') assert.match(r.stderr, /回退 Kollab/);
+    if (name === 'success') assert.ok(r.stdout.includes('completed copy'));
+    else assert.match(r.stderr, /agy/);
     console.log(`PASS fleet copy ${name}: ${requests.length} gateway requests`);
   }
   resetOrder();
   writeFileSync(agy, '#!/bin/sh\nprintf "detach agy copy ok\\n"\n'); chmodSync(agy, 0o755);
+  const batch = join(dir, 'batch.json');
+  writeFileSync(batch, JSON.stringify([{ model: 'gemini', prompt: 'hello' }]));
+  for (const args of [['run', '--model', 'gemini', '--prompt', 'hello'], ['run-many', '--config', batch]]) {
+    const before = server.receivedRequests.length;
+    const r = await run([...args, '--attach', '--cwd', dir, '--models-config', config, '--full'], env);
+    assert.equal(r.code, 0, `${args[0]}: ${r.stderr} ${r.stdout}`);
+    assert.match(r.stdout, /detach agy copy ok/);
+    assert.equal(server.receivedRequests.length, before);
+  }
+  console.log('PASS run and run-many Gemini use agy without gateway');
   const detachReport = join(dir, 'detach-agy.md');
   const detachRuns = join(dir, 'detach-runs');
   const detachEnv = { ...env, AGENT_FLEET_RUNS_DIR: detachRuns };
@@ -52,23 +62,22 @@ try {
   const detachFailRuns = join(dir, 'detach-fail-runs');
   const detachFailBefore = server.receivedRequests.length;
   const detachFail = await run(['copy', 'hello', '--no-voice', '--cwd', dir, '--models-config', config], { ...env, AGENT_FLEET_RUNS_DIR: detachFailRuns });
-  assert.equal(detachFail.code, 0, `detach fallback: ${detachFail.stderr} ${detachFail.stdout}`);
+  assert.equal(detachFail.code, 1, `detach fallback: ${detachFail.stderr} ${detachFail.stdout}`);
   const failLogFile = readdirSync(detachFailRuns).find(x => x.endsWith('.log'));
   const failLog = readFileSync(join(detachFailRuns, failLogFile), 'utf8');
   assert.match(failLog, /agy 失败摘要:.*location blocked 400/);
   assert.doesNotMatch(failLog, /fixture-secret/);
-  assert.equal(server.receivedRequests.slice(detachFailBefore).filter(x => x.url?.startsWith('/v1/messages') && !x.url.includes('count_tokens')).length, 1);
-  console.log('PASS fleet copy detach fallback: failure summary logged & redacted');
+  assert.equal(server.receivedRequests.slice(detachFailBefore).filter(x => x.url?.startsWith('/v1/messages') && !x.url.includes('count_tokens')).length, 0);
+  console.log('PASS fleet copy detach failure: failure summary logged & redacted');
 
   for (const kind of ['research', 'analyze']) {
     const before = server.receivedRequests.length;
     const args = [kind, '--to', 'gemini-api', '--prompt', 'hello', '--models-config', config, '--cwd', dir, '--full'];
     if (kind === 'analyze') args.push('--input', config);
     const r = await run(args, env);
-    assert.equal(r.code, 0, `${kind}: ${r.stderr} ${r.stdout}`);
-    assert.match(r.stderr, /回退 Kollab/);
-    assert.ok(r.stdout.includes(FIXED_REPLY_TEXT));
-    assert.equal(server.receivedRequests.slice(before).filter(x => x.url?.startsWith('/v1/messages') && !x.url.includes('count_tokens')).length, 1);
-    console.log(`PASS fleet ${kind}: no key, gateway request`);
+    assert.equal(r.code, 1, `${kind}: ${r.stderr} ${r.stdout}`);
+    assert.match(r.stderr, /改派/);
+    assert.equal(server.receivedRequests.slice(before).filter(x => x.url?.startsWith('/v1/messages') && !x.url.includes('count_tokens')).length, 0);
+    console.log(`PASS fleet ${kind}: no key, no gateway request`);
   }
 } finally { await server.close(); rmSync(dir, { recursive: true, force: true }); }

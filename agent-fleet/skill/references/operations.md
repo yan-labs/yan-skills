@@ -46,8 +46,8 @@
 | `fleet code brief.md [--sol\|--astra] [--review] [--fast] [--low\|--high] [--cwd dir]` | Codex，默认 Terra；见 [Codex 编程与 review](codex-coding.md) |
 | `fleet openai brief.md` | OpenAI API 额度；见 [OpenAI API 入口](openai-bridge.md) |
 | `fleet haiku\|sonnet\|opus brief.md` | Claude 官方端点（`ANTHROPIC_CREDIT_API_KEY`；用户级 key 另需 `ANTHROPIC_WORKSPACE_ID`，见 `.env.example`） |
-| `fleet copy brief.md` / `fleet bulk brief.md` | Gemini 文案、翻译 / 批量处理，默认 xhigh，可 `--low`/`--high` |
-| `fleet grok brief.md` | 托管网关 Grok，单轮调研 |
+| `fleet copy brief.md` / `fleet bulk brief.md` | agy 订阅 CLI 文案、翻译 / 批量处理，默认 xhigh，可 `--low`/`--high` |
+| `fleet grok brief.md` | Grok Build CLI 调研 |
 | `fleet grok-cli brief.md [--review] [--model id]` | xAI 官方编码 Agent；见 [Grok CLI](grok-cli.md) |
 | `fleet gpt brief.md` | 托管 GPT 任务 |
 | `fleet judge state.txt questions.json` | JEV 结构化判断；见 [JEV 用法](judge.md) |

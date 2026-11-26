@@ -60,7 +60,7 @@ allowed-tools: Bash(fleet-go context*)
 | 架构与复杂判断 | `executor-fable` / `--to gpt --astra` |
 | 只读代码复核 | `--to gpt --review` |
 | 文案、翻译、批量写作 | `--to gemini`，批量用 `--bulk` |
-| 点名 Gemini 的编码、调研、搜索、复核 | `--to gemini`；当前仅走文本 copy，不能调用工具或操作文件，agy 会员通道需启用且失败会回退 |
+| 点名 Gemini 的编码、调研、搜索、复核 | `--to gemini`；非文案任务在独立 worktree 中使用 agy 工具，交回 diff，不提交推送 |
 | 视觉设计、复杂编码、轻量核对 | `--to claude --tier sonnet` / `opus` / `haiku` |
 | 视频、图片、实时社媒调研 | `--to grok`，媒体按需加 `--make` |
 | 结构化判断 | `--to jev` 或 `fleet judge` |
@@ -102,4 +102,4 @@ allowed-tools: Bash(fleet-go context*)
 - [多模态](references/media.md) · 查实时模型目录和媒体落盘时读。
 - [JEV](references/judge.md) · 配置结构化判断时读。
 
-文案 `copy` 可通过 `FLEET_GEMINI_SUB=1` 优先使用 agy 会员通道（`FLEET_AGY_BIN` 和 `FLEET_AGY_MODEL` 可选）；并发上限固定为 1（`FLEET_AGY_MAX_PARALLEL=1`）；未登录、额度不足、超时或失败时回退 Kollab，额度不足自动暂停约五小时。`bulk` 仍走 Kollab。Google 媒体、文件分析和调研入口见[多模态](references/media.md)。
+`copy` 和 `bulk` 默认使用 agy 订阅 CLI；`FLEET_AGY_BIN`、`FLEET_AGY_MODEL` 可选，并发上限由 `FLEET_AGY_MAX_PARALLEL` 控制。未登录、额度不足或失败时直接报错，派单方决定改派；只有显式指定 `kollab-gateway-*` 才使用网关。Google 媒体、文件分析和调研入口见[多模态](references/media.md)。

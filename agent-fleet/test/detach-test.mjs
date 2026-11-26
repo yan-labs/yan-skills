@@ -63,7 +63,7 @@ writeFileSync(loader, `export async function resolve(specifier, context, next) {
   return next(specifier,context);
 }`);
 const cfg = join(scratch, 'models.json');
-writeFileSync(cfg, JSON.stringify({ stub: { model: 'stub-gemini', baseURL:'http://127.0.0.1:1', apiKeyEnv:'FLEET_TEST_KEY' } }));
+writeFileSync(cfg, JSON.stringify(Object.fromEntries(['stub', 'kollab-gateway-copy'].map(k => [k, { model: 'stub-gemini', baseURL:'http://127.0.0.1:1', apiKeyEnv:'FLEET_TEST_KEY' }]))));
 const env = { ...process.env, FLEET_STRICT:'1', FLEET_TEST_SLEEP:'1', FLEET_TEST_EXIT:'0', AGENT_FLEET_RUNS_DIR:runs, FLEET_CODEX_BIN:stub, FLEET_CODEX_BACKEND:'exec', FLEET_NO_ARCHIVE_SWEEP:'1',
   FLEET_TEST_PIDS:join(scratch,'pids'), FLEET_TEST_RESULT:join(scratch,'gateway-result'),
   FLEET_TEST_KEY:'fake-test-key', NODE_OPTIONS:`--no-warnings --experimental-loader=${pathToFileURL(loader).href}` };
@@ -263,7 +263,7 @@ assert.notEqual(state(defaultId).pid,state(defaultId).childPid);
 let instant=Date.now();assert.equal((await cliRun(['wait',defaultId.slice(0,-3)])).code,0);assert(Date.now()-instant<2000);
 assert.match((await cliRun(['tail',state(defaultId).name])).stdout,/stub log/);
 for (const command of ['copy','grok','bulk','gpt']) {
-  const out=await cliRun([command,briefFile,'--model','stub','--models-config',cfg,'--cwd',scratch,'--name',command,'--json']);
+  const out=await cliRun([command,briefFile,'--model','kollab-gateway-copy','--models-config',cfg,'--cwd',scratch,'--name',command,'--json']);
   assert.equal(out.code,0,out.stderr);assert.equal(JSON.parse(out.stdout).verdict,'ok');
   assert.equal(state(JSON.parse(out.stdout).logPath.split('/').pop().slice(0,-4)).name,command);
 }

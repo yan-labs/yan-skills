@@ -113,14 +113,15 @@ with tempfile.TemporaryDirectory() as d:
     (root_fixture / 'src').mkdir()
     (root_fixture / 'src/env.mjs').write_text('export function loadEnvFile() {}')
     (root_fixture / 'bin').mkdir()
-    (root_fixture / 'bin/claude').write_text('#!/bin/sh\nexit 1\n')
+    (root_fixture / 'bin/claude').write_text('#!/bin/sh\nexit 0\n')
     (root_fixture / 'bin/claude').chmod(0o755)
     def run_preflight_script(script, payload, timeout=30):
         data = base64.b64encode(json.dumps(payload).encode()).decode()
         return subprocess.run([sys.executable, '-c', script, data], capture_output=True, text=True)
     with patch.object(mini, 'REMOTE_HOME', d), patch.object(mini, 'REMOTE_BIN', str(root_fixture / 'bin/fleet')), patch.object(mini, 'call', run_preflight_script), patch.dict(os.environ, {'ANTHROPIC_CREDIT_API_KEY': 'test-only', 'PATH': str(root_fixture / 'bin') + os.pathsep + os.environ['PATH']}):
         assert mini.preflight({'to':'claude'}, []) is None
-    with patch.object(mini, 'REMOTE_HOME', d), patch.object(mini, 'REMOTE_BIN', str(root_fixture / 'bin/fleet')), patch.object(mini, 'call', run_preflight_script), patch.dict(os.environ, {'ANTHROPIC_CREDIT_API_KEY': ''}):
+    (root_fixture / 'bin/claude').write_text('#!/bin/sh\nexit 1\n')
+    with patch.object(mini, 'REMOTE_HOME', d), patch.object(mini, 'REMOTE_BIN', str(root_fixture / 'bin/fleet')), patch.object(mini, 'call', run_preflight_script), patch.dict(os.environ, {'PATH': str(root_fixture / 'bin') + os.pathsep + os.environ['PATH']}):
         assert 'claude 通道不可用' in mini.preflight({'to':'claude'}, [])
 
 with tempfile.TemporaryDirectory() as d:

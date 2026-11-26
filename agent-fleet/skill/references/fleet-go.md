@@ -2,7 +2,7 @@
 
 ## 执行者与档位
 
-`new` 要求 `--to gpt|openai|claude|grok|gemini|jev`。GPT 默认 Terra，`--sol` 和 `--astra` 互斥，`--simple` 显式选 Terra。GPT 和 Gemini 可用 `--low`、`--high`，Gemini 默认 xhigh。GPT 默认关闭 fast，按需显式 `--fast`。Claude 用 `--tier haiku|sonnet|opus`，Grok 可用 `--model`，仅获授权且显式标记 `--type orchestrate` 的总管可用 `--subagents`，Gemini 批量用 `--bulk`。只读复核用 `--review`，适用于 GPT 和 Grok。
+`new` 要求 `--to gpt|openai|claude|grok|gemini|jev`。GPT 默认 Terra，`--sol` 和 `--astra` 互斥，`--simple` 显式选 Terra。GPT 和 Gemini 可用 `--low`、`--high`，Gemini 默认 xhigh。GPT 默认关闭 fast，按需显式 `--fast`。Claude 用 `--tier haiku|sonnet|opus`，Grok 可用 `--model`，仅获授权且显式标记 `--type orchestrate` 的总管可用 `--subagents`，Gemini 批量用 `--bulk`；文案标记 `--type copy`，其他任务指定仓库并自动创建独立 worktree，通过 agy 使用工具，不提交推送。只读复核用 `--review`，适用于 GPT 和 Grok。
 
 `--make image` 用 GPT 或 Grok，`--make video` 用 Grok。交付实际生成文件。授权和费用按任务范围执行。
 

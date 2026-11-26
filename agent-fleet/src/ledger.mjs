@@ -44,6 +44,9 @@ export function parseTrailer(text) {
 
 export function executorOf(model = '', resolved = '') {
   const m = `${model} ${resolved}`;
+  if (/^claude-cli:/.test(m)) return 'claude-sub';
+  if (/^kollab-gateway-research/.test(m)) return 'grok-api';
+  if (/^kollab-gateway-gpt/.test(m)) return 'openai-api';
   if (/terra/.test(m)) return 'terra';
   if (/luna/.test(m)) return 'luna';
   if (/astra/.test(m)) return 'astra';

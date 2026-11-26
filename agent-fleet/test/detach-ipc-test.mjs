@@ -25,13 +25,12 @@ if (process.argv[2] === '__supervise') {
   const launcher = spawnSync(process.execPath, [self, 'launcher'], {env:process.env, timeout:30000});
   assert.equal(launcher.status, 0, launcher.stderr.toString());
   process.kill(Number(readFileSync(base+'.supervisor', 'utf8')), 'SIGCONT');
-  // waitDetached requires the first state to exist; observe its atomic creation.
-  const { watch } = await import('node:fs');
-  if (!existsSync(base+'.json')) await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { watcher.close(); reject(Error('supervisor did not start')); }, 30000);
-    const watcher = watch(runs, () => { if (existsSync(base+'.json')) { clearTimeout(timer); watcher.close(); resolve(); } });
-    if (existsSync(base+'.json')) { clearTimeout(timer); watcher.close(); resolve(); }
-  });
+  // Directory watch events can be missed for atomic renames on macOS.
+  const deadline = Date.now() + 30000;
+  while (!existsSync(base+'.json')) {
+    if (Date.now() >= deadline) throw Error('supervisor did not start');
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
   await waitDetached(id);
   const rec = JSON.parse(readFileSync(base+'.json', 'utf8'));
   assert.equal(rec.status, 'done');

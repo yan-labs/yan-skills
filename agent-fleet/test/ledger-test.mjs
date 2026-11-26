@@ -91,7 +91,7 @@ try {
   assert(L.conclusionOutcome('部分完成：xxx') === 'partial' && L.conclusionOutcome('**仍为部分完成**') === 'partial', '部分完成口径');
   assert(L.conclusionOutcome('完成本单授权内工作') === 'complete' && L.conclusionOutcome('失败：xx') === 'failed' && L.conclusionOutcome('本地盘点') === null, '完成/失败/读不出');
   assert([['gpt-6.2-astra'], ['gpt-6.1-sol'], ['openai-gpt-terra'], ['gpt-6-luna'], ['grok-cli:grok-4.7'], ['kollab-gateway-copy', 'gemini-4-argon'], ['claude-opus'], ['kollab-gateway-gpt-sol', 'gpt-6-sol']]
-    .map(a => L.executorOf(...a)).join() === 'astra,sol,terra,luna,grok,gemini,opus,sol', '执行者归并');
+    .map(a => L.executorOf(...a)).join() === 'astra,sol,terra,luna,grok,gemini,opus,openai-api', '执行者归并');
   assert(L.guessMakerName('bsm-r2b-review') === 'bsm-r2b' && L.guessMakerName('editor-parity-review-r3') === 'editor-parity'
     && L.guessMakerName('history-test-fixture-review3-1104') === 'history-test-fixture-1104' && L.guessMakerName('plain-task') === null, '复核单名字推测');
 
@@ -187,7 +187,7 @@ try {
   assert(missing.status === 1 && /账本不存在/.test(missing.stderr), '账本缺失给出提示');
   const plain = spawnSync(join(root, 'bin/fleet-go'), ['new', 'ledger-plain', '--on', 'local', '--local-reason', 'test fixture', '--to', 'gpt', '--simple', '--goal', '目标', '--dry-run', '--no-lint'], { encoding: 'utf8', env: process.env, input: '' });
   assert(plain.status === 0 && !plain.stdout.includes('LEDGER:'), '普通 new --dry-run 不受影响、不带尾注说明');
-  const review = spawnSync(join(root, 'bin/fleet-go'), ['new', 'ledger-chk', '--on', 'local', '--local-reason', 'test fixture', '--to', 'gemini', '--for', 'alpha', '--level', '3', '--goal', '目标', '--dry-run', '--no-lint'], { encoding: 'utf8', env: process.env, input: '' });
+  const review = spawnSync(join(root, 'bin/fleet-go'), ['new', 'ledger-chk', '--on', 'local', '--local-reason', 'test fixture', '--to', 'gemini', '--type', 'copy', '--for', 'alpha', '--level', '3', '--goal', '目标', '--dry-run', '--no-lint'], { encoding: 'utf8', env: process.env, input: '' });
   assert(review.status === 0 && review.stdout.includes('LEDGER: blockers=<n>'), '--for 的 brief 带复核尾注说明');
   const badLevel = spawnSync(join(root, 'bin/fleet-go'), ['new', 'x', '--to', 'gpt', '--level', '7', '--goal', '目标', '--dry-run', '--no-lint'], { encoding: 'utf8', env: process.env, input: '' });
   assert(badLevel.status !== 0 && /L1.L4/.test(badLevel.stderr), '难度档非法时报错');

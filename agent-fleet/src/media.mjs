@@ -80,11 +80,7 @@ export function runMedia(argv) {
         if (!kind) throw new Error('gemini-api 支持 image / video');
         const result = runGeminiApi(kind, { prompt: flags.prompt, input: flags.input, out: flags.out, model: flags.model, dryRun: flags['dry-run'] });
         if (!result.unavailable) { if (result.error) throw new Error(result.error); console.log(result.output); return 0; }
-        console.error(`${result.error}，回退 Kollab`);
-        if (kind === 'image' && !flags.model) {
-          const input = flags['input-json'] ? JSON.parse(flags['input-json']) : {};
-          if (!input.model) flags.model = 'gemini-3.1-flash-image';
-        }
+        throw new Error(`${result.error}，请由派单方改派`);
       }
       const tool = ({ image: 'generate_image', video: 'generate_video' })[rest[0]] || rest[0];
       return run(tool, flags);

@@ -2,7 +2,7 @@
 
 产品派单主推 `fleet-go new <name> --to grok`；下列 `fleet grok-cli` 为底层入口。
 
-`fleet grok-cli` 调用 xAI 官方 `@xai-official/grok` 完整编码 Agent（自己的工具）；`fleet grok` 是托管网关配置的 Grok 单轮 Agent，两者独立。
+`fleet grok-cli` 调用 xAI 官方 `@xai-official/grok` 完整编码 Agent（自己的工具）；`fleet grok` 也是该 CLI 的快捷入口。
 
 ## 启动与模型
 
