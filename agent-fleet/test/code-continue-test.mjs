@@ -84,9 +84,11 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
    if (mode === 'deviation-complete') report = '## 结论\\n' + Array.from({length:5}, (_, i) => 'V' + (i+1) + '｜已过' + (i === 2 ? '（目标分支偏差）' : '') + '｜已核验').join('\\n');
    if (mode === 'named-stuck' || mode === 'named-external') report = '## 结论\\nV1｜' + (mode === 'named-stuck' ? '未过' : '等外部') + '｜fixture';
    if (mode.startsWith('named-empty')) {
+    if (count === 1 && mode !== 'named-empty-zero') send({method:'item/completed',params:{item:{id:'tool',type:'commandExecution',command:'true',aggregatedOutput:'ok',exitCode:0}}});
     if (count === 1 || mode === 'named-empty-stuck') {
      if (mode === 'named-empty-missing') fs.rmSync(process.env.REPORT_FILE, { force: true });
      else fs.writeFileSync(process.env.REPORT_FILE, mode === 'named-empty-stuck' ? '\\n' : '');
+     if (mode === 'named-empty-zero') send({method:'item/completed',params:{item:{type:'agentMessage',phase:'final_answer',text:'尚未完成，验收未过'}}});
      send({method:'turn/completed',params:{turn:{id,status:'completed'}}});
      return;
     }
@@ -445,6 +447,7 @@ try {
     else assert.equal(buildBrief(result).pending, 'external');
   }
   for (const [mode, owner, options, turns, verdict] of [
+    ['named-empty-zero', '本单', {}, 2, 'ok'],
     ['named-empty-missing', '本单', {}, 2, 'ok'],
     ['named-empty-unmet', '本单', {}, 2, 'partial'],
     ['named-empty-stuck', '本单', {}, 2, 'needs-review'],
@@ -468,10 +471,13 @@ try {
     if (turns === 2) {
       const recovery = starts[1].params.input[0].text;
       assert.match(recovery, /「## 结论」标题下、下一节之前单独写一行，格式为「Vn｜状态｜证据或原因」/);
-      assert.match(recovery, /只可写此报告，不重跑任务，不派新单/);
+      if (mode === 'named-empty-zero') {
+        assert.match(recovery, /首轮没有任何工具调用，请按 brief 的授权范围实际开始执行任务/);
+        assert.doesNotMatch(recovery, /只可写此报告，不重跑任务/);
+      } else assert.match(recovery, /只可写此报告，不重跑任务，不派新单/);
     }
   }
-  console.log('PASS - empty named reports get one report-only app-server turn; unmet, waits and opt-out keep their existing disposition');
+  console.log('PASS - empty named reports get one bounded recovery; zero-tool runs execute and other runs report only');
   for (const mode of ['review-complete', 'deviation-complete']) {
     process.env.MODE = mode;
     process.env.FLEET_DETACHED_RUN_ID = mode;
@@ -530,11 +536,11 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   const execTurns = readFileSync(process.env.TRACE, 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(execTurns.length, 2);
   assert.deepEqual(execTurns[1].args.slice(-3), ['resume', 'exec-thread', '-']);
-  assert.match(execTurns[1].prompt, /只可写此报告，不重跑任务，不派新单/);
+  assert.match(execTurns[1].prompt, /首轮没有任何工具调用，请按 brief 的授权范围实际开始执行任务/);
   assert.equal(execRecovery.continueCount, 1);
   assert.equal(execRecovery.continueRequired, false);
   assert.equal(execRecovery.acceptance.verdict, 'ok');
-  console.log('PASS - empty named reports resume the same exec thread for one report-only turn');
+  console.log('PASS - empty zero-tool exec resumes once to execute the brief');
   delete process.env.EXEC_EMPTY_REPORT;
   delete process.env.FLEET_CODEX_BACKEND;
   process.env.MODE = 'missing-sections';

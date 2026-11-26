@@ -460,6 +460,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     }
     return missing;
   };
+  let firstTurnUsedTool = false;
   let reportRecoveryPrompt = null;
   const recoverEmptyReport = state => {
     if (reportRecoveryPrompt || !reportPath || !metadata.threadId || metadata.continueStop ||
@@ -469,9 +470,10 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     metadata.continueCount++;
     log('[codex] 具名验收报告为空，原线程补交报告');
     record();
-    reportRecoveryPrompt = `上轮执行已正常结束，但具名验收报告为空或缺失。只根据当前线程已有记录和现有证据，补交七节报告到 ${JSON.stringify(reportPath)} 并给出最终回复。
+    const emptyRun = metadata.numTurns === 1 && !firstTurnUsedTool;
+    reportRecoveryPrompt = `上轮执行已正常结束，但具名验收报告为空或缺失。${emptyRun ? '首轮没有任何工具调用，请按 brief 的授权范围实际开始执行任务并逐项验证，完成后' : '只根据当前线程已有记录和现有证据，'}补交七节报告到 ${JSON.stringify(reportPath)} 并给出最终回复。
 每个具名验收项都在「## 结论」标题下、下一节之前单独写一行，格式为「Vn｜状态｜证据或原因」。Vn 用 brief 的实际编号，状态填已过、未过、等外部、待下游、已回滚或不适用。
-只可写此报告，不重跑任务，不派新单，不交班、挂起、提交、推送、发布或写入外部系统。证据不足的验收写明实际缺口，不报已过。`;
+${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示扩大范围。' : '只可写此报告，不重跑任务，不派新单，不交班、挂起、提交、推送、发布或写入外部系统。'}证据不足的验收写明实际缺口，不报已过。`;
     return reportRecoveryPrompt;
   };
   const checkProgress = (state, handoff) => {
@@ -535,8 +537,10 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
             supervision.token(Date.now(), total?.outputTokens);
             record();
           }
-          if (event.method === 'item/started' && params.item && /commandExecution|mcpToolCall|dynamicToolCall|fileChange|webSearch|collabAgentToolCall/.test(params.item.type))
-            tools.set(params.item.id, params.item);
+          if (/^item\/(started|completed)$/.test(event.method) && params.item && /^(commandExecution|mcpToolCall|dynamicToolCall|fileChange|webSearch|collabAgentToolCall)$/.test(params.item.type)) {
+            if (metadata.numTurns === 1) firstTurnUsedTool = true;
+            if (event.method === 'item/started') tools.set(params.item.id, params.item);
+          }
           if (event.method === 'item/completed' && params.item) tools.delete(params.item.id);
           if (event.method === 'item/completed' && params.item?.type === 'commandExecution') recordCommandEvidence(params.item);
           if (event.method === 'item/completed' && params.item?.type === 'commandExecution' && !interruptedForPark && !tools.size && turnId) {
@@ -714,6 +718,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
             try {
               const event = JSON.parse(line);
               if (event.type === 'thread.started') { metadata.threadId = metadata.sessionId = event.thread_id; record(); schedule(); }
+              if (/^item\.(started|completed)$/.test(event.type) && metadata.numTurns === 1 && /^(command_execution|mcp_tool_call|dynamic_tool_call|file_change|web_search|collab_agent_tool_call)$/.test(event.item?.type || '')) firstTurnUsedTool = true;
               if (event.type === 'item.completed' && event.item?.type === 'command_execution') recordCommandEvidence(event.item);
               if (event.type === 'turn.completed') {
                 metadata.usage = event.usage;
