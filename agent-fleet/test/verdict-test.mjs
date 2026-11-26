@@ -224,6 +224,8 @@ const failed = Array.from({length: 4}, (_, i) => `V${i + 1}｜未过｜未验证
 const staleReport = `## 结论\n巡检换班，快照在 previous.checkpoint.md\n${failed}`;
 const inherited = acceptanceResult(four, staleReport, null, staleReport);
 if (inherited.verdict !== 'partial' || inherited.pending !== 'none' || inherited.unmet.length !== 4 || inherited.counts.failed !== 4) throw new Error('stale handoff must not bypass failed acceptance');
+const quoted = acceptanceResult(four, staleReport.replace('## 结论\n', '## 结论\n未完成：旧标记仅供引用\n').replace('previous.checkpoint.md', 'previous.checkpoint.md（原报告标记）'), null, staleReport);
+if (quoted.pending !== 'none' || quoted.verdict !== 'partial') throw new Error('a quoted old marker after the first conclusion line is not a handoff');
 const rewritten = acceptanceResult(four, staleReport + '\n## 偏差\n更新文字', null, staleReport);
 if (rewritten.pending !== 'none' || rewritten.verdict !== 'partial') throw new Error('rewriting other sections does not refresh handoff');
 const freshHandoff = acceptanceResult(four, staleReport.replace('previous.', 'current.'), null, staleReport);

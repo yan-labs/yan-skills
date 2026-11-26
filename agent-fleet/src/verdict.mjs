@@ -95,7 +95,7 @@ function hasEvidence(value) {
 }
 
 const conclusionText = report => String(report ?? '').match(/^## 结论[ \t]*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/m)?.[1] ?? '';
-const handoffMarker = report => conclusionText(report).match(/^巡检换班[，,:：][^\r\n]*/m)?.[0]?.trim();
+const handoffMarker = report => conclusionText(report).trimStart().match(/^巡检换班[，,:：][^\r\n]*/)?.[0]?.trim();
 
 export function acceptanceResult(brief = '', report = '', yielded = null, priorReport) {
   const items = new Map();
