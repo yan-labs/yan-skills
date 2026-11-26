@@ -2,7 +2,7 @@
 name: rankup
 description: 独立开发者的项目全生命周期管理：需求验证、选词选品、建站或做原生 App、上线接入、SEO/GEO 获客、支付变现、监控迭代与跨会话接力。以下情况使用：用户提到 rankup 或 /rankup（check、review、init；doctor 仅指整理项目 .rankup 记录）；当前目录或工作区有 .rankup/，或要读取、续做、整理项目计划、路线图、待办、PRD、交接或进度文档；在这些项目记录上下文里说「继续」「接着做」「上次做到哪」「下一步做什么」；精简、压缩 Agent 记忆文件（memory 太大、清理记忆）；说“清理一下”“清理 N 天/一周之前的日志/报告/截图”来清理项目过程数据；以及项目规划、需求验证、关键词调研与 SERP、独立 Google Trends 热度查询或对比、AI 搜索推荐（GEO）、网站体检、sitemap/IndexNow/Search Console、流量、建站、上线、支付（Stripe、Anyway、PayPal）、变现与增长。SEO/GEO 是主要手段，不是适用边界，非 SEO 的项目计划与 macOS、iOS、iPad 原生 App 同样适用。纯文案（含 SEO 趋势博客等主题写作）、纯视觉设计、与项目管理无关的通用开发及基础设施排错（含 Cloudflare 部署报错、普通 CLI doctor）不触发；目录内有 .rankup/ 时仅叠加项目记录维护义务；外链执行交 backlink，浏览器驱动交 opencli，配图生成交 imagegen，多模型派单交 agent-fleet。
 metadata:
-  version: "4.1.0"
+  version: "4.1.1"
 ---
 
 # Rankup
@@ -110,7 +110,7 @@ node "<rankup-skill-dir>/scripts/maintain/rankup-clean.mjs" --workspace <工作�
 
 | 用户会说 | 入口 | 做到什么算完 |
 |---|---|---|
-| 「我们做个网站吧」「帮我搭起来」、建站、做功能、写 UI、「按 rankup 规范来」 | 先过段 2 立项（没有词树回段 1），再 [`stage-3-build.md`](references/lifecycle/stage-3-build.md) + [`cloudflare-stack.md`](references/cloudflare-stack.md)。用用户指定模板，未指定用默认 shadcn 命令；UI 来自组件库，不手写基础控件；多功能工具站导航先读[侧栏统一规范](references/design-references.md#多功能工具站侧栏统一规范)；当天过完 Day-1 清单；核[建设中红线](references/discipline.md#二十一禁止建设中内容与功能区域) | `checklists.md` 段 3 |
+| 「我们做个网站吧」「帮我搭起来」、建站、做功能、写 UI、「按 rankup 规范来」 | 先过段 2 立项（没有词树回段 1）。**用户有建站引擎 MCP 时（用的是哪个引擎见全局偏好），建站、改站、加功能先走引擎**：调 `get_guide`，用引擎的预置提示词和工具做，不从零搭、不改引擎代码（[段 3 硬规则首条](references/lifecycle/stage-3-build.md#硬规则全文含为什么skillmd-只留摘要)）。没有引擎才按 [`stage-3-build.md`](references/lifecycle/stage-3-build.md) + [`cloudflare-stack.md`](references/cloudflare-stack.md)。用用户指定模板，未指定用默认 shadcn 命令；UI 来自组件库，不手写基础控件；多功能工具站导航先读[侧栏统一规范](references/design-references.md#多功能工具站侧栏统一规范)；当天过完 Day-1 清单；核[建设中红线](references/discipline.md#二十一禁止建设中内容与功能区域) | `checklists.md` 段 3 |
 | 「做个好看的页面」「Hero 怎么设计」「找个组件参考」、任何整站设计或改版 | **走 `/design` 并逐字带上获奖标准 prompt**（全文在 `stage-3-build.md` 硬规则「设计一律走 `/design`」），再用 [`design-references.md`](references/design-references.md) 选 2–3 个案例后实现 | — |
 | 「做网站时需要 AI 视频/图片生成」「接 Kie」「Kie 音频可不可以用」 | [Kie 可选分支](references/integrations/kie.md) → [模型快照](references/integrations/kie-models.md)、[登记](references/registry.md)。按能力选供应商，Kie 不是必选 | — |
 | 写页面内容、写文章、写 blog、「写这个模型页」、模型对比、产品对比、补参考视频、封面图、「写一下这页的文案」 | 站内英文页面内容一律走 [`blog`](../blog/SKILL.md)，不自己编内容；中文稿走 `/write`；内容形状按 `/ai-seo`（[`skill-ecosystem.md`](references/skill-ecosystem.md)） | sources、成文、review、评判、回读证据齐全 |
