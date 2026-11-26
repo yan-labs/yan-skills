@@ -356,14 +356,17 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const handleYield = async () => {
     const entry = readYield(runId);
     if (!entry || entry.resolvedAt) return null;
-    if (entry.type === 'plan') {
-      resolveYield(runId, entry, { status: 'accepted' });
-      log(`[codex] 阶段计划自动放行：\n${entry.text}`);
-      stages.stages = entry.text.split('\n').filter(Boolean);
+    const plan = entry.type === 'plan' ? entry.text : entry.pendingPlan;
+    if (plan) {
+      log(`[codex] 阶段计划自动放行：\n${plan}`);
+      stages.stages = plan.split('\n').filter(Boolean);
       stages.stage = 0;
       stages.baton = 1;
       persistStages();
-      return { prompt: '阶段计划已记录，按计划直接继续完成当前阶段：\n' + entry.text };
+      if (entry.type === 'plan') {
+        resolveYield(runId, entry, { status: 'accepted' });
+        return { prompt: '阶段计划已记录，按计划直接继续完成当前阶段：\n' + plan };
+      }
     }
     if (entry.type === 'handoff') {
       resolveYield(runId, entry, { status: 'accepted' });

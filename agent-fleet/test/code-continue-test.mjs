@@ -70,6 +70,13 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
    if ((mode === 'handoff' && count === 1) || (mode === 'handoff-stuck' && count < 6) || (mode === 'replan' && (count === 1 || count === 3)))
      fs.writeFileSync(process.env.YIELD_FILE, JSON.stringify({type:'handoff',text:'已完成及证据；决定及理由；未决外部事项；坑勿重做；下一步',next:'继续',at:Date.now()}));
 
+   if (count === 1 && mode === 'plan-park') {
+    const cli = require('node:child_process').spawnSync;
+    for (const args of [['plan','阶段：准备\\n阶段：验证'],['park','--until','file:ready','--say','醒来核验计划']]) {
+      const result = cli(process.execPath,[process.env.YIELD_CLI,...args,'--run',process.env.FLEET_DETACHED_RUN_ID],{encoding:'utf8'});
+      if (result.status !== 0) throw new Error(result.stderr || result.stdout);
+    }
+   }
    if (count === 1 && (mode === 'yield-park' || mode === 'yield-blocked')) {
     fs.writeFileSync(process.env.YIELD_FILE, JSON.stringify(mode === 'yield-park'
       ? {type:'park',until:'file:ready',say:'醒来执行指定动作',at:Date.now(),timeoutMs:5000,timeouts:0}
@@ -364,6 +371,24 @@ try {
   assert.equal(readYield('cli-blocked').type,'blocked');
   assert.equal(spawnSync(process.execPath,[yieldCli,'park','--run','cli-park','--until','after:1s','--say','继续'],{env:cliEnv}).status,0);
   assert.equal(readYield('cli-park').until,'after:1s');
+
+  const planParkId = 'plan-park';
+  process.env.FLEET_DETACHED_RUN_ID = planParkId;
+  delete process.env.FLEET_SLOT_RUN_ID;
+  process.env.MODE = planParkId;
+  process.env.TRACE = join(scratch, `${planParkId}.trace`);
+  process.env.YIELD_FILE = join(scratch, `${planParkId}.yield`);
+  process.env.YIELD_CLI = yieldCli;
+  writeFileSync(join(scratch, 'ready'), 'ready');
+  const planPark = await runCode({prompt:'记录计划并挂起',cwd:scratch,codexBin:mock,noContinue:true});
+  assert(planPark.ok);
+  assert.equal(planPark.numTurns, 2);
+  assert.equal(planPark.wakeCount, 1);
+  assert.deepEqual(JSON.parse(readFileSync(join(scratch, `${planParkId}.stages.json`),'utf8')).stages,['阶段：准备','阶段：验证']);
+  assert.equal(readYield(planParkId).result.status,'done');
+  writeYield('pending-park',{type:'park',until:'file:ready',say:'继续'});
+  assert.throws(() => writeYield('pending-park',{type:'park',until:'file:ready',say:'重复'}), /已有未处理/);
+  console.log('PASS - same-turn plan and park preserve stage plan; pending parks cannot be overwritten');
 
   assert.throws(() => writeYield('invalid-blocked', {type:'blocked',need:'input',what:'输入',who:'主会话'}), /--tried/);
   assert.deepEqual(continuationRules({yield:{type:'blocked'},conclusion:'部分完成',report:''}, '提交哈希'), []);

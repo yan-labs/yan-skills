@@ -66,9 +66,11 @@ export function writeYield(id, entry) {
       throw new Error('blocked 需要 --need auth|input|access --what --tried --who。');
   } else throw new Error('无效 yield 类型。');
   const previous = readYield(id);
-  if (previous && !previous.resolvedAt) throw new Error('已有未处理的 yield。');
+  // A plan is informational; retain it when the same turn requests a park.
+  const pendingPlan = previous?.type === 'plan' && !previous.resolvedAt && entry.type === 'park' ? previous : null;
+  if (previous && !previous.resolvedAt && !pendingPlan) throw new Error('已有未处理的 yield。');
   const sameWait = previous?.type === 'park' && previous.until === entry.until;
-  const rec = { ...entry, ...(entry.type === 'park' ? { owner: entry.owner || '本单' } : {}),
+  const rec = { ...entry, ...(pendingPlan ? { pendingPlan: pendingPlan.text } : {}), ...(entry.type === 'park' ? { owner: entry.owner || '本单' } : {}),
     sourceId: sameWait ? previous.sourceId : undefined, at: Date.now(),
     timeoutMs: entry.type === 'park' ? duration(entry.timeout) : undefined,
     timeouts: sameWait ? previous.timeouts || 0 : 0 };
