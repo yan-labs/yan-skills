@@ -26,6 +26,7 @@ printf '完成'
 chmodSync(process.env.FLEET_AGY_BIN, 0o755);
 await runAgy({ prompt:'写 REPORT 文件', cwd:dir, noVoice:true, effort:'xhigh' });
 const args = readFileSync(join(dir, 'args'), 'utf8');
+assert.match(args, /--disable-slash-commands/);
 assert.match(args, /直接在回复中给出最终文本，不读写文件、不调用工具/);
 assert.match(args, /REPORT 由调用方回填/);
 assert.match(args, /--effort\nxhigh/);
@@ -36,12 +37,40 @@ const modelArgs = readFileSync(join(dir, 'args'), 'utf8');
 assert.match(modelArgs, /--model\ngemini-4-neon-high/);
 assert.doesNotMatch(modelArgs, /--effort/);
 delete process.env.FLEET_AGY_MODEL;
+const fallbackHome = join(dir, 'fallback-home');
+mkdirSync(join(fallbackHome, '.local', 'bin'), { recursive: true });
+writeFileSync(join(fallbackHome, '.local', 'bin', 'agy'), '#!/bin/sh\nprintf "来自兜底路径\\n"\n');
+chmodSync(join(fallbackHome, '.local', 'bin', 'agy'), 0o755);
+const savedBin = process.env.FLEET_AGY_BIN;
+const savedHome = process.env.HOME;
+const savedPath = process.env.PATH;
+try {
+  delete process.env.FLEET_AGY_BIN;
+  process.env.HOME = fallbackHome;
+  process.env.PATH = '/usr/bin:/bin';
+  assert.equal((await runAgy({ prompt:'hello', cwd:dir, noVoice:true })).result, '来自兜底路径');
+} finally {
+  process.env.FLEET_AGY_BIN = savedBin;
+  process.env.HOME = savedHome;
+  process.env.PATH = savedPath;
+}
 stub('authentication required');
 assert.equal(await runAgy({ prompt:'hello', cwd:dir, noVoice:true }), null);
+writeFileSync(process.env.FLEET_AGY_BIN, '#!/bin/sh\necho "token=fixture-secret failure-detail" >&2\nexit 1\n');
+chmodSync(process.env.FLEET_AGY_BIN, 0o755);
+process.env.FLEET_DETACHED_RUN_ID = '2026-11-27T00-00-00-000Z-detach-deadbeef';
+try {
+  assert.equal(await runAgy({ prompt:'hello', cwd:dir, noVoice:true }), null);
+} finally {
+  delete process.env.FLEET_DETACHED_RUN_ID;
+}
+const detachLog = readFileSync(join(process.env.AGENT_FLEET_RUNS_DIR, '2026-11-27T00-00-00-000Z-detach-deadbeef.log'), 'utf8');
+assert.match(detachLog, /agy 失败摘要:.*failure-detail/);
+assert.doesNotMatch(detachLog, /fixture-secret/);
 stub('quota exhausted 429');
 assert.equal(await runAgy({ prompt:'hello', cwd:dir, noVoice:true }), null);
 assert.match(readFileSync(process.env.AGENT_FLEET_ORDER_FILE, 'utf8'), /gemini-sub.*停用/);
-console.log('agy: success, authentication fallback, quota fallback and order OK');
+console.log('agy: success, fallback bin, detach failure summary, authentication fallback, quota fallback and order OK');
 process.env.FLEET_GEMINI_API_BIN = join(dir, 'gemini-api');
 writeFileSync(process.env.FLEET_GEMINI_API_BIN, '#!/bin/sh\nprintf \'%s\\n\' \'{"dry_run":true}\'\n');
 chmodSync(process.env.FLEET_GEMINI_API_BIN, 0o755);

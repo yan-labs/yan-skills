@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, chmodSync, rmSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,6 +35,31 @@ try {
     if (name !== 'success') assert.match(r.stderr, /回退 Kollab/);
     console.log(`PASS fleet copy ${name}: ${requests.length} gateway requests`);
   }
+  resetOrder();
+  writeFileSync(agy, '#!/bin/sh\nprintf "detach agy copy ok\\n"\n'); chmodSync(agy, 0o755);
+  const detachReport = join(dir, 'detach-agy.md');
+  const detachRuns = join(dir, 'detach-runs');
+  const detachEnv = { ...env, AGENT_FLEET_RUNS_DIR: detachRuns };
+  const detachOk = await run(['copy', 'hello', '--no-voice', '--cwd', dir, '--models-config', config, '--report', detachReport], detachEnv);
+  assert.equal(detachOk.code, 0, `detach ok: ${detachOk.stderr} ${detachOk.stdout}`);
+  const okStateFile = readdirSync(detachRuns).find(x => x.endsWith('.json') && !x.endsWith('.pid.json') && !x.endsWith('.queue.json'));
+  const okState = JSON.parse(readFileSync(join(detachRuns, okStateFile), 'utf8'));
+  assert.equal(okState.model, 'agy');
+  assert.equal(readFileSync(detachReport, 'utf8').trim(), 'detach agy copy ok');
+  console.log('PASS fleet copy detach agy: model=agy and report backfilled');
+
+  writeFileSync(agy, '#!/bin/sh\necho "token=fixture-secret location blocked 400" >&2\nexit 1\n'); chmodSync(agy, 0o755);
+  const detachFailRuns = join(dir, 'detach-fail-runs');
+  const detachFailBefore = server.receivedRequests.length;
+  const detachFail = await run(['copy', 'hello', '--no-voice', '--cwd', dir, '--models-config', config], { ...env, AGENT_FLEET_RUNS_DIR: detachFailRuns });
+  assert.equal(detachFail.code, 0, `detach fallback: ${detachFail.stderr} ${detachFail.stdout}`);
+  const failLogFile = readdirSync(detachFailRuns).find(x => x.endsWith('.log'));
+  const failLog = readFileSync(join(detachFailRuns, failLogFile), 'utf8');
+  assert.match(failLog, /agy 失败摘要:.*location blocked 400/);
+  assert.doesNotMatch(failLog, /fixture-secret/);
+  assert.equal(server.receivedRequests.slice(detachFailBefore).filter(x => x.url?.startsWith('/v1/messages') && !x.url.includes('count_tokens')).length, 1);
+  console.log('PASS fleet copy detach fallback: failure summary logged & redacted');
+
   for (const kind of ['research', 'analyze']) {
     const before = server.receivedRequests.length;
     const args = [kind, '--to', 'gemini-api', '--prompt', 'hello', '--models-config', config, '--cwd', dir, '--full'];
