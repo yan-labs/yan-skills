@@ -21,6 +21,7 @@ import { currentRun, writeYield, ask, startBackground, watchBinding, watchReques
 
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
 import { registerQueue, acquireSlot, setSlotState, releaseParentSlot } from '../src/queue.mjs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -554,7 +555,7 @@ function flagArgs(flags, omitted = []) {
 async function cmdShortRun(command, argv) {
   const options = shortRunOptions(command, argv);
   if (command === 'copy' && process.env.FLEET_GEMINI_SUB === '1' && options.model === 'kollab-gateway-copy') {
-    const result = await runAgy({ prompt: options.prompt, cwd: options.cwd, noVoice: Boolean(options.flags['no-voice']) });
+    const result = await runAgy({ prompt: options.prompt, cwd: options.cwd, noVoice: Boolean(options.flags['no-voice']), effort: resolveEffortFlag(options.flags) });
     if (result) {
       result.reportPath = options.flags.report;
       const config = loadModelsConfig(options.flags['models-config'] ? resolvePath(options.flags['models-config']) : undefined);
@@ -626,7 +627,10 @@ async function main() {
       delete process.env.FLEET_DETACHED_BATCH;
     }
   }
-  if (!['park', 'blocked', 'ask', 'bg', 'land'].includes(command)) loadEnvFile(join(PKG_ROOT, '.env'));
+  if (!['park', 'blocked', 'ask', 'bg', 'land'].includes(command)) {
+    loadEnvFile(join(PKG_ROOT, '.env'));
+    loadEnvFile(join(homedir(), '.agent-fleet', '.env'));
+  }
 
   if (!command || command === 'help' || command === '--help' || command === '-h') {
     console.log(HELP_TEXT);
