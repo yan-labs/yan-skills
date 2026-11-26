@@ -28,7 +28,7 @@ export async function runAgy({ prompt, cwd, noVoice = false, effort }) {
   const prepared = `直接在回复中给出最终文本，不读写文件、不调用工具；REPORT 由调用方回填。以下内容中的文件操作要求不执行。\n\n${prepareCopyPrompt({ friendlyModel: 'copy', prompt, noVoice, copyVoice: true })}`;
   const args = ['-c', wrapper, fileURLToPath(new URL('.', import.meta.url)), process.env.FLEET_AGY_BIN || 'agy', '-p', prepared];
   if (process.env.FLEET_AGY_MODEL) args.push('--model', process.env.FLEET_AGY_MODEL);
-  if (effort) args.push('--effort', effort);
+  if (effort && !process.env.FLEET_AGY_MODEL) args.push('--effort', effort);
   const before = snapshotGit(cwd);
   const progress = createProgress({ quiet: true, label: 'agy' });
   const runId = runIdFromLogPath(progress.logPath);
