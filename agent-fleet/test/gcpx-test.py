@@ -261,10 +261,11 @@ class GcpxTests(unittest.TestCase):
         with patch.object(gcpx, 'ssh', self.fake_ssh): self.call('ws', 'new', 'repo', '--name', 'task')
         cfg['workers']['worker'].update({'managed': True, 'project': 'proj', 'zone': 'us-central1-a', 'instance': 'vm-one', 'pool': 'fleet'})
         state = gcpx.load_state()
-        def mounted(command, **kwargs):
+        def mounted(program, command):
+            self.assertEqual(program, 'sshfs')
             self.assertIn('-f', command)
             self.assertEqual(gcpx.reconcile_idle(cfg, state, 2000)['worker'], 'busy or unknown')
-        with patch.object(gcpx, 'run', side_effect=mounted):
+        with patch.object(gcpx.os, 'execvp', side_effect=mounted):
             with patch.object(sys, 'argv', ['gcpx', '--config', str(self.cfg), 'mount', 'task', str(self.root / 'mount')]):
                 gcpx.main()
         self.assertEqual(gcpx.reconcile_idle(cfg, state, 2001)['worker'], 'observing idle')

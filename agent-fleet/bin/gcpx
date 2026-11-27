@@ -567,11 +567,11 @@ def main():
             os.execv('/usr/bin/ssh', [*ssh_args(worker)[:-1], '-t', ssh_args(worker)[-1], 'cd -- ' + shlex.quote(item['path']) + ' && exec "${SHELL:-/bin/sh}" -l'])
         if args.action == 'mount':
             Path(args.local).mkdir(parents=True, exist_ok=True)
-            # Keep the lease in this process until foreground sshfs exits on unmount.
-            with workspace_lease(args.workspace):
-                fcntl.flock(lock, fcntl.LOCK_UN)
-                run(['sshfs', '-f', '-F', str(Path(worker['ssh_config']).expanduser()), worker['host'] + ':' + item['path'], args.local])
-            return
+            # Replace this process so the lease lives exactly as long as sshfs.
+            lease = workspace_lease(args.workspace)
+            os.set_inheritable(lease.fileno(), True)
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            os.execvp('sshfs', ['sshfs', '-f', '-F', str(Path(worker['ssh_config']).expanduser()), worker['host'] + ':' + item['path'], args.local])
         if args.action == 'sync':
             local = Path(args.local).expanduser().resolve()
             sync = item.get('sync')
