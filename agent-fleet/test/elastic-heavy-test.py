@@ -69,6 +69,14 @@ class ElasticHeavyTests(unittest.TestCase):
         with patch.object(mod.sys, 'platform', 'darwin'), patch.object(mod.time, 'time', return_value=1060), patch.object(mod.subprocess, 'check_output', side_effect=output):
             self.assertIsNone(mod.capacity_state())
 
+    def test_overload_with_missing_paging(self):
+        def output(cmd, **kwargs):
+            if cmd[0] == 'sysctl': return '1'
+            if cmd[0] == 'top': return 'CPU usage: 90% user, 5% sys, 5% idle'
+            raise OSError('vm_stat unavailable')
+        with patch.object(mod.sys, 'platform', 'darwin'), patch.object(mod.subprocess, 'check_output', side_effect=output):
+            self.assertFalse(mod.capacity_state())
+
     def test_capacity_metrics(self):
         for cpu, pressure, paging, expected in [
             (30, 1, 0, True), (84, 1, 99, True), (85, 1, 0, False),

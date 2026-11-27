@@ -76,13 +76,21 @@ def capacity_state():
             ['sysctl', '-n', 'kern.memorystatus_vm_pressure_level'], text=True, timeout=3).strip())
         if pressure == 4:
             return False
-        top = subprocess.check_output(['top', '-l', '2', '-s', '1', '-n', '0'], text=True, timeout=5)
-        idle = re.findall(r'CPU usage:.*?([0-9.]+)% idle', top)
-        cpu = 100.0 - float(idle[-1]) if idle else None
-        vm = subprocess.check_output(['vm_stat'], text=True, timeout=3)
+        try:
+            top = subprocess.check_output(['top', '-l', '2', '-s', '1', '-n', '0'], text=True, timeout=5)
+            idle = re.findall(r'CPU usage:.*?([0-9.]+)% idle', top)
+            cpu = 100.0 - float(idle[-1]) if idle else None
+        except (OSError, ValueError, subprocess.SubprocessError):
+            cpu = None
+        if capacity_decision(cpu, pressure, None) is False:
+            return False
+        try:
+            vm = subprocess.check_output(['vm_stat'], text=True, timeout=3)
+        except (OSError, subprocess.SubprocessError):
+            return capacity_decision(cpu, pressure, None)
         counts = [int(x) for x in re.findall(r'^(?:Pageouts|Swapouts):\s*(\d+)\.', vm, re.M)]
         if len(counts) != 2:
-            return None
+            return capacity_decision(cpu, pressure, None)
         now = time.time()
         ROOT.mkdir(mode=0o700, exist_ok=True)
         history = ROOT / 'heavy-paging-sample.json'
