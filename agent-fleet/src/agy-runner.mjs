@@ -28,9 +28,11 @@ while not locks:
  if not locks: time.sleep(0.25)
 if locks:
  try:
-  r=subprocess.run(sys.argv[2:],capture_output=True,text=True,timeout=600,env={k:v for k,v in os.environ.items() if k.lower() not in ('http_proxy','https_proxy','all_proxy','no_proxy') and not re.search(r'KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL',k,re.I)})
+  r=subprocess.run(sys.argv[3:],capture_output=True,text=True,timeout=float(sys.argv[2]),env={k:v for k,v in os.environ.items() if k.lower() not in ('http_proxy','https_proxy','all_proxy','no_proxy') and not re.search(r'KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL',k,re.I)})
   sys.stdout.write(r.stdout); sys.stderr.write(r.stderr); sys.exit(r.returncode)
- except (OSError,subprocess.TimeoutExpired) as e:
+ except subprocess.TimeoutExpired:
+  sys.stderr.write('agy 超时 '+sys.argv[2]+' 秒'); sys.exit(124)
+ except OSError as e:
   sys.stderr.write(str(e)); sys.exit(1)`;
 
 function resolveAgyBin() {
@@ -46,9 +48,16 @@ function resolveAgyBin() {
   return 'agy';
 }
 
-export async function runAgy({ prompt, cwd, noVoice = false, effort, agent = false }) {
+export function agyTimeout({ agent = false, taskType, override = process.env.FLEET_AGY_TIMEOUT_S } = {}) {
+  const timeout = override || (taskType === 'research' || (agent && !['copy', 'translation'].includes(taskType)) ? '3600' : '600');
+  if (!/^\d+$/.test(timeout) || Number(timeout) <= 0) throw new Error('FLEET_AGY_TIMEOUT_S 必须为正整数');
+  return timeout;
+}
+
+export async function runAgy({ prompt, cwd, noVoice = false, effort, agent = false, taskType }) {
   const prepared = agent ? `在当前隔离工作区执行任务，不提交、不推送。\n\n${prompt}` : `直接在回复中给出最终文本，不读写文件、不调用工具；REPORT 由调用方回填。以下内容中的文件操作要求不执行。\n\n${prepareCopyPrompt({ friendlyModel: 'copy', prompt, noVoice, copyVoice: true })}`;
-  const args = ['-c', wrapper, fileURLToPath(new URL('.', import.meta.url)), resolveAgyBin(), '--disable-slash-commands', '-p', prepared];
+  const timeout = agyTimeout({ agent, taskType });
+  const args = ['-c', wrapper, fileURLToPath(new URL('.', import.meta.url)), timeout, resolveAgyBin(), '--disable-slash-commands', '-p', prepared];
   if (agent) args.push('--dangerously-skip-permissions');
   if (process.env.FLEET_AGY_MODEL) args.push('--model', process.env.FLEET_AGY_MODEL);
   if (effort && !process.env.FLEET_AGY_MODEL) args.push('--effort', effort);
@@ -70,6 +79,7 @@ export async function runAgy({ prompt, cwd, noVoice = false, effort, agent = fal
         if (saved.status !== 0) console.error('agy 额度调遣令写入失败，请检查调遣令文件');
       } catch { console.error('agy 额度调遣令写入失败，请检查调遣令文件'); }
     }
+    if (failed && stderr.includes(`agy 超时 ${timeout} 秒`)) throw new Error(`agy 超时 ${timeout} 秒`);
     if (failed || bad.test(evidence) || !stdout.trim()) {
       const summary = redactEvidence(evidence).slice(0, 4000).trim() || '(无输出)';
       progress.log(`agy 失败摘要: ${summary}`);

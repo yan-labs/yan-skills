@@ -133,10 +133,10 @@ def find(spec):
     local = []
     if local_dir.exists():
         for path in local_dir.glob('*.json'):
-            if path.name.endswith(('.pid.json', '.queue.json')): continue
+            if path.name.startswith('.') or path.name.endswith(('.pid.json', '.queue.json')): continue
             try:
                 row = json.loads(path.read_text())
-                if row.get('runId'):
+                if isinstance(row, dict) and row.get('runId'):
                     local.append({'id': row['runId'], 'name': row.get('name'), 'startedAt': row.get('startedAt', ''), 'local': True})
             except (OSError, ValueError): pass
     rows = remote + local

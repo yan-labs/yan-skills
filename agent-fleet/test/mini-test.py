@@ -39,6 +39,8 @@ with tempfile.TemporaryDirectory() as tmp:
     spec = importlib.util.spec_from_file_location('fleet_doctor', root / 'src/fleet-go.py')
     go = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(go)
+    cmd = go.command({'to': 'gemini', 'name': 'research', 'brief': '/tmp/b', 'report': '/tmp/r', 'type': 'research'})
+    assert cmd[cmd.index('--type') + 1] == 'research'
     out = io.StringIO()
     with patch.dict(os.environ, {'HOME': str(local), 'AGENT_FLEET_LEDGER': str(local / 'missing-ledger')}), \
          patch.multiple(mini, on_mini=lambda: False, call=run_remote, REMOTE_BIN=str(binary),
@@ -142,6 +144,10 @@ with tempfile.TemporaryDirectory() as d:
     (local / 'local.json').write_text(json.dumps({'runId':'local-id','name':'unit','status':'done','startedAt':'2026-11-10T12:00:00.000Z'}))
     (mini.STORE / 'run-123.json').write_text(json.dumps({'id':'run-123','name':'unit','startedAt':'2026-11-10T11:00:00.000Z'}))
     with patch.dict(os.environ, {'AGENT_FLEET_RUNS_DIR':str(local)}):
+        (local / '.wait-any-test.json').write_text(json.dumps([{'runId': 'hidden', 'name': 'unit'}]))
+        (local / '.hidden.json').write_text(json.dumps({'runId': 'hidden', 'name': 'unit', 'startedAt': '2099'}))
+        (local / 'array.json').write_text(json.dumps(['not a run']))
+        (local / 'null.json').write_text('null')
         (local / 'local-id.queue.json').write_text(json.dumps({'runId':'local-id','name':'unit','state':'running','startedAt':12345}))
         assert mini.find('unit')['id'] == 'local-id'
         (local / 'local.json').write_text(json.dumps({'runId':'local-id','name':'unit','status':'running','startedAt':'2026-11-10T10:00:00.000Z'}))
