@@ -2,14 +2,14 @@
 name: rankup
 description: 独立开发者项目的指挥台：选词选品与需求验证、建站（默认走站点引擎 MCP，可多站成批）、上线前 SEO/GEO 体检、上线接入、变现与监控，并用项目 `.rankup/` 记录做跨会话接力。用户提到 rankup 或 /rankup（check、review、init、doctor），或说「这个词能不能做」「挖点需求」「选品」「做个站」「批量建站」「能不能上线」「接 GSC、提交 sitemap」「流量掉了」「ChatGPT 会不会推荐我们」「定价、接支付」时使用；在有 `.rankup/` 的项目里说「继续」「上次做到哪」「下一步做什么」「整理项目记录」时也使用，即使没提 SEO。macOS、iOS、iPad 原生 App 的立项与项目记录同样适用。不用于：纯写文章或文案（write、blog）、外链执行（backlink）、浏览器驱动（opencli）、配图（imagegen）、派单本身与 fleet 产物清理（agent-fleet）、与项目记录无关的通用开发和部署排错。
 metadata:
-  version: "4.2.0"
+  version: "4.3.0"
 ---
 
 # Rankup
 
 管独立开发者项目从选词到变现的全过程：调研 → 立项 → 建站或原生 App → 上线前 SEO/GEO → 上线接入 → 外链 → 变现与监控。
 SEO/GEO 是主要手段，不是适用边界：项目计划、交接、功能迭代、上线运维、项目记录整理都归这里。
-本文件只做入口：每类任务给一个第一站，读完那一份就能开工；全部参考文件的目录在 [references/INDEX.md](references/INDEX.md)。
+本文件只做入口：每类任务给一个第一站（开工卡），读完那一张就能开工；全部参考文件的目录在 [references/INDEX.md](references/INDEX.md)。
 
 ## 三条口径（下一个会话会把记录当事实）
 
@@ -24,26 +24,26 @@ SEO/GEO 是主要手段，不是适用边界：项目计划、交接、功能迭
 2. 项目任务先读项目接力，按[接力协议](references/project-memory.md#接力协议任务随时可能中断新会话必须立即接上)对账后再动手；只读问答只核对所问的事实。
 3. 跑 check、review、init 前执行 `scripts/check-version.mjs --project-root . --apply`（自带 24 小时节流，网络失败保留当前版本）；doctor 与禁止联网的任务跳过。
 
+被派单的执行者不走 1–3：读 brief 指定的那张开工卡和 [references/executor.md](references/executor.md)。
 需要登录态的验收先按[测试身份与登录通路](references/discipline.md#测试身份与登录通路)复用已有身份。
 
 ## 任务入口
 
 | 用户在说 | 第一站 | 做完的标志 |
 |---|---|---|
-| 继续、上次做到哪、下一步 | [接力协议](references/project-memory.md#接力协议任务随时可能中断新会话必须立即接上) | 下一步已有执行证据 |
+| 继续、上次做到哪、下一步 | [playbooks/resume.md](references/playbooks/resume.md) | 下一步已有执行证据 |
 | 这个词能不能做、扩词（有主词） | [playbooks/entry.md](references/playbooks/entry.md) | 入口卡写进 `.rankup/research/` |
-| 挖需求、没给词 | [p1-discovery.md](references/playbooks/research/p1-discovery.md) | 出现主词，转上一行 |
+| 挖需求、没给词 | [research/p1-discovery.md](references/playbooks/research/p1-discovery.md) | 出现主词，转上一行 |
 | 选品、这个方向值不值得做 | [playbooks/selection.md](references/playbooks/selection.md) | 候选移交 `entry.md` 裁决 |
-| 热度查询与对比、趋势监控 | [trends.md](references/trends.md)、[trends-system.md](references/trends-system.md) | 结论带基线与口径 |
+| 热度查询与对比、趋势监控 | [trends.md](references/trends.md)（长期监控见其中指针） | 结论带基线与口径 |
 | App 有没有需求 | [research.md App 分支](references/playbooks/research.md#app-市场验证分支) | 网页指标标 N/A |
 | 做个站、加功能、成批建站 | [stage-3-build.md](references/lifecycle/stage-3-build.md) | [checklists](references/checklists.md) 段 3 |
 | 写页面内容 | blog Skill（英文站内页）、write Skill（中文） | 回读证据齐 |
-| 能不能上线、SEO/GEO 体检 | [stage-4-prelaunch.md](references/lifecycle/stage-4-prelaunch.md) | 段 4 全绿或写明原因 |
-| 上线、绑域名、接平台、不收录 | [stage-5-launch.md](references/lifecycle/stage-5-launch.md) | `.rankup/integrations.md` 逐行有证据 |
-| 外链、推荐位整改 | [stage-6-backlinks.md](references/lifecycle/stage-6-backlinks.md)、[推荐位闭环](references/seo-geo-recommendation-loop.md) | 台账有证据 |
-| 变现、定价、流量涨跌 | [stage-7-monetize.md](references/lifecycle/stage-7-monetize.md) | 验证记录有证据 |
-| check、review、init | [site-review.md](references/playbooks/site-review.md)、[commands.md](references/commands.md) | 见各文件 |
-| doctor、清理项目过程数据、压缩记忆 | [maintenance.md 六](references/maintenance.md#六rankup-doctor整理-rankup-的显式入口)、[agent-memory.md](references/agent-memory.md) | 整理报告 |
+| 能不能上线、SEO/GEO 体检 | [playbooks/prelaunch.md](references/playbooks/prelaunch.md) | 段 4 全绿或写明原因 |
+| 上线、绑域名、接平台、不收录 | [playbooks/launch.md](references/playbooks/launch.md) | `.rankup/integrations.md` 逐行有证据 |
+| 外链、推荐位、变现、定价、流量涨跌 | [playbooks/growth.md](references/playbooks/growth.md) | 台账与验证记录有证据 |
+| check、review | [playbooks/site-review.md](references/playbooks/site-review.md)（init 等命令见 [commands.md](references/commands.md)） | 结论写回 `.rankup/` |
+| doctor、清理项目过程数据、压缩记忆 | [playbooks/records.md](references/playbooks/records.md) | 整理报告 |
 | 改 rankup 自身、经验回流 | [maintenance.md 五](references/maintenance.md#五维护-skill-源码rankup-本身) | 校验与测试通过 |
 
 以上没有的：[references/INDEX.md](references/INDEX.md)。已有项目但没说做什么：先 check。连方向都没有：只问一句有没有想好的词。

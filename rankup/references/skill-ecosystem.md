@@ -167,7 +167,7 @@ rankup 自己只保留 `cf-zone-setup.mjs`（zone onboarding，**Wrangler 没有
 
 **为什么不接这个 Skill：**
 
-1. **和 rankup 的执行纪律直接冲突。** `SKILL.md` 写着「用了这个 Skill，就意味着全权委托。
+1. **和 rankup 的执行纪律直接冲突。** [`discipline.md` 一](discipline.md#一执行纪律全权委托)写着「用了这个 Skill，就意味着全权委托。
    不存在『要不要继续』『需要我处理吗』」。seo-audit Skill 的第一步是**向用户提六个问题**。
    加载它会让 AI 从「直接跑」切回「先问一轮」，这是倒退。
 2. **它的核心限制条款 rankup 早就绕过了。** 它花了整节警告「`web_fetch`/`curl` 看不到 JS 注入的
@@ -200,7 +200,7 @@ rankup 自己只保留 `cf-zone-setup.mjs`（zone onboarding，**Wrangler 没有
 | `agent-browser` | **不接** | 另一套浏览器自动化。rankup 全线绑 `opencli`（会话纪律、落盘 SOP、adapter 都在那）。两套混用会撞标签页与会话名 |
 | `tuner` / `tuner-ci` | **暂不接** | tuner 是按 credit 计费的取数中转（转录、社媒、检索、抓取）。它的检索与抓取能力已被 anysearch（匿名可用）、agent-reach（6 通道零配置）、[SERP 取数路线](seo-serp.md#serp-取数路线)（浏览器默认）覆盖。**触发条件**：上述三条全部不可用，且用户已有 key，才谈 |
 | `autopilot` / `codex` / `skill-link-check` | **不接（正交）** | 分别是任务编排、图像生成与代码子代理、Skill 链接体检。和网站增长正交，按各自触发词单独使用即可 |
-| `backlink` / `opencli` | **已接入** | 它们不是「兄弟 Skill」而是 rankup 的专项与底座，路由写在 [`capability-map.md`](capability-map.md) §十、§十三和 `SKILL.md`，不重复。原 `game-opportunity` 已于 2026-09-28 移除，见 [`game-sites.md`](game-sites.md) 顶部说明 |
+| `backlink` / `opencli` | **已接入** | 它们不是「兄弟 Skill」而是 rankup 的专项与底座，路由写在 [`capability-map.md`](capability-map.md) §十、§十三和 [`playbooks/growth.md`](playbooks/growth.md)，不重复。原 `game-opportunity` 已于 2026-09-28 移除，见 [`game-sites.md`](game-sites.md) 顶部说明 |
 
 ---
 

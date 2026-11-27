@@ -1,5 +1,14 @@
 # 调研流水线 · P1 挖需求
 
+## 开工卡
+
+被派单的执行者先读 [`../../executor.md`](../../executor.md)。
+
+- **触发**：见 [触发](#触发)。**输入**：没有词根，只有方向或什么都没有。
+- **步骤**：[流水线](#流水线)第一小时先跑最小子集，再进候选池 → 域名画像 → 主词移交 P2。
+- **读哪里**：[判读](#判读)；候选裁决只在 [`entry.md`](../entry.md)。
+- **完成标志与收尾**：见 [收尾](#收尾)。
+
 新品候选可补跑 `node scripts/demand/new-launches.mjs --days 7 --sources taaft,toolify --snapshot-dir <dir> --compare --md --json`：
 TAAFT 最新收录入口为 `/just-released/`，按根域统计多站同词与首次观察新增；[用法、覆盖限制与下一步](../../demand-sources/users-and-launches.md#新品快照与多站同词候选)。
 候选先交 gpts 基线判读与 `entry.md` 入口环节，不据目录收录直接判断需求。

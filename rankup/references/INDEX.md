@@ -7,7 +7,13 @@
 
 | 文件 | 何时读 |
 |---|---|
+| [`executor.md`](executor.md) | 被派单的执行者先读：五条红线、证据口径、不做的事、交付 |
 | [`playbooks/INDEX.md`](playbooks/INDEX.md) | 要写或改一张开工卡、一条流水线时（格式在这里） |
+| [`playbooks/resume.md`](playbooks/resume.md) | 继续、接力、三方对账 |
+| [`playbooks/prelaunch.md`](playbooks/prelaunch.md) | 上线前体检的顺序与命令 |
+| [`playbooks/launch.md`](playbooks/launch.md) | 上线、绑域名、接平台 |
+| [`playbooks/growth.md`](playbooks/growth.md) | 外链时机、推荐位、变现、流量涨跌 |
+| [`playbooks/records.md`](playbooks/records.md) | doctor、清理过程数据、压缩记忆 |
 | [`playbooks/entry.md`](playbooks/entry.md) | 有主词：四步验证与两路裁决 |
 | [`playbooks/research.md`](playbooks/research.md) | 调研的五个取数动作、四条铁律、App 市场验证分支、P4 反查域名 |
 | [`playbooks/research/p1-discovery.md`](playbooks/research/p1-discovery.md) | 没给词：挖需求 |

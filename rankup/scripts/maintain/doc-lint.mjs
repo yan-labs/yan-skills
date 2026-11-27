@@ -17,6 +17,8 @@
 //   3. 根目录有 SKILL.md 时查入口上限：全文行数、字符数，以及 frontmatter 之外的单行字符数
 //      （默认 120 行 / 7000 字符 / 单行 200 字符，字符按 Unicode 码位计）。超了记「入口超标」（警告）。
 //      为什么：入口每次触发都整篇载入，行数压下去而单行变长等于没瘦身（2026-11 重构依据）。
+//   4. 含 `## 开工卡` 的文件查卡：卡（到下一个 `## ` 或文末）超过 80 行，或第一行正文没指向 executor.md，
+//      记「开工卡问题」（警告）。为什么：开工卡是任务第一站，长了就变回第二份正文；被派单的执行者靠首行找到红线。
 // 锚点按 GitHub 规则生成：去掉标点与符号、小写、空格变 `-`，重名依次加 `-1`、`-2`。
 // 退出码：0 无断链；1 有断链；2 参数错误。只读，不改任何文件。
 // 已验证：2026-09-30 在本 Skill 全量文档上运行。
@@ -137,6 +139,24 @@ export function entryStats(text, limits = ENTRY_LIMITS) {
   return { lines: lines.length, chars, longLines, problems };
 }
 
+export const CARD_MAX_LINES = 80;
+
+// 开工卡：从 `## 开工卡` 到下一个二级标题（或文末），不含尾部空行。
+export function cardStats(text, maxLines = CARD_MAX_LINES) {
+  const lines = stripFences(text);
+  const start = lines.findIndex((l) => /^##\s+开工卡\s*$/.test(l));
+  if (start < 0) return null;
+  let end = lines.findIndex((l, i) => i > start && /^##\s/.test(l));
+  if (end < 0) end = lines.length;
+  while (end > start + 1 && lines[end - 1].trim() === "") end--;
+  const length = end - start;
+  const first = lines.slice(start + 1, end).find((l) => l.trim() !== "") ?? "";
+  const problems = [];
+  if (length > maxLines) problems.push(`开工卡 ${length} 行 > ${maxLines}`);
+  if (!first.includes("executor.md")) problems.push("开工卡首行没有指向 executor.md");
+  return { line: start + 1, lines: length, problems };
+}
+
 export async function lint({ root, maxLines = 600, maxKb = 80, includeOutside = false, entryLimits = ENTRY_LIMITS }) {
   const skipRankup = path.basename(root) !== ".rankup";
   const files = await walk(root, { skipRankup });
@@ -147,6 +167,7 @@ export async function lint({ root, maxLines = 600, maxKb = 80, includeOutside = 
   };
   const broken = [];
   const oversize = [];
+  const cards = [];
   let linkCount = 0;
   let outside = 0;
   for (const file of files) {
@@ -156,6 +177,8 @@ export async function lint({ root, maxLines = 600, maxKb = 80, includeOutside = 
     if (lines > maxLines || kb > maxKb) {
       oversize.push({ file: path.relative(root, file), lines, kb: Math.round(kb) });
     }
+    const card = cardStats(text);
+    if (card) cards.push({ file: path.relative(root, file), ...card });
     for (const { line, target } of linksOf(text)) {
       linkCount++;
       const [rawPath, anchor] = target.split("#");
@@ -195,7 +218,8 @@ export async function lint({ root, maxLines = 600, maxKb = 80, includeOutside = 
   let entry = null;
   const skillText = await load(path.join(root, "SKILL.md"));
   if (skillText !== null) entry = { file: "SKILL.md", ...entryStats(skillText, entryLimits), limits: entryLimits };
-  return { root, files: files.length, links: linkCount, outside, broken, oversize, maxLines, maxKb, entry };
+  cards.sort((a, b) => a.file.localeCompare(b.file));
+  return { root, files: files.length, links: linkCount, outside, broken, oversize, maxLines, maxKb, entry, cards };
 }
 
 function render(r) {
@@ -211,6 +235,11 @@ function render(r) {
     out.push(`入口超标（警告）：${e.problems.length ? e.problems.join("；") : 0}`);
     for (const l of e.longLines) out.push(`  SKILL.md:${l.line}：${l.chars} 字符`);
   }
+  if (r.cards?.length) {
+    const bad = r.cards.filter((c) => c.problems.length);
+    out.push(`开工卡：${r.cards.length} 张，问题（警告）：${bad.length}`);
+    for (const c of bad) out.push(`  ${c.file}:${c.line}：${c.problems.join("；")}`);
+  }
   return out.join("\n");
 }
 
@@ -223,7 +252,7 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
     process.exit(2);
   }
   if (opts.help) {
-    console.log("用法：node scripts/maintain/doc-lint.mjs [--root <目录>] [--max-lines 600] [--max-kb 80] [--include-outside] [--json]\n根目录有 SKILL.md 时另报入口上限（120 行 / 7000 字符 / 单行 200 字符）。");
+    console.log("用法：node scripts/maintain/doc-lint.mjs [--root <目录>] [--max-lines 600] [--max-kb 80] [--include-outside] [--json]\n根目录有 SKILL.md 时另报入口上限（120 行 / 7000 字符 / 单行 200 字符）；含「## 开工卡」的文件另查卡长（≤80 行）与首行指向 executor.md。");
     process.exit(0);
   }
   const report = await lint(opts);

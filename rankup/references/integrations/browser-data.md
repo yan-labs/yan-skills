@@ -55,7 +55,7 @@
 适用于「没有 API / API 收费 / 导出扣点数」的场景：SEO 工具、广告后台、分析平台的表格。
 细节能力交给 `backlink` 的 [`references/harvest.md`](../../../backlink/references/harvest.md)，本节只记跨工具通用、且已验证的约束。
 
-落盘要求见 [`SKILL.md`](../../SKILL.md) 的「导出物落盘 SOP（强制）」，那是硬性前置条件。
+落盘要求见 [`discipline.md`](../discipline.md) 的落盘规则，那是硬性前置条件。
 
 ### 接入策略：有 HTTP 就走 HTTP，没有才用 MCP
 

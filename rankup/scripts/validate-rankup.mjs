@@ -17,7 +17,7 @@ import { lint as lintDocs } from "./maintain/doc-lint.mjs";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "4.2.0";
+const expectedVersion = "4.3.0";
 const requiredReferences = [
   "commands.md",
   "integrations/kie.md",
@@ -38,6 +38,12 @@ const requiredReferences = [
   "lifecycle/stage-7-monetize.md",
   "maintenance.md",
   "playbooks/entry.md",
+  "executor.md",
+  "playbooks/resume.md",
+  "playbooks/prelaunch.md",
+  "playbooks/launch.md",
+  "playbooks/growth.md",
+  "playbooks/records.md",
   "cloudflare-stack.md",
   "project-memory.md",
   "integrations.md",
@@ -209,9 +215,15 @@ const requiredContent = {
     "experience.md",
     "## 目录规范：常驻文件、保留什么、去哪里、多大",
     "原始数据不常驻，结论进文档",
-    "三方对账门禁",
     "**什么时候写（硬性）**",
   ],
+  // 4.3.0 开工卡：三方对账门禁全文从 project-memory.md 迁到 resume.md，project-memory 只留指针。
+  "references/playbooks/resume.md": ["## 开工卡", "../executor.md", "三方对账门禁", "rejected.md"],
+  "references/playbooks/prelaunch.md": ["## 开工卡", "../executor.md", "图标专项未通过不许上线", "上线前与发布后复核入口"],
+  "references/playbooks/launch.md": ["## 开工卡", "../executor.md", "site-onboard.mjs", "ai-crawler-access.mjs"],
+  "references/playbooks/growth.md": ["## 开工卡", "../executor.md", "backlink", "流量涨跌怎么拆"],
+  "references/playbooks/records.md": ["## 开工卡", "../executor.md", "scripts/maintain/rankup-doctor.mjs", "scripts/maintain/rankup-clean.mjs"],
+  "references/executor.md": ["严禁在 Skill、`.rankup/`、Git、测试或回复中保存真实密钥", "## 五条红线", "## 证据口径", "不再往下派单"],
   "references/playbooks/site-review.md": [
     "G6 循环与费用止损",
   ],

@@ -8,7 +8,7 @@
 
 关键词调研的顺序、两路裁决与 KD 处理只见 [`entry.md`](../playbooks/entry.md#选词判据只看两个)；本段负责接收证据与移交，不另设筛子。
 
-### 硬规则（全文，含「为什么」；`SKILL.md` 只留摘要）
+### 硬规则（全文，含「为什么」）
 
 兼容旧标题；现行规则与方法只见 [`entry.md`](../playbooks/entry.md)，工具编排见 [`research.md`](../playbooks/research.md)。
 
