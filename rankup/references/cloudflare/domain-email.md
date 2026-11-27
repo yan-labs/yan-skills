@@ -262,14 +262,16 @@ routing 显示「已禁用」但 DNS 记录和规则都在。此时 API `POST ..
 **冲突风险**：`enable` 会写入 Cloudflare 自己的 MX 记录。如果域名已有 MX
 （Google Workspace / Zoho 等），启用前先确认不会抢走现有邮箱的收件。
 
-**只管收件**：Email Routing 只做转发，不提供发件能力。发信用下面的 Cloudflare Email Sending；验证码、改密、完成通知、回复来信都走它，**不再接 Resend 等第三方发信服务**（2026-10-08 起）。
+**收发分开配置**：Email Routing 负责收件转发；仅配置 Routing 时仍可向已验证地址走旧版发信路径，推荐独立开通 Email Sending。发信用下面的 Cloudflare Email Sending；验证码、改密、完成通知、回复来信都走它，**不再接 Resend 等第三方发信服务**（2026-10-08 起）。
 
 ### 发信：Cloudflare Email Sending（2026-10-08 实测）
-- 状态 beta；需要 Workers Paid（账户已是），含每月 3000 封（全账户所有站共用），超出 $0.35/千封；发给已验证的目的地址免费。域名须用 Cloudflare DNS。
-- **开通（一条 API，不用进面板）**：`POST /zones/<zone>/email/sending/subdomains`，body `{"name":"<域名或子域名>"}`。会自动加 `cf-bounce.<name>` 的 MX、SPF、DKIM，以及缺失时的 `_dmarc`（`p=reject`），不改原有记录。站点验证码沿用 `login@mail.<域名>` 就开通 `mail.<域名>`；人工回信用 `hello@<域名>` 就开通根域。先拍 DNS 快照再开通，回读新增记录。
+- **2026-11-27 核对**：Email Sending（beta）自 11 月 24 日起支持 Workers Free，限账户已验证的目的地址（不计入月额度或每日发送限额）；任意收件人仍需 Workers Paid，账户每月含 3000 封，超出 $0.35/千封。内部通知、开发测试可免费；面向用户的验证码和任意客户回信不能假设免费。域名须使用 Cloudflare DNS。[官方更新](https://developers.cloudflare.com/changelog/post/2026-11-24-email-sending-workers-free/) · [价格](https://developers.cloudflare.com/email-service/platform/pricing/) · [限制](https://developers.cloudflare.com/email-service/platform/limits/)（每封最多 50 个收件人、25 MiB，账户目的地址最多 200 个）。
+- **开通（一条 API，不用进面板）**：`POST /zones/<zone>/email/sending/subdomains`，body `{"name":"<域名或子域名>"}`。会自动加 `cf-bounce.<name>` 的 MX、SPF、DKIM，以及缺失时的 `_dmarc`（`p=reject`），不改原有记录。站点验证码沿用 `login@mail.<域名>` 就开通 `mail.<域名>`；人工回信用 `hello@<域名>` 就开通根域。先拍 DNS 快照再开通，回读新增记录。Dashboard 可走 Compute → Email Service → Email Sending → Onboard Domain；保留根域收信 MX 和规则，先确认已有发信服务不会受默认 DMARC 拒收策略影响。[域名配置](https://developers.cloudflare.com/email-service/configuration/domains/) · [开通 API](https://developers.cloudflare.com/api/resources/email_sending/subresources/subdomains/methods/create/)（2026-11-27 核对）。
 - **新开通域名要等约 1 分钟**才能发，之前会返回 `sending_disabled`（code 10203），不是权限问题，等一下重试。
 - **站点代码**：wrangler 加 `"send_email": [{ "name": "EMAIL" }]`，代码 `env.EMAIL.send({ from: {email,name}, to, subject, text, html, replyTo })`，不需要任何 secret；无幂等键，重复发送靠自己的发码/通知表去重。模板见 saas-template。
 - **脚本/人工发信（REST）**：`POST /accounts/<account>/email/sending/send`，字段 `to, from(字符串或{address,name}), reply_to, subject, text, html`；返回 `delivered/queued/permanent_bounces`，`queued` 不等于已送达，要回读。
+- **SMTP**：smtp.mx.cloudflare.net:465（TLS），用户名 api_token，密码用有 Email Sending: Edit 权限的 API token；REST 推荐同权限 token，Worker 无需部署公网测试端点。[REST](https://developers.cloudflare.com/email-service/api/send-emails/rest-api/) · [Worker](https://developers.cloudflare.com/email-service/api/send-emails/) · [SMTP](https://developers.cloudflare.com/email-service/api/send-emails/smtp/)（2026-11-27 核对）。
+- **2026-11-27 实测**：ductrise.org 开通 API HTTP 200，sending enabled=true，新增 bounce MX/SPF、DKIM、DMARC；原根域 MX 与转发规则不变。support@ductrise.org 向账户已验证 Gmail 发信 REST HTTP 200、success=true、queued，收件箱待另行核验。未购买套餐。
 - **回信流程（读者/来信回复）**：①Gmail 读来信并核实事实；②做完网站改动并上线、回读页面；③用官方 `hello@<域名>` 从 REST 发感谢信（`reply_to` 设为 hello@，回信会经 Email Routing 回到收件箱）；④公开署名、转载等要先问对方同意，未获同意一律匿名。不要用个人 Gmail 回，容易被对方过滤，也不是官方身份。
 - 上线验收：真实触发一次验证码并在收件箱回读；有 Turnstile 的入口需真人在浏览器里登录一次；确认可用后再删旧的 `RESEND_API_KEY` secret，并在项目 `.rankup/integrations.md` 记录发信域名与验收时间。
 

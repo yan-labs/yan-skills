@@ -38,7 +38,7 @@ last_verified: 2026-11-27，工具数 108（按引擎源码与新会话的工具
 | 页面 | `page_get`、`page_upsert`、`page_edit`、`page_delete` | 新建或更新页面（先 draft）；线上页只局部改 |
 | 跳转 | `redirect_put`、`redirect_check`、`redirect_list`、`redirect_delete` | 改 URL、切域名前核对老网址 |
 | 素材与品牌 | `asset_list`、`asset_put`、`asset_upload_url`、`asset_note`、`asset_delete`、`brand_set` | 先用站长传的素材；图标全套与分享图走 `brand_set` |
-| SEO 产物 | `ads_txt_put`、`indexnow_submit`、`ai_crawlers`、`email_routing` | 广告声明；手动重推索引；查改 AI 爬虫策略；联系邮箱转发 |
+| SEO 产物 | `ads_txt_put`、`indexnow_submit`、`ai_crawlers`、`email_routing` | 广告声明；手动重推索引；查改 AI 爬虫策略；联系邮箱转发；需要发信见 [Cloudflare Email Sending](../cloudflare/domain-email.md#发信cloudflare-email-sending2026-10-08-实测) |
 | 性能与存储 | `media_sync`、`site_store` | 图片改由对象存储直发；访客数据单独存放 |
 | 预览、体检、发布 | `preview`、`check`、`publish`、`list_versions`、`rollback`、`unpublish` | 草稿渲染与预览链接；整站体检；发布与回滚（发布级权限） |
 | 上线清单与待办 | `launch_checklist`、`launch_tick`、`issue_add`、`issue_list`、`issue_update` | 上线项与下一项；外部做完打勾；站内问题台账（稳定 key） |

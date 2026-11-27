@@ -199,8 +199,7 @@ API 能立刻生效。AI 爬虫的 Bot Management 四字段已有 zone API，按
       点了才能用作转发目标。同一个 Cloudflare 账号下已验证过的地址**跨域名共用**，不需要重新验证。
     - **Dashboard 开关可能无响应**：实测 Email Routing 的「启用/禁用」按钮偶尔点击无效——
       routing 显示「已禁用」但 DNS 记录和规则都在。此时用 API `POST .../enable` 能立刻生效。【实测 2026-09-03】
-    - **这只解决收件**。如果需要用 `hello@<domain>` 发信（不只是收），
-      需另接发信服务并验证 SPF / DKIM 与 DMARC 对齐，不能把 Routing 当成外发能力。
+    - **需要发信**：按[Cloudflare Email Sending](../cloudflare/domain-email.md#发信cloudflare-email-sending2026-10-08-实测)开通、验证及选套餐，不重复配置收件。
     - **地址只有一个约定：`hello@`。** 不用 `contact@`（多一个写法就多一处不一致）、
       不用 `admin@`（暗示管理入口）、不用 `info@`（垃圾邮件重灾区）。
 

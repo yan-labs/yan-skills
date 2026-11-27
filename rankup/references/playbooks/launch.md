@@ -30,7 +30,7 @@
 1. `get_site` 看域名是否就绪；没好就照返回的说明与 `tell_owner_now` 处理，不催发布。
 2. 要上线的页面设为 ready，`publish`；版本、变更、剩余草稿、`domain_ready`、索引推送结果、`tdh_warning` 写进 `.rankup/releases.md`。`domain_ready` 为 false 只能记「已发布，域名未生效」。
 3. `pvuv_connect`；搜索引擎验证文件用 `update_site` 写进站点设置（整份替换，先 `get_site` 读原值），改完再 `publish`。
-4. `email_routing` 设联系邮箱转发（转到哪个邮箱先问）；`ai_crawlers` 查并放行 AI 爬虫，再跑第 6 步实测。
+4. `email_routing` 设联系邮箱转发（转到哪个邮箱先问）；需发信见 [Cloudflare Email Sending](../cloudflare/domain-email.md#发信cloudflare-email-sending2026-10-08-实测)；`ai_crawlers` 查并放行 AI 爬虫，再跑第 6 步实测。
 5. `launch_checklist` 逐项推进；GSC、Bing、sitemap 提交、目录提交这类外部动作做完用 `launch_tick` 打勾。
 6. 出问题 `list_versions` 选版本 `rollback`（先问站长）。
 
