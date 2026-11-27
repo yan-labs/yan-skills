@@ -45,6 +45,7 @@ export function appendInbox(runId, entry) {
   const rec = {
     type: entry.type,
     ...(entry.type === 'ask' ? { id: entry.id, runId: entry.runId, kind: entry.kind } : {}),
+    ...(entry.askId ? { askId: entry.askId } : {}),
     text: entry.text ?? '',
     at: entry.at ?? new Date().toISOString(),
   };

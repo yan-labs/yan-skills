@@ -41,3 +41,19 @@ with TemporaryDirectory() as temp:
     wake = json.loads((root/'maker.wake.json').read_text())
     assert wake['condition'] == 'review' and wake['status'] == 'done' and wake['reviewRunId'] == rv['runId']
 print('PASS pinned supervisor review wake')
+
+with TemporaryDirectory() as temp:
+    root = Path(temp)
+    db = sqlite3.connect(':memory:')
+    db.row_factory = sqlite3.Row
+    db.execute('CREATE TABLE runs (id TEXT, state TEXT)')
+    db.execute("INSERT INTO runs VALUES ('maker', 'parked')")
+    (root / 'maker.yield').write_text(json.dumps({'until':'compat-run:child','at':1000}))
+    watch['wake_legacy_review_parks'](db, root, now)
+    assert not (root/'maker.wake.json').exists()
+    child = {'detach': True,'runId':'fixture-detach-child','name':'child','status':'done'}
+    (root/'fixture-detach-child.json').write_text(json.dumps(child))
+    watch['wake_legacy_review_parks'](db, root, now)
+    wake = json.loads((root/'maker.wake.json').read_text())
+    assert wake['condition'] == 'compat-run:child' and wake['status'] == 'done'
+print('PASS pinned supervisor waits for previously unregistered run')

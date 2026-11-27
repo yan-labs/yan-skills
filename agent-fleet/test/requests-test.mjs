@@ -13,7 +13,9 @@ const ask = {id:'a',runId:'maker',kind:'resource',text:'资源',at:'2026-01-01T0
 writeFileSync(join(root,'maker.asks'),JSON.stringify(ask)+'\n');
 assert.equal(pendingFor('maker').length,1);
 writeFileSync(join(root,'maker.inbox'),JSON.stringify({type:'say',at:'2026-01-01T00:00:01.000Z'})+'\n');
-assert.equal(pendingFor('maker').length,0);
+assert.equal(pendingFor('maker').length,1, '普通插话不能关闭信号');
+appendFileSync(join(root,'maker.inbox'),JSON.stringify({type:'say',askId:'a',at:'2026-01-01T00:00:02.000Z'})+'\n');
+assert.equal(pendingFor('maker').length,0, '只有关联 ID 答复才关闭');
 const review = {...ask,id:'b',kind:'review'};
 appendFileSync(join(root,'maker.asks'),JSON.stringify(review)+'\n');
 assert.equal(pendingFor('maker').length,1);

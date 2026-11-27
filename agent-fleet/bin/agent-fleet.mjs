@@ -20,8 +20,8 @@ import { currentRun, writeYield, ask, startBackground, watchBinding, watchReques
 // 本文件只负责:解析参数、装配 config/env、调用 src/ 下的核心逻辑、格式化输出。
 // 不在这里写任何 SDK 调用细节——那些都在 src/run-task.mjs 里。
 
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { readFileSync, existsSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
+import { randomUUID, createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { registerQueue, acquireSlot, setSlotState, releaseParentSlot } from '../src/queue.mjs';
 import { spawnSync } from 'node:child_process';
@@ -33,7 +33,7 @@ import { loadModelsConfig, defaultConfigPath, ConfigError } from '../src/config.
 import { runTask, resolveTaskEffort } from '../src/run-task.mjs';
 import { runMany } from '../src/run-many.mjs';
 import { judgeTask } from '../src/judge-task.mjs';
-import { createProgress } from '../src/progress.mjs';
+import { createProgress, runsDir } from '../src/progress.mjs';
 import { tailLatestLog } from '../src/tail-log.mjs';
 import { timelineFile } from '../src/timeline.mjs';
 import { buildBrief, DEFAULT_BRIEF_LINES, renderManyOutput, renderRunOutput, failureReport, redactEvidence, inspectGit, fillReport } from '../src/brief.mjs';
@@ -78,7 +78,7 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
   Actions 使用 gh-run:<GitHub Actions URL>@<完整 SHA>，runner 对同条件限频读取。
   远程条件由 watchd 写 runs/<runId>.wake.json：{condition,at(毫秒),status:done|failed,logPath?}。
   plan/handoff/park/blocked/ask 在任务内定位本单，独立调用可用 --run <runId>。
-  fleet say <id|latest> "消息" | stop <id|latest> | resume <id|latest>
+  fleet say <id|latest> "消息" [--ask <信号ID>] | stop <id|latest> | resume <id|latest>
   fleet media list | run <tool> --model <id> --prompt "..." [--input-json '{}'] [--out dir]
   fleet media models [--source openrouter] [--search text]
   fleet media run image|video --provider gemini-api --prompt "..." [--dry-run]
@@ -353,7 +353,7 @@ function cmdSay(argv) {
   const spec = positionals[0];
   const text = positionals.slice(1).join(' ').trim();
   try {
-    const { runId, mode } = deliverSay(spec, text, { cwd: matchCwd(flags) });
+    const { runId, mode } = deliverSay(spec, text, { cwd: matchCwd(flags), askId: flags.ask });
     const note = mode === 'steer' ? '（优先同轮 steer；接受不等于立即执行，失败尝试续会话）'
       : mode === 'resume' ? '（已排队，当前轮结束后续会话）' : '';
     console.log(`已投递到 ${runId}${note}`);
@@ -743,21 +743,27 @@ async function main() {
         const { flags, positionals } = splitShortArgs(rest);
         if (!positionals[0]) throw new Error('用法: fleet wait <runId|latest> [--timeout 秒]');
         if (flags.any) {
+          const resume = await releaseParentSlot();
+          try {
           const ids = positionals.map(spec => resolveDetached(spec, matchCwd(flags)));
           const start = Date.now();
+          const cursorPath = join(runsDir(), '.wait-any-' + createHash('sha256').update(JSON.stringify([...ids].sort())).digest('hex') + '.json');
+          let seen; try { seen = new Set(JSON.parse(readFileSync(cursorPath, 'utf8'))); } catch { seen = new Set(); }
+          const saveCursor = () => { mkdirSync(runsDir(), { recursive: true }); const temp = cursorPath + '.' + process.pid + '.tmp'; writeFileSync(temp, JSON.stringify([...seen])); renameSync(temp, cursorPath); };
           for (;;) {
             for (const id of ids) {
               const initial = readState(id);
               if (!initial) throw new Error(`找不到 detach 任务 ${id}`);
               const rec = initial.pid ? reconcileDetached(initial) : initial;
-              const pending = pendingFor(id);
-              if (pending.length) { console.log(JSON.stringify({ runId: id, event: 'pending', signals: pending.map(a => ({...a, ageMs: Date.now() - Date.parse(a.at)})) })); return; }
+              const pending = pendingFor(id).filter(a => !seen.has(a.id));
+              if (pending.length) { for (const a of pending) seen.add(a.id); saveCursor(); console.log(JSON.stringify({ runId: id, event: 'pending', signals: pending.map(a => ({...a, ageMs: Date.now() - Date.parse(a.at)})) })); return; }
               const state = detachedState(rec);
-              if (!['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(state)) { console.log(JSON.stringify({runId: id, event: 'terminal', status: state})); return; }
+              if (!['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(state)) { const key = `terminal:${id}:${state}:${rec.finishedAt || ''}`; if (!seen.has(key)) { seen.add(key); saveCursor(); console.log(JSON.stringify({runId: id, event: 'terminal', status: state})); return; } }
             }
             if (flags.timeout && Date.now() - start >= Number(flags.timeout) * 1000) { process.exitCode = 1; return; }
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
+          } finally { await resume(); }
         }
         process.exitCode = await waitDetached(positionals[0], { cwd: matchCwd(flags), timeout: flags.timeout, quiet: Boolean(flags.quiet || flags.json) });
         break;

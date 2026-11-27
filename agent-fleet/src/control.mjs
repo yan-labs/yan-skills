@@ -1,3 +1,4 @@
+import { pendingFor } from './requests.mjs';
 import { isCodexModel } from './model-family.mjs';
 // status / say / stop 的控制面。只按 pid.json 里的 pid 操作,绝不 pkill/killall。
 
@@ -82,7 +83,7 @@ export function formatStatusHuman(rows) {
 }
 
 /** say 以 detach 的监督状态判断存活，收件箱始终绑定精确 runId。 */
-export function deliverSay(spec, text, { cwd } = {}) {
+export function deliverSay(spec, text, { cwd, askId } = {}) {
   if (!text) throw new Error('缺少消息。用法: agent-fleet say <run-id|latest> "<消息>"');
   const selected = spec === 'latest' ? collectStatus({ cwd: cwd ?? process.cwd() }).find(row => ['running', 'parked', 'waiting'].includes(row.state))?.runId : spec;
   const runId = resolveRunId(selected && selected !== 'latest' ? resolveDetached(selected, cwd) : spec, cwd);
@@ -103,7 +104,8 @@ export function deliverSay(spec, text, { cwd } = {}) {
   if (rec.finished || !isRecordedProcessAlive(rec.pid, rec.command)) {
     throw new Error(`任务 ${runId} 已不在运行,无法投递插话。`);
   }
-  appendInbox(runId, { type: 'say', text });
+  if (askId && !pendingFor(runId).some(a => a.id === askId && a.kind !== 'review')) throw new Error('找不到该未答信号 ID。');
+  appendInbox(runId, { type: 'say', text, askId });
   return { runId, delivered: true, mode: codex ? rec.backend === 'codex-app-server' && !rec.resumeBlocked ? 'steer' : 'resume' : undefined };
 }
 

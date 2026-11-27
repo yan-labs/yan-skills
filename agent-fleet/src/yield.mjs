@@ -47,15 +47,16 @@ export function validateCondition(condition) {
     if (!Array.isArray(children) || !children.length) throw new Error('all:/any: 后须为非空条件 JSON 数组。');
     children.forEach(validateCondition); return;
   }
-  if (!['file', 'run', 'job', 'after', 'at', 'cmd', 'gh-run', 'gh-pr', 'land', 'lock'].includes(kind)) throw new Error(`不支持条件 ${kind}`);
+  if (!['file', 'run', 'compat-run', 'job', 'after', 'at', 'cmd', 'gh-run', 'gh-pr', 'land', 'lock'].includes(kind)) throw new Error(`不支持条件 ${kind}`);
   if (kind === 'after') duration(value);
   if (kind === 'at' && !Number.isFinite(Date.parse(value))) throw new Error('at: 需要有效时间。');
-  if (kind === 'run' || kind === 'job') validId(value);
+  if (kind === 'run' || kind === 'compat-run' || kind === 'job') validId(value);
   if (kind === 'gh-run' && value.includes('@') && !exactActions.test(value)) throw new Error('gh-run 需要 GitHub Actions URL@完整提交 SHA。');
 }
 export function writeYield(id, entry) {
   validId(id);
   if (entry.type === 'park') {
+    if (entry.until?.startsWith('run:')) entry = { ...entry, until: 'compat-run:' + entry.until.slice(4) };
     validateCondition(entry.until);
     if (!entry.say?.trim()) throw new Error('park 需要 --say，说明醒来做什么。');
   } else if (entry.type === 'plan') {
@@ -150,11 +151,11 @@ export async function localCondition(condition, { id, entry, cwd, replies = [] }
   }
   if (kind === 'file') return existsSync(resolve(cwd, value)) ? { status: 'done', path: value } : null;
   if (kind === 'after' || kind === 'at') return Date.now() >= (kind === 'after' ? entry.at + duration(value) : Date.parse(value)) ? { status: 'done' } : null;
-  if (kind === 'run' || kind === 'job') {
-    const matches = kind === 'run' ? records().filter(r => r.runId === value || r.name === value || r.runId.startsWith(value)) : [];
+  if (kind === 'run' || kind === 'compat-run' || kind === 'job') {
+    const matches = kind !== 'job' ? records().filter(r => r.runId === value || r.name === value || r.runId.startsWith(value)) : [];
     if (matches.length > 1) return { status: 'failed', text: `run:${value} 匹配不唯一，请指定完整 runId。` };
-    const rec = matches[0] || readJSON(pathFor(value, kind === 'job' ? 'job.json' : 'json')) || (kind === 'run' ? readPidRecord(value) : null);
-    if (!rec) return kind === 'run' ? null : { status: 'failed', text: `找不到本地 job:${value}` };
+    const rec = matches[0] || readJSON(pathFor(value, kind === 'job' ? 'job.json' : 'json')) || (kind !== 'job' ? readPidRecord(value) : null);
+    if (!rec) return kind !== 'job' ? null : { status: 'failed', text: `找不到本地 job:${value}` };
     if (['running', 'queued', 'parked', 'waiting'].includes(rec.status) || (!rec.status && !rec.finished)) return null;
     return { status: rec.status === 'done' || (!rec.status && rec.verdict === 'ok') ? 'done' : 'failed', logPath: rec.logPath, resultPath: rec.resultPath };
   }
