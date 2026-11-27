@@ -22,6 +22,9 @@
 | [`playbooks/build.md`](playbooks/build.md) | 建站与加功能：引擎优先、多站成批、自建回退 |
 | [`experiences/selection-gates.md`](experiences/selection-gates.md) | 方向候选的经营观察字段与历史案例（旧七闸） |
 | [`experiences/selection-history.md`](experiences/selection-history.md) | 六轮选品失败复盘、防复发规则与历史读数 |
+| [`experiences/content-seo-notes.md`](experiences/content-seo-notes.md) | 内容 SEO 从业者笔记：页面规划、工具页、速度、迁移、GEO，逐条带证据等级与官方对照 |
+| [`experiences/ops-pitfalls.md`](experiences/ops-pitfalls.md) | 已证实的高频操作错误与正确做法 |
+| [`experiences/checker-failures.md`](experiences/checker-failures.md) | 检查器自身的失败形态：可信的错误结果、空心断言、漏检 |
 | [`playbooks/selection/generator.md`](playbooks/selection/generator.md) | 候选采集工具（领先指标法等）及其边界 |
 | [`playbooks/site-review.md`](playbooks/site-review.md) | `rankup check`（第二节）与 `rankup review`（第一节） |
 | [`research-checklist.md`](research-checklist.md) | 调研交付前核对证据覆盖 |
@@ -91,6 +94,7 @@
 | [`seo-ssr.md`](seo-ssr.md) | 无关区块不进 SSR；AI 爬虫 UA 一致性 |
 | [`seo-helpful-content.md`](seo-helpful-content.md) | 有用内容、E-E-A-T、AI 内容自检 |
 | [`seo-box.md`](seo-box.md) | 外部工具清单对账、AITDK 报告离线分流、重定向链与技术栈指纹 |
+| [`official/search-technical.md`](official/search-technical.md) | 官方层（技术）：抓取索引、规范化、结构化数据实现、页面体验、多语言、迁移、AI 功能与爬虫、批量工具站红线；每条带链接、更新与核对日期、性质 |
 | [`seo-audit-reading.md`](seo-audit-reading.md) | PageSpeed 网页版与 LHR 直抠、`seo-audit.mjs` 观察记录的分级判读 |
 | [`seo-opportunity.md`](seo-opportunity.md) | 候选池与冷启动的背景框架 |
 | [`seo-data-channels.md`](seo-data-channels.md) | 接新项目时选数据通道 |

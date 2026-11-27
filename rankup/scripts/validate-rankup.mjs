@@ -17,7 +17,7 @@ import { lint as lintDocs } from "./maintain/doc-lint.mjs";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "5.0.0";
+const expectedVersion = "5.1.0";
 const requiredReferences = [
   "commands.md",
   "integrations/kie.md",
@@ -47,6 +47,8 @@ const requiredReferences = [
   "playbooks/build.md",
   "playbooks/selection.md",
   "integrations/site-engine.md",
+  "official/search-technical.md",
+  "experiences/content-seo-notes.md",
   "lifecycle/stage-3-scaffold.md",
   "cloudflare-stack.md",
   "project-memory.md",
@@ -160,8 +162,8 @@ const requiredContent = {
     "https://validator.schema.org/",
     "grid → row → gridcell",
   ],
-  "references/playbooks/build.md": ["## 开工卡", "../executor.md", "## 引擎站步骤", "## 自建站（回退）", "由派单方取一次再分发", "品牌图标在开发当天做齐", "design-references.md#多功能工具站侧栏统一规范"],
-  "references/playbooks/selection.md": ["## 开工卡", "../executor.md", "## 开发方案模板", "第一个工作包的验证与止损", "不给一张清单让用户自己挑"],
+  "references/playbooks/build.md": ["页面规划两条规则", "official/search-technical.md#必读精简版", "## 开工卡", "../executor.md", "## 引擎站步骤", "## 自建站（回退）", "由派单方取一次再分发", "品牌图标在开发当天做齐", "design-references.md#多功能工具站侧栏统一规范"],
+  "references/playbooks/selection.md": ["页面规划两条规则", "## 开工卡", "../executor.md", "## 开发方案模板", "第一个工作包的验证与止损", "不给一张清单让用户自己挑"],
   "references/integrations/site-engine.md": [
     "## 开工核对（每次任务第一步）",
     "工具不全先开新会话核对，仍不全再检查连接器授权或改用令牌",
@@ -180,7 +182,17 @@ const requiredContent = {
     "技术检查通过不等于 Google 搜索结果已更新",
     "包含 sitemap 外页面",
   ],
+  // 5.1.0：官方层（技术）与从业者笔记；闸门按性质标注，判据不删。
+  "references/official/search-technical.md": [
+    "last_verified:",
+    "## 必读精简版",
+    "## 九、批量工具站红线（结构与批量造页）",
+    "write/references/official/google-content.md",
+    "后半从 .11 起",
+  ],
+  "references/experiences/content-seo-notes.md": ["【猜测】", "evolution.md", "## 和官方冲突、不执行的"],
   "references/checklists.md": [
+    "## 闸门性质：官方要求与项目自设",
     "## 主线：维护 checklist，使用 checklist",
     "Cloudflare 循环消耗红线",
     "共享预算副作用前原子预留",
@@ -238,7 +250,7 @@ const requiredContent = {
   ],
   // 4.3.0 开工卡：三方对账门禁全文从 project-memory.md 迁到 resume.md，project-memory 只留指针。
   "references/playbooks/resume.md": ["## 开工卡", "../executor.md", "三方对账门禁", "rejected.md"],
-  "references/playbooks/prelaunch.md": ["## 开工卡", "../executor.md", "图标专项未通过不许上线", "上线前与发布后复核入口"],
+  "references/playbooks/prelaunch.md": ["official/search-technical.md#九批量工具站红线结构与批量造页", "## 开工卡", "../executor.md", "图标专项未通过不许上线", "上线前与发布后复核入口"],
   "references/playbooks/launch.md": ["## 开工卡", "../executor.md", "site-onboard.mjs", "ai-crawler-access.mjs"],
   "references/playbooks/growth.md": ["## 开工卡", "../executor.md", "backlink", "流量涨跌怎么拆"],
   "references/playbooks/records.md": ["## 开工卡", "../executor.md", "scripts/maintain/rankup-doctor.mjs", "scripts/maintain/rankup-clean.mjs"],

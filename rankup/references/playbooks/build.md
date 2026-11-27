@@ -17,6 +17,8 @@
 5. **当天做齐**：品牌图标在开发当天做齐（引擎站 `brand_set`，自建站按段 3 D15）；多功能工具站导航按[侧栏统一规范](../design-references.md#多功能工具站侧栏统一规范)。
 6. **体检**：每站写完先过本卡的体检步骤，再交 [`prelaunch.md`](prelaunch.md)。
 
+**页面规划两条规则**（写页面清单时逐条过）：① 一组不互相竞争的词一个 URL，同一意图不开第二页；② 每个可索引页都要有这页独有的数据或工具结果，给不出就合并或不做。依据：[官方层](../official/search-technical.md) G02.12、G02.11 与[批量工具站红线](../official/search-technical.md#九批量工具站红线结构与批量造页)。 写页面前先读[官方层必读精简版](../official/search-technical.md#必读精简版)。
+
 **读哪里**：两条路共用的硬规则 [`stage-3-build.md`](../lifecycle/stage-3-build.md#硬规则全文含为什么)；闸门 [`checklists.md` 段 3](../checklists.md#段-3--建站与开发)（引擎站按「引擎站」列取值）；引擎工具与返回字段 [`integrations/site-engine.md`](../integrations/site-engine.md)。
 
 **完成标志**：每站段 3 闸门逐行有状态（引擎站标「无」的写 N/A 与理由）；站点标识、版本与域名状态记进 `.rankup/infrastructure.md`；体检计数与日期记进 `.rankup/checks.md`。

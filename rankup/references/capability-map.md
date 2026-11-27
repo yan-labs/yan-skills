@@ -299,8 +299,8 @@ rankup 只判「什么时候发、发多少」（[`playbooks/growth.md`](playboo
 | 实时检索与正文抽取 | `search` / `batch_search` 并行 / `extract` 取网页全文 / 垂直领域检索 | `/anysearch` | 「这次更新到底改了什么」 |
 | 中文社媒用户原话 | 小红书 / 推特 / B 站 / V2EX / Reddit / YouTube 等 15 平台取数 | `/agent-reach` | 「大家怎么评价 X」「小红书上怎么说」 |
 | Agent Skill 供给盘点 | 按关键词检索公开 Skill（**要时间序信号用 `demand/github-skill-search.mjs --mode recent`**）；原 `/skillsmp` 已于 2026-09-28 移除 | `find-skills` | 「这个领域有人做过没」「别重复造轮子」 |
-| 中文长内容起稿 | 挖素材、定结构、起稿与诊断改稿，不编造事实与来源 | `/write` | 「写篇中文长文」 |
-| 去 AI 味 | 内置中文体检（`scripts/check.py`），按文体改稿并保留事实与术语 | `/write` | 「这稿子 AI 味太重」 |
+| 长内容与站内文案起稿（所有语言） | 挖素材、定结构、起稿与诊断改稿；站内页面文案走站内页面卡；不编造事实与来源 | `/write` | 「写篇长文」「写一下这页的文案」 |
+| 去 AI 味 | 内置稿件体检（`scripts/check.py`，中英文都查），按文体改稿并保留事实与术语 | `/write` | 「这稿子 AI 味太重」 |
 | 扩词：心理角度 | 痛点词 / 对比词 / 决策词 | `/marketing-psychology` | 「扩词想不出角度了」 |
 | 扩词：场景角度 | 不同职业 / 平台 / 用例的搜法；另有 139 条增长打法 | `/marketing-ideas` | 「还能从哪些角度想词」 |
 | Workers 部署与资源 | `wrangler deploy` / `types` / D1 迁移（已在 [`cloudflare-stack.md`](cloudflare-stack.md) 接入） | `/wrangler`；平台深度用法升 `/cloudflare` | 「部署一下」「wrangler 报错」 |
@@ -310,7 +310,7 @@ rankup 只判「什么时候发、发多少」（[`playbooks/growth.md`](playboo
 - **`seo-audit` Skill ≠ `rankup/scripts/seo-audit.mjs`。** 同名但完全不是一回事：脚本是全站
   零配额取数，Skill 是一份**开场先问用户六个问题**的面谈式框架，与本 Skill「全权委托、直接做」
   的执行纪律冲突。**不要加载那个 Skill**，站点体检走 §八 的脚本链路。
-- **中文写作统一用 `/write`**：它自带起稿、改稿与去 AI 味体检，不依赖别的 Skill。
+- **写作统一用 `/write`（所有语言）**：它自带起稿、改稿与去 AI 味体检，不依赖别的 Skill。
 
 明确判「与 rankup 无关，不要加载」的：`gh-cli`、`skill-creator`、
 `agent-browser`（会和 `opencli` 撞会话）、`tuner`/`tuner-ci`（付费通道，现有免费通路已覆盖）。

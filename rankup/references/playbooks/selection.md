@@ -16,6 +16,8 @@
 4. **给完整开发方案**：每个「做」的候选按下面模板写一份方案，不给一张清单让用户自己挑；「不做」写进 `.rankup/rejected.md` 并带复活条件；「未知」写缺什么、怎么补、补完谁来判。
 5. **候选域名**：可注册与价格在站点引擎上用 `domain_search`（见 [`integrations/site-engine.md`](../integrations/site-engine.md)）；域名黑历史仍按段 5。
 
+**页面规划两条规则**（写页面清单时逐条过）：① 一组不互相竞争的词一个 URL，同一意图不开第二页；② 每个可索引页都要有这页独有的数据或工具结果，给不出就合并或不做。依据：[官方层](../official/search-technical.md) G02.12、G02.11 与[批量工具站红线](../official/search-technical.md#九批量工具站红线结构与批量造页)。
+
 **读哪里**：裁决判据只在 [`entry.md` 判读](entry.md#4--判读)；问法簇到页面的映射见 [段 2](../lifecycle/stage-2-positioning.md)；付费、频次、护城河这类经营观察只描述候选、不单独否决，字段见 [`experiences/selection-gates.md`](../experiences/selection-gates.md)；旧七闸的复盘与历史读数见 [`experiences/selection-history.md`](../experiences/selection-history.md)。
 
 **完成标志**：每个候选有裁决与证据指针；每个「做」的候选有一份完整开发方案；用户拿到的是排好序的方案，不是待挑的名单。

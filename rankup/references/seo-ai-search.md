@@ -48,16 +48,16 @@ Google I/O 2026（5 月 19 日）宣布搜索 25 年来最大改版：AI Mode �
 
 ### Google 官方 AI 优化指南要点（2026-05-15 发布）
 
-Google 明确说 **AEO/GEO 不是独立学科，就是 SEO**。以下是官方指南的完整可执行清单：
+Google 的意思是**基础 SEO 实践对 AI 搜索仍然适用**，并点名有些 AEO/GEO 技巧无效或没有支持（「不是独立学科」是我们的概括，不是官方原话；[官方层](official/search-technical.md) G05.11）。以下是官方指南要点：
 
 **该做的：**
-1. **写非大众化（non-commodity）内容**——AI 自己能生成的摘要毫无引用价值；
-   只有一手评测、原创数据、亲历经验才会被引用。
+1. **写非大众化（non-commodity）内容**——官方鼓励超出通识的独特见解（写作侧 G34.1）；一手评测、原创数据、亲历经验是常见做法，
+   但官方没有说只有这三种才会被引用。
 2. **保持可抓取**——AI 模型用的是公开可抓取的内容。技术 SEO 基础不变。
 3. **页面结构清晰**——段落、小节、描述性标题，为人类写而不是为 AI 写。
 4. **加多媒体**——高质量相关图片和视频，遵循既有图片/视频 SEO。
 5. **负责任地用 AI 辅助写作**——内容必须达到 Search Essentials 标准。
-6. **Merchant Center + Google Business Profile**——本地和电商内容的 AI 可见性靠这两个。
+6. **Merchant Center + Google Business Profile**——适用时（本地商家、电商）官方建议用这两个帮助可见，不是唯一来源或必需条件。
 7. **关注 agent-readiness**——交易型站点为 AI agent 做好准备（Universal Commerce Protocol）。
 
 **不该做的（Google 明确否定）：**
@@ -106,7 +106,7 @@ Google 首次为 Discover 发布独立核心更新（02-05 至 02-27）。
 |---|---|---|---|
 | 02-05 | February Discover Core Update | 02-27 | Discover 独立算法、Topic Authority |
 | 03-24 | March Spam Update | 一天内 | 反垃圾 |
-| 03-27 | March Core Update | 04-08 | E-E-A-T 仍核心、Information Gain 信号 |
+| 03-27 | March Core Update | 04-08 | E-E-A-T 仍核心（官方说它不是单独的排名因素，写作侧 G03.5）；Information Gain 信号是业内推论，未证实 |
 | 04-13 | Back Button Hijacking 政策 | 06-15 执行 | 新 spam 类型，劫持浏览器后退按钮 |
 | 05-07 | FAQ Rich Results 下架 | 06 月移除工具 | FAQPage schema 仍有效但不再产生富结果 |
 | 05-15 | AI 优化指南发布 | — | AEO/GEO = SEO 的官方定论 |
@@ -118,11 +118,11 @@ Google 首次为 Discover 发布独立核心更新（02-05 至 02-27）。
 | 08-18 | August Spam Update | 08-22 | 年度第三次反垃圾 |
 
 **排障用法**：站点流量异常时，先对照此表看是否落在更新窗口内。
-Core Update 完成后 2-4 周才能看到稳定影响。
+官方建议更新完成后至少等一整周再分析，改进效果可能要数日到数月（[官方层](official/search-technical.md) G31.11）；没有统一的「2–4 周必然稳定」。
 
 ### Information Gain：内容独特性成为排名信号
 
-March 2026 Core Update 重新加权了 Information Gain——衡量一篇内容相对于
+【未证实】业内说法是 March 2026 Core Update 重新加权了 Information Gain（Google 鼓励原创增量，但所读官方页面没有确认存在这个名字的独立信号）——衡量一篇内容相对于
 已排名内容增加了多少**真正新知识**。这不是新概念（Google 2020 年专利），
 但 2026 是它被明确观察到影响排名的一年。
 
@@ -141,6 +141,7 @@ March 2026 Core Update 重新加权了 Information Gain——衡量一篇内容�
 1. **内容相关性**——网页内容与用户搜索词之间的相关性，最基础的一条。
 2. **反向链接**——反链没死，依然有用；有真实流量页面给的外链效果更好。
    → 见 `experiences/webcafe-topics.md` 五「外链」章节。
+   → 旁注：外链只做拿得到的真实引用，不用低价批量链接，也不把 DR、DA、外链条数或文章篇数当完成指标（【猜测】从业者笔记，见 [`experiences/content-seo-notes.md`](experiences/content-seo-notes.md)）；段 6 外链照做。
 3. **内容质量**——原创性、准确性、时效性。→ 与上方「Information Gain」小节同一判断的另一种表述。
 4. **权威性和信任度**——谷歌对网站所属公司、品牌、创建者等多维度评估。
    → 对应算法更新时间线里「E-E-A-T 仍核心」（March Core Update）。

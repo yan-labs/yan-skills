@@ -36,7 +36,7 @@
 | 「查一下 X 是怎么回事」「这个 Google 更新到底改了什么」 | **`/deep-research`**（方法论）+ **`/anysearch`**（执行）。rankup 的 demand/ 只吃结构化源 |
 | 「大家怎么评价 X」「小红书/推特/B站上怎么说」 | **`/agent-reach`**。这正是 capability-map §二「用户的原话」那一行缺的取数通路 |
 | 「这个领域现在有哪些 skill」「别人写过没」 | **`find-skills`**（原 `/skillsmp` 已于 2026-09-28 移除）。要「最近 7 天新冒出来的」才用 `demand/github-skill-search.mjs --mode recent` |
-| 「写篇中文长文」「这稿子 AI 味太重」 | **`/write`** 起稿、改稿并完成内置中文体检；英文站内容不套中文体检规则 |
+| 「写篇长文」「这稿子 AI 味太重」「写一下这页的文案」 | **`/write`**：所有语言的写作入口，起稿、改稿并过内置稿件体检；工具首页、长尾内页、FAQ、title、description 走它的站内页面卡 `write/references/cards/site-page.md` |
 | 「扩词想不出角度了」 | **`/marketing-psychology`**（痛点/对比/决策词）+ **`/marketing-ideas`**（场景/人群词）。用法已写在 [`trends.md`](trends.md) W2 第一步 |
 | 「用 cf CLI」「管理 Cloudflare zone / DNS / 域名」 | **`/cf-cli`**（本仓库）；项目已有的构建与部署工作流见 [`cloudflare-stack.md`](cloudflare-stack.md) |
 | 「部署 Worker」「wrangler 报错」 | **`/wrangler`**（已在 [`cloudflare-stack.md`](cloudflare-stack.md) 接入）；要 D1/R2/Vectorize/Agents SDK 的深度用法才升到 `/cloudflare` |
@@ -112,15 +112,15 @@
 | **什么时候加载** | 动手写任何新脚本/新 Skill 之前先搜一遍；判断某个方向的供给饱和度 |
 | **取舍理由** | 接，但必须带上分工那一行——否则 AI 会拿 skillsmp 去做时间序信号，那是错的 |
 
-### `/write` —— 中文写作与去 AI 味
+### `/write` —— 多语言写作与去 AI 味
 
 | | |
 |---|---|
 | **能干什么** | 挖素材、定结构、按拍推进、诊断初稿与改稿；文案、标题与传播钩子、翻译与摘要、公众号排版。自带起稿、改稿与去 AI 味体检，不依赖别的 Skill |
-| **中文体检** | 内置 `scripts/check.py` 检测与清字符；按档位、文体处理，保留事实、术语、归因与限定，改完复查并通读 |
+| **稿件体检** | 内置 `scripts/check.py`（中文、英文都查），判据在 `write/references/check.md`；按档位、文体处理，保留事实、术语、归因与限定，改完复查并通读 |
 | **与 rankup 的分工** | rankup 判断持续产内容的时机与 Information Gain 要求（见 [`seo-growth.md`](seo-growth.md)）；`/write` 负责把素材写成稿件。缺素材先收集，不编造事实、数据与来源 |
-| **顺序** | `/write` 起稿、改稿并完成中文体检 → 再按 `/ai-seo` 调结构 → 上线后 `seo-audit.mjs` 查 TDK 与密度 |
-| **硬边界** | 中文写作与中文体检按 `/write`；英文、日文内容不套中文体检规则 |
+| **顺序** | `/write` 起稿、改稿并过稿件体检（站内页面按站内页面卡）→ 再按 `/ai-seo` 调结构 → 上线后 `seo-audit.mjs` 查 TDK 与密度 |
+| **硬边界** | 所有语言的写作与体检按 `/write`，各语种规则由它自己区分；文章类页面（blog、模型页、对比文）的资料采集与上线走 `/blog` |
 | **什么时候加载** | 实际要写稿、改稿、写文案、翻译、摘要或排版时加载 |
 
 ### `/blog` —— 我们自有的站内文章与模型页流程
@@ -128,8 +128,8 @@
 | | |
 |---|---|
 | **能干什么** | AI 视频工具类站点的 model 页、blog、模型对比、产品对比：规定谁调研（X 交 Grok）、谁成文（Gemini）、谁 review（Claude Sonnet），资料先落 `sources/`、不自编，并含封面图与评判（哥飞评分、AITDK、ChatGPT 匿名问答） |
-| **与 rankup 的分工** | rankup 判断做哪一页、段 4 体检与上线；凡要把页面内容写出来，一律先读 [`blog/SKILL.md`](../../blog/SKILL.md) 再动手 |
-| **与 write / gefei / opencli 并列** | 自有联动 Skill：站内英文页面内容走 `/blog`，中文稿走 `/write`；评判阶段调用官方 `gefei-page`，浏览器取数落在 `opencli` |
+| **与 rankup 的分工** | rankup 判断做哪一页、段 4 体检与上线；凡要写文章类页面（blog、模型页、对比文），一律先读 [`blog/SKILL.md`](../../blog/SKILL.md) 再动手；工具首页、长尾内页、FAQ、title、description 走 `/write` 的站内页面卡 |
+| **与 write / gefei / opencli 并列** | 自有联动 Skill：文章类页面走 `/blog`，工具首页、长尾内页、FAQ、title、description 走 `/write` 的站内页面卡；评判阶段调用官方 `gefei-page`，浏览器取数落在 `opencli` |
 | **什么时候加载** | 写页面内容、写文章、model 页、模型对比、产品对比、补参考视频、封面图 |
 
 ### `/marketing-psychology` + `/marketing-ideas` —— 扩词的角度，不是词
