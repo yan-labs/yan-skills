@@ -456,6 +456,8 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     await setSlotState(slotId, 'parked');
     supervision.pause(parkedAt);
     let result;
+    let nextConditionCheck = 0;
+    let seenReplies = 0;
     while (!stopping) {
       inbox.pump();
       // A child waiting for our answer cannot finish the run we parked on.
@@ -463,12 +465,16 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         result = { status: 'ask', text: '先处理子任务求助，再决定是否继续等待原条件。' };
         break;
       }
-      metadata.pollCount = (metadata.pollCount ?? 0) + 1;
-      metadata.waitMs = waited + Date.now() - parkedAt;
-      if (metadata.pollCount === 1 || metadata.pollCount % 20 === 0) record();
-      result = await localCondition(entry.until, { id: entry.sourceId || runId, entry, cwd: workdir, replies: offsetQueue });
+      if (Date.now() >= nextConditionCheck || offsetQueue.length !== seenReplies) {
+        metadata.pollCount = (metadata.pollCount ?? 0) + 1;
+        metadata.waitMs = waited + Date.now() - parkedAt;
+        if (metadata.pollCount === 1 || metadata.pollCount % 20 === 0) record();
+        result = await localCondition(entry.until, { id: entry.sourceId || runId, entry, cwd: workdir, replies: offsetQueue });
+        nextConditionCheck = Date.now() + 30000;
+        seenReplies = offsetQueue.length;
+      }
       if (result || Date.now() >= entry.at + entry.timeoutMs) break;
-      await new Promise(resolve => setTimeout(resolve, 250));
+      await new Promise(resolve => setTimeout(resolve, Math.min(250, Math.max(0, entry.at + entry.timeoutMs - Date.now()))));
     }
     if (stopping) { resolveYield(runId, entry, { status: 'stopped' }); return { blocked: true }; }
     metadata.waitMs = waited + Date.now() - parkedAt;
