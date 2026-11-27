@@ -716,15 +716,19 @@ except ValueError:
     r=run(['amend','dx','授权不足','--auth','local']); assert.equal(r.status,1,r.stderr); assert.match(r.stderr,/--auth .*local-commit/);
     assert.deepEqual(JSON.parse(readFileSync(metaFile,'utf8')).auth,['local-commit','deploy-prod']);
   });
-  test('编码任务默认 GCP 工作区且未启用实验时不回退', () => {
+  test('编码工作区默认值随实验开关变化，显式 GCP 不降级', () => {
     const body=join(temp,'gcp-default-entry.md');
     writeFileSync(body,`## 入口\n仓库: ${temp}\n可写路径: ${temp}/project\n`);
-    const result=rawSpawnSync(script,['new','gcp-default','--to','gpt','--on','local','--local-reason','test fixture',
-      '--auth','local','--action','改代码','--body',body,'--no-launch','--no-lint'], {encoding:'utf8',env,input:''});
-    assert.equal(result.status,0,result.stderr);
-    const metaPath=join(path.slice(0,path.lastIndexOf('/')),'gcp-default.brief.json');
-    assert.equal(JSON.parse(readFileSync(metaPath,'utf8')).workspace,'gcp');
-    const launch=run(['relaunch','gcp-default']);
+    const create=(name, extra=[], overrides={}) => rawSpawnSync(script,['new',name,'--to','gpt','--on','local','--local-reason','test fixture',
+      '--auth','local','--action','改代码','--body',body,'--no-launch','--no-lint',...extra], {encoding:'utf8',env:{...env,...overrides},input:''});
+    const workspace=(name)=>JSON.parse(readFileSync(join(path.slice(0,path.lastIndexOf('/')),`${name}.brief.json`),'utf8')).workspace;
+    let result=create('gcp-off',[],{FLEET_GCP_WORKSPACE_EXPERIMENTAL:'0'});
+    assert.equal(result.status,0,result.stderr); assert.equal(workspace('gcp-off'),'local');
+    result=create('gcp-on',[],{FLEET_GCP_WORKSPACE_EXPERIMENTAL:'1'});
+    assert.equal(result.status,0,result.stderr); assert.equal(workspace('gcp-on'),'gcp');
+    result=create('gcp-explicit',['--workspace','gcp'],{FLEET_GCP_WORKSPACE_EXPERIMENTAL:'0'});
+    assert.equal(result.status,0,result.stderr); assert.equal(workspace('gcp-explicit'),'gcp');
+    const launch=run(['relaunch','gcp-explicit']);
     assert.equal(launch.status,1); assert.match(launch.stderr,/禁止降级/);
   });
   test('密钥诊断仅给行号与规则，摘要、长文件名和路径不误报', () => {

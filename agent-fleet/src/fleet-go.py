@@ -1965,7 +1965,10 @@ def new(args, prepare=False):
     dispatch_gate(args, 'lint', lambda: checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna or args.astra), location, True, args.sol or args.astra, args.no_lint, project, auth=auth, review=args.review))
     action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', body, re.M)
     actions = args.task_action or (action_match.group(1) if action_match else '')
-    workspace = choose_workspace(getattr(args, 'workspace', None), pool='code' if '改代码' in parse_actions(actions) else 'light', gcp_enabled=True)
+    requested_workspace = getattr(args, 'workspace', None)
+    if requested_workspace is None and os.environ.get('FLEET_GCP_WORKSPACE_EXPERIMENTAL') != '1':
+        requested_workspace = 'local'
+    workspace = choose_workspace(requested_workspace, pool='code' if '改代码' in parse_actions(actions) else 'light', gcp_enabled=True)
     parameter_paths = [*(mini.expand_path(p) for p in (args.read or [])), *report_writes(args.write, report)]
     temporary_cwd = repository_free(text, set(parse_actions(actions))) and not repo
     if temporary_cwd:
@@ -2156,7 +2159,7 @@ def build_parser():
     p.add_argument('--project', help='场景所属项目根目录')
     p.add_argument('--no-lint', action='store_true', help='仅豁免样板 lint，仍检查入口与授权')
     p.add_argument('--worktree', nargs='?', const='')
-    p.add_argument('--workspace', choices=['gcp', 'local'], help='工作区位置；编码单默认 gcp')
+    p.add_argument('--workspace', choices=['gcp', 'local'], help='工作区位置；实验开关开启时编码单默认 gcp，否则默认 local')
     for option in ['write', 'read']:
         p.add_argument('--' + option, nargs='+', action='extend')
     group = p.add_mutually_exclusive_group()
