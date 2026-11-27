@@ -1,11 +1,7 @@
 ---
 name: write
 description: |
-  所有语言写作的统一入口，写文章、写稿、改稿、写文案、写脚本、去 AI 味都从这里进。
-  一个流程走到底：判断手上有什么，读对应的 references 自己执行（挖素材、定结构、诊断初稿、文案、传播与标题），
-  最后强制过一遍内置稿件体检（检测脚本 scripts/check.py）。
-  触发词：写文章、写稿、改稿、写作、写文案、写脚本、口播稿、公众号、小红书、标题、翻译、摘要、排版、去 AI 味、humanize、
-  这篇读着别扭、AI 味太重、读完脑子是乱的、write copy、rewrite、proofread、de-AI、landing page copy、FAQ、meta description。
+  多语言写作与改稿的入口：中文长文与公众号、小红书和口播稿、标题、翻译与摘要、营销文案，以及工具站的站内文案（首页、长尾内页、FAQ、title 与 meta description，中英文都管，写前对照官方要求），交付前都过内置稿件体检。用户要写、改、润色、缩写、翻译任何给人读的文字，或说「读着别扭」「AI 味太重」「读完脑子是乱的」「去 AI 味」「humanize」「rewrite」「proofread」「landing page copy」「写一下这页的文案」时使用，没点名 write 也用；去 AI 味默认走这里。不管：做哪些页和目标词（rankup）、站内 blog、模型页、对比文的资料采集与上线（blog）、点名某人风格的写作（如 tim-mediastorm）、代码注释与提交说明。
 ---
 
 # write · 多语言写作总入口
@@ -33,7 +29,9 @@ description: |
 | 要起标题、写小红书或口播稿、做传播设计；检查口播稿哪里会划走；诊断稿子有没有共鸣 | `references/hooks-and-platforms.md` |
 | 小红书等平台的标题公式，短视频开头钩子 | `references/title-formulas.md` |
 | 翻译、写摘要、只调格式、Markdown 转公众号 HTML | `references/translate-and-format.md` |
-| 官网首页、落地页、定价页等营销文案；带引用和来源的文章；**写 blog、站内介绍页（内容整合型，先读第三节的标准流程）** | `references/copy-and-research.md` |
+| 官网首页、落地页、定价页等营销文案 | `references/site-copy.md` |
+| 带引用和来源的文章 | `references/sourced-article.md` |
+| 站内 blog、模型页、对比文（整合来源的文章类页面） | 交 blog Skill |
 | 阶段四查模式、改写前定位 AI 痕迹 | 中文：`references/patterns-zh.md`；英文：`references/patterns-en.md`；其他语言：下方通则 |
 
 **用户说"读着别扭"或"AI 味重"时，默认进阶段三，不要进阶段四。** 句子层面的毛病多半是结构问题的症状，直接修句子是在给骨折贴创可贴。
@@ -91,7 +89,7 @@ description: |
 1. **分档。** 运行检测脚本：
 
 ```bash
-python3 ~/.claude/skills/write/scripts/check.py 稿件.md
+python3 "${CLAUDE_SKILL_DIR}/scripts/check.py" 稿件.md
 ```
 
 脚本按屏蔽代码、网址与 front matter 后的字符占比判断：汉字占汉字与拉丁字母总数至少 50% 时走中文，否则走英文规则。英文和其他拉丁字母文本走英文规则；非英文的词表命中仅作线索，非拉丁文字仍需按通则人工检查，不能把无命中当作通过。中英夹杂或识别不准时用 `--lang zh` / `--lang en` 手动指定；多语言页面分段运行。
@@ -131,7 +129,7 @@ python3 ~/.claude/skills/write/scripts/check.py 稿件.md
 4. **防改平，再清字符。** 改完再跑一遍脚本。句长变异低于 0.35、段落齐刷刷一样长、全篇一个节拍，读着和模板稿一样快被认出来，这叫改平，要回头把几处改回有长有短。然后清字符：
 
 ```bash
-python3 ~/.claude/skills/write/scripts/check.py --clean 稿件.md > 稿件.clean.md
+python3 "${CLAUDE_SKILL_DIR}/scripts/check.py" --clean 稿件.md > 稿件.clean.md
 ```
 
    `--clean` 去掉不可见字符、异常空格和行尾空白；仅中文模式把中文后面的半角 `, ; : ? !` 转成全角。英文和其他语言只清字符与空白，不改标点；可用 `--lang en --clean` 强制此行为。代码块、行内代码、网址、front matter 原样保留。只写入新文件，确认无误再替换，别直接覆盖原稿。
@@ -146,7 +144,7 @@ python3 ~/.claude/skills/write/scripts/check.py --clean 稿件.md > 稿件.clean
 
 **格式。** 列表和加粗只在内容确实多面时用；叙事、抒情、对话一律平铺散文。列表不是结构，常常是没想清楚顺序的遮羞布。读者要极简格式，就一个项目符号、一个标题、一处加粗都不留。
 
-**引文要标出来。** 总结别人的材料，先按「几家说法在哪里一致、在哪里不同」组织，每家用自己的话转述，整篇最多留一处带引号的短语并注明出自谁。
+**引文要标出来。** 总结别人的材料，先按「几家说法在哪里一致、在哪里不同」组织，每家用自己的话转述，整篇最多留一处带引号的短语并注明出自谁；无来源的「研究表明」「Researchers call it a breakthrough」删掉，有来源就准确转述它的具体发现。这条管总结性文章；以整合来源为主的站内文章类页面按 blog Skill 的摘录规则。
 
 其余同样要查：正文里充当修辞支架的破折号（中文 `——`、英文 `—` 和 `--`；列表分隔符里的可留）；数量漂移，改过内容后配图说明里的「四个红框」、小结条数、「前面五章」一律重新核。
 
@@ -170,5 +168,3 @@ python3 ~/.claude/skills/write/scripts/check.py --clean 稿件.md > 稿件.clean
 **结构问题不要在句子层面修。** 用户抱怨句子的时候，先怀疑结构。
 
 **改完必重核计数。** 每一轮修改都会让配图数量、小结条数、章节引用对不上。这是最容易漏、也最显得业余的一类错误。
-
-固定回归测试：`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s write/tests -v`（在仓库根目录运行）。

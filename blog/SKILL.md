@@ -63,7 +63,7 @@ description: |
 ## 联动的 Skill
 
 - `agent-fleet`：派单与插话；`rankup`：接力记录、SEO/GEO 判据、评判阶段的脚本与清单。
-- `write`：中文稿的去 AI 味体检（站内英文稿不用）；`gefei` 系列：评分与关键词；`opencli`：登录态浏览器取数；`design`/画布：组件设计；`imagegen`：配图。
+- `write`：成文与 review 的写法纪律、红线和稿件体检 `scripts/check.py`，中英文稿都过；`gefei` 系列：评分与关键词；`opencli`：登录态浏览器取数；`design`/画布：组件设计；`imagegen`：配图。
 - 评判标准与脚本都在 rankup，不要在这里复制一份。
 
 ## 做完怎么交
