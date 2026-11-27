@@ -286,7 +286,7 @@ export async function supervise(cli) {
     rec.exitCode = rec.verdict === 'ok' ? 0 : 1;
     const blocked = rec.yield?.type === 'blocked' || rec.brief?.continueStop?.startsWith('受阻：');
     rec.status = stopping ? 'stopped' : blocked ? 'blocked' : rec.verdict === 'ok' ? 'done' : 'failed';
-    if (!stopping && !blocked && rec.verdict === 'ok' && rec.pending === 'none') forceStop();
+    if (stopping || (!blocked && rec.verdict === 'ok' && rec.pending === 'none')) forceStop();
   } catch (err) {
     if (stopping && child?.pid) forceStop();
     rec.status = stopping ? 'stopped' : 'failed';
