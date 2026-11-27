@@ -90,46 +90,47 @@ def transition(db, row, state, now, verdict=None):
 
 
 def reconcile(db, root, now):
-    with db:
-        db.execute('BEGIN IMMEDIATE')
-        known = {row['id']: row for row in db.execute('SELECT * FROM runs')}
-        records = {}
-        for path in root.glob('attach-*.queue.json'):
-            run = path.name.removesuffix('.queue.json')
-            queue = record(path)
-            if (queue.get('runId') == run and
-                    (queue.get('state') in (*WAITING, 'running') or
-                     (queue.get('state') in store['TERMINAL'] and now - queue.get('finishedAt', 0) / 1000 <= 86400))):
-                records[run] = (queue, {}, True)
-        for path in (*root.glob('*-detach-*.json'), *root.glob('timer-*.json')):
-            if path.name.removesuffix('.json') in known:
-                continue
-            rec = record(path)
-            if (rec.get('detach') and path.name == rec.get('runId', '') + '.json'
-                    and (rec.get('status') not in store['TERMINAL']
-                         or now - timestamp(rec.get('finishedAt'), 0) <= 86400)):
-                records[rec['runId']] = (rec, None, False)
-        for run, row in known.items():
-            if row['state'] in store['TERMINAL']:
-                if RUN_ID.fullmatch(run) and run not in ('.', '..') and (root / (run + '.asks-seen')).exists():
+    known = {row['id']: row for row in db.execute('SELECT * FROM runs')}
+    records = {}
+    for path in root.glob('attach-*.queue.json'):
+        run = path.name.removesuffix('.queue.json')
+        queue = record(path)
+        if (queue.get('runId') == run and
+                (queue.get('state') in (*WAITING, 'running') or
+                 (queue.get('state') in store['TERMINAL'] and now - queue.get('finishedAt', 0) / 1000 <= 86400))):
+            records[run] = (queue, {}, True)
+    for path in (*root.glob('*-detach-*.json'), *root.glob('timer-*.json')):
+        if path.name.removesuffix('.json') in known:
+            continue
+        rec = record(path)
+        if (rec.get('detach') and path.name == rec.get('runId', '') + '.json'
+                and (rec.get('status') not in store['TERMINAL']
+                     or now - timestamp(rec.get('finishedAt'), 0) <= 86400)):
+            records[rec['runId']] = (rec, None, False)
+    for run, row in known.items():
+        if row['state'] in store['TERMINAL']:
+            if RUN_ID.fullmatch(run) and run not in ('.', '..') and (root / (run + '.asks-seen')).exists():
+                with db:
                     store['legacy_asks'](db, root, run)
-                continue
-            if RUN_ID.fullmatch(run) and run not in ('.', '..'):
-                attached = run.startswith('attach-')
-                rec = record(root / (run + ('.queue.json' if attached else '.json')))
-                records[run] = (rec, {} if attached else None, attached)
+            continue
+        if RUN_ID.fullmatch(run) and run not in ('.', '..'):
+            attached = run.startswith('attach-')
+            rec = record(root / (run + ('.queue.json' if attached else '.json')))
+            records[run] = (rec, {} if attached else None, attached)
 
-        def discover(run):
-            if run in known:
-                return
-            rec, _, attached = records[run]
-            if not rec:
-                return
-            store['bind'](db, run, **store['run_binding'](rec))
-            known[run] = db.execute('SELECT * FROM runs WHERE id=?', (run,)).fetchone()
+    def discover(run):
+        if run in known:
+            return
+        rec, _, attached = records[run]
+        if not rec:
+            return
+        store['bind'](db, run, **store['run_binding'](rec))
+        known[run] = db.execute('SELECT * FROM runs WHERE id=?', (run,)).fetchone()
 
-        collected = {}
-        for run, (rec, queue, attached) in records.items():
+    collected = {}
+    for run, (rec, queue, attached) in records.items():
+        with db:
+            db.execute('BEGIN IMMEDIATE')
             discover(run)
             row = known.get(run)
             if row is None or row['state'] in store['TERMINAL']:
@@ -167,7 +168,7 @@ def reconcile(db, root, now):
             transition(db, row, state, now, rec.get('verdict'))
             if state in store['ACTIVE']:
                 collected[row['seat']] = collected.get(row['seat'], 0) + 1
-        return collected
+    return collected
 
 
 def evidence_summary(root, run, state, pid, meta, yielded, watch):
@@ -256,9 +257,8 @@ def patrol(db, root, now, reviews=None):
     if 'evidence_summary' not in columns:
         db.execute('ALTER TABLE patrol ADD COLUMN evidence_summary TEXT')
     rows = []
-    with db:
-        db.execute('BEGIN IMMEDIATE')
-        for row in db.execute("SELECT id,state,seat,progress FROM runs ORDER BY id"):
+    for row in db.execute("SELECT id,state,seat,progress FROM runs ORDER BY id").fetchall():
+        with db:
             if row['state'] not in store['ACTIVE']:
                 continue
             run = row['id']
@@ -303,6 +303,7 @@ def patrol(db, root, now, reviews=None):
                  brief_digest, row['progress'] if not watch and not waiting else None,
                  summary['logSize'], summary['lastUpdatedAt'], summary['artifactCount']], sort_keys=True
             ).encode()).hexdigest()
+            db.execute('BEGIN IMMEDIATE')
             if facts['decision'] == '交主会话':
                 key = f"{run}:{facts['lastProgressAt']}:{','.join(hits)}"
                 store['event'](db, run, 'stall', '监督升级交主会话：' + '、'.join(hits), key)

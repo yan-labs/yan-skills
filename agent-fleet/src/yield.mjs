@@ -85,7 +85,7 @@ export function resolveYield(id, entry, result) {
 export function watchRequest(action, data) {
   const store = fileURLToPath(new URL('./watch-store.py', import.meta.url));
   const result = spawnSync('python3', [store, '--request'], {
-    input: JSON.stringify([action, data]), encoding: 'utf8', timeout: 30_000,
+    input: JSON.stringify([action, data]), encoding: 'utf8', timeout: 100_000,
   });
   if (result.error) throw result.error;
   const reply = JSON.parse(result.stdout);

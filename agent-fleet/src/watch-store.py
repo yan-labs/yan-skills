@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import random
 import sqlite3
 import subprocess
 import sys
@@ -50,11 +51,16 @@ def connect():
     root.mkdir(parents=True, exist_ok=True)
     root.chmod(0o700)
     db = sqlite3.connect(root / 'mailbox.sqlite3', timeout=10)
-    db.row_factory = sqlite3.Row
-    db.execute('PRAGMA journal_mode=WAL')
-    db.executescript(SCHEMA)
-    migrate(db)
-    return db
+    db.execute('PRAGMA busy_timeout=10000')
+    try:
+        db.row_factory = sqlite3.Row
+        db.execute('PRAGMA journal_mode=WAL')
+        db.executescript(SCHEMA)
+        migrate(db)
+        return db
+    except BaseException:
+        db.close()
+        raise
 
 
 def seat_for(cwd):
@@ -283,11 +289,11 @@ def acknowledge(db, event_id, session, seat):
     return {'acked': event_id}
 
 
-def request(action, data, remote=False):
+def request_once(action, data, remote=False):
     if remote:
         proc = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=4', 'mac-mini',
                                'PATH=/opt/homebrew/bin:/usr/local/bin:$PATH fleet watch --serve'],
-                              input=json.dumps([action, data]), text=True, capture_output=True, timeout=12)
+                              input=json.dumps([action, data]), text=True, capture_output=True, timeout=90)
         if proc.returncode:
             raise ValueError('Mini 信箱未响应' if not proc.stdout else json.loads(proc.stdout)['error'])
         return json.loads(proc.stdout)
@@ -310,6 +316,24 @@ def request(action, data, remote=False):
             return bool(db.execute('UPDATE runs SET timer_claimed=1 WHERE id=? AND timer_claimed=0',
                                    (data['run'],)).rowcount)
         raise ValueError('未知 watch 操作')
+
+
+def request(action, data, remote=False):
+    # Retry whole transactions only after SQLite has rolled them back.
+    deadline = time.monotonic() + 65
+    while True:
+        try:
+            return request_once(action, dict(data), remote=remote)
+        except sqlite3.OperationalError as error:
+            code = getattr(error, 'sqlite_errorcode', None)
+            if code is not None:
+                retryable = (code & 0xff) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+            else:
+                retryable = any(word in str(error).lower() for word in ('locked', 'busy'))
+            remaining = deadline - time.monotonic()
+            if not retryable or remaining <= 0:
+                raise
+            time.sleep(min(remaining, random.uniform(0.05, 0.25)))
 
 
 def remote_machine():
