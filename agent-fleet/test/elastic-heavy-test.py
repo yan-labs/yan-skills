@@ -1,5 +1,4 @@
 import contextlib
-import collections
 import importlib.util
 import io
 import os
@@ -56,14 +55,12 @@ class ElasticHeavyTests(unittest.TestCase):
             self.assertTrue(mod.queue_head(second))
             self.assertFalse(first.exists())
             os.close(fd2)
-    def test_zero_allocated_swap_counts_available_disk(self):
-        usage = collections.namedtuple('usage', 'total used free')
-        def run(cmd, **kw):
-            return '1' if 'kern.memorystatus_vm_pressure_level' in cmd else 'total = 0M used = 0M free = 0M'
-        with patch.object(mod.sys, 'platform', 'darwin'), patch.object(mod.os, 'cpu_count', return_value=10), patch.object(mod.os, 'getloadavg', return_value=(1,0,0)), patch.object(mod.subprocess, 'check_output', side_effect=run), patch.object(mod.shutil, 'disk_usage', return_value=usage(20*1024**3,10*1024**3,10*1024**3)):
-            self.assertTrue(mod.capacity_state())
-        with patch.object(mod.sys, 'platform', 'darwin'), patch.object(mod.os, 'cpu_count', return_value=10), patch.object(mod.os, 'getloadavg', return_value=(1,0,0)), patch.object(mod.subprocess, 'check_output', side_effect=run), patch.object(mod.shutil, 'disk_usage', return_value=usage(20*1024**3,19*1024**3,1024**3)):
-            self.assertFalse(mod.capacity_state())
+    def test_pressure_levels_without_swap_dependency(self):
+        with patch.object(mod.sys, 'platform', 'darwin'), patch.object(mod.os, 'cpu_count', return_value=10), patch.object(mod.os, 'getloadavg', return_value=(1,0,0)):
+            for level, expected in [('1',True),('2',True),('4',False)]:
+                with patch.object(mod.subprocess, 'check_output', return_value=level) as read:
+                    self.assertEqual(mod.capacity_state(), expected)
+                    self.assertEqual(read.call_count, 1)
 
     def test_metrics_thresholds(self):
         def run(cmd, **kw):
