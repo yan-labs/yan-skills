@@ -99,7 +99,7 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
    const conclusion = ((mode === 'finish' || mode === 'unfinished-full') && count > 1) || (mode === 'progress' && count > 5) || mode.startsWith('judge-') || mode === 'complete' || (mode === 'yield-park' && count > 1) || mode === 'missing-sections' ? '完成' : mode === 'fail' ? '失败' : '部分完成';
    let report = '# 测试\\n## 规则回执\\n测试\\n## 实际执行\\n测试\\n## 改动与产物\\n测试\\n## 验证证据\\n测试\\n## 偏差\\n无\\n## 结论\\n' + conclusion + '。\\n## 未完成/风险/需要用户决定的事\\n' + (mode === 'progress' ? count : '待办');
    if (mode === 'unfinished-full' && count === 1) report = report.replace('部分完成。', '未完成。');
-   if (mode === 'real-blocked') report += '\\n受阻：用户决定｜缺授权｜已查配置｜请决定';
+   if (mode === 'real-blocked') report = report.replace('待办', '') + '\\n受阻：用户决定｜缺授权｜已查配置｜请决定';
    if (mode === 'missing-sections' || (['finish', 'stuck', 'progress', 'env-off'].includes(mode) && !(mode === 'finish' && count > 1) && !(mode === 'progress' && count > 5))) report = '## 结论\\n' + conclusion + (mode === 'progress' ? count : '');
    if (mode === 'review-complete') report = '## 结论\\n不可放行，列出必修项\\nV1｜未过｜问题一\\nV2｜已过｜已核验\\nLEDGER: blockers=1 verdict=fail';
    if (mode === 'deviation-complete') report = '## 结论\\n' + Array.from({length:5}, (_, i) => 'V' + (i+1) + '｜已过' + (i === 2 ? '（目标分支偏差）' : '') + '｜已核验').join('\\n');
@@ -824,6 +824,8 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   assert.deepEqual(reportContinuation({conclusion:'未完成', report:'受阻：input｜缺输入｜已查配置｜主会话'}), []);
   assert.deepEqual(unblockedItems(['V1','V2'], '受阻：input｜V1 缺输入｜已查配置｜主会话'), ['V2']);
   assert.deepEqual(unblockedItems(['V1','V2'], '受阻：input｜缺输入｜已查配置｜主会话'), ['V1','V2']);
+  assert.deepEqual(unblockedItems(['V2'], '受阻：input｜缺输入｜已查配置｜主会话'), ['V2']);
+  assert.deepEqual(reportContinuation({conclusion:'部分完成', report:'## 未完成/风险/需要用户决定的事\n受阻：input｜缺输入｜已查｜主会话\n- 本地测试待做'}), ['完成未完成项：本地测试待做']);
   assert.deepEqual(reportContinuation({conclusion:'部分完成', report:'受阻：input｜阶段：一 缺输入｜已查｜主会话'}, {stages:['阶段：一','阶段：二'],stage:0}), ['完成阶段：阶段：二']);
   assert.deepEqual(reportContinuation({conclusion:'完成', report:''}), []);
   assert.deepEqual(reportContinuation({conclusion:'完成', report:''}, {stages:['一','二'], stage:1}), ['完成阶段：二']);

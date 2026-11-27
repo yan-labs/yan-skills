@@ -175,14 +175,20 @@ export function unblockedItems(items, report) {
   if (!blockers.length) return items;
   const matched = items.filter(item => blockers.some(line => /^V\d+$/i.test(item)
     ? new RegExp(`\\b${item}\\b`, 'i').test(line) : line.includes(item)));
-  if (items.length === 1 && !matched.length && !blockers.some(line => /\bV\d+\b|阶段[：:]/i.test(line))) return [];
   return items.filter(item => !matched.includes(item));
 }
 
 export function reportContinuation(state, stages = null) {
   if (state.yield || state.acceptance?.pending === 'handoff') return [];
   const missing = [];
-  if (/^(?:未完成|部分完成)/.test(state.conclusion || '') && !reportBlockers(state.report).length) missing.push('完成报告中未完成的任务');
+  if (/^(?:未完成|部分完成)/.test(state.conclusion || '')) {
+    const blockers = reportBlockers(state.report);
+    const section = String(state.report || '').match(/^## 未完成[^\r\n]*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/m)?.[1] || '';
+    const items = section.split(/\r?\n/).map(line => line.replace(/^\s*(?:[-*]|\d+[.、])\s*/, '').trim())
+      .filter(line => line && !/^受阻[：:]|^(?:无|暂无|无。)$/.test(line));
+    if (!blockers.length) missing.push('完成报告中未完成的任务');
+    else missing.push(...unblockedItems(items, state.report).map(item => `完成未完成项：${item}`));
+  }
   if (Array.isArray(stages?.stages) && Number.isInteger(stages.stage) && stages.stage < stages.stages.length) {
     missing.push(...unblockedItems(stages.stages.slice(stages.stage), state.report).map(stage => `完成阶段：${stage}`));
   }
