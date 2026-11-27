@@ -270,7 +270,7 @@ def check_credit(worker, now):
             except (ValueError, TypeError): return False
             thresholds = b.get('thresholdRules') or []
             alert = any(isinstance(t, dict) and isinstance(t.get('thresholdPercent'), (int, float)) and not isinstance(t.get('thresholdPercent'), bool) and 0 < t['thresholdPercent'] and budget * t['thresholdPercent'] <= cap and t.get('spendBasis', 'CURRENT_SPEND') == 'CURRENT_SPEND' for t in thresholds)
-            return (amount.get('currencyCode') == 'USD' and math.isfinite(budget) and budget > 0 and alert and
+            return (amount.get('currencyCode') == 'USD' and math.isfinite(budget) and 0 < budget <= cap and alert and
                     (not projects or 'projects/' + number in projects) and
                     f.get('calendarPeriod', 'MONTH') == 'MONTH' and
                     not any(f.get(k) for k in ('labels', 'services', 'subaccounts', 'resourceAncestors', 'creditTypes')) and

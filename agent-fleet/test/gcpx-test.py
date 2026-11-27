@@ -216,7 +216,7 @@ class GcpxTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True), patch.object(gcpx, 'run') as cloud:
             with self.assertRaisesRegex(ValueError, 'explicitly configured'): gcpx.check_credit(worker, 1)
             cloud.assert_not_called()
-        for bad in ({**good, 'amount': {'specifiedAmount': {'currencyCode': 'EUR', 'units': '150'}}}, {**good, 'amount': {'specifiedAmount': {'currencyCode': 'USD', 'units': '1000'}}}, {'budgetFilter': {'projects': ['projects/999']}, 'thresholdRules': [1]}, {'budgetFilter': {'labels': {'x':['y']}}, 'thresholdRules': [1]}, {'budgetFilter': {}, 'thresholdRules': []}):
+        for bad in ({**good, 'amount': {'specifiedAmount': {'currencyCode': 'EUR', 'units': '150'}}}, {**good, 'amount': {'specifiedAmount': {'currencyCode': 'USD', 'units': '151'}}}, {'budgetFilter': {'projects': ['projects/999']}, 'thresholdRules': [1]}, {'budgetFilter': {'labels': {'x':['y']}}, 'thresholdRules': [1]}, {'budgetFilter': {}, 'thresholdRules': []}):
             with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '150'}), patch.object(gcpx, 'run', side_effect=[response(billing), response(project), response([bad])]):
                 with self.assertRaisesRegex(ValueError, 'Budget alert'): gcpx.check_credit(worker, 1)
         with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '150'}), patch.object(gcpx, 'run', side_effect=[response(billing), response(project), response([good])]):
