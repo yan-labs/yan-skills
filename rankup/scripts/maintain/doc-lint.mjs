@@ -13,7 +13,10 @@
 //   1. 相对链接 `[x](path.md)`、`[x](path.md#anchor)`、`[x](#anchor)` 指向的文件与锚点存在；
 //      代码块与行内代码里的链接不算；http(s)/mailto 等外链不查。
 //      指向根目录之外的链接（兄弟 Skill）默认不查，--include-outside 时才查；
-//   2. 单文件行数 > --max-lines 或体积 > --max-kb 记为「超标」（警告，不算失败）。
+//   2. 单文件行数 > --max-lines 或体积 > --max-kb 记为「超标」（警告，不算失败）；
+//   3. 根目录有 SKILL.md 时查入口上限：全文行数、字符数，以及 frontmatter 之外的单行字符数
+//      （默认 120 行 / 7000 字符 / 单行 200 字符，字符按 Unicode 码位计）。超了记「入口超标」（警告）。
+//      为什么：入口每次触发都整篇载入，行数压下去而单行变长等于没瘦身（2026-11 重构依据）。
 // 锚点按 GitHub 规则生成：去掉标点与符号、小写、空格变 `-`，重名依次加 `-1`、`-2`。
 // 退出码：0 无断链；1 有断链；2 参数错误。只读，不改任何文件。
 // 已验证：2026-09-30 在本 Skill 全量文档上运行。
@@ -110,7 +113,31 @@ async function walk(dir, { skipRankup }) {
   return files;
 }
 
-export async function lint({ root, maxLines = 600, maxKb = 80, includeOutside = false }) {
+export const ENTRY_LIMITS = { lines: 120, chars: 7000, lineChars: 200 };
+
+// 入口上限：全文行数与字符数含 frontmatter；单行长度不计 frontmatter（description 按规范写在一行）。
+export function entryStats(text, limits = ENTRY_LIMITS) {
+  const lines = text.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  let bodyStart = 0;
+  if (lines[0] === "---") {
+    const end = lines.indexOf("---", 1);
+    if (end > 0) bodyStart = end + 1;
+  }
+  const longLines = [];
+  lines.forEach((line, idx) => {
+    const chars = [...line].length;
+    if (idx >= bodyStart && chars > limits.lineChars) longLines.push({ line: idx + 1, chars });
+  });
+  const chars = [...text].length;
+  const problems = [];
+  if (lines.length > limits.lines) problems.push(`行数 ${lines.length} > ${limits.lines}`);
+  if (chars > limits.chars) problems.push(`字符 ${chars} > ${limits.chars}`);
+  if (longLines.length) problems.push(`${longLines.length} 行超过 ${limits.lineChars} 字符`);
+  return { lines: lines.length, chars, longLines, problems };
+}
+
+export async function lint({ root, maxLines = 600, maxKb = 80, includeOutside = false, entryLimits = ENTRY_LIMITS }) {
   const skipRankup = path.basename(root) !== ".rankup";
   const files = await walk(root, { skipRankup });
   const cache = new Map();
@@ -165,7 +192,10 @@ export async function lint({ root, maxLines = 600, maxKb = 80, includeOutside = 
     }
   }
   oversize.sort((a, b) => b.lines - a.lines);
-  return { root, files: files.length, links: linkCount, outside, broken, oversize, maxLines, maxKb };
+  let entry = null;
+  const skillText = await load(path.join(root, "SKILL.md"));
+  if (skillText !== null) entry = { file: "SKILL.md", ...entryStats(skillText, entryLimits), limits: entryLimits };
+  return { root, files: files.length, links: linkCount, outside, broken, oversize, maxLines, maxKb, entry };
 }
 
 function render(r) {
@@ -175,6 +205,12 @@ function render(r) {
   for (const b of r.broken) out.push(`  ${b.where} → ${b.target}（${b.reason}）`);
   out.push(`超标（> ${r.maxLines} 行或 > ${r.maxKb} KB，警告）：${r.oversize.length}`);
   for (const o of r.oversize) out.push(`  ${o.file}：${o.lines} 行，${o.kb} KB`);
+  if (r.entry) {
+    const e = r.entry;
+    out.push(`入口 ${e.file}：${e.lines} 行，${e.chars} 字符（上限 ${e.limits.lines} 行 / ${e.limits.chars} 字符 / 单行 ${e.limits.lineChars}）`);
+    out.push(`入口超标（警告）：${e.problems.length ? e.problems.join("；") : 0}`);
+    for (const l of e.longLines) out.push(`  SKILL.md:${l.line}：${l.chars} 字符`);
+  }
   return out.join("\n");
 }
 
@@ -187,7 +223,7 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
     process.exit(2);
   }
   if (opts.help) {
-    console.log("用法：node scripts/maintain/doc-lint.mjs [--root <目录>] [--max-lines 600] [--max-kb 80] [--include-outside] [--json]");
+    console.log("用法：node scripts/maintain/doc-lint.mjs [--root <目录>] [--max-lines 600] [--max-kb 80] [--include-outside] [--json]\n根目录有 SKILL.md 时另报入口上限（120 行 / 7000 字符 / 单行 200 字符）。");
     process.exit(0);
   }
   const report = await lint(opts);

@@ -48,5 +48,55 @@
     "query": "Cloudflare部署报binding缺失，只排查这个配置错误。项目有.rankup，但不要改计划或做SEO审查。",
     "should_trigger": false,
     "expected_boundary": "专项排错；遵守显式范围，不能全量触发"
+  },
+  {
+    "query": "这三个关键词都过了搜索量那关，各做一个站，一起弄，用我平时那个建站引擎，设计别做三套。",
+    "should_trigger": true,
+    "expected_boundary": "build：引擎路径、多站成批、同一设计画布"
+  },
+  {
+    "query": "帮我选几个能做的方向，每个要有能直接开干的开发方案，别只扔给我一个清单让我挑。",
+    "should_trigger": true,
+    "expected_boundary": "selection：裁决加完整开发方案"
+  },
+  {
+    "query": "这个站明天想上线，帮我把 SEO 和 GEO 从头过一遍，上次的检查结果别直接用。",
+    "should_trigger": true,
+    "expected_boundary": "prelaunch：全套重跑"
+  },
+  {
+    "query": "站上线两周了，问 ChatGPT 推荐同类工具时一直没有我们，帮我查原因并整改后复审。",
+    "should_trigger": true,
+    "expected_boundary": "growth：GEO 推荐位闭环"
+  },
+  {
+    "query": "域名刚买好，帮我绑上去，再把 GSC 和 Bing 都接了、提交 sitemap，最后确认收录通道通了。",
+    "should_trigger": true,
+    "expected_boundary": "launch：绑域名与平台接入"
+  },
+  {
+    "query": "清理一下上周 fleet 的日志和报告，留着的截图也一起清掉。",
+    "should_trigger": false,
+    "expected_boundary": "agent-fleet：fleet 产物清理，不是项目 .rankup 过程数据"
+  },
+  {
+    "query": "帮我写一篇讲 2026 年 SEO 趋势的英文博客，素材我已经整理好了，直接成稿。",
+    "should_trigger": false,
+    "expected_boundary": "write：主题写作，不做项目流程"
+  },
+  {
+    "query": "wrangler deploy 报 10021，说脚本校验没过，帮我看下是哪里写错了。",
+    "should_trigger": false,
+    "expected_boundary": "wrangler/cloudflare 排错，不触发"
+  },
+  {
+    "query": "看看 Codex 那几单跑完没，跑完的把报告摘要贴给我。",
+    "should_trigger": false,
+    "expected_boundary": "agent-fleet 状态查询，不触发"
+  },
+  {
+    "query": "竞品的外链清单我导出来了，帮我挑能提交的目录站并开始批量提交。",
+    "should_trigger": false,
+    "expected_boundary": "backlink：外链执行"
   }
 ]

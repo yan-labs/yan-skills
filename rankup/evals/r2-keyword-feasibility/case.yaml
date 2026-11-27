@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: r2-keyword-feasibility
+expected_outcome: |
+  入口 → entry.md → trends.md gpts 小节 → seo-geo.md 步骤 2–3 → seo-serp.md → p2-keyword-root.md；不反问，GT 同框 gpts 基线，入口卡落盘到 .rankup/research/，取不到的写未知，全局偏好里设置的前置闸门先执行。

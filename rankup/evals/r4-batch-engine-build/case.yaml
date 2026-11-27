@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: r4-batch-engine-build
+expected_outcome: |
+  入口 → playbooks/build.md → 全局偏好（用哪个引擎）→ 引擎 get_guide；走引擎 MCP 不起脚手架，一个设计画布，成批派单且共用项只取一次，自建站专属检查标 N/A。

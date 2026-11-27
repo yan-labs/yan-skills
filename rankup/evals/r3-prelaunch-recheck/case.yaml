@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: r3-prelaunch-recheck
+expected_outcome: |
+  入口 → playbooks/prelaunch.md → checklists.md 段 4 → stage-4-prelaunch.md；全套重跑不采信上一轮，图标专项与占位专项都跑，checks.md 记证据。

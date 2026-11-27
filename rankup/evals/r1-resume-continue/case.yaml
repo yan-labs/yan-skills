@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: r1-resume-continue
+expected_outcome: |
+  在一个已有 .rankup/ 的项目目录里，从入口进 playbooks/resume.md，再读项目 INDEX.md 的接力；先核对 git 与线上现状再执行下一步，不通读 checklists.md，回复带维护摘要。

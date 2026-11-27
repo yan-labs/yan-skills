@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: r5-selection-with-plans
+expected_outcome: |
+  入口 → selection.md → p1-discovery.md → entry.md；候选先过搜索量三样齐（全局偏好设了时），每个候选有裁决和完整开发方案，不给清单让用户自己挑。

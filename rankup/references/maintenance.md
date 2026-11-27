@@ -89,7 +89,7 @@
 6. **发版**：`node scripts/validate-rankup.mjs` 与相关 `node --test` 通过；版本号 patch 文字与小经验、minor 向后兼容的新工作流、major 目录协议或核心行为破坏性变化；同时改 `SKILL.md` 的 `metadata.version`、`skill.json`、validate 预期与仓库 README。
 7. **Skill 自己的 `.rankup/`**（git 忽略）只放脚本试跑证据与 `skill-state.json`，`INDEX.md` 只写当前状态；`evidence/` 每个脚本只留最新一次试跑，其余先确认报告与 references 里没有目录名引用，再按Skill的待确认规则取得用户同意后显式纳入按时间删除；`node --test` 也会往这里写试跑证据，跑完测试顺手清。
 
-`evals/trigger-evals.json` 与 `evals/evals.json` 分别定义触发与行为评测；需要时按 `skill-creator` 的 `run_loop` / 行为对比流程运行。当前两套评测均未运行过，静态校验不代表行为效果已验证。
+`evals/trigger-evals.json`（20 条，应触发与不应触发各 10，负例以近似误触为主）定义触发评测；`evals/evals.json` 与 `evals/r1-…`～`evals/r5-…` 五个回归用例目录（skill-creator 用例格式：`prompt.md`、`case.yaml`、`graders/`）定义行为评测。改入口或任务第一站后按 `skill-creator` 的 `run_loop` / 新旧版本对比流程运行。当前评测均未运行过，静态校验不代表行为效果已验证。
 
 ## 六、`/rankup doctor`：整理 `.rankup/` 的显式入口
 
