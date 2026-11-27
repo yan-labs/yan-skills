@@ -5,6 +5,14 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+function launchTimeout(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 2000;
+}
+for (const value of [undefined, '', 'abc', '0', '-1', 'Infinity']) assert.equal(launchTimeout(value), 2000);
+assert.equal(launchTimeout('10000'), 10000);
+const launchTimeoutMs = launchTimeout(process.env.FLEET_TEST_LAUNCH_TIMEOUT_MS);
+
 execFileSync(process.execPath, [resolve('test/assert-helper.mjs'), '--isolated', process.execPath, resolve('test/detach-ipc-test.mjs')], {stdio:'inherit'});
 const { killGroup } = await import('../src/detach.mjs');
 const realKill = process.kill;
@@ -90,7 +98,7 @@ const state = id => JSON.parse(readFileSync(join(runs,`${id}.json`),'utf8'));
 async function launch(command='code', extra={}, prefix=[]) {
   const args=command==='code' ? ['code','stub brief','--cwd',scratch] : ['run','--model','stub','--prompt','stub brief','--models-config',cfg,'--cwd',scratch];
   const start=Date.now();const out=await cliRun([...args,...prefix,'--detach','--no-wait'],extra);
-  assert.equal(out.code,0,out.stderr);assert(Date.now()-start < Number(process.env.FLEET_TEST_LAUNCH_TIMEOUT_MS || 2000), 'launcher within configured time limit');
+  assert.equal(out.code,0,out.stderr);assert(Date.now()-start < launchTimeoutMs, 'launcher within configured time limit');
   const id=out.stdout.match(/runId: (.+)/)[1];
   assert(out.stdout.includes(`status: ${join(runs,`${id}.json`)}`));
   console.log(`launch ${command}: ${Date.now()-start}ms ${id}`);
@@ -297,7 +305,7 @@ assert.equal((await cliRun(['wait',batchId])).code,0);
 // 显式 no-wait 无需 detach；默认失败返回 verdict 对应非零。
 instant=Date.now();
 const noWait=await cliRun(['code','stub brief','--cwd',scratch,'--name','no-wait-only','--no-wait'],{FLEET_TEST_SLEEP:'3'});
-assert.equal(noWait.code,0);assert(Date.now()-instant<Number(process.env.FLEET_TEST_LAUNCH_TIMEOUT_MS || 2000));
+assert.equal(noWait.code,0);assert(Date.now()-instant<launchTimeoutMs);
 assert.equal(state(noWait.stdout.match(/runId: (.+)/)[1]).status,'running');
 assert.equal((await cliRun(['wait','no-wait-only'])).code,0);
 const defaultFail=await cliRun(['code','stub brief','--cwd',scratch,'--expect-changes']);
