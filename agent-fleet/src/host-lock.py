@@ -26,6 +26,24 @@ def exec_with_lease(fd, command):
     os.set_inheritable(fd, True)
     os.execvp(command[0], command)
 
+def overflow_to_gcpx(command):
+    """Route only when the caller supplies an established workspace mapping."""
+    workspace = os.environ.get('FLEET_GCPX_WORKSPACE')
+    config = os.environ.get('FLEET_GCPX_CONFIG')
+    mirror = os.environ.get('FLEET_GCPX_MIRROR')
+    if not all((workspace, config, mirror)):
+        return False
+    if not Path(config).is_absolute() or not Path(mirror).is_absolute():
+        raise ValueError('GCP workspace config and mirror must be absolute paths')
+    try:
+        relative = Path.cwd().resolve().relative_to(Path(mirror).resolve(strict=True))
+    except (ValueError, OSError):
+        raise ValueError('current directory is outside the mapped GCP workspace')
+    gcpx = Path(__file__).resolve().parents[1] / 'bin/gcpx'
+    print('[fleet heavy] Mini capacity full; executing in mapped GCP workspace', file=sys.stderr, flush=True)
+    os.execv(str(gcpx), [str(gcpx), '--config', config, 'run', workspace, '--',
+                         'sh', '-c', 'cd -- "$1" || exit; shift; exec "$@"', 'sh', str(relative), *command])
+
 
 def heavy(args):
     gcp = args[:1] == ['--gcp']
@@ -56,6 +74,10 @@ def heavy(args):
             except (OSError, ValueError, KeyError):
                 owners.append(f'{name}(登记中)')
         now = time.monotonic()
+        if os.environ.get('FLEET_GCP_WORKSPACE_EXPERIMENTAL') == '1':
+            if overflow_to_gcpx(command): return 0
+            print('Mini 重活名额已满且没有 GCP 工作区映射，不能安全分流。', file=sys.stderr)
+            return 75
         if gcp:
             print('Mini 重活名额已满，使用 fleet bg -- <已授权的 GCP 常备验证机命令>，按 job:job-… 等终态。',
                   file=sys.stderr)

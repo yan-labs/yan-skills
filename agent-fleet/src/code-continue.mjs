@@ -47,11 +47,12 @@ export function detectExternalWait(report = '', acceptance = null, yielded = nul
 }
 
 /** 读取回合结束时的实际状态；文件内容指纹能识别同一脏文件再次修改。 */
-export function readContinuationState(cwd, reportPath, brief = '', yielded = null, priorReport) {
+export function readContinuationState(cwd, reportPath, brief = '', yielded = null, priorReport, gitRunner = null) {
   let report = '';
   try { if (reportPath) report = readFileSync(resolve(cwd, reportPath), 'utf8'); } catch { /* 无可读报告时不猜测续做 */ }
   const conclusion = report.match(/^## 结论[^\S\r\n]*\r?\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1]?.trim().split(/\r?\n/)[0]?.replace(/^\*\*/, '') || '';
   const git = args => {
+    if (gitRunner) return gitRunner(args);
     try { return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); }
     catch { return ''; }
   };
@@ -98,14 +99,15 @@ export function continuationProgress(before, after) {
 
 const REPORT_SECTIONS = ['规则回执', '结论', '实际执行', '改动与产物', '验证证据', '偏差', '未完成/风险/需要用户决定的事'];
 
-function hasCarriedCommit(brief, report, cwd) {
+function hasCarriedCommit(brief, report, cwd, gitRunner) {
   const lines = brief.split('\n').filter(line => /续接|上一轮|上轮/.test(line) && /提交/.test(line));
   const reported = report.match(/\b[0-9a-f]{7,40}\b/gi) || [];
   for (const hash of lines.flatMap(line => line.match(/\b[0-9a-f]{7,40}\b/gi) || [])) {
     try {
-      const full = execFileSync('git', ['rev-parse', '--verify', `${hash}^{commit}`], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      const run = args => gitRunner ? gitRunner(args) : execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      const full = run(['rev-parse', '--verify', `${hash}^{commit}`]).trim();
       if (!reported.some(value => full.startsWith(value.toLowerCase()))) continue;
-      execFileSync('git', ['merge-base', '--is-ancestor', full, 'HEAD'], { cwd, stdio: 'ignore' });
+      run(['merge-base', '--is-ancestor', full, 'HEAD']);
       return true;
     } catch { /* 不存在或不在当前历史中的提交不算 */ }
   }
@@ -161,7 +163,7 @@ export function acceptanceContinuation(before, after, logProgress = false) {
 }
 
 /** 第一层只检查报告结构及 brief 明确要求的交付凭据，不以“完成”二字代替证据。 */
-export function continuationRules(state, brief, cwd = process.cwd(), initial = null) {
+export function continuationRules(state, brief, cwd = process.cwd(), initial = null, gitRunner = null) {
   if (state.conclusion.startsWith('失败') || state.yield) return [];
   const missing = [];
   if (state.conclusion.startsWith('未完成')) missing.push('完成报告中未完成的任务');
@@ -180,7 +182,7 @@ export function continuationRules(state, brief, cwd = process.cwd(), initial = n
   const action = brief.match(/^动作[ \t]*[:：][ \t]*(.*)$/m)?.[1];
   const needsImplementation = action === undefined || action.split('/').some(item => item.replace(/[（(].*?[）)]/g, '').trim() === '改代码');
   const needsReadback = requirements.some(clause => /读回结果|回读结果/.test(clause) && !/不(?:要|用|需|必)?(?:读回|回读)|无需(?:读回|回读)|无须(?:读回|回读)|禁止(?:读回|回读)/.test(clause));
-  if (needsCommit && needsImplementation && initial && /^(?:部分完成|未完成)/.test(state.conclusion) && state.head === initial.head && !hasCarriedCommit(brief, state.report, cwd) && !hasReportedRemoteCommit(brief, state.report)) missing.push('缺少实现改动和提交');
+  if (needsCommit && needsImplementation && initial && /^(?:部分完成|未完成)/.test(state.conclusion) && state.head === initial.head && !hasCarriedCommit(brief, state.report, cwd, gitRunner) && !(gitRunner ? false : hasReportedRemoteCommit(brief, state.report))) missing.push('缺少实现改动和提交');
   if (needsCommit && !/\b[0-9a-f]{7,40}\b/i.test(state.report)) missing.push('补齐 brief 要求的提交哈希');
   if (needsReadback && !/(?:读回|回读)[^\n]*(?:通过|成功|一致|正常|published|HTTP\s*200|结果[：:]\s*\S)/i.test(state.report)) missing.push('补齐 brief 要求的实际读回结果');
   return missing;

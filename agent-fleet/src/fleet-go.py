@@ -22,6 +22,7 @@ import mini
 import order
 import worktree
 import clean
+from gcp_pool_plan import choose_workspace
 from types import SimpleNamespace
 
 watch_store = runpy.run_path(str(Path(__file__).with_name('watch-store.py')))
@@ -603,6 +604,12 @@ def command(meta):
     if to == 'gemini' and meta.get('gemini_agent') and meta.get('worktree'):
         args.extend(['--agent-mode', '--cwd', meta['worktree']['path']])
     args.extend(['--name', meta['name'], '--report', meta['report']])
+    if meta.get('workspace') == 'gcp':
+        repo_path = (meta.get('object') or {}).get('repo')
+        if not repo_path: raise ValueError('GCP 工作区需要指定入口仓库。')
+        args.extend(['--cwd', repo_path])
+        args.extend(['--workspace', meta['workspace']])
+        if meta.get('gcpx_branch'): args.extend(['--gcpx-branch', meta['gcpx_branch']])
     if to == 'gpt':
         args.append({'terra': '--simple', 'sol': '--sol', 'luna': '--luna', 'astra': '--astra'}[gpt_tier(meta)])
     for option in ['review', 'low', 'high', 'xhigh', 'max', 'fast', 'no-fast', 'subagents', 'expect-changes']:
@@ -620,6 +627,8 @@ def watch_seat(meta):
 
 def launch(meta):
     """由 new/relaunch 前台替换为 fleet，保留完成通知和退出码。"""
+    if meta.get('workspace') == 'gcp' and (os.environ.get('FLEET_GCP_WORKSPACE_EXPERIMENTAL') != '1' or meta.get('to') != 'gpt'):
+        raise ValueError('GCP 工作区连接及控制面尚未完成；禁止降级到本机工作区。')
     location = meta.get('on') or 'mini'
     if location == 'local':
         if not meta.get('local_reason', '').strip():
@@ -1956,11 +1965,12 @@ def new(args, prepare=False):
     dispatch_gate(args, 'lint', lambda: checked(text, args.to, args.to == 'gpt' and not (args.sol or args.luna or args.astra), location, True, args.sol or args.astra, args.no_lint, project, auth=auth, review=args.review))
     action_match = re.search(r'^动作[ \t]*[:：][ \t]*(.*)$', body, re.M)
     actions = args.task_action or (action_match.group(1) if action_match else '')
+    workspace = choose_workspace(getattr(args, 'workspace', None), pool='code' if '改代码' in parse_actions(actions) else 'light', gcp_enabled=True)
     parameter_paths = [*(mini.expand_path(p) for p in (args.read or [])), *report_writes(args.write, report)]
     temporary_cwd = repository_free(text, set(parse_actions(actions))) and not repo
     if temporary_cwd:
         print('提示：只读任务未指定仓库，将在空的临时工作目录运行。', file=sys.stderr)
-    meta = {'temporary_cwd': temporary_cwd, 'attemptId': args.attempt_id, 'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
+    meta = {'workspace': workspace, 'temporary_cwd': temporary_cwd, 'attemptId': args.attempt_id, 'to': args.to, 'name': args.name, 'brief': str(path), 'report': report,
             'auth': auth, 'no_lint': args.no_lint, 'actions': parse_actions(actions),
             'tier': ('astra' if args.astra else 'luna' if args.luna else 'sol' if args.sol else 'terra') if args.to == 'gpt' else args.tier, 'review': args.review, 'sol': args.sol, 'astra': args.astra, 'low': args.low, 'high': args.high,
             'xhigh': True if (args.to == 'gemini' and not (args.low or args.high)) else args.xhigh,
@@ -1983,7 +1993,9 @@ def new(args, prepare=False):
             raise ValueError('Gemini 非文案任务需要指定仓库以建立独立 worktree。')
         meta['gemini_agent'] = True
         if args.worktree is None: args.worktree = ''
-    if args.worktree is not None and not (args.dry_run or prepare):
+    if args.worktree is not None and workspace == 'gcp':
+        if args.worktree: meta['gcpx_branch'] = args.worktree
+    elif args.worktree is not None and not (args.dry_run or prepare):
         wt = (retry or {}).get('worktree')
         if not wt or retry.get('worktree_location') != location:
             wt = prepare_worktree(args.name, object_['writes'], args.worktree, location, object_['repo'] or None)
@@ -2144,6 +2156,7 @@ def build_parser():
     p.add_argument('--project', help='场景所属项目根目录')
     p.add_argument('--no-lint', action='store_true', help='仅豁免样板 lint，仍检查入口与授权')
     p.add_argument('--worktree', nargs='?', const='')
+    p.add_argument('--workspace', choices=['gcp', 'local'], help='工作区位置；编码单默认 gcp')
     for option in ['write', 'read']:
         p.add_argument('--' + option, nargs='+', action='extend')
     group = p.add_mutually_exclusive_group()

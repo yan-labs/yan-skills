@@ -70,6 +70,20 @@ allowed-tools: Bash(fleet-go context*)
 
 在仓库目录预览只读任务，运行 `printf '%s\n' "## 入口" "仓库: $PWD" "## 验收" "V1 核对 README 的文档入口｜owner：本单" | fleet-go new inspect-docs --to gpt --auth review --goal "核对文档入口" --action 只读 --body - --dry-run`。实际派发前把正文改成真实仓库和验收，确认预览后去掉 `--dry-run`。执行位置、授权和改派见 [CLI 参考](references/fleet-go.md)。
 
+## GCP 工作区（实验中）
+
+执行者留在 Mini；工作区、Git 和构建命令留在 GCP。配置文件 `.gcpx.json` 按项目提供 `default_repo`、`repos` 与 `workers` 映射，SSH 配置使用本机绝对路径，凭据留在 worker 本机。仓库可用 `workers` 配置候选机器；各机器 `capacity` 或 `GCPX_WORKER_CAPACITY` 限定同时登记的工作区数（默认 16），含创建中及待清理的工作区。分配优先选运行中的候选机器；有容量的托管机器已停时会先校验赠金证据再尝试启动。配置 `create` 规格的候选机器不存在时，可在赠金校验通过且托管池未达 `GCPX_MAX_WORKERS`（默认 3）时尝试创建；启动脚本未就绪时明确报错，不回退本机。创建尚未在真实云环境验收。以下入口目前仅供实验，自动扩缩、空闲停机和完整 fleet 任务链尚未验收，不用于发布或生产任务。
+
+配置结构示例见源码仓 `agent-fleet/gcpx.example.json`；其中的机器和路径是占位值，不能直接用于生产。
+
+`gcpx --json status` 查看机器与工作区；`gcpx ws new <repo> [--sha <完整 SHA>|--branch <分支>]` 创建远端工作区，`gcpx ws ls` 查看，`gcpx ws rm <工作区>` 删除干净且无新增提交的工作区。`gcpx run <工作区> -- <命令>` 在远端执行并返回退出码；重活用此入口。`gcpx shell <工作区>` 进入远端 shell，`gcpx sync <工作区> <本地目录>` 建立双向同步，`gcpx cp <工作区> <远端相对路径> <本地路径>` 拉取文件，`gcpx mount <工作区> <本地目录>` 需要本机已安装 sshfs。`gcpx logs` 查看操作事件；`gcpx gc` 清理符合条件的过期工作区，未提交内容或新提交会保留。`gcpx up/down <机器>` 只处理有匹配归属标签的托管机器；停机须无活跃工作区租约。
+
+启动已停止的机器前，从账单读取赠金余额及适用范围并估算池的月费，在机器配置的绝对路径 `credit_evidence` 写入 JSON：`billing_account`（`billingAccounts/<ID>`）、`observed_at`（Unix 秒）、`remaining_usd`、`monthly_estimate_usd`、`compute_scope_verified`。证据须在一小时内、适用 Compute 且余额覆盖月估；启动时会核对项目账单账户。文件是操作者的读回记录，程序无法独立证明数字真实。启动、停止与账单校验目前均未在真实托管机器验收。
+
+托管机器的 `create` 规格需提供 `machine_type`、`image_family`、`image_project` 和 `disk_gb`；创建时默认无外网地址和实例服务账号，须已有 IAP 与出网条件。专用 Ubuntu 24.04 x86_64 worker 的工具装配脚本是 `agent-fleet/bin/gcpx-worker-bootstrap`，以 root 且设置 `GCPX_WORKER_BOOTSTRAP=yes` 执行；Node 二进制有固定版本和校验值，仓库与私包凭据须在 worker 侧单独配置。脚本尚未在新建机器上实测。
+
+编码单的实验接入使用 `FLEET_GCP_WORKSPACE_EXPERIMENTAL=1` 和 `--workspace gcp`；接入未启用或失败时不会回退本机执行。Mini 已有同步工作区的进程，可设置 `FLEET_GCPX_WORKSPACE`、绝对路径 `FLEET_GCPX_CONFIG` 和 `FLEET_GCPX_MIRROR`：实验开关开启且重活名额满时，`fleet heavy` 将当前目录映射到远端执行；缺少映射时返回 75，不自动创建工作区。可信浏览器输入、本地登录态与 iOS 模拟器验收保留本地工作区。为监督进程设置绝对路径 `FLEET_GCPX_IDLE_CONFIG` 可试验空闲检查：连续观察 30 分钟且工作区无活跃租约时才尝试停止有匹配托管标签的机器；默认不启用，尚未在真实托管机器验收。
+
 ## 监督与巡检
 
 运行 `fleet-go patrol` 逐单查看日志、阶段、park、未答信号和产物时间并裁定；未答信号或无进展的 park 超过 30 分钟列为事故。用 `fleet asks --pending` 查看全部未答信号。先区分快照巡检、等终态和窗口值守。本单触发的外部等待交给 `fleet park`，派单方供数的验收项标等外部后交回。巡检根据实际进展、等待状态和操作风险来排下一次检查。

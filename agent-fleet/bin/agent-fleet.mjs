@@ -41,6 +41,7 @@ import { collectStatus, deliverSay, formatStatusHuman, requestStop } from '../sr
 import { readPidRecord, resolveRunId, isRecordedProcessAlive, patchPidRecord, runIdFromLogPath, sameCwd } from '../src/pid.mjs';
 import { shortRunOptions, splitShortArgs, resolveBrief } from '../src/shortcuts.mjs';
 import { runCode, launchArchiveSweep } from '../src/code-runner.mjs';
+import { prepareGcpxWorkspace } from '../src/gcp-workspace.mjs';
 import { runGrok } from '../src/grok-runner.mjs';
 import { launchDetached, readState, resolveDetached, supervise, waitDetached, reconcileDetached, detachedState } from '../src/detach.mjs';
 import { runMedia } from '../src/media.mjs';
@@ -604,9 +605,31 @@ async function enterAttachedSlot(options) {
 async function cmdCode(argv) {
   const { positionals, flags } = splitShortArgs(argv);
   if (flags.help) { console.log(HELP_TEXT); return; }
+  if (flags.workspace && !['local', 'gcp'].includes(flags.workspace)) throw new Error('无效工作区。');
+  if (flags.workspace === 'gcp' && process.env.FLEET_GCP_WORKSPACE_EXPERIMENTAL !== '1') throw new Error('GCP 工作区接入尚未完成；禁止降级到本机执行。');
   const source = flags.prompt ?? positionals[0];
   const prompt = resolveBrief(source);
-  const result = await runCode({ prompt, briefPath: source && existsSync(source) ? resolvePath(source) : null, cwd: flags.cwd ? resolvePath(flags.cwd) : process.cwd(), low: Boolean(flags.low), high: Boolean(flags.high), xhigh: Boolean(flags.xhigh), max: Boolean(flags.max), simple: Boolean(flags.simple), sol: Boolean(flags.sol), luna: Boolean(flags.luna), astra: Boolean(flags.astra), fast: Boolean(flags.fast), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
+  const sourceCwd = flags.cwd ? resolvePath(flags.cwd) : process.cwd();
+  let workspace;
+  let result;
+  try {
+    if (flags.workspace === 'gcp') {
+      const config = resolvePath(flags['gcpx-config'] || join(sourceCwd, '.gcpx.json'));
+      const settings = JSON.parse(readFileSync(config, 'utf8'));
+      const repo = flags['gcpx-repo'] || settings.default_repo;
+      const runId = process.env.FLEET_SLOT_RUN_ID || process.env.FLEET_DETACHED_RUN_ID;
+      const report = flags.report || prompt.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim();
+      if (!runId || !report || !repo) throw new Error('GCP 工作区需要任务 ID、报告路径和项目仓库映射。');
+      const workspaceName = 'run-' + createHash('sha256').update(flags['resumed-from'] || runId).digest('hex').slice(0, 32);
+      workspace = await prepareGcpxWorkspace({ gcpxBin: join(PKG_ROOT, 'bin/gcpx'), config, repo, workspace: workspaceName,
+        branch: flags['gcpx-branch'], sha: flags['gcpx-sha'],
+        mirror: join(homedir(), '.agent-fleet/gcpx/mirrors', workspaceName),
+        controlContext: { runId, parentRunId: process.env.FLEET_PARENT_RUN_ID, reportPath: resolvePath(report),
+          tempRoot: join(homedir(), '.agent-fleet/gcpx/bridge'), fleetBin: join(PKG_ROOT, 'bin/fleet') } });
+      workspace.localRepoPath = sourceCwd;
+    }
+    result = await runCode({ prompt, briefPath: source && existsSync(source) ? resolvePath(source) : null, cwd: workspace?.mirror || sourceCwd, gcpWorkspace: workspace, low: Boolean(flags.low), high: Boolean(flags.high), xhigh: Boolean(flags.xhigh), max: Boolean(flags.max), simple: Boolean(flags.simple), sol: Boolean(flags.sol), luna: Boolean(flags.luna), astra: Boolean(flags.astra), fast: Boolean(flags.fast), review: Boolean(flags.review), noContinue: Boolean(flags['no-continue']), reportPath: flags.report, resume: flags['resume-session'], resumedFrom: flags['resumed-from'] });
+  } finally { if (workspace) await workspace.close(); }
   await printRunResult(result, outputOptions(flags));
   process.exitCode = buildBrief(result, outputOptions(flags)).verdict === 'ok' ? 0 : 1;
 }
@@ -652,6 +675,9 @@ async function main() {
     return;
   }
 
+  const requestedWorkspace = splitShortArgs(rest).flags.workspace;
+  if (requestedWorkspace && !['local', 'gcp'].includes(requestedWorkspace)) throw new Error('无效工作区。');
+  if (requestedWorkspace === 'gcp' && (process.env.FLEET_GCP_WORKSPACE_EXPERIMENTAL !== '1' || !['code', 'gpt'].includes(command))) throw new Error('GCP 工作区接入尚未完成；禁止降级到本机执行。');
   let finishAttached;
   const resumeParent = ['wait', 'resume', 'code', 'grok-cli', 'copy', 'grok', 'bulk', 'gpt', 'openai', 'haiku', 'sonnet', 'opus', 'fable', 'run', 'run-many', 'judge'].includes(command) && !rest.includes('--no-wait') && !process.env.FLEET_DETACHED_RUN_ID
     ? await releaseParentSlot() : async () => {};
