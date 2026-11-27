@@ -12,7 +12,11 @@
 
 ```bash
 python3 <write 目录>/scripts/check.py 稿件.md
+python3 <write 目录>/scripts/check.py --json pages/*.json   # JSON 稿件：抽出字符串值再查，命中处报字段路径
+python3 <write 目录>/scripts/check.py --meta pages/*.md     # 站内页：另报 title、description 长度与批内重复
 ```
+
+   front matter 里只查 title 和 description 的值，其余键不查。可以一次传多个文件，任一文件有硬禁退出码就是 1。`--meta` 只出提示，不影响退出码：长度区间（英文 title 30–60、description 70–160 字符）是经验口径，中文只报字数；同一批里 title 或 description 重复的逐个改开。
 
    脚本按屏蔽代码、网址后的字符占比判语言：汉字占汉字与拉丁字母总数至少 50% 走中文，否则走英文规则。非英文的拉丁字母文本借英文规则只作线索；非拉丁文字仍要人工检查，无命中不等于通过。识别不准时用 `--lang zh` / `--lang en` 指定，多语言页面分段运行。
 
