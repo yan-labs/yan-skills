@@ -20,6 +20,8 @@ try {
   const other = join(root, 'other.md'); writeFileSync(other, `write ${join(root, name)}`);
   result = autoClean(rec, [{ runId: 'two', status: 'running', briefPath: other }], opts);
   assert.equal(existsSync(join(root, name)), true); assert.match(result.join(' '), /被在途任务引用/);
+  finishCleanup({ ...rec, status: 'done', verdict: 'ok' }, [], opts);
+  assert.equal(existsSync(join(root, name)), true); assert.equal(prunes, 1);
   // Partial execution only inventories residuals; it does not call autoClean.
   finishCleanup({ ...rec, status: 'done', verdict: 'ok', pending: 'handoff' }, [], opts);
   assert.equal(existsSync(join(root, name)), true); assert.match(readFileSync(report, 'utf8'), /残留清单/);

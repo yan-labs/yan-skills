@@ -19,7 +19,8 @@ if (process.argv[2] === '__supervise') {
   const child = spawn(process.execPath, [self, '__supervise', id], {detached:true, stdio:['ignore','ignore','ignore','ipc']});
   child.kill('SIGSTOP');
   writeFileSync(base+'.supervisor', String(child.pid));
-  const rec = {detach:true, runId:id, cwd:process.cwd(), model:'mock', status:'running', startedAt:new Date().toISOString(), logPath:base+'.log', resultPath:base+'.result.md'};
+  writeFileSync(base + '.report.md', 'existing report');
+  const rec = {reportPath:base+'.report.md', detach:true, runId:id, cwd:process.cwd(), model:'mock', status:'running', startedAt:new Date().toISOString(), logPath:base+'.log', resultPath:base+'.result.md'};
   child.send({rec, args:['execute']}, err => { if (err) throw err; process.exit(0); });
 } else {
   const launcher = spawnSync(process.execPath, [self, 'launcher'], {env:process.env, timeout:30000});
@@ -34,6 +35,14 @@ if (process.argv[2] === '__supervise') {
   await waitDetached(id);
   const rec = JSON.parse(readFileSync(base+'.json', 'utf8'));
   assert.equal(rec.status, 'done');
+  assert.equal(rec.pending, undefined);
+  const until = Date.now() + 10000;
+  while (!readFileSync(base+'.report.md', 'utf8').includes('残留清单')) {
+    if (Date.now() > until) throw Error('missing-pending residual report absent');
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  assert(!readFileSync(base+'.log', 'utf8').includes('自动收尾：'));
+  console.log('PASS missing pending preserves residuals');
   assert(existsSync(base+'.started'));
   assert.equal(readFileSync(base+'.result.md', 'utf8'), 'completed');
   assert(!existsSync(base+'.stop'));

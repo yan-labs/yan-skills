@@ -282,7 +282,7 @@ export async function supervise(cli) {
     rec.output = output;
     if (stopping) rec.brief = { ...rec.brief, ok: false, verdict: 'stopped', stopped: true };
     rec.verdict = Array.isArray(rec.brief) ? rec.brief.every(b => b.verdict === 'ok') ? 'ok' : 'fail' : rec.brief.verdict;
-    rec.pending = Array.isArray(rec.brief) ? undefined : (rec.brief?.pending ?? 'none');
+    rec.pending = Array.isArray(rec.brief) ? undefined : rec.brief?.pending;
     rec.exitCode = rec.verdict === 'ok' ? 0 : 1;
     const blocked = rec.yield?.type === 'blocked' || rec.brief?.continueStop?.startsWith('受阻：');
     rec.status = stopping ? 'stopped' : blocked ? 'blocked' : rec.verdict === 'ok' ? 'done' : 'failed';
