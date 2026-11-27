@@ -150,10 +150,11 @@ class EnglishCheck(unittest.TestCase):
         self.assertEqual(check.clean('Save\u00a0your\u200b file.  \n', 'en'), 'Save your file.\n')
 
     def test_chinese_baseline(self):
-        # c6243bf 版本对未修改的中文参考文件生成的 stdout SHA-256 与退出码。
+        # c6243bf 版本对中文参考文件生成的 stdout SHA-256 与退出码。
+        # 参考文件会随 Skill 改写，语料冻结在 tests/fixtures/zh-corpus/（取自重构前的 references/）。
         baseline = json.loads((ROOT / 'tests/zh-baseline.json').read_text())
         for name, modes in baseline.items():
-            text = (ROOT / 'references' / name).read_text()
+            text = (ROOT / 'tests/fixtures/zh-corpus' / name).read_text()
             for mode, args in [('auto', []), ('zh', ['--lang', 'zh']),
                                ('clean', ['--lang', 'zh', '--clean'])]:
                 with self.subTest(file=name, mode=mode):

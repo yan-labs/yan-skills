@@ -53,6 +53,4 @@
 |---|---|---|
 | 客服腔、对上一稿的旁白 | “Certainly! Here is your revised copy.” / “I hope this helps.” | 整句删除，直接交正文 |
 
-## 六、引文与归因
-
-按来源说法的一致与分歧组织，用自己的话转述，每个结论保留归因与限定。整篇最多留一处注明出处的短引语。例如无来源的 “Researchers call it a breakthrough” 应删除；有来源则准确转述该来源的具体发现，不把评价升级成事实。
+引文与归因按 SKILL.md 阶段四红线「引文要标出来」。
