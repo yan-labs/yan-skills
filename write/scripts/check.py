@@ -5,11 +5,15 @@
   python3 check.py draft.md           # 输出体检报告
   python3 check.py --clean draft.md   # 输出清理后的文本（不可见字符、异常空格、中文后的半角标点、行尾空白）
   python3 check.py --lang en draft.md # 手动指定；默认按汉字占比自动选择中/英文规则
+  python3 check.py --json pages/*.json      # 抽出 JSON 里的字符串值再查（引擎稿件包等）
+  python3 check.py --meta pages/*.md        # 另报 title、description 长度与批内重复，只提示
 英文及其他语言 --clean 只清字符与空白，不改标点。
 硬禁项必须清零；提示项回到上下文判断；档位只是分诊，不是对作者的判断。
-代码块、行内代码、网址、front matter 不检查也不改。
+代码块、行内代码、网址不检查也不改；front matter 只查 title 与 description 的值，--clean 不改。
+多个文件时逐个出报告，任一文件有硬禁则退出码为 1。
 """
 import argparse
+import json
 import re
 import statistics
 import sys
@@ -73,11 +77,52 @@ CODE = re.compile(r"```.*?```|`[^`\n]+`|https?://\S+", re.S)
 FRONT = re.compile(r"\A---\n.*?\n---\n", re.S)
 
 
+META_KEYS = ("title", "description")
+# 经验口径（非官方要求，来源见 references/practice/site-seo-notes.md），只用于英文提示。
+META_RANGE = {"title": (30, 60), "description": (70, 160)}
+
+
+def _blank(s):
+    return re.sub(r"[^\n]", " ", s)
+
+
+def _unquote(value):
+    """去掉 YAML 值两端的引号，换成空格，免得英文引文屏蔽把整个值盖掉。"""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        return " " + value[1:-1] + " "
+    return value
+
+
+def front_matter(block):
+    """返回 (屏蔽后的 block, {title/description: 值})。只保留这两个键的值，其余换成空格。"""
+    lines, out, fields = block.split("\n"), [], {}
+    current = None
+    for line in lines:
+        km = re.match(rf"({'|'.join(META_KEYS)})(\s*:\s*)(.*?)\s*$", line)
+        if km:
+            key, value = km.group(1), km.group(3)
+            if re.fullmatch(r"[|>][+-]?", value):
+                current, fields[key] = key, ""
+                out.append(_blank(line))
+                continue
+            current = None
+            fields[key] = _unquote(value).strip()
+            out.append(" " * (len(km.group(1)) + len(km.group(2))) + _unquote(value))
+            continue
+        if current and (line.startswith((" ", "\t")) or not line.strip()):
+            fields[current] = (fields[current] + " " + line.strip()).strip()
+            out.append(line)
+            continue
+        current = None
+        out.append(_blank(line))
+    return "\n".join(out), fields
+
+
 def mask(text):
-    """把代码、网址、front matter 换成同长度占位，保持行号不变。"""
+    """把代码、网址、front matter（title 与 description 的值除外）换成同长度占位，保持行号不变。"""
     def blank(m):
-        return re.sub(r"[^\n]", " ", m.group(0))
-    return CODE.sub(blank, FRONT.sub(blank, text))
+        return _blank(m.group(0))
+    return CODE.sub(blank, FRONT.sub(lambda m: front_matter(m.group(0))[0], text))
 
 
 def mask_en_quotes(text):
@@ -139,17 +184,109 @@ def clean(text, lang="zh"):
     return "".join(out)
 
 
+def json_text(raw):
+    """把 JSON 里的字符串值（不含键）拼成段落，返回 (文本, [(起始行, 结束行, 字段路径)])。
+    无空格、无汉字、无破折号的单个值（path、status、kind 一类）不查。"""
+    values = []
+
+    def walk(o, ptr):
+        if isinstance(o, str):
+            if re.search(rf"\s|[{CJK}]|—|–", o):
+                values.append((ptr, o))
+        elif isinstance(o, dict):
+            for k, v in o.items():
+                walk(v, f"{ptr}.{k}")
+        elif isinstance(o, list):
+            for i, v in enumerate(o):
+                walk(v, f"{ptr}[{i}]")
+
+    walk(json.loads(raw), "$")
+    chunks, spans, line = [], [], 1
+    for ptr, s in values:
+        n = s.count("\n")
+        spans.append((line, line + n, ptr))
+        chunks.append(s)
+        line += n + 2
+    return "\n\n".join(chunks), spans
+
+
+def meta_records(raw, is_json, name):
+    """取每页的 (标签, {title, description})。JSON 认单页对象、页面数组或 {"pages": [...]}。"""
+    if is_json:
+        data = json.loads(raw)
+        if isinstance(data, dict) and isinstance(data.get("pages"), list):
+            data = data["pages"]
+        for i, item in enumerate(data if isinstance(data, list) else [data]):
+            if isinstance(item, dict):
+                label = item["path"] if isinstance(item.get("path"), str) else f"{name}#{i}"
+                yield label, {k: item[k] for k in META_KEYS if isinstance(item.get(k), str)}
+        return
+    m = FRONT.match(raw)
+    yield name, (front_matter(m.group(0))[1] if m else {})
+
+
+def meta_report(records):
+    """长度与批内重复，只提示，不影响退出码。"""
+    out, seen = [], {k: {} for k in META_KEYS}
+    for label, fields in records:
+        parts, hints = [], []
+        for key in META_KEYS:
+            value = fields.get(key, "")
+            if not value:
+                parts.append(f"{key} 缺")
+                hints.append(f"[提示] {label} 缺 {key}")
+                continue
+            n = len(value)
+            parts.append(f"{key} {n} 字符")
+            lo, hi = META_RANGE[key]
+            if detect_language(value) == "en" and not lo <= n <= hi:
+                hints.append(f"[提示] {label} {key} {n} 字符，不在经验区间 {lo}–{hi}（非官方要求）")
+            seen[key].setdefault(" ".join(value.casefold().split()), []).append(label)
+        out += [f"[meta] {label}：" + "｜".join(parts)] + hints
+    for key in META_KEYS:
+        for labels in seen[key].values():
+            if len(labels) > 1:
+                out.append(f"[提示] {key} 重复：" + "、".join(labels))
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("file", nargs="?")
+    parser.add_argument("files", nargs="*")
     parser.add_argument("--clean", action="store_true")
     parser.add_argument("--lang", choices=("zh", "en"))
+    parser.add_argument("--json", action="store_true", help="抽出 JSON 字符串值再查")
+    parser.add_argument("--meta", action="store_true", help="另报 title、description 长度与批内重复")
     args = parser.parse_args()
-    raw = open(args.file, encoding="utf-8").read() if args.file else sys.stdin.read()
-    lang = args.lang or detect_language(raw)
+    if args.clean and (args.json or args.meta or len(args.files) > 1):
+        parser.error("--clean 只接受一个 Markdown 或文本文件")
+    inputs = [(f, open(f, encoding="utf-8").read()) for f in args.files] or [("stdin", sys.stdin.read())]
     if args.clean:
-        sys.stdout.write(clean(raw, lang))
+        raw = inputs[0][1]
+        sys.stdout.write(clean(raw, args.lang or detect_language(raw)))
         return
+    hard_total, records = 0, []
+    for name, raw in inputs:
+        text, where = raw, (lambda l: f"L{l}")
+        if args.json:
+            text, spans = json_text(raw)
+            where = (lambda l, spans=spans: next(
+                (p if a == b else f"{p} L{l - a + 1}" for a, b, p in spans if a <= l <= b), f"L{l}"))
+        lines, hard = analyze(text, args.lang or detect_language(text), where)
+        hard_total += hard
+        if len(inputs) > 1:
+            print(f"== {name}")
+        print("\n".join(lines))
+        if args.meta:
+            records += list(meta_records(raw, args.json, name))
+    if args.meta:
+        print("== meta（只提示，长度区间是经验口径）")
+        print("\n".join(meta_report(records)))
+    sys.exit(1 if hard_total else 0)
+
+
+def analyze(raw, lang, where=lambda l: f"L{l}"):
+    """返回 ([档位行, 命中或「无命中」], 硬禁数)。where 把行号换成位置标签。"""
     text = mask(raw)
     if lang == "en":
         text = mask_en_quotes(text)
@@ -159,13 +296,13 @@ def main():
         hard_total += len(hits)
         if hits:
             report.append(f"[硬禁] {name} x{len(hits)}")
-            report += [f"    L{l}: …{s}…" for l, s in hits[:6]]
+            report += [f"    {where(l)}: …{s}…" for l, s in hits[:6]]
     for name, pat in (SOFT if lang == "zh" else EN_SOFT).items():
         hits = list(locate(text, pat, 0 if lang == "zh" else re.I))
         if hits:
             soft_kinds += 1
             report.append(f"[提示] {name} x{len(hits)}")
-            report += [f"    L{l}: …{s}…" for l, s in hits[:4]]
+            report += [f"    {where(l)}: …{s}…" for l, s in hits[:4]]
     half = list(locate(text, HALF_AFTER_CJK.pattern))
     if lang == "zh" and half:
         report.append(f"[字符] 中文后半角标点 x{len(half)}（--clean 可转全角）")
@@ -202,9 +339,7 @@ def main():
         report.append("[节奏] 连续三句同一开头")
     score = min(100, hard_total * 12 + soft_kinds * 8 + (10 if flat else 0) + (10 if rep else 0))
     band = "clean" if score <= 20 else "轻度" if score <= 40 else "混合" if score <= 60 else "重度"
-    print(f"档位 {band}（{score}）｜硬禁 {hard_total}｜{stats}")
-    print("\n".join(report) if report else "无命中")
-    sys.exit(1 if hard_total else 0)
+    return [f"档位 {band}（{score}）｜硬禁 {hard_total}｜{stats}", "\n".join(report) if report else "无命中"], hard_total
 
 
 if __name__ == "__main__":
