@@ -60,6 +60,13 @@ def serve(worker, workspace, state_root, control=None):
     def terminate(signum, _frame): raise SystemExit(128 + signum)
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP): signal.signal(sig, terminate)
     try:
+        # Establish the tunnel first, so each setup command reuses the same IAP
+        # connection instead of repeating a potentially slow SSH handshake.
+        reverse = ['-R', f"127.0.0.1:{control['port']}:127.0.0.1:{control['port']}"] if control else []
+        # -M plus ControlMaster=yes switches OpenSSH to ask mode, which makes
+        # noninteractive shutdown fail and leaves the forwarding master alive.
+        subprocess.run([*common, '-o', 'ControlMaster=yes', '-o', 'ExitOnForwardFailure=yes', '-Nf', '-L', f'127.0.0.1:{port}:127.0.0.1:{port}', *reverse, host], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        master = True
         remote_call('umask 077; mkdir -p -- ' + shlex.quote(str(root / 'transport')) + ' && mkdir -- ' + shlex.quote(remote))
         owned = True
         remote_call('umask 077; cat > ' + shlex.quote(executable) + ' && chmod 700 ' + shlex.quote(executable), input=payload)
@@ -71,11 +78,6 @@ def serve(worker, workspace, state_root, control=None):
         environ = ('PATH=' + shlex.quote(remote + '/bin') + ':"$PATH" FLEET_GCP_BRIDGE_FILE=' + shlex.quote(remote + '/bridge.json') + ' ') if control else ''
         command = environ + 'nohup ' + shlex.quote(executable) + ' --listen ' + shlex.quote(f'ws://127.0.0.1:{port}') + ' --ws-auth capability-token --ws-token-sha256 ' + token_hash + ' >' + shlex.quote(remote + '/server.log') + ' 2>&1 </dev/null & echo $! >' + shlex.quote(remote + '/server.pid')
         remote_call(command)
-        reverse = ['-R', f"127.0.0.1:{control['port']}:127.0.0.1:{control['port']}"] if control else []
-        # -M plus ControlMaster=yes switches OpenSSH to ask mode, which makes
-        # noninteractive shutdown fail and leaves the forwarding master alive.
-        subprocess.run([*common, '-o', 'ControlMaster=yes', '-o', 'ExitOnForwardFailure=yes', '-Nf', '-L', f'127.0.0.1:{port}:127.0.0.1:{port}', *reverse, host], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        master = True
         if sys.stdout.isatty(): raise ValueError('transport capabilities may only be sent over a private pipe')
         ready = {'url': f'ws://127.0.0.1:{port}/', 'token': token}
         if control:

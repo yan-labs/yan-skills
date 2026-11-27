@@ -553,6 +553,11 @@ def main():
                 if args.flush: raise ValueError('workspace has no synchronization session')
                 if local.exists() and (not local.is_dir() or any(local.iterdir())):
                     raise ValueError('new synchronization directory must be empty')
+                # Cache exclusions must never silently hide tracked source files.
+                patterns = [':(glob)**/' + directory + '/**' for directory in ('node_modules', '.gradle', 'build', 'dist')]
+                tracked = ssh(worker, cmdstr(['git', '-C', item['path'], 'ls-files', '-z', '--', *patterns]), capture=True).stdout
+                if tracked:
+                    raise ValueError('tracked files match synchronization cache exclusions; inspect workspace before syncing')
                 local.mkdir(parents=True, mode=0o700, exist_ok=True)
                 session = 'gcpx-' + uuid.uuid4().hex
                 ssh(worker, 'true', capture=True)  # Establish ControlMaster before Mutagen opens concurrent channels.

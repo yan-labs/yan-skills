@@ -281,6 +281,17 @@ class GcpxTests(unittest.TestCase):
             self.call('sync', 'task', str(self.root / 'mirror'), '--flush')
             self.call('ws', 'rm', 'task')
             self.assertEqual(m.call_args_list[-1].args[2:4], ('sync', 'terminate'))
+    def test_sync_rejects_tracked_files_hidden_by_cache_exclusions(self):
+        with patch.object(gcpx, 'ssh', self.fake_ssh): self.call('ws', 'new', 'repo', '--name', 'task')
+        def tracked_file(worker, command, capture=False, tty=False):
+            result = self.fake_ssh(worker, command, capture, tty)
+            if 'ls-files' in command: result.stdout = 'src/build/source.js\0'
+            return result
+        with patch.object(gcpx, 'ssh', tracked_file), patch.object(gcpx, 'mutagen') as mutate:
+            with self.assertRaisesRegex(ValueError, 'tracked files match'):
+                self.call('sync', 'task', str(self.root / 'mirror'))
+            mutate.assert_not_called()
+            self.assertFalse((self.root / 'mirror').exists())
     def test_run_passes_exact_quoted_command_to_ssh(self):
         with patch.object(gcpx, 'ssh', self.fake_ssh): self.call('ws', 'new', 'repo', '--name', 'task')
         with patch.object(gcpx.subprocess, 'run', side_effect=RuntimeError('intercepted')) as call:
