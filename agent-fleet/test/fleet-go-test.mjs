@@ -3,6 +3,9 @@ import { spawnSync as rawSpawnSync } from 'node:child_process';
 function spawnSync(cmd, args, opts) {
   if (cmd === script && ['new', 'relaunch', 'amend'].includes(args[0])) {
     args = [...args];
+    // Existing fixtures exercise local worktree behavior; GCP default has a
+    // separate entry-point test below.
+    if (args[0] === 'new' && !args.includes('--workspace')) args.push('--workspace', 'local');
     if (!args.includes('--on')) args.push('--on', 'local');
     if (args[args.indexOf('--on') + 1] === 'local' && !args.includes('--local-reason')) args.push('--local-reason', 'test fixture');
   }
@@ -712,6 +715,17 @@ except ValueError:
     assert.equal(JSON.parse(readFileSync(metaFile,'utf8')).after,'prior');
     r=run(['amend','dx','授权不足','--auth','local']); assert.equal(r.status,1,r.stderr); assert.match(r.stderr,/--auth .*local-commit/);
     assert.deepEqual(JSON.parse(readFileSync(metaFile,'utf8')).auth,['local-commit','deploy-prod']);
+  });
+  test('编码任务默认 GCP 工作区且未启用实验时不回退', () => {
+    const body=join(temp,'gcp-default-entry.md');
+    writeFileSync(body,`## 入口\n仓库: ${temp}\n可写路径: ${temp}/project\n`);
+    const result=rawSpawnSync(script,['new','gcp-default','--to','gpt','--on','local','--local-reason','test fixture',
+      '--auth','local','--action','改代码','--body',body,'--no-launch','--no-lint'], {encoding:'utf8',env,input:''});
+    assert.equal(result.status,0,result.stderr);
+    const metaPath=join(path.slice(0,path.lastIndexOf('/')),'gcp-default.brief.json');
+    assert.equal(JSON.parse(readFileSync(metaPath,'utf8')).workspace,'gcp');
+    const launch=run(['relaunch','gcp-default']);
+    assert.equal(launch.status,1); assert.match(launch.stderr,/禁止降级/);
   });
   test('密钥诊断仅给行号与规则，摘要、长文件名和路径不误报', () => {
     const normal=[
