@@ -51,9 +51,9 @@ description: |
 5. **成文**：Gemini 3.8 Flash 按 `references/writer-brief.md` 写；输入是 sources 文件、站内参数表数据、文章骨架。
 6. **Review**：Claude Sonnet 按 `references/writer-brief.md` 的清单核对，改动写回；通过后才进仓库。
 6.5 **封面图**：每篇文章一张，按 `references/cover.md` 用 `/imagegen` 生成，落盘并转 webp，写进 frontmatter（cover、og 图同源）。
-7. **迁移与接入**：写入 `content/articles/**`，页面三处引导 card（首屏、文中、文末），YouTube iframe 必备，X 评论墙，Reddit 仅链接，Prompt 集合卡（有则内置），参数表/对比表。站建在站点引擎上时，改为通过引擎写入文章页并复用主题里的组件片段，细则见 write 的 `references/cards/site-page.md`「落稿与验收：有站点引擎时」。
+7. **迁移与接入**：写入 `content/articles/**`，页面三处引导 card（首屏、文中、文末），YouTube iframe 必备，X 评论墙，Reddit 仅链接，Prompt 集合卡（有则内置），参数表/对比表。
 8. **复核**：Opus 只读复核代码与 SEO，Sonnet 复核内容；修必修项。
-9. **部署与回读**：生产部署后只读回读（页面、嵌入可播放、JSON-LD、canonical、截图并排）；IndexNow。站建在站点引擎上时改为引擎发布加正式域名回读。
+9. **部署与回读**：生产部署后只读回读（页面、嵌入可播放、JSON-LD、canonical、截图并排）；IndexNow。
 10. **评判**：见 `references/review-eval.md`（哥飞 AI 评分、AITDK 监测、ChatGPT 匿名问答），分数不达标回到第 5 步。
 
 ## 页面必备件（模型页）
@@ -63,7 +63,7 @@ description: |
 ## 联动的 Skill
 
 - `agent-fleet`：派单与插话；`rankup`：接力记录、SEO/GEO 判据、评判阶段的脚本与清单。
-- `write`：成文与 review 的写法纪律、红线和稿件体检 `scripts/check.py`，中英文稿都过；`gefei` 系列：评分与关键词；`opencli`：登录态浏览器取数；`design`/画布：组件设计；`imagegen`：配图。
+- `write`：中文稿的去 AI 味体检（站内英文稿不用）；`gefei` 系列：评分与关键词；`opencli`：登录态浏览器取数；`design`/画布：组件设计；`imagegen`：配图。
 - 评判标准与脚本都在 rankup，不要在这里复制一份。
 
 ## 做完怎么交

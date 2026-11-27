@@ -421,9 +421,9 @@ KD 与 SERP、用 Semrush 核对搜索量、检查可玩供给，结果统一写
 
 我们自己的文章做法：X 调研交 Grok、资料采集交 Claude、成文交 Gemini 3.8 Flash、review 交 Claude Sonnet；不自编、只拼有出处的资料；页面必备 YouTube iframe、X 评论墙、参数/对比表、Prompt 集合卡与引导 card；最后用哥飞评分、AITDK、ChatGPT 匿名问答评判。与 `rankup`、`agent-fleet`、`write`、`gefei`、`opencli`、`design` 联动。
 
-### [`write`](write/) — 多语言写作与改稿入口
+### [`write`](write/) — 中文写作唯一入口
 
-写文章、改稿、写文案与脚本、标题钩子、翻译摘要、公众号排版、去 AI 味，以及工具站的站内文案（首页、长尾内页、FAQ、title 与 description，中英文都管）都从这里进。主文件只做路由，按情形读 `references/` 里的细则；成稿一律过内置稿件体检 `scripts/check.py`（中英文硬禁项、节奏统计、字符清理）。依赖 Python 3。回归测试在仓库根目录跑 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s write/tests -v`。
+写文章、改稿、写文案与脚本、标题钩子、翻译摘要、公众号排版和去 AI 味都从这里进。主文件只做路由，按情形读 `references/` 里的细则（素材、塑形、按拍推进、长文笔法、文案、标题、翻译排版）；成稿一律过内置中文体检 `scripts/check.py`（硬禁项、节奏统计、字符清理）。依赖 Python 3。
 
 ### [`skill-link-check`](skill-link-check/) — Skill 目录审计
 

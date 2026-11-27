@@ -10,7 +10,6 @@ body 必含：
 3. 写法：英文，正面表述（讲能做什么、带来什么好处）；只做衔接、梳理、对比归纳；每段事实后标注来源（链接到 sources 里的 URL）；评价类写成“某作者/账号在某日期说…”；不使用“最佳”“领先”等比较级，除非来源原文如此并已引用。
 4. 禁止：编造数字、效果、日期、人名；写 sources 里没有的事实；改参数表数字；替赞助视频隐去赞助披露。
 5. 输出：只输出 mdx 正文与 frontmatter 草案，缺口以 `<!-- GAP: ... -->` 标出，不要自己补。
-6. 写法纪律（只给指针，不抄规则）：先读 write 的 `references/executor.md`；红线与体检按 `references/check.md`，交稿前跑 write 的 `scripts/check.py`，硬禁清零；官方要求按 `references/official/google-content.md`。
 文案语气遵守 agent-fleet 的 copy-voice 规范（自动注入）。
 
 ## 给 Claude Sonnet（review）
@@ -25,5 +24,4 @@ fleet-go new blog-<slug>-review --to claude --tier sonnet --goal "对照 sources
 5. YouTube iframe 在、X 评论墙在、Reddit 仅链接、Prompt 集合卡在（若有）、三处引导 card 在。
 6. 语气正面、衔接自然、无 AI 腔套话；标题/描述含主关键词，不堆词。
 7. 内链、related、FAQ 真实回答搜索意图。
-8. 官方层与体检：按 write 的 `references/cards/review.md` 第 2、3 条核（不通过的写 G 编号；自己重跑 `check.py`，硬禁为 0）。
 Review 通过后才写入仓库。
