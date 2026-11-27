@@ -26,18 +26,21 @@ class TransportTests(unittest.TestCase):
                        'exec_server_member':'exec-server'}
         self.state = root / 'state'; self.state.mkdir()
 
-    def run_transport(self, fail_upload=False, cached=False):
+    def run_transport(self, fail_upload=False, cached=False, fail_cleanup=False):
         calls=[]
         def run(args, **kwargs):
             calls.append(args)
             if not cached and 'test -x' in args[-1]: raise subprocess.CalledProcessError(1,args)
             if fail_upload and 'tar -xzOf' in args[-1]: raise subprocess.CalledProcessError(1,args)
+            if fail_cleanup and 'rm -rf --' in args[-1]:
+                self.assertTrue(kwargs.get('check'))
+                raise subprocess.CalledProcessError(255,args)
             if 'tar -xzOf' in args[-1]:
                 self.assertEqual(kwargs['input'], Path(self.worker['exec_server_archive']).read_bytes())
             return subprocess.CompletedProcess(args,0)
         stdin=type('Stdin', (), {'buffer':io.BytesIO(b'')})()
         with patch.object(transport.subprocess,'run',side_effect=run), patch.object(transport.signal,'signal'), patch.object(transport.sys,'stdin',stdin), contextlib.redirect_stdout(io.StringIO()):
-            if fail_upload:
+            if fail_upload or fail_cleanup:
                 with self.assertRaises(subprocess.CalledProcessError): transport.serve(self.worker,'task',self.state)
             else: transport.serve(self.worker,'task',self.state)
         return calls
@@ -57,6 +60,11 @@ class TransportTests(unittest.TestCase):
     def test_upload_failure_cleans_owned_directory_and_tunnel(self):
         calls=self.run_transport(fail_upload=True)
         self.assertIn('-Nf',calls[0])
+        self.assertTrue(any('rm -rf --' in call[-1] for call in calls))
+        self.assertEqual(calls[-1][-3:-1],['-O','exit'])
+
+    def test_remote_cleanup_failure_is_reported_and_tunnel_is_closed(self):
+        calls=self.run_transport(fail_cleanup=True)
         self.assertTrue(any('rm -rf --' in call[-1] for call in calls))
         self.assertEqual(calls[-1][-3:-1],['-O','exit'])
 

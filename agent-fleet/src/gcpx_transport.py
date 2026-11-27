@@ -96,13 +96,15 @@ def serve(worker, workspace, state_root, control=None):
         print(json.dumps(ready), flush=True)
         sys.stdin.buffer.read()
     finally:
-        if owned:
-            # A stale or reused pid is never killed unless it still executes our
-            # exact binary. Directory names contain a fresh UUID owned by us.
-            script = ('p=$(cat ' + shlex.quote(remote + '/server.pid') + ' 2>/dev/null || true); '
-                      'case "$p" in ""|*[!0-9]*) ;; *) '
-                      'if [ "$(readlink /proc/$p/exe 2>/dev/null || true)" = ' + shlex.quote(executable) + ' ]; then kill "$p" || true; fi;; esac; '
-                      'rm -rf -- ' + shlex.quote(remote))
-            subprocess.run([*base, host, script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if master:
-            subprocess.run([*base, '-O', 'exit', host], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        try:
+            if owned:
+                # A stale or reused pid is never killed unless it still executes our
+                # exact binary. Directory names contain a fresh UUID owned by us.
+                script = ('p=$(cat ' + shlex.quote(remote + '/server.pid') + ' 2>/dev/null || true); '
+                          'case "$p" in ""|*[!0-9]*) ;; *) '
+                          'if [ "$(readlink /proc/$p/exe 2>/dev/null || true)" = ' + shlex.quote(executable) + ' ]; then kill "$p" || true; fi;; esac; '
+                          'rm -rf -- ' + shlex.quote(remote))
+                subprocess.run([*base, host, script], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        finally:
+            if master:
+                subprocess.run([*base, '-O', 'exit', host], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
