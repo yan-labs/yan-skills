@@ -577,7 +577,7 @@ async function cmdShortRun(command, argv) {
   if (command === 'grok') return cmdGrok(argv);
   if (command === 'gpt') return cmdCode(argv);
   if (['copy', 'bulk'].includes(command)) {
-    const result = await runAgy({ prompt: options.prompt, cwd: options.cwd, noVoice: Boolean(options.flags['no-voice']), effort: resolveEffortFlag(options.flags), agent: Boolean(options.flags['agent-mode']) });
+    const result = await runAgy({ prompt: options.prompt, cwd: options.cwd, noVoice: Boolean(options.flags['no-voice']), effort: resolveEffortFlag(options.flags), agent: Boolean(options.flags['agent-mode']), taskType: options.flags.type });
     if (result) {
       result.reportPath = options.flags.report;
       const config = loadModelsConfig(options.flags['models-config'] ? resolvePath(options.flags['models-config']) : undefined);

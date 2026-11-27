@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, writeFileSync, chmodSync, readFileSync, rmSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { runAgy } from '../src/agy-runner.mjs';
+import { runAgy, agyTimeout } from '../src/agy-runner.mjs';
 import { runGeminiApi } from '../src/gemini-api-runner.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'fleet-gemini-test-'));
@@ -67,6 +67,13 @@ try {
 const detachLog = readFileSync(join(process.env.AGENT_FLEET_RUNS_DIR, '2026-11-27T00-00-00-000Z-detach-deadbeef.log'), 'utf8');
 assert.match(detachLog, /agy 失败摘要:.*failure-detail/);
 assert.doesNotMatch(detachLog, /fixture-secret/);
+writeFileSync(join(dir, 'agy'), '#!/bin/sh\nsleep 3\n');
+chmodSync(join(dir, 'agy'), 0o755);
+process.env.FLEET_AGY_BIN = join(dir, 'agy');
+process.env.FLEET_AGY_TIMEOUT_S = '1';
+await assert.rejects(runAgy({ prompt:'slow', cwd:dir, agent:true }), /超时 1 秒/);
+delete process.env.FLEET_AGY_TIMEOUT_S;
+
 stub('quota exhausted 429');
 assert.equal(await runAgy({ prompt:'hello', cwd:dir, noVoice:true }), null);
 assert.match(readFileSync(process.env.AGENT_FLEET_ORDER_FILE, 'utf8'), /gemini-sub.*停用/);
@@ -101,3 +108,8 @@ assert.equal(existsSync(join(dir, 'kollab-args')), false);
 console.log('fleet media: no-key Kollab fallback OK');
 
 } finally { rmSync(dir, { recursive: true, force: true }); }
+
+assert.equal(agyTimeout({ taskType: 'research', override: '' }), '3600');
+assert.equal(agyTimeout({ agent: true, taskType: 'work', override: '' }), '3600');
+assert.equal(agyTimeout({ taskType: 'copy', override: '' }), '600');
+assert.equal(agyTimeout({ taskType: 'research', override: '42' }), '42');

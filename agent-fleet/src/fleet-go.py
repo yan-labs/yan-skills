@@ -601,6 +601,8 @@ def command(meta):
     args = ['fleet', entry, meta['brief']]
     if to == 'jev':
         args.append(meta['questions'])
+    if to == 'gemini' and meta.get('type'):
+        args.extend(['--type', meta['type']])
     if to == 'gemini' and meta.get('gemini_agent') and meta.get('worktree'):
         args.extend(['--agent-mode', '--cwd', meta['worktree']['path']])
     args.extend(['--name', meta['name'], '--report', meta['report']])

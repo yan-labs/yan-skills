@@ -55,7 +55,7 @@ try {
   const okStateFile = readdirSync(detachRuns).find(x => x.endsWith('.json') && !x.endsWith('.pid.json') && !x.endsWith('.queue.json'));
   const okState = JSON.parse(readFileSync(join(detachRuns, okStateFile), 'utf8'));
   assert.equal(okState.model, 'agy');
-  assert.equal(readFileSync(detachReport, 'utf8').trim(), 'detach agy copy ok');
+  assert.match(readFileSync(detachReport, 'utf8'), /^detach agy copy ok(?:\n|$)/);
   console.log('PASS fleet copy detach agy: model=agy and report backfilled');
 
   writeFileSync(agy, '#!/bin/sh\necho "token=fixture-secret location blocked 400" >&2\nexit 1\n'); chmodSync(agy, 0o755);

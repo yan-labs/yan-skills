@@ -81,7 +81,7 @@ try {
     for(const text of ['归类：','REPORT:','## 思维准则（每单首要','根因优先','自我证伪','围绕本 brief','## 授权覆盖','## 目标','## 允许范围','## 验收',rule]) {
       const i=brief.indexOf(text); assert.ok(i>previous,text); previous=i;
     }
-    assert.equal(brief.trim().split('\n').at(-1),rule);
+    assert.equal(brief.trim().split('\n').at(-1),'临时文件只放 /tmp/one/。');
     assert.match(r.stderr,/将执行：fleet code .*--name one --report /);
     assert.doesNotMatch(brief,/NODE_USE_ENV_PROXY=1/);
     assert.match(r.stderr,/样板字符数.*样板占比/);
