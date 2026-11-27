@@ -1,8 +1,8 @@
 ---
 name: rankup
-description: 独立开发者项目的指挥台：选词选品与需求验证、建站（默认走站点引擎 MCP，可多站成批）、上线前 SEO/GEO 体检、上线接入、变现与监控，并用项目 `.rankup/` 记录做跨会话接力。用户提到 rankup 或 /rankup（check、review、init、doctor），或说「这个词能不能做」「挖点需求」「选品」「做个站」「批量建站」「能不能上线」「接 GSC、提交 sitemap」「流量掉了」「ChatGPT 会不会推荐我们」「定价、接支付」时使用；在有 `.rankup/` 的项目里说「继续」「上次做到哪」「下一步做什么」「整理项目记录」时也使用，即使没提 SEO。macOS、iOS、iPad 原生 App 的立项与项目记录同样适用。不用于：纯写文章或文案（write、blog）、外链执行（backlink）、浏览器驱动（opencli）、配图（imagegen）、派单本身与 fleet 产物清理（agent-fleet）、与项目记录无关的通用开发和部署排错。
+description: 独立开发者项目的指挥台：选词选品与需求验证、建站（默认走站点引擎 MCP，可多站成批）、上线前 SEO/GEO 体检、上线接入、变现与监控，并用项目 `.rankup/` 记录做跨会话接力。用户提到 rankup 或 /rankup（check、review、init、doctor），或说「这个词能不能做」「挖点需求」「选品」「做个站」「批量建站」「能不能上线」「接 GSC、提交 sitemap」「流量掉了」「ChatGPT 会不会推荐我们」「定价、接支付」时使用；在有 `.rankup/` 的项目里说「继续」「上次做到哪」「下一步做什么」「整理项目记录」时也使用，即使没提 SEO。独立的 Google Trends 热度查询或对比（不建站也适用）。macOS、iOS、iPad 原生 App 的立项与项目记录同样适用。不用于：纯写文章或文案（write、blog）、外链执行（backlink）、浏览器驱动（opencli）、配图（imagegen）、派单本身与 fleet 产物清理（agent-fleet）、与项目记录无关的通用开发和部署排错。
 metadata:
-  version: "5.1.0"
+  version: "5.1.1"
 ---
 
 # Rankup

@@ -2,6 +2,8 @@
 name: write
 description: |
   多语言写作与改稿的入口：中文长文与公众号、小红书和口播稿、标题、翻译与摘要、营销文案，以及工具站的站内文案（首页、长尾内页、FAQ、title 与 meta description，中英文都管，写前对照官方要求），交付前都过内置稿件体检。用户要写、改、润色、缩写、翻译任何给人读的文字，或说「读着别扭」「AI 味太重」「读完脑子是乱的」「去 AI 味」「humanize」「rewrite」「proofread」「landing page copy」「写一下这页的文案」时使用，没点名 write 也用；去 AI 味默认走这里。不管：做哪些页和目标词（rankup）、站内 blog、模型页、对比文的资料采集与上线（blog）、点名某人风格的写作（如 tim-mediastorm）、代码注释与提交说明。
+metadata:
+  version: "0.0.1"
 ---
 
 # write
@@ -30,7 +32,7 @@ description: |
 | 任务 | 第一站 |
 |---|---|
 | 工具站首页、长尾内页、FAQ、title、description（一页或一批） | `references/cards/site-page.md`，官方要求是必读 |
-| 看一页的 title 和 description 行不行 | `references/site-copy.md`「title 与 description」加官方层第四、五节，再跑 `check.py --meta` |
+| 看一页的 title 和 description 行不行 | `references/site-copy.md`「title 与 description」加官方层第四、五节，再跑 `check.py --meta`（带 front matter 的 Markdown 加 `--check-front-matter`） |
 | 落地页、定价页、功能页等营销文案 | `references/site-copy.md` |
 | 公众号长文、随笔、评论，要有人的声音 | `references/longform-voice.md` |
 | 标题、开头钩子 | `references/title-formulas.md` |
@@ -44,7 +46,7 @@ description: |
 
 ## 诊断（用户说别扭、AI 味重时先做这个）
 
-句子的毛病多半是结构的症状，只修句子治不了结构。所以先跑三项，出结论再动手。
+句子的毛病多半是结构的症状，只修句子治不了结构。所以先跑 grounding 顺序、beats 还是 blocks、leading word 三项诊断，出结论再动手；改前、改后各跑一次收尾体检。
 
 1. **grounding 顺序。** 从头读，维护一张「已落地概念」清单，每处发力都查它依赖的概念在不在清单里。读者掉线最常见的病根就在这里，而且每句话都通顺，句子层面看不出来。四种典型错误：借还没落地的概念发力；落地和使用隔得太远；同一概念先提半句、后面再完整讲一遍；该设成前提的塞进正文。
 2. **beats 还是 blocks。** 数全篇的并列条目。三十个平行要点说明是在堆知识点，读者没被往前带；每节都停在「X 是这样的」，读者每节都要重新起跑。

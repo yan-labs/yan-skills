@@ -364,7 +364,7 @@ test("evidence/backups are pending with metadata; explicit paths keep age and re
     assert.equal(plan.pendingConfirmation.length, rels.length);
     const pending = plan.pendingConfirmation.find(e => e.path.endsWith("shot.png"));
     assert.equal(pending.bytes, 7);
-    assert.equal(pending.modifiedAt, old.toISOString());
+    assert.equal(pending.modifiedAt, (await stat(path.join(dir, "evidence/shot.png"))).mtime.toISOString());
     assert.equal(pending.taskOrProject, projectRoot);
     assert.deepEqual(pending.referencedBy, [path.join(dir, "INDEX.md")]);
     assert.match(pending.usefulness, /无法自动判断/);

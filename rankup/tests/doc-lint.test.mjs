@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 import { cardStats, entryStats, lint } from "../scripts/maintain/doc-lint.mjs";
 
 const limits = { lines: 5, chars: 120, lineChars: 20 };
@@ -63,4 +65,16 @@ test("lint 汇总开工卡，卡问题只是警告", async () => {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+
+test("entry cards retain evaluated trigger and release gates", async () => {
+  const skill = await readFile(path.join(sourceRoot, "SKILL.md"), "utf8");
+  const prelaunch = await readFile(path.join(sourceRoot, "references/playbooks/prelaunch.md"), "utf8");
+  const build = await readFile(path.join(sourceRoot, "references/playbooks/build.md"), "utf8");
+  assert.match(skill.split("\n").find(line => line.startsWith("description:")), /独立的 Google Trends 热度查询或对比（不建站也适用）/);
+  assert.match(prelaunch.split("## 引擎站步骤")[0], /图标专项未通过不许上线/);
+  assert.match(prelaunch.split("## 引擎站步骤")[0], /占位专项未通过不许上线/);
+  assert.match(build.split("## 引擎站步骤")[0], /动手前先调引擎的 `get_guide`/);
+  assert.match(build.split("## 引擎站步骤")[0], /不适用的闸门标 N\/A 并写原因/);
 });

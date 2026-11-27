@@ -27,6 +27,16 @@ class SiteChecks(unittest.TestCase):
         p.write_text(text, encoding='utf-8')
         return str(p)
 
+    def test_markdown_site_examples_enable_front_matter(self):
+        root = Path(__file__).resolve().parents[1]
+        site = (root / 'references/cards/site-page.md').read_text()
+        review = (root / 'references/cards/review.md').read_text()
+        check = (root / 'references/check.md').read_text()
+        self.assertIn('check.py --check-front-matter --meta', site)
+        self.assertIn('--check-front-matter --meta', review)
+        self.assertIn('check.py --check-front-matter --meta pages/*.md', check)
+        self.assertIn('检查带 front matter 的 Markdown 站内页面时加 `--check-front-matter`', check)
+
     def test_front_matter_title_dash(self):
         text = ('---\ntitle: PDF Merger — Free Online Tool\n'
                 'description: Merge PDF files online for free.\n---\n\n'

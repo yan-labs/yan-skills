@@ -16,7 +16,7 @@
 4. 性能：`node scripts/pagespeed.mjs collect --strategy both`，判读按 [`seo-audit-reading.md` 一](../seo-audit-reading.md#一--pagespeed-网页版--补上闸门-6-缺的那一半)。
 5. GEO 与 AI 代理：`scripts/is-agentic.mjs scan --save`、`scripts/ai-crawler-access.mjs --url <域名>`、`scripts/ua-parity.mjs <url>`。
 6. **图标专项**：按 [`stage-4-prelaunch.md` A 节](../lifecycle/stage-4-prelaunch.md#必做动作)逐个取图并解码核对。图标专项未通过不许上线。
-7. **占位专项**：按 sitemap 逐 URL grep（正则见 [`discipline/placeholders.md`](../discipline/placeholders.md)）加人工抽查首页、定价、关于、联系、法律页。
+7. **占位专项**：按 sitemap 逐 URL grep（正则见 [`discipline/placeholders.md`](../discipline/placeholders.md)）加人工抽查首页、定价、关于、联系、法律页。占位专项未通过不许上线。
 8. 第三方复核：AITDK 全站报告（闸门 4c）；哥飞页面体检加载官方 `gefei-page`（[`seo-webcafe.md`](../seo-webcafe.md#谁来调用)）。
 9. 上线前与发布后复核入口：`checklists.md` D1 / D4 / D12 / D13 / P3，上线前核一次、发布后在正式域名再核一次。
 10. 修 Ahrefs 检验结果时：`scripts/ahrefs-site-audit.mjs` 取清单 → `scripts/ahrefs-issues-recheck.mjs` 线上复核 → 修完回到第 2 步全套重跑。
