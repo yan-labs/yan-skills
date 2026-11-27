@@ -13,6 +13,9 @@ export function pidPath(runId) {
   return join(runsDir(), `${runId}.pid.json`);
 }
 
+/** A run's detach state file is <runId>.json and runIds contain no dot; <runId>.queue/stages/job/pid.json are companions. */
+export const isRunStateFile = name => name.endsWith('.json') && name.indexOf('.') === name.length - 5;
+
 export function runIdFromLogPath(logPath) {
   if (!logPath) return null;
   const base = String(logPath).split(/[/\\]/).pop() ?? '';
@@ -43,8 +46,30 @@ export function patchPidRecord(runId, patch) {
   return writePidRecord(runId, { ...current, ...patch });
 }
 
-/** 当前进程的 command 行,写进 pid.json 供 stop 时对照。 */
-export function processCommand(pid) {
+let snapshot = null;
+/** 在 withProcessSnapshot 的同步回调里,prefetchProcessCommands 先用一次 ps -p 批量取一组 pid 的 command;其它地方仍逐个 ps -p。 */
+export function withProcessSnapshot(fn) {
+  if (snapshot) return fn();
+  snapshot = new Map();
+  try { return fn(); } finally { snapshot = null; }
+}
+export function prefetchProcessCommands(pids) {
+  if (!snapshot) return;
+  const ids = [...new Set(pids.map(Number).filter(n => Number.isInteger(n) && n > 0))];
+  if (!ids.length) return;
+  let out = '';
+  try {
+    out = execFileSync('ps', ['-ww', '-o', 'pid=,command=', '-p', ids.join(',')], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 16 * 1024 * 1024 });
+  } catch (err) { out = typeof err.stdout === 'string' ? err.stdout : ''; } // 有 pid 已不存在时 ps 退出码为 1,其余行照常输出
+  for (const line of out.split('\n')) {
+    const m = line.match(/^\s*(\d+)\s+(.*?)\s*$/);
+    if (m) snapshot.set(Number(m[1]), m[2]);
+  }
+}
+
+/** 当前进程的 command 行,写进 pid.json 供 stop 时对照。fresh 跳过快照,强制现查。 */
+export function processCommand(pid, { fresh = false } = {}) {
+  if (!fresh && snapshot?.has(Number(pid))) return snapshot.get(Number(pid));
   try {
     return execFileSync('ps', ['-o', 'command=', '-p', String(pid)], {
       encoding: 'utf8',
@@ -82,7 +107,11 @@ export function isRecordedProcessAlive(pid, command) {
   }
   if (!command) return true;
   const current = processCommand(n);
-  return !current || current === command;
+  if (!current || current === command) return true;
+  if (!snapshot) return false;
+  // 快照与记录不一致(多行 command 解析不全、pid 刚被复用):以现查为准。
+  const live = processCommand(n, { fresh: true });
+  return !live || live === command;
 }
 
 /** 前台任务的 pid.json 已无对应进程却没写终态:补写成失败终态(最后心跳/启动时间作为结束时间),让它按普通终态 24 小时后退出列表。 */

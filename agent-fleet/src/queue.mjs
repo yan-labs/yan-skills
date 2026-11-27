@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runsDir } from './progress.mjs';
-import { isRecordedProcessAlive, processCommand } from './pid.mjs';
+import { isRecordedProcessAlive, isRunStateFile, processCommand } from './pid.mjs';
 import { fleetEvent } from './timeline.mjs';
 
 const live = new Set(['queued', 'running', 'parked', 'waiting']);
@@ -213,7 +213,7 @@ export async function acquireSlot(id) {
     const known = new Set(rows.map(r => r.runId));
     const legacy = new Set();
     const registeredPids = new Set(rows.filter(r => live.has(r.state)).map(r => r.pid));
-    for (const name of readdirSync(runsDir()).filter(n => n.endsWith('.json') && !n.endsWith('.queue.json'))) {
+    for (const name of readdirSync(runsDir()).filter(n => n.endsWith('.pid.json') || isRunStateFile(n))) {
       const rec = read(join(runsDir(), name));
       const runId = rec?.runId || name.replace(/\.pid\.json$/, '');
       if (!rec || known.has(runId) || known.has(rec?.slotRunId) || registeredPids.has(rec.pid) || (rec.detach ? rec.status !== 'running' : !name.endsWith('.pid.json') || rec.finished)) continue;

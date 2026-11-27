@@ -341,9 +341,13 @@ function cmdStatus(argv, cachedRows) {
   const flags = parseFlags(argv);
   const cwd = flags.cwd ? resolvePath(flags.cwd) : undefined;
   let reviewRecords;
-  const rows = cachedRows ? cachedRows.filter(r => !cwd || sameCwd(r.cwd, cwd)) : collectStatus({ cwd, onDetached: records => { reviewRecords = records.filter(r => r.detach && r.runId); } });
+  const rows = cachedRows ? cachedRows.filter(r => !cwd || sameCwd(r.cwd, cwd)) : collectStatus({ cwd, active: Boolean(flags.running), onDetached: records => { reviewRecords = records.filter(r => r.detach && r.runId); } });
   const getReviewRecords = () => reviewRecords ??= requestRecords();
-  const selected = rows.filter(r => !flags.running || ['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(r.state)).map(r => { const pending = pendingFor(r.runId, getReviewRecords); return { ...r, pendingAskCount: pending.length, oldestAskAgeMs: pending.length ? Math.max(0, Date.now() - Math.min(...pending.map(a => Date.parse(a.at)))) : null, pendingSignals: pending }; });
+  // --name / --brief-path 只留同名或同 brief 的行(派单判重用),先过滤再算未答信号。
+  const byName = typeof flags.name === 'string' ? flags.name : null;
+  const byBrief = typeof flags['brief-path'] === 'string' ? flags['brief-path'] : null;
+  const selected = rows.filter(r => !flags.running || ['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(r.state))
+    .filter(r => (byName === null && byBrief === null) || (byName !== null && r.name === byName) || (byBrief !== null && r.briefPath === byBrief)).map(r => { const pending = pendingFor(r.runId, getReviewRecords); return { ...r, pendingAskCount: pending.length, oldestAskAgeMs: pending.length ? Math.max(0, Date.now() - Math.min(...pending.map(a => Date.parse(a.at)))) : null, pendingSignals: pending }; });
   process.stdout.write(flags.json ? `${JSON.stringify(selected, null, 2)}\n`
     : selected.length ? selected.map(r =>
       `${formatStatusHuman([r]).trimEnd()}${r.launchDetached ? '  ⚠ detached-launch' : ''}  未答=${r.pendingAskCount} 最老=${r.oldestAskAgeMs === null ? '-' : Math.floor(r.oldestAskAgeMs / 1000) + 's'}\n`).join('')
