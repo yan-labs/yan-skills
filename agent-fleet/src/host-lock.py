@@ -3,6 +3,10 @@
 import fcntl
 import json
 import os
+import re
+import subprocess
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
 import sys
 import time
@@ -45,6 +49,84 @@ def overflow_to_gcpx(command):
                          'sh', '-c', 'cd -- "$1" || exit; shift; exec "$@"', 'sh', str(relative), *command])
 
 
+def capacity_state():
+    """Return True/False, or None when any required metric is unavailable."""
+    try:
+        cpus = os.cpu_count()
+        if not cpus:
+            return None
+        load = os.getloadavg()[0]
+        if sys.platform != 'darwin':
+            return None
+        pressure = int(subprocess.check_output(
+            ['sysctl', '-n', 'kern.memorystatus_vm_pressure_level'], text=True, timeout=3).strip())
+        if pressure not in (1, 2, 4):
+            return None
+        return load < cpus * 1.5 and pressure != 4
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+@contextmanager
+def allocation_guard():
+    ROOT.mkdir(mode=0o700, exist_ok=True)
+    fd = os.open(ROOT / 'heavy-allocation', os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def active_leases():
+    active = []
+    for path in ROOT.glob('heavy-[0-9]*'):
+        if not re.fullmatch(r'heavy-[1-9][0-9]*', path.name):
+            continue
+        fd = try_lease(path.name)
+        if fd is None:
+            active.append(int(path.name[6:]))
+        else:
+            os.close(fd)
+    return sorted(active)
+
+
+def queue_ticket():
+    queue = ROOT / 'heavy-queue'
+    queue.mkdir(mode=0o700, exist_ok=True)
+    path = queue / f'{time.monotonic_ns():020d}-{uuid.uuid4().hex}'
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return path, fd
+
+
+def queue_head(ticket):
+    for path in sorted(ticket.parent.iterdir()):
+        if path == ticket:
+            return True
+        try:
+            fd = os.open(path, os.O_RDWR)
+        except FileNotFoundError:
+            continue
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return False
+            path.unlink(missing_ok=True)
+        finally:
+            os.close(fd)
+    return False
+
+
+def remotely_capable(command):
+    # Only classify direct tool invocations with a clear build/test operation.
+    tool = Path(command[0]).name
+    if tool == 'pnpm':
+        return any(x in ('install', 'test', 'build', 'vitest', 'jest', 'tsc', 'typecheck') for x in command[1:])
+    return tool in ('tsc', 'vitest', 'jest', 'mvn', 'gradle', 'gradlew')
+
+
 def heavy(args):
     gcp = args[:1] == ['--gcp']
     if gcp:
@@ -52,41 +134,54 @@ def heavy(args):
     if args[:1] != ['--'] or len(args) < 2:
         raise ValueError('用法: fleet heavy [--gcp] -- <命令> [参数]')
     command = args[1:]
-    capacity = int(os.environ.get('FLEET_HEAVY_CAPACITY', '3'))
-    if capacity < 1:
+    # Existing callers may set an emergency ceiling; absent means no fixed cap.
+    raw_cap = os.environ.get('FLEET_HEAVY_CAPACITY')
+    cap = int(raw_cap) if raw_cap else None
+    if cap is not None and cap < 1:
         raise ValueError('FLEET_HEAVY_CAPACITY 必须为正整数')
+    with allocation_guard():
+        ticket, ticket_fd = queue_ticket()
     next_notice = 0
-    while True:
-        owners = []
-        for i in range(capacity):
-            name = f'heavy-{i + 1}'
-            fd = try_lease(name)
-            if fd is not None:
-                os.ftruncate(fd, 0)
-                owner = {'pid': os.getpid(), 'command': Path(command[0]).name}
-                os.write(fd, json.dumps(owner).encode())
-                print(f'[fleet heavy] acquired {i + 1}/{capacity} pid={owner["pid"]}', file=sys.stderr, flush=True)
-                os.environ['FLEET_HEAVY_LEASE_PID'] = str(owner['pid'])
-                exec_with_lease(fd, command)
-            try:
-                owner = json.loads((ROOT / name).read_text())
-                owners.append(f'{owner["pid"]}({owner["command"]})')
-            except (OSError, ValueError, KeyError):
-                owners.append(f'{name}(登记中)')
-        now = time.monotonic()
-        if os.environ.get('FLEET_GCP_WORKSPACE_EXPERIMENTAL') == '1':
-            if overflow_to_gcpx(command): return 0
-            print('Mini 重活名额已满且没有 GCP 工作区映射，不能安全分流。', file=sys.stderr)
-            return 75
-        if gcp:
-            print('Mini 重活名额已满，使用 fleet bg -- <已授权的 GCP 常备验证机命令>，按 job:job-… 等终态。',
-                  file=sys.stderr)
-            return 75
-        if now >= next_notice:
-            print(f'[fleet heavy] waiting | 占用 {", ".join(owners)} | 名额释放后约 1 秒接手，完成时间待占用者退出',
-                  file=sys.stderr, flush=True)
-            next_notice = now + 30
-        time.sleep(1)
+    try:
+        while True:
+            with allocation_guard():
+                active = active_leases()
+                state = capacity_state()
+                allowed = state is True or (state is None and not active)
+                if cap is not None and len(active) >= cap:
+                    allowed = False
+                if queue_head(ticket) and allowed:
+                    number = 1
+                    while number in active:
+                        number += 1
+                    fd = try_lease(f'heavy-{number}')
+                    if fd is not None:
+                        owner = {'pid': os.getpid(), 'command': Path(command[0]).name}
+                        os.ftruncate(fd, 0)
+                        os.write(fd, json.dumps(owner).encode())
+                        ticket.unlink(missing_ok=True)
+                        os.close(ticket_fd)
+                        ticket_fd = None
+                        print(f'[fleet heavy] acquired {number} pid={owner["pid"]}', file=sys.stderr, flush=True)
+                        os.environ['FLEET_HEAVY_LEASE_PID'] = str(owner['pid'])
+                        # Drop allocation guard before exec; lease remains held.
+                        break
+            if not allowed and (gcp or os.environ.get('FLEET_GCP_WORKSPACE_EXPERIMENTAL') == '1' or
+                                (remotely_capable(command) and os.environ.get('FLEET_GCPX_WORKSPACE'))):
+                if overflow_to_gcpx(command):
+                    return 0
+                print('Mini 承载不足，缺少安全 GCP 工作区映射；未在本机执行。', file=sys.stderr)
+                return 75
+            now = time.monotonic()
+            if now >= next_notice:
+                print(f'[fleet heavy] waiting FIFO | active={active} capacity={state}', file=sys.stderr, flush=True)
+                next_notice = now + 30
+            time.sleep(1)
+        exec_with_lease(fd, command)
+    finally:
+        ticket.unlink(missing_ok=True)
+        if ticket_fd is not None:
+            os.close(ticket_fd)
 
 
 def archive(command):
