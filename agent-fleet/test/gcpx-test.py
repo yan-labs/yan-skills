@@ -59,6 +59,16 @@ class GcpxTests(unittest.TestCase):
         with patch.object(gcpx.subprocess, 'run', return_value=type('Result', (), {'returncode':0})()) as proc:
             with patch.object(sys, 'argv', ['gcpx', '--config', str(self.cfg), 'run', 'task', '--', 'node', '--version']): gcpx.main()
             self.assertIn('PATH=/opt/gcpx/bin:/usr/bin:/bin', proc.call_args.args[0][-1])
+    def test_run_path_shell_metacharacters_are_single_argument(self):
+        cfg = json.loads(self.cfg.read_text())
+        tricky = "/opt/bin:'quoted';echo injected\nnext:/bin"
+        cfg['workers']['worker']['command_path'] = tricky
+        self.cfg.write_text(json.dumps(cfg))
+        with patch.object(gcpx, 'ssh', self.fake_ssh): self.call('ws', 'new', 'repo', '--name', 'task')
+        with patch.object(gcpx.subprocess, 'run', return_value=type('Result', (), {'returncode':0})()) as proc:
+            with patch.object(sys, 'argv', ['gcpx', '--config', str(self.cfg), 'run', 'task', '--', 'node', '--version']): gcpx.main()
+            command = proc.call_args.args[0][-1].split(' && exec ', 1)[1]
+            self.assertEqual(gcpx.shlex.split(command), ['env', 'PATH=' + tricky, 'node', '--version'])
     def test_creation_releases_registry_and_reserves_name(self):
         def check_lock(worker, command, capture=False, tty=False):
             with (gcpx.ROOT / 'lock').open('a') as other:
@@ -257,7 +267,14 @@ class GcpxTests(unittest.TestCase):
         instance = {'name':'vm-one', 'status':'RUNNING', 'labels':{'gcpx-managed':'true', 'gcpx-pool':'fleet'}}
         result = lambda value: type('R', (), {'stdout':json.dumps(value)})()
         with patch.object(gcpx, 'check_credit') as credit, patch.object(gcpx, 'run') as cloud, patch.object(gcpx, 'ssh') as remote, patch.object(gcpx, 'verify_worker_disks') as verify:
-            cloud.side_effect = [result([]), None, None, result(instance)]
+            def do_cloud(argv, **kwargs):
+                if argv[1:4] == ['compute','instances','list']: return result([])
+                if argv[1:4] == ['compute','disks','create']:
+                    instance['labels']['gcpx-create-id'] = argv[argv.index('--labels')+1].split('gcpx-create-id=')[1]
+                    return None
+                if argv[1:4] == ['compute','instances','create']: return None
+                return result(instance)
+            cloud.side_effect = do_cloud
             self.assertEqual(gcpx.create_worker(cfg, 'worker', 100)['status'], 'RUNNING')
             credit.assert_called_once()
             disk_create = cloud.call_args_list[1].args[0]
@@ -283,14 +300,15 @@ class GcpxTests(unittest.TestCase):
         gcpx.ROOT.mkdir()
         response = type('R', (), {'stdout':'[]'})()
         failure = gcpx.subprocess.CalledProcessError(1, ['gcloud'])
-        with patch.object(gcpx, 'check_credit'), patch.object(gcpx, 'run', side_effect=[response, None, failure]) as cloud, patch.object(gcpx, 'cleanup_failed_creation') as cleanup:
-            with self.assertRaises(gcpx.subprocess.CalledProcessError): gcpx.create_worker(cfg, 'worker', 1)
-            marker = cloud.call_args_list[1].args[0][cloud.call_args_list[1].args[0].index('--labels') + 1].split('gcpx-create-id=')[1]
-            cleanup.assert_called_once_with(cfg['workers']['worker'], 'vm-one-boot', marker)
+        with patch.object(gcpx, 'check_credit'), patch.object(gcpx, 'run', side_effect=[response, None, failure, response]) as cloud, patch.object(gcpx, 'cleanup_failed_creation') as cleanup:
+            with self.assertRaisesRegex(ValueError, 'operation unconfirmed'): gcpx.create_worker(cfg, 'worker', 1)
+            record = json.loads(gcpx.creation_path(cfg['workers']['worker']).read_text())
+            self.assertEqual(record['phase'], 'instance_inflight')
+            cleanup.assert_not_called()
             self.assertEqual(list(gcpx.ROOT.glob('bootstrap.*.sh')), [])
     def test_cleanup_deletes_only_owned_unattached_disk(self):
         worker = {'project':'proj','zone':'zone','instance':'vm','pool':'fleet'}
-        disk = {'name':'vm-boot','zone':'https://example/zones/zone','labels':{'gcpx-create-id':'mine'}}
+        disk = {'name':'vm-boot','zone':'https://example/zones/zone','labels':{'gcpx-managed':'true','gcpx-pool':'fleet','gcpx-create-id':'mine'}}
         response = lambda v: type('R', (), {'stdout':json.dumps(v)})()
         with patch.object(gcpx, 'run', side_effect=[response([]), response([disk]), None, response([])]) as cloud:
             gcpx.cleanup_failed_creation(worker, 'vm-boot', 'mine')
@@ -299,12 +317,12 @@ class GcpxTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'still attached'): gcpx.cleanup_failed_creation(worker, 'vm-boot', 'mine')
             self.assertEqual(cloud.call_count, 2)
         with patch.object(gcpx, 'run', side_effect=[response([]), response([{**disk, 'labels':{'gcpx-create-id':'other'}}])]) as cloud:
-            gcpx.cleanup_failed_creation(worker, 'vm-boot', 'mine')
+            with self.assertRaisesRegex(ValueError, 'ownership unconfirmed'): gcpx.cleanup_failed_creation(worker, 'vm-boot', 'mine')
             self.assertEqual(cloud.call_count, 2)
     def test_cleanup_deletes_only_matching_instance(self):
         worker = {'project':'proj','zone':'zone','instance':'vm','pool':'fleet'}
         disk_url = 'https://www.googleapis.com/compute/v1/projects/proj/zones/zone/disks/vm-boot'
-        instance = {'name':'vm','zone':'https://example/zones/zone','labels':{'gcpx-create-id':'mine'},'disks':[{'boot':True,'source':disk_url}]}
+        instance = {'name':'vm','zone':'https://example/zones/zone','labels':{'gcpx-managed':'true','gcpx-pool':'fleet','gcpx-create-id':'mine'},'disks':[{'boot':True,'source':disk_url}]}
         response = lambda v: type('R', (), {'stdout':json.dumps(v)})()
         with patch.object(gcpx, 'run', side_effect=[response([instance]), response([]), None, response([]), response([])]) as cloud:
             gcpx.cleanup_failed_creation(worker, 'vm-boot', 'mine')
@@ -312,6 +330,35 @@ class GcpxTests(unittest.TestCase):
         with patch.object(gcpx, 'run', side_effect=[response([{**instance,'disks':[]}]), response([])]) as cloud:
             with self.assertRaisesRegex(ValueError, 'unconfirmed'): gcpx.cleanup_failed_creation(worker, 'vm-boot', 'mine')
             self.assertEqual(cloud.call_count, 2)
+    def test_recovery_waits_for_terminal_operation_and_retains_failures(self):
+        worker = {'project':'proj','zone':'zone','instance':'vm','pool':'fleet'}
+        path = gcpx.creation_path(worker)
+        record = {**worker, 'creation_id':'mine','disk_name':'vm-boot','phase':'instance_inflight','phase_started':100}
+        gcpx.save_creation(path, record, initial=True)
+        target = 'https://www.googleapis.com/compute/v1/projects/proj/zones/zone/instances/vm'
+        op = {'name':'op1','targetLink':target,'operationType':'insert','insertTime':'1970-01-01T00:01:40Z','status':'PENDING'}
+        response = lambda v: type('R', (), {'stdout':json.dumps(v)})()
+        with patch.object(gcpx, 'run', return_value=response([op])), patch.object(gcpx, 'cleanup_failed_creation') as cleanup:
+            self.assertEqual(gcpx.recover_creation(worker, 200), 'creation operation unconfirmed')
+            cleanup.assert_not_called(); self.assertTrue(path.exists())
+            self.assertEqual(json.loads(path.read_text())['operation'], 'op1')
+            self.assertEqual(json.loads(path.read_text())['operation_status'], 'PENDING')
+        with patch.object(gcpx, 'run', return_value=response([{**op,'status':'DONE'}])), patch.object(gcpx, 'cleanup_failed_creation', side_effect=OSError('no permission')):
+            with self.assertRaises(OSError): gcpx.recover_creation(worker, 200)
+            self.assertEqual(json.loads(path.read_text())['phase'], 'cleanup')
+        with patch.object(gcpx, 'cleanup_failed_creation') as cleanup:
+            self.assertEqual(gcpx.recover_creation(worker, 201), 'cleaned')
+            cleanup.assert_called_once(); self.assertFalse(path.exists())
+    def test_bootstrap_pending_and_timeout_recovery(self):
+        worker = {'project':'proj','zone':'zone','instance':'vm','pool':'fleet'}
+        path = gcpx.creation_path(worker)
+        record = {**worker, 'creation_id':'mine','disk_name':'vm-boot','phase':'bootstrap','phase_started':100}
+        gcpx.save_creation(path, record, initial=True)
+        with patch.object(gcpx, 'ensure_worker_ready', side_effect=ValueError('not ready')), patch.object(gcpx, 'cleanup_failed_creation') as cleanup:
+            self.assertEqual(gcpx.recover_creation(worker, 999), 'bootstrap pending')
+            cleanup.assert_not_called(); self.assertTrue(path.exists())
+            self.assertEqual(gcpx.recover_creation(worker, 1000), 'cleaned')
+            cleanup.assert_called_once(); self.assertFalse(path.exists())
     def test_public_network_requires_only_iap_ssh(self):
         worker = {'project':'proj', 'zone':'us-central1-a'}
         spec = {'public_egress':True, 'network':'safe', 'subnet':'sub'}
