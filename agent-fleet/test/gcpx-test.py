@@ -191,13 +191,18 @@ class GcpxTests(unittest.TestCase):
         self.cfg.write_text(json.dumps(cfg))
         instance = {'name': 'vm-one', 'status': 'TERMINATED', 'labels': {'gcpx-managed': 'true', 'gcpx-pool': 'fleet'}}
         proof = {'observed_at': 10000, 'remaining_usd': 200, 'monthly_estimate_usd': 100, 'compute_scope_verified': True, 'billing_account': 'billingAccounts/one'}
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(ValueError, 'explicitly configured'): gcpx.check_credit(cfg['workers']['worker'], 10000)
+        evidence.write_text(json.dumps(proof))
+        with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '99'}):
+            with self.assertRaisesRegex(ValueError, 'credit evidence'): gcpx.check_credit(cfg['workers']['worker'], 10000)
         evidence.write_text(json.dumps({**proof, 'observed_at': 1}))
-        with patch.object(gcpx, 'run') as cloud, patch.object(gcpx.time, 'time', return_value=10000):
+        with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '150'}), patch.object(gcpx, 'run') as cloud, patch.object(gcpx.time, 'time', return_value=10000):
             cloud.return_value.stdout = json.dumps(instance)
             with self.assertRaisesRegex(ValueError, 'credit evidence'): self.call('up', 'worker')
             self.assertEqual(cloud.call_count, 1)
         evidence.write_text(json.dumps(proof))
-        with patch.object(gcpx, 'run') as cloud, patch.object(gcpx.time, 'time', return_value=10000):
+        with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '150'}), patch.object(gcpx, 'run') as cloud, patch.object(gcpx.time, 'time', return_value=10000):
             billing = {'billingEnabled': True, 'billingAccountName': 'billingAccounts/one'}
             cloud.side_effect = [type('R', (), {'stdout': json.dumps(instance)})(),
                                  type('R', (), {'stdout': json.dumps(billing)})(), None,

@@ -247,11 +247,12 @@ def stop_worker(config_data, state, worker_id):
         return {'worker': worker_id, 'status': status}
 
 def check_credit(worker, now):
+    try: cap = float(os.environ['FLEET_GCP_MONTHLY_CAP'])
+    except (KeyError, ValueError): raise ValueError('FLEET_GCP_MONTHLY_CAP must be explicitly configured')
+    if not math.isfinite(cap) or cap <= 0: raise ValueError('FLEET_GCP_MONTHLY_CAP must be positive and finite')
     proof_path = worker.get('credit_evidence')
     if not proof_path:
         estimate = worker.get('monthly_estimate_usd')
-        try: cap = float(os.environ['FLEET_GCP_MONTHLY_CAP'])
-        except (KeyError, ValueError): raise ValueError('FLEET_GCP_MONTHLY_CAP must be explicitly configured')
         if isinstance(estimate, bool) or not isinstance(estimate, (int, float)) or not math.isfinite(estimate) or estimate <= 0 or not math.isfinite(cap) or cap <= 0 or estimate > cap:
             raise ValueError('monthly estimate must be positive and within FLEET_GCP_MONTHLY_CAP')
         billing = json.loads(run(['gcloud', 'billing', 'projects', 'describe', worker['project'], '--format=json'], text=True, capture_output=True).stdout)
@@ -284,7 +285,7 @@ def check_credit(worker, now):
     proof = json.loads(Path(proof_path).read_text())
     observed, remaining, estimate = (proof.get(k) for k in ('observed_at', 'remaining_usd', 'monthly_estimate_usd'))
     if (any(isinstance(v, bool) or not isinstance(v, (float, int)) or not math.isfinite(v) for v in (observed, remaining, estimate))
-            or not 0 <= now - observed <= 3600 or estimate <= 0 or remaining < estimate or proof.get('compute_scope_verified') is not True):
+            or not 0 <= now - observed <= 3600 or estimate <= 0 or remaining < estimate or estimate > cap or proof.get('compute_scope_verified') is not True):
         raise ValueError('credit evidence must be current, cover Compute and cover the monthly estimate')
     billing = json.loads(run(['gcloud', 'billing', 'projects', 'describe', worker['project'], '--format=json'], text=True, capture_output=True).stdout)
     if billing.get('billingEnabled') is not True or billing.get('billingAccountName') != proof.get('billing_account'):
