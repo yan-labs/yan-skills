@@ -103,10 +103,17 @@ function openRulesPanel() {
   ev(`(()=>{const s=[...document.querySelectorAll('slat')].find(e=>e.textContent.includes('配置代码设置'));if(s)s.click();return !!s})()`)
   const fi = poll(() => frameIndex(), { tries: 15, every: 2 })
   if (fi == null) throw Object.assign(new Error('没出现 tagmanager lite iframe'), { code: 2 })
+  // 新建媒体资源可能已升级为 GTM 容器；设置不再位于默认概览。
+  if (!poll(() => ev(`/Tag Manager|Google 代码|指定内部流量|管理自动事件检测/.test(document.body.innerText)`, fi) === 'true')) throw Object.assign(new Error('Tag Manager 页面未加载'), { code: 2 })
+  const upgraded = ev(`/Tag Manager/.test(document.body.innerText) && [...document.querySelectorAll('a')].some(e=>e.textContent.trim()==='设置'&&e.offsetParent)`, fi) === 'true'
+  if (upgraded) {
+    ev(`(()=>{const a=[...document.querySelectorAll('a')].find(e=>e.textContent.trim()==='设置'&&e.offsetParent);if(!a)return false;a.click();return true})()`, fi)
+    if (!poll(() => ev(`/Google 目标账号/.test(document.body.innerText) && /管理自动事件检测/.test(document.body.innerText)`, fi) === 'true')) throw Object.assign(new Error('GTM 设置页面未加载'), { code: 2 })
+  }
   // 展开设置列表，再点「指定内部流量」
-  poll(() => ev(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='展开');if(!b)return /指定内部流量/.test(document.body.innerText);b.click();return false})()`, fi) === 'true' || (sleep(1), ev(`/指定内部流量/.test(document.body.innerText)`, fi) === 'true'), { tries: 10, every: 2 })
+  if (!poll(() => ev(`(()=>{if(/指定内部流量/.test(document.body.innerText))return true;const b=document.querySelector('button[aria-label=\"展开设置列表\"]')||[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='展开');if(b)b.click();return false})()`, fi) === 'true', { tries: 10, every: 2 })) throw Object.assign(new Error('未找到指定内部流量入口'), { code: 2 })
   ev(`(()=>{const el=[...document.querySelectorAll('*')].find(e=>e.children.length===0&&e.textContent.trim()==='指定内部流量');if(!el)return false;(el.closest('button,[role=button],a,[role=listitem]')||el).click();return true})()`, fi)
-  poll(() => ev(`/内部流量规则/.test(document.body.innerText)`, fi) === 'true', { tries: 10, every: 1.5 })
+  if (!poll(() => ev(`/内部流量规则/.test(document.body.innerText)`, fi) === 'true', { tries: 10, every: 1.5 })) throw Object.assign(new Error('内部流量规则面板未打开'), { code: 2 })
   sleep(2)
   return fi
 }
@@ -162,7 +169,7 @@ try {
     const rules = readRuleList(fi)
     if (rules.length === 0) {
       ev(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='创建'&&b.offsetParent);if(b)b.click();return !!b})()`, fi)
-      sleep(4)
+      if (!poll(() => ev(`!!document.querySelector('input[placeholder=\"示例：公司总部\"]') && !!document.querySelector('select')`, fi) === 'true')) throw Object.assign(new Error('内部流量规则表单未打开'), { code: 2 })
       const filled = ev(`(()=>{
         const set=(el,v)=>{const p=el.tagName==='SELECT'?HTMLSelectElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(el,v);['input','change','blur'].forEach(t=>el.dispatchEvent(new Event(t,{bubbles:true})))};
         const ins=[...document.querySelectorAll('input')];
@@ -180,7 +187,10 @@ try {
       if (clicked !== 'clicked') throw Object.assign(new Error('找不到唯一的提交「创建」按钮：' + clicked), { code: 2 })
       sleep(5)
       report.created = readRuleList(fi)
-      report.result = 'created'
+      if (!report.created.some(r => r.name === ruleName && r.trafficType === 'internal')) throw Object.assign(new Error('规则创建后未回读到匹配行'), { code: 2 })
+      const pendingGtm = ev(`/工作区更改：\\s*[1-9]/.test(document.body.innerText)`, fi) === 'true'
+      report.result = pendingGtm ? 'created-gtm-publish-required' : 'created'
+      if (pendingGtm) exitCode = 5
     } else {
       let has = false
       for (const r of rules) {
