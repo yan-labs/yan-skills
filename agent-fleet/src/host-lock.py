@@ -58,9 +58,13 @@ PAGING_LIMIT = {1: 100.0, 2: 25.0}
 def capacity_decision(cpu, pressure, paging):
     if pressure == 4:
         return False
-    if pressure not in CPU_LIMIT or cpu is None or paging is None:
+    if pressure not in CPU_LIMIT:
         return None
-    return cpu < CPU_LIMIT[pressure] and paging < PAGING_LIMIT[pressure]
+    if (cpu is not None and cpu >= CPU_LIMIT[pressure]) or (paging is not None and paging >= PAGING_LIMIT[pressure]):
+        return False
+    if cpu is None or paging is None:
+        return None
+    return True
 
 
 def capacity_state():

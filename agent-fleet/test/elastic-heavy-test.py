@@ -74,7 +74,8 @@ class ElasticHeavyTests(unittest.TestCase):
             (30, 1, 0, True), (84, 1, 99, True), (85, 1, 0, False),
             (70, 2, 0, False), (69, 2, 25, False), (69, 2, 24, True),
             (0, 4, 0, False), (0, 3, 0, None), (None, 1, 0, None),
-            (0, 1, None, None),
+            (0, 1, None, None), (90, 1, None, False),
+            (None, 2, 25, False),
         ]:
             with self.subTest(cpu=cpu, pressure=pressure, paging=paging):
                 self.assertEqual(mod.capacity_decision(cpu, pressure, paging), expected)
