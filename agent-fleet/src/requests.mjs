@@ -2,12 +2,13 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { runsDir } from './progress.mjs';
 import { redactEvidence } from './brief.mjs';
+import { isRunStateFile } from './pid.mjs';
 
 function json(path) { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; } }
 function lines(path) { try { return readFileSync(path, 'utf8').split('\n').filter(Boolean).flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } }); } catch { return []; } }
 export function records() {
   if (!existsSync(runsDir())) return [];
-  return readdirSync(runsDir()).filter(n => n.endsWith('.json')).map(n => json(join(runsDir(), n))).filter(r => r?.detach && r.runId);
+  return readdirSync(runsDir()).filter(isRunStateFile).map(n => json(join(runsDir(), n))).filter(r => r?.detach && r.runId);
 }
 export function linkedReview(ask, maker, reviewRecords = records()) {
   return reviewRecords.filter(r => {

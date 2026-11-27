@@ -15,7 +15,9 @@ import {
   readPidRecord,
   resolveRunId,
   sameCwd,
+  prefetchProcessCommands,
   signalProcessTree,
+  withProcessSnapshot,
 } from './pid.mjs';
 
 function formatDuration(startedAt, finishedAt) {
@@ -28,19 +30,28 @@ function formatDuration(startedAt, finishedAt) {
   return `${m}m${s}s`;
 }
 
-export function collectStatus({ cwd, onDetached } = {}) {
+/** active 为真时只返回仍在跑/排队/停靠/等待/异常的行,不为已结束的任务读日志、不拼行(status --running 的快路径)。 */
+export function collectStatus({ cwd, onDetached, active = false } = {}) {
+  return withProcessSnapshot(() => scanStatus({ cwd, onDetached, active }));
+}
+
+function scanStatus({ cwd, onDetached, active }) {
   const rows = [];
   const detached = listDetached({ indexed: true });
   onDetached?.(detached);
+  const pidRecords = listAllPidRecords({ indexed: true });
+  // 仍显示运行中的记录,一次 ps 取齐它们的 command,避免逐个 ps(几十次进程启动)。
+  prefetchProcessCommands([...detached.filter(r => r.status === 'running').flatMap(r => [r.pid, r.childPid]), ...pidRecords.filter(r => !r.finished).map(r => r.pid)]);
   for (const listed of detached) {
     if (cwd && !sameCwd(listed.cwd, cwd)) continue;
     const rec = reconcileDetached(listed);
     const state = detachedState(rec);
-    if (!['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(state) && Date.now() - Date.parse(rec.finishedAt) > 86_400_000) continue;
+    const live = ['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(state);
+    if (!live && (active || Date.now() - Date.parse(rec.finishedAt) > 86_400_000)) continue;
     rows.push({ ...rec, status: state, state, duration: formatDuration(rec.startedAt, rec.finishedAt) });
   }
   const detachedIds = new Set(detached.map(d => d.runId));
-  for (const listed of listAllPidRecords({ indexed: true })) {
+  for (const listed of pidRecords) {
     let parent = listed.runId;
     while (!detachedIds.has(parent) && parent.includes('-task-')) parent = parent.slice(0, parent.lastIndexOf('-task-'));
     if (detachedIds.has(parent)) continue;
@@ -49,7 +60,7 @@ export function collectStatus({ cwd, onDetached } = {}) {
     if (!rec.finished && !isRecordedProcessAlive(rec.pid, rec.command)) {
       rec = { ...rec, ...finalizeDeadPidRecord(rec.runId, rec) };
     }
-    if (rec.finished && Date.now() - Date.parse(rec.finishedAt ?? rec.startedAt) > 86_400_000) continue;
+    if (rec.finished && (active || Date.now() - Date.parse(rec.finishedAt ?? rec.startedAt) > 86_400_000)) continue;
     let state = rec.slotRunId && queueRecord(rec.slotRunId)?.state === 'parked' ? 'parked' : 'running';
     if (rec.finished) {
       const log = rec.logPath && existsSync(rec.logPath) ? readFileSync(rec.logPath, 'utf8') : '';

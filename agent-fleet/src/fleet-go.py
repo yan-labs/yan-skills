@@ -681,21 +681,31 @@ def launch(meta):
         raise
 
 
-def running(active_only=True, status_timeout=None, recent_seconds=None):
+def running(active_only=True, status_timeout=None, recent_seconds=None, name=None, brief=None):
     """读取 fleet 控制面，重启核验需包含 stopped，不能把消失当停止成功。
 
     Mini 状态一次 ssh 批量取；status_timeout 给定时失败只提示一行，不补 unreachable 行。
     recent_seconds 给定时 Mini 端不返回更早结束的终态行。
+    name / brief 给定时只查同名（或同 brief）的任务，判重不必取全量状态；
+    本机扫描超时由 FLEET_STATUS_TIMEOUT_SECONDS（默认 60）控制，这里多留 10 秒收尾。
     """
     fresh = status_timeout is None
-    result = subprocess.run(['fleet', 'status', *(['--running'] if active_only else []), '--json',
-                             *(['--fresh'] if fresh else [])], capture_output=True, text=True)
+    scoped = name is not None or brief is not None
+    limit = float(os.environ.get('FLEET_STATUS_TIMEOUT_SECONDS', '60'))
+    try:
+        result = subprocess.run(['fleet', 'status', *(['--running'] if active_only else []), '--json',
+                                 *(['--fresh'] if fresh else []), *(['--name', name] if name else []),
+                                 *(['--brief-path', brief] if brief else [])],
+                                capture_output=True, text=True, timeout=limit + 10)
+    except subprocess.TimeoutExpired:
+        raise ValueError(f'子命令 fleet status 超过 {limit + 10:g} 秒未返回；可用 FLEET_STATUS_TIMEOUT_SECONDS 调大扫描上限。') from None
     if result.returncode:
-        raise ValueError(f'子命令 fleet status 失败：exit={result.returncode}。')
+        detail = (result.stderr.strip().splitlines() or [''])[-1]
+        raise ValueError(f'子命令 fleet status 失败：exit={result.returncode}。' + (f'原因：{detail}' if detail else ''))
     rows = json.loads(result.stdout)
     if not isinstance(rows, list):
         raise ValueError('fleet status 返回格式不是数组。')
-    recs = mini.records()
+    recs = [rec for rec in mini.records() if not scoped or rec.get('name') == name or (brief is not None and rec.get('brief') == brief)]
     if not recs:
         return rows
     unreachable = lambda rec: {'runId': rec['id'], 'name': rec['name'], 'briefPath': rec['brief'], 'status': 'unreachable', 'state': 'running', 'location': 'mini'}
@@ -1191,7 +1201,7 @@ def relaunch(name, to=None, tier=None, simple=False, fast=False, no_fast=False, 
         if '调遣令偏差：' not in text:
             lines = text.splitlines(keepends=True)
             text = ''.join(lines[:2]) + '\n' + deviation + '\n' + ''.join(lines[2:])
-    candidates = [r for r in running(False) if r.get('briefPath') == str(path) or r.get('name') == name]
+    candidates = [r for r in running(False, name=name, brief=str(path)) if r.get('briefPath') == str(path) or r.get('name') == name]
     if any(r.get('status') in ('running', 'queued', 'parked', 'waiting', 'unreachable') for r in candidates):
         raise ValueError('同名任务仍未结束；需要重启请用 amend --restart，未重复派发。')
     if on == 'local' and (to or meta['to']) == 'gpt':
@@ -1391,7 +1401,7 @@ def restart(run, path, name, on=None, local_reason=None, relaunch_fn=relaunch):
     subprocess.run(['fleet', 'stop', run['runId']], check=True, capture_output=True, text=True)
     deadline = time.monotonic() + 60
     while True:
-        row = next((r for r in running(False) if r['runId'] == run['runId']), None)
+        row = next((r for r in running(False, name=name, brief=str(path)) if r['runId'] == run['runId']), None)
         stopped = row is not None and row.get('state', row.get('status')) == 'stopped'
         leftover = residuals(run, path, name)
         if stopped and not leftover:
@@ -1539,7 +1549,7 @@ def amend(args):
         return
     if not args.say and not args.restart:
         return
-    matches = [r for r in running() if r.get('state', r.get('status')) in ('running', 'waiting')
+    matches = [r for r in running(name=args.name, brief=str(path)) if r.get('state', r.get('status')) in ('running', 'waiting')
                and (r.get('briefPath') == str(path) or r.get('name') == args.name)]
     if not matches and args.say:
         # 上一轮已结束（常见：部分完成后交回）：修订已写入 brief，直接按修订后的 brief 续派，省掉单独 relaunch
@@ -1818,7 +1828,7 @@ def new(args, prepare=False):
     retry = retry_metadata(path) if path.exists() and not args.dry_run else None
     if not strict_dispatch():
         if report_matches(args.name + '.brief.md'):
-            candidates = [r for r in running(False) if r.get('name') == args.name]
+            candidates = [r for r in running(False, name=args.name) if r.get('name') == args.name]
             if any(r.get('status', r.get('state')) in ('running', 'queued', 'parked', 'waiting', 'abnormal', 'unreachable') for r in candidates):
                 next_name = next_available_name(args.name, folder)
                 hint = fix_hint(lambda argv: replace_positional(argv, args.name, next_name))
@@ -2309,7 +2319,7 @@ def main():
     elif args.action == 'worktree':
         path, meta = locate(args.name)
         args.name = meta.get('name') or path.name[:-len('.brief.md')]
-        if any(r.get('name') == args.name and r.get('status') in ('running', 'queued', 'parked', 'waiting', 'unreachable') for r in running(False)):
+        if any(r.get('name') == args.name and r.get('status') in ('running', 'queued', 'parked', 'waiting', 'unreachable') for r in running(False, name=args.name)):
             raise ValueError('任务仍在运行。')
         if args.operation == 'prune':
             if not meta.get('worktree'):
