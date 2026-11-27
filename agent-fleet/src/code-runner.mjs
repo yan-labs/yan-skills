@@ -5,7 +5,7 @@ import { readJSON, readYield, resolveYield, writeYield, localCondition, stageSta
 import { saveCodexQuota, taskIdentity, queueRecord, setSlotState, acquireSlot } from './queue.mjs';
 // Codex 执行层：管理 app-server 回合、插话、自动续做与 exec 降级。
 import { acceptanceResult } from './verdict.mjs';
-import { readContinuationState, continuationProgress, continuationRules, judgeContinuation, acceptanceContinuation, CONTINUE_ACTION, NO_PROGRESS_STOP, parkWaitReason } from './code-continue.mjs';
+import { readContinuationState, continuationProgress, continuationRules, reportContinuation, unblockedItems, judgeContinuation, acceptanceContinuation, CONTINUE_ACTION, NO_PROGRESS_STOP, parkWaitReason } from './code-continue.mjs';
 import { judgeTask } from './judge-task.mjs';
 import { loadModelsConfig } from './config.mjs';
 import { spawn } from 'node:child_process';
@@ -566,7 +566,8 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     (state.acceptance?.unmet.length || (state.acceptance?.verdict === 'needs-review' && state.acceptance.pending === 'none' && !state.report.trim()));
   const namedMissing = state => {
     const count = commandEvidence.size;
-    const { missing } = acceptanceContinuation(lastAcceptance, state, count > previousCommandEvidence);
+    const { missing: acceptanceMissing } = acceptanceContinuation(lastAcceptance, state, count > previousCommandEvidence);
+    const missing = [...new Set([...(review ? acceptanceMissing : unblockedItems(acceptanceMissing, state.report)), ...(review ? [] : reportContinuation(state, stages))])];
     if (!missing.length) return missing;
     const blocked = !continuationProgress(lastAcceptance, state).progress && count === previousCommandEvidence;
     acceptanceStagnant = !turnUsedTool || !blocked || state.externalWait?.waiting ? 0 : acceptanceStagnant + 1;
@@ -812,7 +813,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           if (state.acceptance && !noContinue && process.env.FLEET_NO_CONTINUE !== '1') {
             missing = namedMissing(state);
           } else if (continueEnabled && (reportPath || terra) && (terra || !state.conclusion.startsWith('失败'))) {
-            missing = reportPath && !review ? continuationRules(state, prompt, workdir, initial, gitRunner) : [];
+            missing = reportPath && !review ? [...new Set([...continuationRules(state, prompt, workdir, initial, gitRunner), ...reportContinuation(state, stages)])] : [];
             if (!missing.length && state.conclusion.startsWith('完成')) {
               judgment = await judgeContinuation({ brief: prompt, report: state.report,
                 finalReply: readFileSync(resultPath, 'utf8'), judge: continuationJudge });
@@ -986,7 +987,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           continue;
         }
         const missing = state.acceptance ? (!noContinue && process.env.FLEET_NO_CONTINUE !== '1' ? namedMissing(state) : [])
-          : continueEnabled && reportPath && !review ? continuationRules(state, prompt, workdir, initial, gitRunner) : [];
+          : continueEnabled && reportPath && !review ? [...new Set([...continuationRules(state, prompt, workdir, initial, gitRunner), ...reportContinuation(state, stages)])] : [];
         metadata.continueRequired = missing.length > 0;
         if (metadata.continueRequired && stalled && settleZeroTool(state)) {
           await archive();

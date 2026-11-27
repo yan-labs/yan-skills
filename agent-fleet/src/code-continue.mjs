@@ -162,11 +162,46 @@ export function acceptanceContinuation(before, after, logProgress = false) {
   return { missing: acceptance.unmet, blocked: !progress };
 }
 
+/** 结构化阻塞可携带验收编号或阶段名称；未明确关联时不阻止其他事项。 */
+export function reportBlockers(report = '') {
+  return [...String(report).matchAll(/^[ \t]*(?:[-*][ \t]*)?受阻[：:]([^\r\n]*)/gm)]
+    .map(match => match[1].split(/[｜|]/).map(field => field.trim()))
+    .filter(fields => fields.length >= 4 && fields.every(Boolean) && /^(?:外部|用户决定|input|access|授权|权限|必需输入)(?:[：:]|$)/i.test(fields[0]))
+    .map(fields => fields.join('｜'));
+}
+
+export function unblockedItems(items, report) {
+  const blockers = reportBlockers(report);
+  if (!blockers.length) return items;
+  const matched = items.filter(item => blockers.some(line => {
+    const id = item.match(/\bV\d+\b/i)?.[0];
+    return id ? new RegExp(`\\b${id}\\b`, 'i').test(line) : line.includes(item);
+  }));
+  return items.filter(item => !matched.includes(item));
+}
+
+export function reportContinuation(state, stages = null) {
+  if (state.yield || state.acceptance?.pending === 'handoff') return [];
+  const missing = [];
+  if (/^(?:未完成|部分完成)/.test(state.conclusion || '')) {
+    const blockers = reportBlockers(state.report);
+    const section = String(state.report || '').match(/^## 未完成[^\r\n]*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/m)?.[1] || '';
+    const items = section.split(/\r?\n/).map(line => line.replace(/^\s*(?:[-*]|\d+[.、])\s*/, '').trim())
+      .filter(line => line && !/^受阻[：:]|^(?:无|暂无|无。)$/.test(line));
+    if (!blockers.length) missing.push('完成报告中未完成的任务');
+    else missing.push(...unblockedItems(items, state.report).map(item => `完成未完成项：${item}`));
+  }
+  if (Array.isArray(stages?.stages) && Number.isInteger(stages.stage) && stages.stage < stages.stages.length) {
+    missing.push(...unblockedItems(stages.stages.slice(stages.stage), state.report).map(stage => `完成阶段：${stage}`));
+  }
+  return missing;
+}
+
 /** 第一层只检查报告结构及 brief 明确要求的交付凭据，不以“完成”二字代替证据。 */
 export function continuationRules(state, brief, cwd = process.cwd(), initial = null, gitRunner = null) {
   if (state.conclusion.startsWith('失败') || state.yield) return [];
   const missing = [];
-  if (state.conclusion.startsWith('未完成')) missing.push('完成报告中未完成的任务');
+  missing.push(...reportContinuation(state));
   for (const line of brief.match(/^产物清单：\n(?:- .*\n)*/m)?.[0].split('\n').slice(1) ?? []) {
     const path = line.match(/^- .*?[：:]\s*([^\s（(]+)/)?.[1];
     if (path && !existsSync(resolve(cwd, path))) missing.push(`缺少文件：${path}`);
