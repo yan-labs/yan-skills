@@ -28,7 +28,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve as resolvePath } from 'node:path';
 
-import { loadEnvFile } from '../src/env.mjs';
+import { loadRuntimeEnv } from '../src/env.mjs';
 import { loadModelsConfig, defaultConfigPath, ConfigError } from '../src/config.mjs';
 import { runTask, resolveTaskEffort } from '../src/run-task.mjs';
 import { runMany } from '../src/run-many.mjs';
@@ -638,8 +638,7 @@ async function main() {
     }
   }
   if (!['park', 'blocked', 'ask', 'bg', 'land'].includes(command)) {
-    loadEnvFile(join(PKG_ROOT, '.env'));
-    loadEnvFile(join(homedir(), '.agent-fleet', '.env'));
+    loadRuntimeEnv(PKG_ROOT, homedir());
   }
 
   if (!command || command === 'help' || command === '--help' || command === '-h') {

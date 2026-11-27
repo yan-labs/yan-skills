@@ -7,6 +7,7 @@
 //   - 找不到 .env 文件时静默跳过——没有 .env 也应该能跑(比如用户直接 export 了变量)。
 
 import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 /**
  * 从指定路径读取 .env 文件并写入 process.env(不覆盖已存在的变量)。
@@ -39,4 +40,10 @@ export function loadEnvFile(envPath) {
       process.env[key] = value;
     }
   }
+}
+
+/** Shell values win, then user configuration, then package defaults. */
+export function loadRuntimeEnv(packageRoot, userHome) {
+  loadEnvFile(join(userHome, '.agent-fleet', '.env'));
+  loadEnvFile(join(packageRoot, '.env'));
 }
