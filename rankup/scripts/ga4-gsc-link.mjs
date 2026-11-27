@@ -54,14 +54,14 @@ const requestedAccount = account, requestedProperty = property
 
 function cli(args, timeout = 30000) {
   try {
-    return execFileSync("opencli", ["browser", session, "--window", windowMode, ...(windowMode === "dedicated" && windowSlot ? ["--window-slot", windowSlot] : []), ...args],
+    return execFileSync("opencli", ["browser", "--session", session, "--window", windowMode, ...args],
       { encoding: "utf8", timeout, stdio: ["pipe", "pipe", "pipe"] }).trim()
   } catch (e) {
     const message = (e.stderr?.toString() || e.stdout?.toString() || e.message).trim()
     throw new Error(message)
   }
 }
-const evaluate = js => cli(["eval", `(()=>{${js}})()`])
+const evaluate = js => { const raw=cli(["eval", `(()=>{${js}})()`]); try { const r=JSON.parse(raw); if(r.ok===true && Object.hasOwn(r,"data")) return typeof r.data==="string"?r.data:JSON.stringify(r.data); } catch {} return raw }
 const pause = ms => evaluate(`return new Promise(r=>setTimeout(()=>r(true),${ms}))`)
 function waitFor(js, seconds = 25) {
   const end = Date.now() + seconds * 1000

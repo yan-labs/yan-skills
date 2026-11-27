@@ -83,7 +83,7 @@ if (opt.dryRun) {
 const out = resolve(opt.out)
 mkdirSync(out, { recursive: true })
 function cli(...parts) {
-  const r = spawnSync('opencli', ['browser', session, '--window', 'dedicated', ...parts], { encoding: 'utf8', timeout: 45000, maxBuffer: 20 * 1024 * 1024 })
+  const r = spawnSync('opencli', ['browser', "--session", session, '--window', 'dedicated', ...parts], { encoding: 'utf8', timeout: 45000, maxBuffer: 20 * 1024 * 1024 })
   if (r.error || r.status !== 0) throw new Error(`opencli ${parts[0]} 失败：${(r.error?.message || r.stderr || r.stdout || `退出码 ${r.status}`).trim().slice(0, 400)}`)
   return r.stdout.trim()
 }

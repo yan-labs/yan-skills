@@ -32,7 +32,7 @@ const out = resolve(opt.out)
 mkdirSync(out, { recursive: true })
 const sleep = (s) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, s * 1000)
 const oc = (...a) => {
-  const r = spawnSync('opencli', ['browser', session, '--window', 'dedicated', ...a], { encoding: 'utf8', timeout: 120000 })
+  const r = spawnSync('opencli', ['browser', "--session", session, '--window', 'dedicated', ...a], { encoding: 'utf8', timeout: 120000 })
   return (r.stdout || '') + (r.stderr || '')
 }
 const bodyText = () => {

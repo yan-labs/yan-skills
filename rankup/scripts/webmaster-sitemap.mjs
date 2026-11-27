@@ -161,7 +161,7 @@ const wanted = (k) => {
 // ── OpenCLI 封装 ──────────────────────────────────────────
 function cli(action_, { timeout = 60000 } = {}) {
   try {
-    return execSync(`opencli browser "${session}" --window dedicated ${action_}`,
+    return execSync(`opencli browser --session "${session}" --window foreground ${action_}`,
       { encoding: "utf-8", timeout, stdio: ["pipe", "pipe", "pipe"] }).trim()
   } catch (e) {
     // 报错必须带上真实成因。旧版只回显 stderr，而 Node 会把
@@ -183,7 +183,7 @@ function cli(action_, { timeout = 60000 } = {}) {
   }
 }
 /** eval 的 JS 一律包成 IIFE：本环境 eval 上下文跨调用持续，重复声明会抛错。 */
-function evalJs(js) { return cli(`eval '${`(()=>{${js}})()`.replace(/'/g, "'\\''")}'`) }
+function evalJs(js) { const raw= cli(`eval '${`(()=>{${js}})()`.replace(/'/g, "'\\''")}'`); try { const r=JSON.parse(raw); if(r.ok===true && Object.hasOwn(r,"data")) return typeof r.data==="string"?r.data:JSON.stringify(r.data); } catch {} return raw }
 function open(url) { cli(`open "${url}"`) }
 
 /**

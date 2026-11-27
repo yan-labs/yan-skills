@@ -233,7 +233,7 @@ export function nextSortingVariant(columns, usedVariants) {
 }
 
 function browser(session, args, timeoutMs = 200_000) {
-  return execFileSync("opencli", ["browser", session, ...args], {
+  return execFileSync("opencli", ["browser", "--session", session, ...args], {
     encoding: "utf8",
     timeout: timeoutMs,
     stdio: ["ignore", "pipe", "pipe"],

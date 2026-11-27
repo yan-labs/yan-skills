@@ -31,10 +31,10 @@ if (!sites.length || sites.some(s => !/^[a-z\d-]+(?:\.[a-z\d-]+)+$/i.test(s)) ||
 }
 let opened = false
 function browser(...parts) {
-  return execFileSync("opencli", ["browser", session, "--window", "dedicated", ...parts],
+  return execFileSync("opencli", ["browser", "--session", session, "--window", "foreground", ...parts],
     { encoding: "utf8", timeout: 90000 }).trim()
 }
-function evalJs(source) { return browser("eval", `(()=>{${source}})()`) }
+function evalJs(source) { const raw= browser("eval", `(()=>{${source}})()`); try { const r=JSON.parse(raw); if(r.ok===true && Object.hasOwn(r,"data")) return typeof r.data==="string"?r.data:JSON.stringify(r.data); } catch {} return raw }
 function open(url) {
   opened = true
   for (let attempt = 0; attempt < 3; attempt++) {
