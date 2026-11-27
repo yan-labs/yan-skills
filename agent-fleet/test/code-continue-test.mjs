@@ -823,6 +823,7 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
   assert(reportContinuation({conclusion:'未完成', report:'受阻：本单｜缺工作｜已查｜继续做'}).length);
   assert.deepEqual(reportContinuation({conclusion:'未完成', report:'受阻：input｜缺输入｜已查配置｜主会话'}), []);
   assert.deepEqual(unblockedItems(['V1','V2'], '受阻：input｜V1 缺输入｜已查配置｜主会话'), ['V2']);
+  assert.deepEqual(unblockedItems(['V1｜等外部','V10｜未过'], '受阻：input｜V1 缺输入｜已查配置｜主会话'), ['V10｜未过']);
   assert.deepEqual(unblockedItems(['V1','V2'], '受阻：input｜缺输入｜已查配置｜主会话'), ['V1','V2']);
   assert.deepEqual(unblockedItems(['V2'], '受阻：input｜缺输入｜已查配置｜主会话'), ['V2']);
   assert.deepEqual(reportContinuation({conclusion:'部分完成', report:'## 未完成/风险/需要用户决定的事\n受阻：input｜缺输入｜已查｜主会话\n- 本地测试待做'}), ['完成未完成项：本地测试待做']);

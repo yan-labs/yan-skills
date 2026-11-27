@@ -173,8 +173,10 @@ export function reportBlockers(report = '') {
 export function unblockedItems(items, report) {
   const blockers = reportBlockers(report);
   if (!blockers.length) return items;
-  const matched = items.filter(item => blockers.some(line => /^V\d+$/i.test(item)
-    ? new RegExp(`\\b${item}\\b`, 'i').test(line) : line.includes(item)));
+  const matched = items.filter(item => blockers.some(line => {
+    const id = item.match(/\bV\d+\b/i)?.[0];
+    return id ? new RegExp(`\\b${id}\\b`, 'i').test(line) : line.includes(item);
+  }));
   return items.filter(item => !matched.includes(item));
 }
 
