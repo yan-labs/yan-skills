@@ -160,7 +160,7 @@ def allocate_worker(config_data, state, repo, requested=None):
         ssh_args(worker)
         if worker.get('managed') is not True:
             return worker_id, worker
-        recovery = recover_creation(worker, time.time())
+        recovery = recover_worker_creation(worker_id, worker, state, time.time())
         if recovery not in ('none', 'ready', 'cleaned'):
             raise ValueError('worker creation recovery pending: ' + recovery)
         if any(not isinstance(worker.get(key), str) or not NAME.fullmatch(worker[key]) for key in ('project', 'zone', 'instance', 'pool')):
@@ -428,6 +428,46 @@ def recover_creation(worker, now):
         return 'cleaned'
     raise ValueError('invalid creation record phase')
 
+def warn_creation(worker, message):
+    path = creation_path(worker)
+    if not path.exists(): return
+    record = json.loads(path.read_text())
+    record['warn'] = 'WARN: ' + message
+    record['warn_at'] = time.time()
+    save_creation(path, record)
+    log_event('creation.warning', instance=worker['instance'], warning=message)
+    print(record['warn'], file=sys.stderr)
+
+def recover_worker_creation(worker_id, worker, state, now):
+    if not creation_path(worker).exists(): return 'none'
+    try:
+        with ExitStack() as leases:
+            for ws_id, item in state.items():
+                if item.get('worker') != worker_id: continue
+                if item.get('status') == 'creating': raise ValueError('workspace creation incomplete')
+                leases.enter_context(workspace_lease(ws_id, exclusive=True))
+            result = recover_creation(worker, now)
+            if result == 'creation operation unconfirmed': warn_creation(worker, result)
+            return result
+    except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
+        warn_creation(worker, 'creation recovery failed: ' + type(error).__name__)
+        return 'creation recovery failed'
+
+def create_command(cmd, record, record_path):
+    try:
+        return run(cmd, text=True, capture_output=True)
+    except OSError:
+        # subprocess could not start gcloud, so no cloud request was sent.
+        record['phase'] = 'cleanup'; save_creation(record_path, record)
+        raise
+    except subprocess.CalledProcessError as error:
+        # Only an explicit API client error is definitive. Timeouts, connection
+        # failures and arbitrary gcloud errors remain in-flight until observed.
+        diagnostic = error.stderr or ''
+        if re.search(r'(?m)^ERROR:.*\bHTTPError (400|403|409|422)\b', diagnostic):
+            record['phase'] = 'cleanup'; save_creation(record_path, record)
+        raise
+
 def create_worker(config_data, worker_id, now):
     name(worker_id)
     worker = config_data['workers'][worker_id]
@@ -467,9 +507,9 @@ def create_worker(config_data, worker_id, now):
     try: save_creation(record_path, record, initial=True)
     except FileExistsError: raise ValueError('previous creation requires reconciliation')
     try:
-        run(['gcloud', 'compute', 'disks', 'create', disk_name, '--project', worker['project'], '--zone', worker['zone'],
+        create_command(['gcloud', 'compute', 'disks', 'create', disk_name, '--project', worker['project'], '--zone', worker['zone'],
              '--image-family', spec['image_family'], '--image-project', spec['image_project'], '--size', str(disk) + 'GB',
-             '--labels', labels, '--quiet'], stdout=sys.stderr)
+             '--labels', labels, '--quiet'], record, record_path)
         record.update({'phase':'cleanup', 'phase_started':time.time()}); save_creation(record_path, record)
         script.write_text('#!/bin/bash\nexport GCPX_WORKER_BOOTSTRAP=yes\n' + bootstrap.read_text())
         os.chmod(script, 0o600)
@@ -477,7 +517,7 @@ def create_worker(config_data, worker_id, now):
                '--machine-type', spec['machine_type'], '--disk', 'name=' + disk_name + ',boot=yes,auto-delete=yes', *network_args, '--no-service-account', '--no-scopes',
                '--labels', labels, '--metadata-from-file', 'startup-script=' + str(script), '--quiet']
         record.update({'phase':'instance_inflight', 'phase_started':time.time()}); save_creation(record_path, record)
-        run(cmd, stdout=sys.stderr)
+        create_command(cmd, record, record_path)
         record.update({'phase':'cleanup', 'phase_started':time.time()}); save_creation(record_path, record)
         describe = ['gcloud', 'compute', 'instances', 'describe', worker['instance'], '--project', worker['project'], '--zone', worker['zone'], '--format=json']
         instance = json.loads(run(describe, text=True, capture_output=True).stdout)
@@ -490,9 +530,7 @@ def create_worker(config_data, worker_id, now):
         record_path.unlink()
         return {'worker': worker_id, 'status': 'RUNNING'}
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
-        try: outcome = recover_creation(worker, time.time())
-        except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as cleanup_error:
-            raise ValueError('creation failed; recovery retained at ' + str(record_path) + ': ' + str(cleanup_error)) from error
+        outcome = recover_worker_creation(worker_id, worker, load_state(), time.time())
         raise ValueError('creation incomplete; ' + outcome + '; record: ' + str(record_path)) from error
     finally:
         script.unlink(missing_ok=True)
@@ -502,7 +540,7 @@ def start_worker(config_data, worker_id, now):
     worker = config_data['workers'][worker_id]
     if worker.get('managed') is not True:
         raise ValueError('refusing to start a worker not explicitly managed by gcpx')
-    recovery = recover_creation(worker, now)
+    recovery = recover_worker_creation(worker_id, worker, load_state(), now)
     if recovery not in ('none', 'ready', 'cleaned'):
         raise ValueError('worker creation recovery pending: ' + recovery)
     remote_path(worker['root'], 'workspaces', 'validation')
@@ -535,7 +573,7 @@ def reconcile_idle(config_data, state, now):
         if worker.get('managed') is not True: continue
         name(worker_id)
         try:
-            recovery = recover_creation(worker, now)
+            recovery = recover_worker_creation(worker_id, worker, state, now)
             if recovery not in ('none', 'ready', 'cleaned'):
                 idle.pop(worker_id, None)
                 result[worker_id] = recovery
@@ -693,7 +731,11 @@ def main():
                     log_event('gc', workspace=ws_id)
                 except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
                     retained[ws_id] = str(error)
-            output({'candidates': candidates, 'removed': removed, 'retained': retained}, args.json); return
+            recovery = {}
+            for worker_id, worker in cfg['workers'].items():
+                if worker.get('managed') is True and creation_path(worker).exists():
+                    recovery[worker_id] = recover_worker_creation(worker_id, worker, state, time.time())
+            output({'candidates': candidates, 'removed': removed, 'retained': retained, 'creation_recovery': recovery}, args.json); return
         if args.action == 'ws' and args.ws_action == 'new':
             repo = name(args.repo); spec = cfg['repos'][repo]
             ws_id = name(args.name or (repo + '-' + uuid.uuid4().hex[:12]))

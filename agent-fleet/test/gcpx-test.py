@@ -359,6 +359,60 @@ class GcpxTests(unittest.TestCase):
             cleanup.assert_not_called(); self.assertTrue(path.exists())
             self.assertEqual(gcpx.recover_creation(worker, 1000), 'cleaned')
             cleanup.assert_called_once(); self.assertFalse(path.exists())
+    def test_create_status_failure_enters_recovery(self):
+        cfg = json.loads(self.cfg.read_text()); worker = cfg['workers']['worker']
+        worker.update({'managed':True,'project':'proj','zone':'zone','instance':'vm','pool':'fleet',
+                       'create':{'machine_type':'n2-standard-16','image_family':'ubuntu-2404-lts-amd64','image_project':'ubuntu-os-cloud','disk_gb':100}})
+        gcpx.ROOT.mkdir()
+        response = lambda value: type('R', (), {'stdout':json.dumps(value)})()
+        with patch.object(gcpx, 'check_credit'), patch.object(gcpx, 'run', side_effect=[response([]),None,None,response({'name':'vm','status':'TERMINATED'})]), patch.object(gcpx, 'recover_worker_creation', return_value='cleaned') as recovery:
+            with self.assertRaisesRegex(ValueError, 'creation incomplete; cleaned'): gcpx.create_worker(cfg, 'worker', 100)
+            recovery.assert_called_once()
+            self.assertEqual(json.loads(gcpx.creation_path(worker).read_text())['phase'], 'cleanup')
+    def test_unsubmitted_command_is_cleanable_but_uncertain_failure_is_not(self):
+        worker = {'project':'proj','zone':'zone','instance':'vm','pool':'fleet'}
+        path = gcpx.creation_path(worker)
+        record = {**worker,'creation_id':'mine','disk_name':'vm-boot','phase':'instance_inflight','phase_started':100}
+        gcpx.save_creation(path, record, initial=True)
+        with patch.object(gcpx, 'run', side_effect=FileNotFoundError('gcloud')):
+            with self.assertRaises(FileNotFoundError): gcpx.create_command(['gcloud'], record, path)
+        self.assertEqual(json.loads(path.read_text())['phase'], 'cleanup')
+        record['phase'] = 'instance_inflight'; gcpx.save_creation(path, record)
+        error = gcpx.subprocess.CalledProcessError(1, ['gcloud'], stderr='connection lost')
+        with patch.object(gcpx, 'run', side_effect=error):
+            with self.assertRaises(gcpx.subprocess.CalledProcessError): gcpx.create_command(['gcloud'], record, path)
+        self.assertEqual(json.loads(path.read_text())['phase'], 'instance_inflight')
+        error = gcpx.subprocess.CalledProcessError(1, ['gcloud'], stderr='ERROR: (gcloud.compute.instances.create) HTTPError 403: denied')
+        with patch.object(gcpx, 'run', side_effect=error):
+            with self.assertRaises(gcpx.subprocess.CalledProcessError): gcpx.create_command(['gcloud'], record, path)
+        self.assertEqual(json.loads(path.read_text())['phase'], 'cleanup')
+    def test_gc_recovers_creation_and_persists_warning_on_failure(self):
+        cfg = json.loads(self.cfg.read_text()); worker = cfg['workers']['worker']
+        worker.update({'managed':True,'project':'proj','zone':'zone','instance':'vm','pool':'fleet'})
+        self.cfg.write_text(json.dumps(cfg))
+        path = gcpx.creation_path(worker)
+        record = {k:worker[k] for k in ('project','zone','instance','pool')}
+        record.update({'creation_id':'mine','disk_name':'vm-boot','phase':'cleanup','phase_started':100})
+        gcpx.save_creation(path, record, initial=True)
+        with patch.object(gcpx, 'cleanup_failed_creation', side_effect=OSError('denied')):
+            result = self.call('gc')
+        self.assertEqual(result['creation_recovery']['worker'], 'creation recovery failed')
+        self.assertIn('WARN:', json.loads(path.read_text())['warn'])
+        with patch.object(gcpx, 'cleanup_failed_creation') as cleanup:
+            result = self.call('gc')
+        self.assertEqual(result['creation_recovery']['worker'], 'cleaned')
+        cleanup.assert_called_once(); self.assertFalse(path.exists())
+    def test_gc_never_recovers_a_leased_workspace(self):
+        cfg = json.loads(self.cfg.read_text()); worker = cfg['workers']['worker']
+        with patch.object(gcpx, 'ssh', self.fake_ssh): self.call('ws', 'new', 'repo', '--name', 'task')
+        worker.update({'managed':True,'project':'proj','zone':'zone','instance':'vm','pool':'fleet'})
+        self.cfg.write_text(json.dumps(cfg))
+        path = gcpx.creation_path(worker)
+        gcpx.save_creation(path, {**{k:worker[k] for k in ('project','zone','instance','pool')},'creation_id':'mine','disk_name':'vm-boot','phase':'cleanup','phase_started':100}, initial=True)
+        with gcpx.workspace_lease('task'), patch.object(gcpx, 'cleanup_failed_creation') as cleanup:
+            result = self.call('gc')
+        self.assertEqual(result['creation_recovery']['worker'], 'creation recovery failed')
+        self.assertTrue(path.exists()); cleanup.assert_not_called()
     def test_public_network_requires_only_iap_ssh(self):
         worker = {'project':'proj', 'zone':'us-central1-a'}
         spec = {'public_egress':True, 'network':'safe', 'subnet':'sub'}
