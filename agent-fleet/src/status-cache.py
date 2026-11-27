@@ -12,10 +12,10 @@ import time
 ACTIVE = {'running', 'queued', 'parked', 'waiting', 'abnormal'}
 
 
-def status_rows(cli, fresh):
+def status_rows(cli, fresh, running):
     root = Path.home() / '.agent-fleet'
     scope = Path(os.environ.get('AGENT_FLEET_RUNS_DIR') or root / 'runs').resolve()
-    key = hashlib.sha256(os.fsencode(str(cli) + '\0' + str(scope))).hexdigest()
+    key = hashlib.sha256(os.fsencode(str(cli) + '\0' + str(scope) + ('\0running' if running else '\0all'))).hexdigest()
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     cache = root / ('status-' + key + '.json')
     fd = os.open(cache.with_suffix('.lock'), os.O_CREAT | os.O_WRONLY, 0o600)
@@ -30,7 +30,7 @@ def status_rows(cli, fresh):
             except (FileNotFoundError, ValueError):
                 pass
         raw = subprocess.check_output(
-            ['node', str(cli), 'status', '--json'], timeout=18, pass_fds=(lock.fileno(),)
+            ['node', str(cli), 'status', '--json', *(['--running'] if running else [])], timeout=float(os.environ.get('FLEET_STATUS_TIMEOUT_SECONDS', '60')), pass_fds=(lock.fileno(),)
         )
         rows = json.loads(raw)
         with tempfile.NamedTemporaryFile(dir=root, delete=False) as temp:
@@ -46,7 +46,8 @@ def status_rows(cli, fresh):
 def main():
     args = sys.argv[1:]
     cli = Path(__file__).resolve().parent.parent / 'bin' / 'agent-fleet.mjs'
-    rows = status_rows(cli, '--fresh' in args)
+    running = '--running' in args
+    rows = status_rows(cli, '--fresh' in args, running)
     if '--json' in args and set(args) <= {'--json', '--running', '--fresh'}:
         if '--running' in args:
             rows = [row for row in rows if row.get('state') in ACTIVE]

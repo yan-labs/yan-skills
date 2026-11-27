@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import runpy
+import sqlite3
 import subprocess
 import sys
 import time
@@ -460,6 +461,25 @@ def dispatch(db, now, fleet=None):
             print(f"timer {timer['id']}: {type(error).__name__}", file=sys.stderr, flush=True)
 
 
+def bounded_busy(db, label, operation):
+    """Bound lock waits; leave the connection usable for the next operation."""
+    deadline = time.monotonic() + 2.0
+    db.execute('PRAGMA busy_timeout=500')
+    try:
+        for attempt in range(2):
+            try:
+                return operation()
+            except sqlite3.OperationalError as error:
+                if error.sqlite_errorcode != 5:
+                    raise
+                db.rollback()
+                if attempt == 1 or time.monotonic() >= deadline:
+                    print(f'WARN: {label} database busy; skipping this cycle', file=sys.stderr, flush=True)
+                    return None
+    finally:
+        db.execute('PRAGMA busy_timeout=10000')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--once', action='store_true')
@@ -481,17 +501,25 @@ def main():
         while True:
             started = time.monotonic()
             now = time.time()
-            seats = reconcile(db, root, now)
-            facts = patrol(db, root, now, reviews)
+            one_shot = args.once or args.patrol or args.record_reviews
+            if one_shot:
+                seats = reconcile(db, root, now)
+                facts = patrol(db, root, now, reviews)
+            else:
+                seats = bounded_busy(db, 'reconcile', lambda: reconcile(db, root, now))
+                facts = bounded_busy(db, 'patrol', lambda: patrol(db, root, now, reviews))
             if args.patrol or args.record_reviews:
                 print(json.dumps(facts, ensure_ascii=False))
                 return
-            if args.once or seats != previous:
+            if seats is not None and (args.once or seats != previous):
                 print(json.dumps({'runs': sum(seats.values()), 'seats': seats}, ensure_ascii=False), flush=True)
-            previous = seats
+                previous = seats
             if args.dispatch:
-                wake_legacy_review_parks(db, root, time.time())
-                dispatch(db, time.time())
+                action = lambda: (wake_legacy_review_parks(db, root, time.time()), dispatch(db, time.time()))
+                if one_shot:
+                    action()
+                else:
+                    bounded_busy(db, 'dispatch', action)
             if args.once:
                 return
             time.sleep(max(1, 15 - (time.monotonic() - started)))

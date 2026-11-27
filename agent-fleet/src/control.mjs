@@ -28,9 +28,10 @@ function formatDuration(startedAt, finishedAt) {
   return `${m}m${s}s`;
 }
 
-export function collectStatus({ cwd } = {}) {
+export function collectStatus({ cwd, onDetached } = {}) {
   const rows = [];
-  const detached = listDetached();
+  const detached = listDetached({ indexed: true });
+  onDetached?.(detached);
   for (const listed of detached) {
     if (cwd && !sameCwd(listed.cwd, cwd)) continue;
     const rec = reconcileDetached(listed);
@@ -38,8 +39,11 @@ export function collectStatus({ cwd } = {}) {
     if (!['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(state) && Date.now() - Date.parse(rec.finishedAt) > 86_400_000) continue;
     rows.push({ ...rec, status: state, state, duration: formatDuration(rec.startedAt, rec.finishedAt) });
   }
-  for (const listed of listAllPidRecords()) {
-    if (detached.some(d => d.runId === listed.runId || listed.runId.startsWith(`${d.runId}-task-`))) continue;
+  const detachedIds = new Set(detached.map(d => d.runId));
+  for (const listed of listAllPidRecords({ indexed: true })) {
+    let parent = listed.runId;
+    while (!detachedIds.has(parent) && parent.includes('-task-')) parent = parent.slice(0, parent.lastIndexOf('-task-'));
+    if (detachedIds.has(parent)) continue;
     if (cwd && !sameCwd(listed.cwd, cwd)) continue;
     let rec = listed;
     if (!rec.finished && !isRecordedProcessAlive(rec.pid, rec.command)) {
