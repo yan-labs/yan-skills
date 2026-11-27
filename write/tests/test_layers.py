@@ -40,12 +40,21 @@ class OfficialLayer(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)), '编号重复')
         for r in data:
             with self.subTest(row=r[0]):
-                self.assertRegex(r[0], r'^G\d{2,3}$')
+                self.assertRegex(r[0], r'^[GQ]\d{2}\.\d+$')
                 self.assertEqual(len(r), 7, '列数应为 7')
                 self.assertTrue(r[2], '缺「写的时候怎么做」')
                 self.assertRegex(r[4], r'\]\(https://[^)]+\)')
                 self.assertRegex(r[5], DATE)
                 self.assertRegex(r[6], DATE)
+
+
+    def test_digest_cites_existing_ids(self):
+        text = self.path.read_text(encoding='utf-8')
+        digest = text.split('## 必读精简版', 1)[1].split('\n## ', 1)[0]
+        ids = {r[0] for r in rows(self.path)}
+        cited = set(re.findall(r'[GQ]\d{2}\.\d+', digest))
+        self.assertTrue(cited)
+        self.assertEqual(cited - ids, set(), '精简版引用了不存在的编号')
 
 
 class PracticeLayer(unittest.TestCase):
