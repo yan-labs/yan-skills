@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import runpy
+import sqlite3
 import subprocess
 import sys
 import time
@@ -482,7 +483,15 @@ def main():
             started = time.monotonic()
             now = time.time()
             seats = reconcile(db, root, now)
-            facts = patrol(db, root, now, reviews)
+            try:
+                facts = patrol(db, root, now, reviews)
+            except sqlite3.OperationalError as error:
+                if args.once or args.patrol or args.record_reviews or error.sqlite_errorcode != sqlite3.SQLITE_BUSY:
+                    raise
+                db.rollback()
+                print("patrol: database busy; retrying next cycle", file=sys.stderr, flush=True)
+                time.sleep(max(1, 15 - (time.monotonic() - started)))
+                continue
             if args.patrol or args.record_reviews:
                 print(json.dumps(facts, ensure_ascii=False))
                 return
