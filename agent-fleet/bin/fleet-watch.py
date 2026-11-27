@@ -2,6 +2,7 @@
 """Read Mini run evidence and dispatch due timers on the Mini."""
 import argparse
 from contextlib import closing
+from collections import deque
 from datetime import datetime, time as clock, timedelta
 import hashlib
 import json
@@ -12,6 +13,7 @@ import runpy
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 from zoneinfo import ZoneInfo
 
@@ -486,6 +488,7 @@ class GcpxIdleSupervisor:
         self.config = config
         self.next_at = 0
         self.child = None
+        self.child_output = None
 
     def tick(self, now):
         if not self.config: return
@@ -496,6 +499,12 @@ class GcpxIdleSupervisor:
         if self.child is not None:
             status = self.child.poll()
             if status is None: return
+            if self.child_output is not None:
+                self.child_output.seek(0)
+                for line in deque(self.child_output, maxlen=50):
+                    print(line.decode('utf-8', errors='replace'), end='', flush=True)
+                self.child_output.close()
+                self.child_output = None
             if status: print(f'gcpx idle reconciliation exited {status}', file=sys.stderr, flush=True)
             self.child = None
         if now < self.next_at: return
@@ -504,9 +513,13 @@ class GcpxIdleSupervisor:
         gcpx = (runtime / 'current/agent-fleet/bin/gcpx'
                 if FLEET.parent.parent == runtime else FLEET / 'bin/gcpx')
         try:
+            self.child_output = tempfile.TemporaryFile(mode='w+b')
             self.child = subprocess.Popen([str(gcpx), '--config', self.config, 'reconcile'],
-                                          stdin=subprocess.DEVNULL)
+                                          stdin=subprocess.DEVNULL, stdout=self.child_output, stderr=subprocess.STDOUT)
         except OSError as error:
+            if self.child_output is not None:
+                self.child_output.close()
+                self.child_output = None
             print(f'gcpx idle reconciliation: {type(error).__name__}', file=sys.stderr, flush=True)
 
 

@@ -38,7 +38,7 @@ class SupervisorTests(unittest.TestCase):
             root = Path(directory)
             (root / 'bin').mkdir()
             executable = root / 'bin' / 'gcpx'
-            executable.write_text("#!/bin/sh\necho '{\"worker-a\":\"creation recovery failed\"}'\nexit 1\n")
+            executable.write_text("#!/bin/sh\nfor i in $(seq 1 60); do echo line-$i; done\necho '{\"worker-a\":\"creation recovery failed\"}'\nexit 1\n")
             executable.chmod(0o755)
             code = """import runpy,sys
 from pathlib import Path
@@ -52,6 +52,9 @@ s.tick(101)
 """
             result = subprocess.run([sys.executable, '-c', code, str(Path(__file__).resolve().parents[1] / 'bin/fleet-watch.py'), str(root)], capture_output=True, text=True, timeout=15, check=True)
             self.assertIn('"worker-a":"creation recovery failed"', result.stdout)
+            self.assertNotIn('line-11\n', result.stdout)
+            self.assertIn('line-12\n', result.stdout)
+            self.assertEqual(len(result.stdout.splitlines()), 50)
             self.assertIn('gcpx idle reconciliation exited 1', result.stderr)
     def test_relative_path_does_not_crash_watcher(self):
         with patch('subprocess.Popen') as spawn, redirect_stderr(io.StringIO()):
