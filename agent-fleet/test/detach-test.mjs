@@ -122,7 +122,7 @@ assert.match(fallbackWait.stdout, /REPORT 由 result 回填/);
 writeFileSync(fallbackPath, 'existing report');
 const existingId = await launch('code', {}, ['--review', '--report', fallbackPath]);
 assert.equal((await cliRun(['wait', existingId])).code, 0);
-assert.equal(readFileSync(fallbackPath, 'utf8'), 'existing report');
+assert.match(readFileSync(fallbackPath, 'utf8'), /^existing report[\s\S]*残留清单：/);
 const attachedPath = join(scratch, 'attached-report.md');
 const attachedResult = await cliRun(['code', 'test', '--cwd', scratch, '--attach', '--review', '--report', attachedPath]);
 assert.equal(attachedResult.code, 0, attachedResult.stderr);

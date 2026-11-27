@@ -1964,6 +1964,7 @@ def new(args, prepare=False):
                   + '\n\n验收要点：\n' + scene_acceptance(data)
                   for name, data, content in scenes]
     parts.insert(1, block('thinking-principles'))  # 思维准则：每单必带，紧随“归类/REPORT”首部，排在其余样板之前
+    parts.append('临时文件只放 /tmp/' + args.name + '/。')
     text = normalize_actions(dispatch_lessons('\n\n'.join(parts) + '\n'))
     location = args.on or 'mini'
     if location == 'mini' and not (args.dry_run or args.no_launch or prepare) and not mini.available():
