@@ -5,7 +5,7 @@ import { readJSON, readYield, resolveYield, writeYield, localCondition, stageSta
 import { saveCodexQuota, taskIdentity, queueRecord, setSlotState, acquireSlot } from './queue.mjs';
 // Codex 执行层：管理 app-server 回合、插话、自动续做与 exec 降级。
 import { acceptanceResult } from './verdict.mjs';
-import { readContinuationState, continuationProgress, continuationRules, reportContinuation, hasReportBlocker, judgeContinuation, acceptanceContinuation, CONTINUE_ACTION, NO_PROGRESS_STOP, parkWaitReason } from './code-continue.mjs';
+import { readContinuationState, continuationProgress, continuationRules, reportContinuation, unblockedItems, judgeContinuation, acceptanceContinuation, CONTINUE_ACTION, NO_PROGRESS_STOP, parkWaitReason } from './code-continue.mjs';
 import { judgeTask } from './judge-task.mjs';
 import { loadModelsConfig } from './config.mjs';
 import { spawn } from 'node:child_process';
@@ -565,10 +565,9 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const namedZeroPending = state => !noContinue && process.env.FLEET_NO_CONTINUE !== '1' &&
     (state.acceptance?.unmet.length || (state.acceptance?.verdict === 'needs-review' && state.acceptance.pending === 'none' && !state.report.trim()));
   const namedMissing = state => {
-    if (!review && hasReportBlocker(state.report)) return [];
     const count = commandEvidence.size;
     const { missing: acceptanceMissing } = acceptanceContinuation(lastAcceptance, state, count > previousCommandEvidence);
-    const missing = [...new Set([...acceptanceMissing, ...(review ? [] : reportContinuation(state, stages))])];
+    const missing = [...new Set([...(review ? acceptanceMissing : unblockedItems(acceptanceMissing, state.report)), ...(review ? [] : reportContinuation(state, stages))])];
     if (!missing.length) return missing;
     const blocked = !continuationProgress(lastAcceptance, state).progress && count === previousCommandEvidence;
     acceptanceStagnant = !turnUsedTool || !blocked || state.externalWait?.waiting ? 0 : acceptanceStagnant + 1;

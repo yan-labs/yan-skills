@@ -162,29 +162,36 @@ export function acceptanceContinuation(before, after, logProgress = false) {
   return { missing: acceptance.unmet, blocked: !progress };
 }
 
-/** 报告真实阻塞须有结构化受阻行，且明确属于外部依赖或用户决定。 */
-export function hasReportBlocker(report = '') {
-  const blocked = /^[ \t]*(?:[-*][ \t]*)?受阻[：:]([^\r\n]*)/gm;
-  for (const match of String(report).matchAll(blocked)) {
-    const fields = match[1].split(/[｜|]/).map(x => x.trim());
-    if (fields.length >= 4 && fields.every(Boolean) && /^(?:外部|用户决定)(?:[：:]|$)/.test(fields[0])) return true;
-  }
-  return false;
+/** 结构化阻塞可携带验收编号或阶段名称；未明确关联时不阻止其他事项。 */
+export function reportBlockers(report = '') {
+  return [...String(report).matchAll(/^[ \t]*(?:[-*][ \t]*)?受阻[：:]([^\r\n]*)/gm)]
+    .map(match => match[1].split(/[｜|]/).map(field => field.trim()))
+    .filter(fields => fields.length >= 4 && fields.every(Boolean) && /^(?:外部|用户决定|input|access|授权|权限|必需输入)(?:[：:]|$)/i.test(fields[0]))
+    .map(fields => fields.join('｜'));
+}
+
+export function unblockedItems(items, report) {
+  const blockers = reportBlockers(report);
+  if (!blockers.length) return items;
+  const matched = items.filter(item => blockers.some(line => /^V\d+$/i.test(item)
+    ? new RegExp(`\\b${item}\\b`, 'i').test(line) : line.includes(item)));
+  if (items.length === 1 && !matched.length && !blockers.some(line => /\bV\d+\b|阶段[：:]/i.test(line))) return [];
+  return items.filter(item => !matched.includes(item));
 }
 
 export function reportContinuation(state, stages = null) {
-  if (state.yield || state.acceptance?.pending === 'handoff' || hasReportBlocker(state.report)) return [];
+  if (state.yield || state.acceptance?.pending === 'handoff') return [];
   const missing = [];
-  if (/^(?:未完成|部分完成)/.test(state.conclusion || '')) missing.push('完成报告中未完成的任务');
+  if (/^(?:未完成|部分完成)/.test(state.conclusion || '') && !reportBlockers(state.report).length) missing.push('完成报告中未完成的任务');
   if (Array.isArray(stages?.stages) && Number.isInteger(stages.stage) && stages.stage < stages.stages.length) {
-    missing.push(...stages.stages.slice(stages.stage).map(stage => `完成阶段：${stage}`));
+    missing.push(...unblockedItems(stages.stages.slice(stages.stage), state.report).map(stage => `完成阶段：${stage}`));
   }
   return missing;
 }
 
 /** 第一层只检查报告结构及 brief 明确要求的交付凭据，不以“完成”二字代替证据。 */
 export function continuationRules(state, brief, cwd = process.cwd(), initial = null, gitRunner = null) {
-  if (state.conclusion.startsWith('失败') || state.yield || hasReportBlocker(state.report)) return [];
+  if (state.conclusion.startsWith('失败') || state.yield) return [];
   const missing = [];
   missing.push(...reportContinuation(state));
   for (const line of brief.match(/^产物清单：\n(?:- .*\n)*/m)?.[0].split('\n').slice(1) ?? []) {
