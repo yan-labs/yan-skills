@@ -209,15 +209,20 @@ class GcpxTests(unittest.TestCase):
         def response(value): return type('R', (), {'stdout': json.dumps(value)})()
         billing = {'billingEnabled': True, 'billingAccountName': 'billingAccounts/one'}
         project = {'projectNumber': '123'}
-        good = {'budgetFilter': {'projects': ['projects/123']}, 'thresholdRules': [{'thresholdPercent': 0.8}]}
+        good = {'budgetFilter': {'projects': ['projects/123']}, 'amount': {'specifiedAmount': {'currencyCode': 'USD', 'units': '150'}}, 'thresholdRules': [{'thresholdPercent': 0.8}]}
         with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '90'}), patch.object(gcpx, 'run') as cloud:
             with self.assertRaisesRegex(ValueError, 'monthly estimate'): gcpx.check_credit(worker, 1)
             cloud.assert_not_called()
-        for bad in ({'budgetFilter': {'projects': ['projects/999']}, 'thresholdRules': [1]}, {'budgetFilter': {'labels': {'x':['y']}}, 'thresholdRules': [1]}, {'budgetFilter': {}, 'thresholdRules': []}):
+        with patch.dict(os.environ, {}, clear=True), patch.object(gcpx, 'run') as cloud:
+            with self.assertRaisesRegex(ValueError, 'explicitly configured'): gcpx.check_credit(worker, 1)
+            cloud.assert_not_called()
+        for bad in ({**good, 'amount': {'specifiedAmount': {'currencyCode': 'EUR', 'units': '150'}}}, {**good, 'amount': {'specifiedAmount': {'currencyCode': 'USD', 'units': '1000'}}}, {'budgetFilter': {'projects': ['projects/999']}, 'thresholdRules': [1]}, {'budgetFilter': {'labels': {'x':['y']}}, 'thresholdRules': [1]}, {'budgetFilter': {}, 'thresholdRules': []}):
             with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '150'}), patch.object(gcpx, 'run', side_effect=[response(billing), response(project), response([bad])]):
                 with self.assertRaisesRegex(ValueError, 'Budget alert'): gcpx.check_credit(worker, 1)
         with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '150'}), patch.object(gcpx, 'run', side_effect=[response(billing), response(project), response([good])]):
             gcpx.check_credit(worker, 1)
+        with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '150'}), patch.object(gcpx, 'run', side_effect=OSError('cloud unavailable')):
+            with self.assertRaisesRegex(OSError, 'cloud unavailable'): gcpx.check_credit(worker, 1)
     def test_status_marks_recorded_credit_as_unverified_and_stale(self):
         cfg = json.loads(self.cfg.read_text()); evidence = self.root / 'credit.json'
         cfg['workers']['worker']['credit_evidence'] = str(evidence)

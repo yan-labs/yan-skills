@@ -250,8 +250,8 @@ def check_credit(worker, now):
     proof_path = worker.get('credit_evidence')
     if not proof_path:
         estimate = worker.get('monthly_estimate_usd')
-        try: cap = float(os.environ.get('FLEET_GCP_MONTHLY_CAP', '300'))
-        except ValueError: raise ValueError('invalid estimated monthly cap')
+        try: cap = float(os.environ['FLEET_GCP_MONTHLY_CAP'])
+        except (KeyError, ValueError): raise ValueError('FLEET_GCP_MONTHLY_CAP must be explicitly configured')
         if isinstance(estimate, bool) or not isinstance(estimate, (int, float)) or not math.isfinite(estimate) or estimate <= 0 or not math.isfinite(cap) or cap <= 0 or estimate > cap:
             raise ValueError('monthly estimate must be positive and within FLEET_GCP_MONTHLY_CAP')
         billing = json.loads(run(['gcloud', 'billing', 'projects', 'describe', worker['project'], '--format=json'], text=True, capture_output=True).stdout)
@@ -265,7 +265,13 @@ def check_credit(worker, now):
         def covers(b):
             f = b.get('budgetFilter') or {}
             projects = f.get('projects') or []
-            return ((not projects or 'projects/' + number in projects) and
+            amount = (b.get('amount') or {}).get('specifiedAmount') or {}
+            try: budget = float(amount.get('units', 0)) + float(amount.get('nanos', 0)) / 1e9
+            except (ValueError, TypeError): return False
+            thresholds = b.get('thresholdRules') or []
+            alert = any(isinstance(t, dict) and isinstance(t.get('thresholdPercent'), (int, float)) and not isinstance(t.get('thresholdPercent'), bool) and 0 < t['thresholdPercent'] and budget * t['thresholdPercent'] <= cap and t.get('spendBasis', 'CURRENT_SPEND') == 'CURRENT_SPEND' for t in thresholds)
+            return (amount.get('currencyCode') == 'USD' and math.isfinite(budget) and budget > 0 and alert and
+                    (not projects or 'projects/' + number in projects) and
                     f.get('calendarPeriod', 'MONTH') == 'MONTH' and
                     not any(f.get(k) for k in ('labels', 'services', 'subaccounts', 'resourceAncestors', 'creditTypes')) and
                     bool(b.get('thresholdRules')) and
