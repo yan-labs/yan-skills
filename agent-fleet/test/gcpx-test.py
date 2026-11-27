@@ -288,10 +288,31 @@ class GcpxTests(unittest.TestCase):
             if 'ls-files' in command: result.stdout = 'src/build/source.js\0'
             return result
         with patch.object(gcpx, 'ssh', tracked_file), patch.object(gcpx, 'mutagen') as mutate:
-            with self.assertRaisesRegex(ValueError, 'tracked files match'):
+            with self.assertRaisesRegex(ValueError, 'source files match'):
                 self.call('sync', 'task', str(self.root / 'mirror'))
             mutate.assert_not_called()
             self.assertFalse((self.root / 'mirror').exists())
+    def test_sync_rechecks_new_local_and_remote_source_on_each_flush(self):
+        with patch.object(gcpx, 'ssh', self.fake_ssh), patch.object(gcpx, 'mutagen') as mutate:
+            self.call('ws', 'new', 'repo', '--name', 'task')
+            mirror = self.root / 'mirror'
+            self.call('sync', 'task', str(mirror))
+            (mirror / 'src' / 'build').mkdir(parents=True)
+            (mirror / 'src' / 'build' / 'source.js').write_text('source')
+            mutate.reset_mock()
+            with self.assertRaisesRegex(ValueError, 'local files match'):
+                self.call('sync', 'task', str(mirror), '--flush')
+            mutate.assert_not_called()
+            (mirror / 'src' / 'build' / 'source.js').unlink()
+            (mirror / 'src' / 'build').rmdir()
+            def remote_added(worker, command, capture=False, tty=False):
+                result = self.fake_ssh(worker, command, capture, tty)
+                if 'ls-files' in command: result.stdout = 'src/dist/source.js\0'
+                return result
+            with patch.object(gcpx, 'ssh', remote_added):
+                with self.assertRaisesRegex(ValueError, 'source files match'):
+                    self.call('sync', 'task', str(mirror), '--flush')
+                mutate.assert_not_called()
     def test_run_passes_exact_quoted_command_to_ssh(self):
         with patch.object(gcpx, 'ssh', self.fake_ssh): self.call('ws', 'new', 'repo', '--name', 'task')
         with patch.object(gcpx.subprocess, 'run', side_effect=RuntimeError('intercepted')) as call:

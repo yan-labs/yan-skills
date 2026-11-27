@@ -22,7 +22,7 @@ export async function startGcpxTransport({ gcpxBin, config, workspace, cwd, cont
   });
   try {
     const ready = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('gcpx transport startup timed out')), 60000);
+      const timer = setTimeout(() => reject(new Error('gcpx transport startup timed out')), 300000);
       lines.once('line', line => {
         clearTimeout(timer);
         if (line.length > 4096) return reject(new Error('invalid gcpx transport response'));

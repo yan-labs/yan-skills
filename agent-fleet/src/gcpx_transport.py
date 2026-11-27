@@ -33,6 +33,7 @@ def serve(worker, workspace, state_root, control=None):
         if not member.isfile() or member.size <= 0 or member.size > 100 * 1024 * 1024:
             raise ValueError('invalid execution-service archive member')
         payload = tar.extractfile(member).read()
+    payload_hash = hashlib.sha256(payload).hexdigest()
     root = PurePosixPath(worker['root'])
     if not root.is_absolute() or '..' in root.parts or str(root) == '/': raise ValueError('invalid worker root')
     ssh_config = Path(worker['ssh_config']).expanduser()
@@ -43,6 +44,7 @@ def serve(worker, workspace, state_root, control=None):
     unique = uuid.uuid4().hex
     remote = str(root / 'transport' / (workspace + '-' + unique))
     executable = remote + '/exec-server'
+    cache = str(root / 'cache' / ('exec-server-' + payload_hash))
     if control is not None:
         if not isinstance(control.get('port'), int) or not 1 <= control['port'] <= 65535 or not re.fullmatch(r'[A-Za-z0-9_-]{40,128}', control.get('token', '')):
             raise ValueError('invalid control bridge capability')
@@ -69,7 +71,16 @@ def serve(worker, workspace, state_root, control=None):
         master = True
         remote_call('umask 077; mkdir -p -- ' + shlex.quote(str(root / 'transport')) + ' && mkdir -- ' + shlex.quote(remote))
         owned = True
-        remote_call('umask 077; cat > ' + shlex.quote(executable) + ' && chmod 700 ' + shlex.quote(executable), input=payload)
+        verify = 'printf %s ' + shlex.quote(payload_hash + '  ' + cache + '\n') + ' | sha256sum -c --status'
+        try:
+            remote_call('test -x ' + shlex.quote(cache) + ' && ' + verify)
+        except subprocess.CalledProcessError:
+            temporary = remote + '/exec-server.tmp'
+            temp_verify = 'printf %s ' + shlex.quote(payload_hash + '  ' + temporary + '\n') + ' | sha256sum -c --status'
+            remote_call('umask 077; mkdir -p -- ' + shlex.quote(str(root / 'cache')) + '; tar -xzOf - -- ' + shlex.quote(member_name)
+                        + ' > ' + shlex.quote(temporary) + ' && ' + temp_verify + ' && chmod 700 ' + shlex.quote(temporary)
+                        + ' && mv -f -- ' + shlex.quote(temporary) + ' ' + shlex.quote(cache), input=archive.read_bytes())
+        remote_call('cp -- ' + shlex.quote(cache) + ' ' + shlex.quote(executable) + ' && chmod 700 ' + shlex.quote(executable))
         if control is not None:
             proxy = Path(__file__).with_name('gcpx_remote_fleet.py').read_bytes()
             remote_call('umask 077; mkdir -m 700 ' + shlex.quote(remote + '/bin') + '; cat > ' + shlex.quote(remote + '/bin/fleet') + ' && chmod 700 ' + shlex.quote(remote + '/bin/fleet'), input=proxy)

@@ -380,11 +380,34 @@ def reconcile_idle(config_data, state, now):
     save_idle(idle)
     return result
 
+SYNC_EXCLUDED = ('node_modules', '.gradle', 'build', 'dist')
+
+def check_sync_coverage(worker, item, local):
+    # Mutagen's exclusions are name-based, including nested paths. Never
+    # silently omit local additions or remote source that Git would retain.
+    local = Path(local)
+    if local.exists():
+        if not local.is_dir(): raise ValueError('synchronized directory is unavailable')
+        def failed(error): raise error
+        for _, directories, files in os.walk(local, onerror=failed, followlinks=False):
+            if set(directories + files).intersection(SYNC_EXCLUDED):
+                raise ValueError('local files match synchronization cache exclusions; inspect workspace before syncing')
+            directories[:] = [directory for directory in directories if directory != '.git']
+    patterns = [':(glob)**/' + directory + '/**' for directory in SYNC_EXCLUDED]
+    visible = ssh(worker, cmdstr(['git', '-C', item['path'], 'ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', *patterns]), capture=True).stdout
+    if visible:
+        raise ValueError('tracked or untracked source files match synchronization cache exclusions; inspect workspace before syncing')
+
+def flush_sync(worker, item):
+    sync = item['sync']
+    check_sync_coverage(worker, item, sync['local'])
+    mutagen(item['worker'], worker, 'sync', 'flush', sync['session'])
+
 def remove_workspace(state, config_data, ws):
     item, worker = entry(state, config_data, ws)
     with workspace_lease(ws, exclusive=True):
         if item.get('sync'):
-            mutagen(item['worker'], worker, 'sync', 'flush', item['sync']['session'])
+            flush_sync(worker, item)
         status = ssh(worker, cmdstr(['git','-C',item['path'],'status','--porcelain','--untracked-files=normal']), capture=True).stdout
         if status.strip(): raise ValueError('workspace has uncommitted or untracked files')
         head = ssh(worker, cmdstr(['git','-C',item['path'],'rev-parse','HEAD']), capture=True).stdout.strip()
@@ -528,12 +551,12 @@ def main():
             if not command: raise ValueError('missing command')
             with workspace_lease(args.workspace):
                 if item.get('sync'):
-                    mutagen(item['worker'], worker, 'sync', 'flush', item['sync']['session'])
+                    flush_sync(worker, item)
                 # Do not hold the registry lock during a potentially long-running command.
                 fcntl.flock(lock, fcntl.LOCK_UN)
                 result = subprocess.run([*ssh_args(worker), 'cd -- ' + shlex.quote(item['path']) + ' && exec ' + cmdstr(command)])
                 if item.get('sync'):
-                    mutagen(item['worker'], worker, 'sync', 'flush', item['sync']['session'])
+                    flush_sync(worker, item)
                 log_event('run', workspace=args.workspace, worker=item['worker'], exit_code=result.returncode)
                 return result.returncode
         if args.action == 'shell':
@@ -553,11 +576,7 @@ def main():
                 if args.flush: raise ValueError('workspace has no synchronization session')
                 if local.exists() and (not local.is_dir() or any(local.iterdir())):
                     raise ValueError('new synchronization directory must be empty')
-                # Cache exclusions must never silently hide tracked source files.
-                patterns = [':(glob)**/' + directory + '/**' for directory in ('node_modules', '.gradle', 'build', 'dist')]
-                tracked = ssh(worker, cmdstr(['git', '-C', item['path'], 'ls-files', '-z', '--', *patterns]), capture=True).stdout
-                if tracked:
-                    raise ValueError('tracked files match synchronization cache exclusions; inspect workspace before syncing')
+                check_sync_coverage(worker, item, local)
                 local.mkdir(parents=True, mode=0o700, exist_ok=True)
                 session = 'gcpx-' + uuid.uuid4().hex
                 ssh(worker, 'true', capture=True)  # Establish ControlMaster before Mutagen opens concurrent channels.
@@ -566,7 +585,7 @@ def main():
                         '--ignore', 'build', '--ignore', 'dist', str(local), worker['host'] + ':' + item['path'])
                 item['sync'] = sync = {'session': session, 'local': str(local)}
                 save_state(state)
-            mutagen(item['worker'], worker, 'sync', 'flush', sync['session'])
+            flush_sync(worker, item)
             output({'workspace': args.workspace, 'local': str(local), 'session': sync['session']}, args.json); return
         if args.action == 'cp':
             path = PurePosixPath(args.remote)

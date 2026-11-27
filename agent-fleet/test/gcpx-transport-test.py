@@ -26,11 +26,14 @@ class TransportTests(unittest.TestCase):
                        'exec_server_member':'exec-server'}
         self.state = root / 'state'; self.state.mkdir()
 
-    def run_transport(self, fail_upload=False):
+    def run_transport(self, fail_upload=False, cached=False):
         calls=[]
         def run(args, **kwargs):
             calls.append(args)
-            if fail_upload and 'cat >' in args[-1]: raise subprocess.CalledProcessError(1,args)
+            if not cached and 'test -x' in args[-1]: raise subprocess.CalledProcessError(1,args)
+            if fail_upload and 'tar -xzOf' in args[-1]: raise subprocess.CalledProcessError(1,args)
+            if 'tar -xzOf' in args[-1]:
+                self.assertEqual(kwargs['input'], Path(self.worker['exec_server_archive']).read_bytes())
             return subprocess.CompletedProcess(args,0)
         stdin=type('Stdin', (), {'buffer':io.BytesIO(b'')})()
         with patch.object(transport.subprocess,'run',side_effect=run), patch.object(transport.signal,'signal'), patch.object(transport.sys,'stdin',stdin), contextlib.redirect_stdout(io.StringIO()):
@@ -42,9 +45,14 @@ class TransportTests(unittest.TestCase):
     def test_tunnel_precedes_upload_and_is_closed(self):
         calls=self.run_transport()
         self.assertIn('-Nf',calls[0])
-        self.assertTrue(any('cat >' in call[-1] for call in calls[1:-1]))
+        self.assertTrue(any('tar -xzOf' in call[-1] for call in calls[1:-1]))
         self.assertEqual(calls[-1][-3:-1],['-O','exit'])
         self.assertEqual(calls[0][calls[0].index('-S')+1],calls[1][calls[1].index('-S')+1])
+
+    def test_valid_cache_avoids_archive_upload(self):
+        calls=self.run_transport(cached=True)
+        self.assertTrue(any('test -x' in call[-1] for call in calls))
+        self.assertFalse(any('tar -xzOf' in call[-1] for call in calls))
 
     def test_upload_failure_cleans_owned_directory_and_tunnel(self):
         calls=self.run_transport(fail_upload=True)
