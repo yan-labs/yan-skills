@@ -829,7 +829,11 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
         if (stopping) break;
         const replies = offsetQueue.splice(0);
         const sayInPrompt = replies.length > 0;
-        nextPrompt = [nextPrompt, ...replies].filter(Boolean).join('\n\n');
+        // Without a thread, the anchor already contains every say revision.
+        // Only asks are absent from it; do not duplicate the say text.
+        nextPrompt = !session && !nextPrompt
+          ? [stages.anchor, stages.latest, ...replies.filter(text => pendingAsks.has(text))].filter(Boolean).join('\n\n')
+          : [nextPrompt, ...replies].filter(Boolean).join('\n\n');
         if (replies.length) log('[codex] say: 在 exec 回合边界投递');
         metadata.numTurns++;
         let threadStarted = false;
@@ -877,7 +881,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           }
           if (offsetQueue.length) {
             session = metadata.threadId;
-            nextPrompt = session ? '' : stages.anchor;
+            nextPrompt = '';
             continue;
           }
           break;
@@ -901,7 +905,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
         }
         if (offsetQueue.length) {
           session = metadata.threadId;
-          nextPrompt = session ? (review ? reviewPrompt() : '') : stages.anchor;
+          nextPrompt = session && review ? reviewPrompt() : '';
           continue;
         }
         const state = readContinuationState(workdir, reportPath, prompt, metadata.yield, handoffBaseline);

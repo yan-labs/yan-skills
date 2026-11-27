@@ -29,7 +29,14 @@ while [ "$#" -gt 0 ]; do
   if [ "$1" = '-o' ]; then shift; out=$1; fi
   shift
 done
-if [ -z "$out" ]; then out="$FLEET_TEST_RESULT"; else cat >/dev/null; fi
+if [ -z "$out" ]; then
+  out="$FLEET_TEST_RESULT"
+elif [ -n "$FLEET_TEST_PROMPTS" ]; then
+  cat >> "$FLEET_TEST_PROMPTS"
+  printf '\\n' >> "$FLEET_TEST_PROMPTS"
+else
+  cat >/dev/null
+fi
 sleep "$FLEET_TEST_SLEEP" &
 kid=$!
 printf '%s %s\\n' "$$" "$kid" > "$FLEET_TEST_PIDS"
@@ -203,11 +210,24 @@ assert.match(refused.stderr,/执行器仍在运行.*未启动重复续跑/);
 assert.equal(existsSync(join(runs,leftoverId+'.inbox')),false);
 
 
-// 等完整 30 秒心跳；顺带验证 SIGHUP、wait 超时和 Codex say 提示。
+// exec 尚无 threadId 仍能排队；首轮自然结束后新开会话投递，不能杀掉首轮。
+const queuedPids=join(scratch,'queued-say-pids');
+const queuedPrompts=join(scratch,'queued-say-prompts');
+const queued=await launch('code',{FLEET_TEST_SLEEP:'3',FLEET_TEST_PIDS:queuedPids,FLEET_TEST_PROMPTS:queuedPrompts},['--no-continue']);
+await runnerReady(queuedPids);
+const queuedSay=await cliRun(['say',queued,'hello deferred exec']);
+assert.equal(queuedSay.code,0,queuedSay.stderr);
+assert.match(queuedSay.stdout,/已排队，当前轮结束后续会话/);
+assert.equal((await cliRun(['wait',queued])).code,0);
+assert.equal(state(queued).verdict,'ok');
+assert.equal(state(queued).brief.numTurns,2);
+assert.equal(readFileSync(queuedPrompts,'utf8').match(/hello deferred exec/g)?.length,1);
+assert.doesNotMatch(readFileSync(state(queued).logPath,'utf8'),/Codex 退出码 SIGINT/);
+
+// 等完整 30 秒心跳；顺带验证 SIGHUP 和 wait 超时。
 const beat=await launch('code',{FLEET_TEST_SLEEP:'34'});
 await sleep(500);const before=state(beat).heartbeatAt;process.kill(state(beat).pid,'SIGHUP');
 assert.equal((await cliRun(['wait',beat,'--timeout','0'])).code,1);
-assert.match((await cliRun(['say',beat,'hello'])).stderr,/Codex.*不支持/);
 await sleep(30_500);assert(state(beat).heartbeatAt>before,'30s heartbeat');
 console.log(`heartbeat: ${before} -> ${state(beat).heartbeatAt}; SIGHUP survived`);
 assert.equal((await cliRun(['wait',beat])).code,0);
