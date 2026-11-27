@@ -4,6 +4,7 @@ import fcntl
 import json
 import os
 import re
+import shutil
 import subprocess
 import uuid
 from contextlib import contextmanager
@@ -65,6 +66,8 @@ def capacity_state():
         if pressure not in (1, 2, 4) or not match:
             return None
         free = float(match.group(1)) * {'K': 1024, 'M': 1024**2, 'G': 1024**3}[match.group(2)]
+        # macOS creates additional swap files on the VM volume as needed.
+        free += shutil.disk_usage('/private/var/vm').free
         return load < cpus * 1.5 and pressure != 4 and free > 2 * 1024**3
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
