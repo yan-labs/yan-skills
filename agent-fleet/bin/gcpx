@@ -713,7 +713,8 @@ def main():
             result = reconcile_idle(cfg, state, time.time())
             for worker_id, status in result.items():
                 if status in ('TERMINATED', 'stop unconfirmed'): log_event('reconcile', worker=worker_id, status=status)
-            output(result, args.json); return
+            output(result, args.json)
+            return 1 if 'creation recovery failed' in result.values() else 0
         if args.action == 'logs':
             p = ROOT / 'events.log'
             lines = p.read_text().splitlines() if p.exists() else []
@@ -735,7 +736,8 @@ def main():
             for worker_id, worker in cfg['workers'].items():
                 if worker.get('managed') is True and creation_path(worker).exists():
                     recovery[worker_id] = recover_worker_creation(worker_id, worker, state, time.time())
-            output({'candidates': candidates, 'removed': removed, 'retained': retained, 'creation_recovery': recovery}, args.json); return
+            output({'candidates': candidates, 'removed': removed, 'retained': retained, 'creation_recovery': recovery}, args.json)
+            return 1 if 'creation recovery failed' in recovery.values() else 0
         if args.action == 'ws' and args.ws_action == 'new':
             repo = name(args.repo); spec = cfg['repos'][repo]
             ws_id = name(args.name or (repo + '-' + uuid.uuid4().hex[:12]))

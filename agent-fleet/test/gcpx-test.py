@@ -402,6 +402,19 @@ class GcpxTests(unittest.TestCase):
             result = self.call('gc')
         self.assertEqual(result['creation_recovery']['worker'], 'cleaned')
         cleanup.assert_called_once(); self.assertFalse(path.exists())
+    def test_gc_and_reconcile_exit_nonzero_on_recovery_failure(self):
+        cfg = json.loads(self.cfg.read_text()); worker = cfg['workers']['worker']
+        worker.update({'managed':True,'project':'proj','zone':'zone','instance':'vm','pool':'fleet'})
+        self.cfg.write_text(json.dumps(cfg))
+        path = gcpx.creation_path(worker)
+        record = {k:worker[k] for k in ('project','zone','instance','pool')}
+        record.update({'creation_id':'mine','disk_name':'vm-boot','phase':'cleanup','phase_started':100})
+        gcpx.save_creation(path, record, initial=True)
+        for action in ('gc', 'reconcile'):
+            with self.subTest(action=action), patch.object(gcpx, 'cleanup_failed_creation', side_effect=OSError('denied')), patch.object(sys, 'argv', ['gcpx','--config',str(self.cfg),'--json',action]), contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(gcpx.main(), 1)
+                self.assertIn('creation recovery failed', out.getvalue())
+                self.assertIn('WARN:', json.loads(path.read_text())['warn'])
     def test_gc_never_recovers_a_leased_workspace(self):
         cfg = json.loads(self.cfg.read_text()); worker = cfg['workers']['worker']
         with patch.object(gcpx, 'ssh', self.fake_ssh): self.call('ws', 'new', 'repo', '--name', 'task')

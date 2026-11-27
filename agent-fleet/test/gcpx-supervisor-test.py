@@ -22,6 +22,14 @@ class SupervisorTests(unittest.TestCase):
             spawn.return_value.poll.return_value = 0
             supervisor.tick(200)
             self.assertEqual(spawn.call_count, 2)
+    def test_reconcile_failure_logged_by_supervisor(self):
+        stderr = io.StringIO()
+        with patch('subprocess.Popen') as spawn, redirect_stderr(stderr):
+            supervisor = Supervisor('/tmp/gcpx-test.json')
+            supervisor.tick(100)
+            spawn.return_value.poll.return_value = 1
+            supervisor.tick(101)
+        self.assertIn('gcpx idle reconciliation exited 1', stderr.getvalue())
     def test_relative_path_does_not_crash_watcher(self):
         with patch('subprocess.Popen') as spawn, redirect_stderr(io.StringIO()):
             supervisor = Supervisor('relative.json')
