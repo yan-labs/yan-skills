@@ -37,7 +37,7 @@
 |---|---|---|
 | 高频 AI 词堆砌 | “Delve into a tapestry of ideas to unlock and elevate your potential.” / “A seamless game-changer to navigate the landscape.” | 删除空泛包装，按原有事实直说；若原意只是邀请阅读，可写 “Read the ideas below.” 没有事实就删，不换一组宣传词 |
 | 空泛正面形容堆叠 | “An innovative, powerful, revolutionary editor.” | “An editor.” 有已核实的具体功能再写功能，不编结果与数字 |
-| 矫饰比喻 | “A lighthouse in the ocean of data.” / “Weave your dreams into a digital tapestry.” | 还原原文主张，如确实是检索功能：“Find the record you need.” 没有可还原主张就删除；全篇骨架 leading word 的单一例外沿用入口规则 |
+| 矫饰比喻 | “A lighthouse in the ocean of data.” / “Weave your dreams into a digital tapestry.” | 还原原文主张，如确实是检索功能：“Find the record you need.” 没有可还原主张就删除；全篇骨架 leading word 的单一例外沿用 check.md 红线「矫饰文风」 |
 | 借权威或拔高 | “Experts agree this marks a new era.” | 有来源就准确归因、说明具体结论；没有来源就删，不能改成自己的断言 |
 
 ## 四、排版
@@ -53,4 +53,4 @@
 |---|---|---|
 | 客服腔、对上一稿的旁白 | “Certainly! Here is your revised copy.” / “I hope this helps.” | 整句删除，直接交正文 |
 
-引文与归因按 SKILL.md 阶段四红线「引文要标出来」。
+引文与归因按 check.md 红线「引文要标出来」。
