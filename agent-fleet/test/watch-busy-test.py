@@ -49,3 +49,21 @@ def scenario(blocked):
 scenario('reconcile')
 scenario('patrol')
 print('PASS bounded reconcile and patrol contention; dispatch proceeds')
+
+# Errors other than SQLITE_BUSY must reach the caller unchanged.
+def verify_propagates(error):
+    db = DB()
+    def fail(): raise error
+    try:
+        watch['bounded_busy'](db, 'fixture', fail)
+    except Exception as caught:
+        assert caught is error
+    else:
+        raise AssertionError('exception was swallowed')
+    assert db.rollbacks == 0
+
+non_busy = sqlite3.OperationalError('database is corrupt')
+non_busy.sqlite_errorcode = 11
+verify_propagates(non_busy)
+verify_propagates(ValueError('fixture'))
+print('PASS non-busy database and non-database errors propagate')

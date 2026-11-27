@@ -297,7 +297,7 @@ assert.equal((await cliRun(['wait',batchId])).code,0);
 // 显式 no-wait 无需 detach；默认失败返回 verdict 对应非零。
 instant=Date.now();
 const noWait=await cliRun(['code','stub brief','--cwd',scratch,'--name','no-wait-only','--no-wait'],{FLEET_TEST_SLEEP:'3'});
-assert.equal(noWait.code,0);assert(Date.now()-instant<2000);
+assert.equal(noWait.code,0);assert(Date.now()-instant<Number(process.env.FLEET_TEST_LAUNCH_TIMEOUT_MS || 2000));
 assert.equal(state(noWait.stdout.match(/runId: (.+)/)[1]).status,'running');
 assert.equal((await cliRun(['wait','no-wait-only'])).code,0);
 const defaultFail=await cliRun(['code','stub brief','--cwd',scratch,'--expect-changes']);
