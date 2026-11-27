@@ -1,9 +1,10 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { runCode } from '../src/code-runner.mjs';
 
-const dir = mkdtempSync('/tmp/gcp-pool-runner/no-fallback-');
+const dir = mkdtempSync(join(tmpdir(), 'gcpx-no-fallback-'));
 const marker = join(dir, 'exec-started');
 const bin = join(dir, 'fake-codex');
 writeFileSync(bin, `#!/bin/sh\nif [ "$1" = exec ]; then touch '${marker}'; fi\nexit 1\n`, { mode: 0o700 });

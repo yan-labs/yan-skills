@@ -1,10 +1,12 @@
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createConnection } from 'node:net';
 import { startGcpControlBridge } from '../src/gcp-control-bridge.mjs';
-const dir = mkdtempSync('/tmp/gcp-pool-runner/bridge-test-');
+const dir = mkdtempSync(join(tmpdir(), 'gcpx-bridge-test-'));
 let bridge;
 try {
   const calls = [];

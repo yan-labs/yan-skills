@@ -1,8 +1,9 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pullGcpReport, pushGcpReport } from '../src/gcp-report.mjs';
-const dir = mkdtempSync('/tmp/gcp-pool-runner/report-test-');
+const dir = mkdtempSync(join(tmpdir(), 'gcpx-report-test-'));
 try {
   const report = join(dir, 'report.md');
   const cfg = { sshConfig: '/tmp/ssh', host: 'worker', remotePath: '/home/u/reports/a/report.md', localPath: report };

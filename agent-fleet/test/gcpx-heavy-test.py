@@ -26,7 +26,7 @@ class OverflowTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'usage'): remote.main()
             run.assert_not_called()
     def test_full_capacity_routes_mapped_cwd_without_shell_interpolation(self):
-        with tempfile.TemporaryDirectory(dir=os.environ.get('GCPX_TEST_TMPDIR', '/tmp/gcp-pool-runner')) as root:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('GCPX_TEST_TMPDIR')) as root:
             (Path(root) / 'nested').mkdir()
             env = {'FLEET_GCP_WORKSPACE_EXPERIMENTAL':'1', 'FLEET_HEAVY_CAPACITY':'1',
                    'FLEET_GCPX_WORKSPACE':'task', 'FLEET_GCPX_CONFIG':'/tmp/config.json', 'FLEET_GCPX_MIRROR':root}
@@ -40,7 +40,7 @@ class OverflowTests(unittest.TestCase):
                     self.assertIn('|| exit', argv[-6])
             finally: os.chdir(previous)
     def test_outside_mapping_never_executes_or_falls_back(self):
-        with tempfile.TemporaryDirectory(dir=os.environ.get('GCPX_TEST_TMPDIR', '/tmp/gcp-pool-runner')) as root:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('GCPX_TEST_TMPDIR')) as root:
             env={'FLEET_GCP_WORKSPACE_EXPERIMENTAL':'1', 'FLEET_HEAVY_CAPACITY':'1', 'FLEET_GCPX_WORKSPACE':'task', 'FLEET_GCPX_CONFIG':'/tmp/config.json','FLEET_GCPX_MIRROR':root}
             with patch.dict(os.environ, env, clear=True), patch.object(mod, 'try_lease', return_value=None), patch.object(mod.os, 'execv') as run:
                 with self.assertRaisesRegex(ValueError, 'outside'): mod.heavy(['--','true'])

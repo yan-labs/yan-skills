@@ -19,7 +19,7 @@ loader.exec_module(gcpx)
 
 class GcpxTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get('GCPX_TEST_TMPDIR', '/tmp/gcp-pool-runner'))
+        self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get('GCPX_TEST_TMPDIR'))
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         gcpx.ROOT = self.root / 'state'

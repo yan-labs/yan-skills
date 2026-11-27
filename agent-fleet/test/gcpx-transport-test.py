@@ -16,7 +16,7 @@ spec.loader.exec_module(transport)
 
 class TransportTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get('GCPX_TEST_TMPDIR', '/tmp/gcp-pool-runner'))
+        self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get('GCPX_TEST_TMPDIR'))
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name); member = root / 'exec-server'; member.write_bytes(b'test-server')
         archive = root / 'server.tar.gz'

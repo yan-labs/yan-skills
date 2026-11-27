@@ -1,8 +1,9 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { runCode } from '../src/code-runner.mjs';
-const dir = mkdtempSync('/tmp/gcp-pool-runner/runner-test-');
+const dir = mkdtempSync(join(tmpdir(), 'gcpx-runner-test-'));
 const report = join(dir, 'report.md');
 const localRepo = '/Users/example/project';
 const remoteRepo = '/home/u/workspaces/task';

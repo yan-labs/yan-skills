@@ -1,8 +1,9 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { prepareGcpxWorkspace } from '../src/gcp-workspace.mjs';
-const dir = mkdtempSync('/tmp/gcp-pool-runner/workspace-test-');
+const dir = mkdtempSync(join(tmpdir(), 'gcpx-workspace-test-'));
 try {
   const config = join(dir, 'config.json');
   writeFileSync(config, JSON.stringify({ workers: { w: { host: 'worker', ssh_config: '/tmp/ssh', root: '/home/u' } } }));

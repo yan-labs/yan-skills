@@ -1,8 +1,9 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { startGcpxTransport } from '../src/gcp-transport-client.mjs';
-const dir = mkdtempSync('/tmp/gcp-pool-runner/transport-client-');
+const dir = mkdtempSync(join(tmpdir(), 'gcpx-transport-client-'));
 try {
   const bin = join(dir, 'gcpx'); const marker = join(dir, 'closed');
   const ready = JSON.stringify({ url: 'ws://127.0.0.1:12345/', token: 'x'.repeat(40), proxyBin: '/home/u/transport/bin', bridgeFile: '/home/u/transport/bridge.json' });
