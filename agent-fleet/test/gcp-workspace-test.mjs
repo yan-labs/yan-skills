@@ -24,6 +24,18 @@ try {
   assert.ok(stopped);
   assert.ok(calls[3].includes('--flush'));
   await assert.rejects(prepareGcpxWorkspace({ gcpxBin: '/tmp/gcpx', config, repo: 'repo', workspace: 'task', mirror: dir, branch: 'main', sha: 'a'.repeat(40), execute, startTransport }), /branch or sha/);
+  const baseHead = 'a'.repeat(40);
+  let resumeCalls = 0;
+  const existingExecute = async (_bin, args) => {
+    resumeCalls++;
+    return args.includes('ls') ? { task: { repo: 'repo', worker: 'w', path: '/home/u/workspaces/task', base_head: baseHead, base_ref: 'main', base_ref_kind: 'branch' } } : {};
+  };
+  const resumed = await prepareGcpxWorkspace({ gcpxBin: '/tmp/gcpx', config, repo: 'repo', workspace: 'task', mirror: dir, branch: 'main', execute: existingExecute, startTransport });
+  await resumed.close();
+  resumeCalls = 0;
+  await assert.rejects(prepareGcpxWorkspace({ gcpxBin: '/tmp/gcpx', config, repo: 'repo', workspace: 'task', mirror: dir, branch: 'other', execute: existingExecute, startTransport }), /base branch/);
+  assert.equal(resumeCalls, 1);
+  await assert.rejects(prepareGcpxWorkspace({ gcpxBin: '/tmp/gcpx', config, repo: 'repo', workspace: 'task', mirror: dir, sha: 'b'.repeat(40), execute: existingExecute, startTransport }), /base commit/);
   let push = 0, pull = 0, bridgeStopped = false, bridgeOptions;
   const controlled = await prepareGcpxWorkspace({ gcpxBin: '/tmp/gcpx', config, repo: 'repo', workspace: 'task', mirror: dir, execute,
     controlContext: { runId: 'run', reportPath: join(dir, 'report.md'), tempRoot: dir, fleetBin: '/tmp/fleet' },

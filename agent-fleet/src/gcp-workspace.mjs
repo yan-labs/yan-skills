@@ -33,6 +33,8 @@ export async function prepareGcpxWorkspace({ gcpxBin, config, repo, workspace, m
   const listing = await execute(gcpxBin, [...prefix, 'ws', 'ls']);
   const existing = listing[workspace];
   if (existing && existing.repo !== repo) throw new Error('gcpx workspace belongs to a different repository');
+  if (existing && sha && existing.base_head !== sha.toLowerCase()) throw new Error('gcpx workspace has a different base commit');
+  if (existing && branch && (existing.base_ref_kind !== 'branch' || existing.base_ref !== branch)) throw new Error('gcpx workspace has a different or unknown base branch');
   const created = existing ? { ...existing, id: workspace } : await execute(gcpxBin, [...prefix, 'ws', 'new', repo, '--name', workspace,
     ...(branch ? ['--branch', branch] : []), ...(sha ? ['--sha', sha] : [])]);
   if (created.id !== workspace || typeof created.path !== 'string' || !created.path.startsWith('/')) throw new Error('gcpx returned invalid workspace');

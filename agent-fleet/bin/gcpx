@@ -514,7 +514,8 @@ def main():
                 + shlex.quote('set -eu; if [ ! -d "$1" ]; then git clone --mirror -- "$3" "$1"; fi; git -C "$1" fetch --prune origin; git -C "$1" worktree add --detach "$2" "$4" >&2; git -C "$2" rev-parse HEAD') \
                 + ' sh "$3" "$4" "$5" "$6"'
             now = time.time()
-            state[ws_id] = {'repo': repo, 'worker': worker_id, 'path': target, 'mirror': mirror, 'status': 'creating', 'created': now, 'last_used': now}
+            state[ws_id] = {'repo': repo, 'worker': worker_id, 'path': target, 'mirror': mirror, 'status': 'creating', 'created': now, 'last_used': now,
+                            'base_ref': ref, 'base_ref_kind': 'sha' if args.sha else 'branch'}
             save_state(state)
             with workspace_lease(ws_id, exclusive=True):
                 fcntl.flock(lock, fcntl.LOCK_UN)
