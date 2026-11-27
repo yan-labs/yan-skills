@@ -1,19 +1,24 @@
 # 命令细则、安装与版本、跨项目登记表
 
-`SKILL.md` 只留每个命令的一两句摘要；本文件是 `rankup init`、`rankup review`、安装更新与跨项目资产登记表的全文。
-`rankup check` 的编排在 [`playbooks/site-review.md`](playbooks/site-review.md) 第二节，`rankup doctor` 的编排在 [`maintenance.md`「六」](maintenance.md#六rankup-doctor整理-rankup-的显式入口)，清理用法在 [SKILL.md「清理」](../SKILL.md#清理)，这里不重复。
+本文件是 `rankup check` 的触发、`rankup init`、`rankup review`、四个命令的分工、安装更新与跨项目资产登记表的全文。
+`rankup check` 的编排在 [`playbooks/site-review.md`](playbooks/site-review.md) 第二节，`rankup doctor` 的编排在 [`maintenance.md`「六」](maintenance.md#六rankup-doctor整理-rankup-的显式入口)，清理用法在 [`maintenance.md`「清理用法」](maintenance.md#清理用法)，这里不重复。
 
 ## 目录
 
+- `rankup check`：现在该做什么
 - `rankup init`：给全新或没有 `.rankup/` 的老项目建档
 - `rankup review`：全站体检的分组与会话信号挖掘
-- 三个命令的分工
+- 四个命令的分工
 - 安装与版本：安装、更新、版本检查的行为
 - 跨项目资产登记表：`registry.mjs` 与 `registry.md`
 
+## `rankup check`
+
+「现在该做什么」「一步步来」「到哪一步了」「让流量涨一点」「优化一下我的网站」「今天弄下 SEO」时的唯一动作，编排在 [`playbooks/site-review.md`](playbooks/site-review.md) 第二节。读 [`checklists.md`](checklists.md) 与 `.rankup/checks.md`，跑一次 `scripts/review.mjs`，找到第一个没过闸的段，逐项去真实代码、线上响应、后台读数核对，直接照着做并在 `checks.md` 记证据。零配额、不派多组 agent；用户问的其实是站有什么问题就转 review（升级判据见下文「四个命令的分工」）。默认方向是打磨转化链路，见[段 7 段首](lifecycle/stage-7-monetize.md)。
+
 ## `rankup init`
 
-用于全新项目，或做了很久还没有 `.rankup/` 的项目。后者是常态，不得因为缺记忆就重建技术栈。
+「把这个老项目接进来」。用于全新项目，或做了很久还没有 `.rankup/` 的项目。后者是常态，不得因为缺记忆就重建技术栈。
 
 1. 摸清现状：`package.json`、路由、部署配置、`git log`；已上线的再取线上 `sitemap.xml`、`robots.txt`、首页。外部系统一律实时查询。
 2. 按 [`project-memory.md`](project-memory.md) 建 `.rankup/` 全套，取不到的写 `待确认`。
@@ -30,7 +35,7 @@ node "<rankup-skill-dir>/scripts/maintain/rankup-clean.mjs" --project-root . --i
 
 ## `rankup review`
 
-对站本身做全面体检，编排在 [`playbooks/site-review.md`](playbooks/site-review.md) 第一节。
+「review 一下我的站」「查漏补缺」「这项目脱轨了」。对站本身做全面体检，编排在 [`playbooks/site-review.md`](playbooks/site-review.md) 第一节。
 
 - 每轮核 [Cloudflare 循环消耗红线](cloudflare-stack.md#89-循环消耗与账单熔断红线)，含后台 alarm、通知、重试及真实熔断。
 - 先摸前提，再把可独立运行的组按可用并发派出：技术 SEO / 速度 / GEO / 关键词长尾 SERP / 哥飞官方 Skill 数据复核 / 市场规模 / 接入与记忆；主 Agent 汇总回写。
@@ -38,10 +43,11 @@ node "<rankup-skill-dir>/scripts/maintain/rankup-clean.mjs" --project-root . --i
 - G 组：`scripts/review.mjs --project-root .` 出五块报告；会话记录用 `scripts/sessions.mjs --project-root . --days 14 --new-only`（水位线在 `.rankup/review-state.json`，`--dump` 消化完才 `--mark`），从中找用户纠正、验证过的结论、坑与根因、已推翻旧记录的事实，并**修订**原条目。
 - review 发现 Day-1 项缺失，先回流进段 3 / 段 4 清单再修站。
 
-## 三个命令的分工
+## 四个命令的分工
 
 | 命令 | 回答什么 | 动什么 |
 |---|---|---|
+| `rankup init` | 这个项目有没有可接手的记录 | 摸清真实代码与线上现状，建 `.rankup/` 全套，已有的不覆盖 |
 | `rankup check` | 现在在哪一段、下一步做什么 | 只读定位，零配额，不派多组 agent |
 | `rankup review` | 这个站本身有什么问题 | 全站体检，修站 |
 | `rankup doctor` | 项目记录还可不可信、好不好接手 | 只整理 `.rankup/` 与根层登记，不碰站点代码与线上 |

@@ -152,7 +152,7 @@ Claude Code 的 prompt cache 最长 1 小时（超额后降到 5 分钟），会
 **新会话怎么接（用户说「继续」「/rankup 继续接下来的任务工作」时）**
 1. 定位项目：当前目录有 `.rankup/` 就用它；在工作区根目录时读根层 `.rankup/portfolio.md` 与 `projects.json`，优先用 `last_activity` 定位最新且接力未完成的项目；缺该字段再读候选项目 `INDEX.md` 的「最近更新」，只有一个候选就直接进，多个才列出来让用户选。
 2. 读 `INDEX.md` 顶部字段和「接力」一节（无 `.rankup/` 则读项目根 `HANDOFF.md` 或已有进度文件）；有后台任务的先查结果文件是否已产出；有未提交改动的先 `git status` 核对。
-3. 按启动协议第 2 步三方对账（doctor 例外见维护「六」），确认接力记录没过期，然后直接执行「下一条要执行的动作」，不再问用户要不要继续。
+3. **三方对账门禁**：回答「接下来做什么」或宣称执行进度前，核对 `git log --oneline -25`、真实路由与线上 `sitemap.xml` 全量 `<loc>`，按任务适用面核对，记录与现实不一致先回写；只读问答只核对所问事实，不为此制造状态变化；doctor 免对账（见维护「六」）。确认接力记录没过期后直接执行「下一条要执行的动作」，不再问用户要不要继续。
 4. 接力记录缺失或和现实对不上，先按 git 日志、`journal/` 最新一篇、`plan.md` 还原并回写，再继续。
 
 ### 压缩/换会话前的接力核对
@@ -194,7 +194,7 @@ Claude Code 的 prompt cache 最长 1 小时（超额后降到 5 分钟），会
 | `evidence/`、`agentic/` | 原始数据不常驻，结论进文档（仅保留 `.keep-data` 白名单或常驻文件直接引用的小体积结构化数据） | 过程原始数据（截图、日志、trace/har、压缩包、大体积或未引用 JSON/JSONL，收尾与提交时由 `rankup-clean.mjs` 按待确认规则处理） | 收尾跑 `rankup-clean.mjs --apply` 清可默认删除的过程数据，证据待确认 |
 | 脚本产物：`demand/`、`selection/`、`leading-indicator/`、`provider-audit/`、`state/`、`data/`、`indexnow-last.json`、`backlink-targets.json` | 由 rankup / backlink 脚本写入的运行结果与断点状态 | 手写内容（→ 对应专题文件） | 旧运行按 `evidence/` 同一规则清；断点状态文件不删 |
 
-**命名**：小写加连字符；日期一律 `YYYY-MM-DD`，放文件名末尾。**顶层允许上表与目录结构里的文件，以及 `INDEX.md` 文件状态表明确登记职责的项目专属文件或目录**（如设计、上线、文案与非敏感配置；未登记的只列 C 类）；带日期的一次性文件（`launch-queue-<日期>.md` 这类）归入 `research/` 或 `journal/`；证据与备份统一按 [Skill 清理用法](../SKILL.md) 的待确认流程处理；同一职责出现两个文件（例如 `log.md` 与 `journal/`）时合并到规范里的那个。
+**命名**：小写加连字符；日期一律 `YYYY-MM-DD`，放文件名末尾。**顶层允许上表与目录结构里的文件，以及 `INDEX.md` 文件状态表明确登记职责的项目专属文件或目录**（如设计、上线、文案与非敏感配置；未登记的只列 C 类）；带日期的一次性文件（`launch-queue-<日期>.md` 这类）归入 `research/` 或 `journal/`；证据与备份统一按 [Skill 清理用法](maintenance.md#清理用法) 的待确认流程处理；同一职责出现两个文件（例如 `log.md` 与 `journal/`）时合并到规范里的那个。
 
 **仓库外的派单报告目录是临时目录**：派单工具的报告目录（例如 agent-fleet 的 `~/.agent-reports/`）随时可能被清空，不是持久存储。任务产出的分析报告、执行结果等需要跨会话复用的文档，必须在任务收尾时迁移到项目 `.rankup/reports/`（或 `research/`），并更新引用指针；brief、body、raw data 等过程文件可以留在原处自然清理。常驻文件里引用这类临时路径的，一律改为 `.rankup/` 内的相对路径。
 

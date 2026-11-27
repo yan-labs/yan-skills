@@ -17,7 +17,7 @@ import { lint as lintDocs } from "./maintain/doc-lint.mjs";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "4.1.1";
+const expectedVersion = "4.2.0";
 const requiredReferences = [
   "commands.md",
   "integrations/kie.md",
@@ -64,43 +64,28 @@ const requiredReferences = [
 ];
 
 const requiredContent = {
-  "references/seo-webcafe.md": ["gefei-keywords", "gefei-competitor", "gefei-domain", "gefei-page", "knowledge_ask", "disable-model-invocation"],
+  "references/seo-webcafe.md": ["## 谁来调用", "gefei-keywords", "gefei-competitor", "gefei-domain", "gefei-page", "knowledge_ask", "disable-model-invocation"],
   "references/seo-geo.md": ["GEO 反推测试", "推荐位竞争分析", "证据边界", "内页测试"],
+  // 2026-11-27 入口按任务第一站重写（4.2.0）：原 SKILL.md 的 31 条断言逐条迁到内容落点，一条未删；
+  // 跨任务的红线、口径、开工与收尾留在入口，其余随内容迁到 commands.md、maintenance.md、project-memory.md、
+  // 段文件、checklists.md、experiences/INDEX.md、seo-webcafe.md（对照表见下方各文件注释）。
   "SKILL.md": [
-    "npx skills add $SKILLS_SOURCE --skill rankup -g -y",
-    "npx skills update rankup -g -y",
-    ".rankup/skill-state.json",
     "严禁在 Skill、`.rankup/`、Git、测试或回复中保存真实密钥",
-    "三方对账门禁",
     "沉淀义务与是否调用本 Skill 无关",
-    "本 Skill 必须保持项目中立与机器中立",
-    "### `rankup init`",
-    "### `rankup review`",
-    "## 哥飞官方 Skill",
-    "disable-model-invocation",
-    "## 经验库：规划与迭代之前先翻一遍",
-    "## 主线：维护 checklist，使用 checklist",
-    "### `rankup check`",
     "references/checklists.md",
-    "品牌图标在开发当天做齐",
-    "图标专项未通过不许上线",
-    "上线前与发布后复核入口",
-    "references/design-references.md#多功能工具站侧栏统一规范",
-    "## 强制流程（先读这张表，再做任何事）",
-    "### `rankup doctor`",
-    "scripts/maintain/rankup-doctor.mjs",
-    "scripts/maintain/rankup-clean.mjs",
-    "ref-scan.mjs",
     "SEO/GEO 是主要手段，不是适用边界",
     "可复用操作必须落成脚本",
-    "## 启动协议",
-    "## 收尾协议",
+    "## 开工",
+    "## 收尾",
     "scripts/maintain/read-memory-index.mjs",
-    "## 清理",
     "references/commands.md",
+    "references/INDEX.md",
   ],
   // 2026-11-20 SKILL.md 精简为路由：命令细则迁到 commands.md，各段脚本速查迁到 lifecycle.md，断言随内容迁移，一条未删。
   "references/commands.md": [
+    "## `rankup check`",
+    "## 四个命令的分工",
+    "npx skills update rankup -g -y",
     "## `rankup init`",
     "## `rankup review`",
     "## 跨项目资产登记表",
@@ -132,6 +117,10 @@ const requiredContent = {
     "## 七、三层归属与项目记忆维护规范",
     "RANKUP_HOME",
     "upstream-candidates.md",
+    "### 清理用法",
+    "scripts/maintain/rankup-clean.mjs",
+    "scripts/maintain/rankup-doctor.mjs",
+    "本 Skill 必须保持项目中立与机器中立",
   ],
   "references/playbooks/entry.md": [
     "① Google 趋势与量（必须同框 `gpts` 基线）",
@@ -147,6 +136,8 @@ const requiredContent = {
   "references/playbooks/research.md": ["## App 市场验证分支", "不能单独否决 App 市场"],
   // 2026-09-30 lifecycle.md 按七段拆分，原断言随内容迁到对应段文件，一条未删。
   "references/lifecycle/stage-3-build.md": [
+    "品牌图标在开发当天做齐",
+    "design-references.md#多功能工具站侧栏统一规范",
     "cloudflare-stack.md#89-循环消耗与账单熔断红线",
     "清除 React / Vite / TanStack 脚手架默认图标",
     "域名与索引开关共享构建期配置",
@@ -155,6 +146,8 @@ const requiredContent = {
     "grid → row → gridcell",
   ],
   "references/lifecycle/stage-4-prelaunch.md": [
+    "图标专项未通过不许上线",
+    "上线前与发布后复核入口",
     "Cloudflare 循环消耗红线未通过",
     "SSR HTML 与浏览器水合后 DOM",
     "逐个 GET 并解码实际图片",
@@ -163,6 +156,7 @@ const requiredContent = {
     "包含 sitemap 外页面",
   ],
   "references/checklists.md": [
+    "## 主线：维护 checklist，使用 checklist",
     "Cloudflare 循环消耗红线",
     "共享预算副作用前原子预留",
     "D15 · 品牌图标当天做齐",
@@ -190,6 +184,7 @@ const requiredContent = {
     "首页 → 工具页 → 首页",
   ],
   "references/experiences/INDEX.md": [
+    "规划与迭代之前先翻一遍",
     "## 收录规则（强制）",
     "### 证据等级标记",
     "三层归属",
@@ -214,6 +209,8 @@ const requiredContent = {
     "experience.md",
     "## 目录规范：常驻文件、保留什么、去哪里、多大",
     "原始数据不常驻，结论进文档",
+    "三方对账门禁",
+    "**什么时候写（硬性）**",
   ],
   "references/playbooks/site-review.md": [
     "G6 循环与费用止损",
@@ -471,12 +468,16 @@ async function validate() {
     } catch {
       errors.push(`missing reference: references/${reference}`);
     }
-    // 渐进式加载:允许经由 seo-growth.md 索引一跳可达,不必 SKILL.md 直链
-    const indexMarkdown = await read("references/seo-growth.md").catch(() => "");
-    if (
-      !skillMarkdown.includes(`references/${reference}`) &&
-      !(indexMarkdown.includes(reference) && skillMarkdown.includes("references/seo-growth.md"))
-    ) {
+    // 渐进式加载:允许经由入口链接的索引(references/INDEX.md 全量目录、seo-growth.md 专题索引)一跳可达,
+    // 不必 SKILL.md 直链。索引里要是 Markdown 链接,不是随手提到文件名。
+    const reachableViaIndex = await Promise.all(
+      ["INDEX.md", "seo-growth.md"].map(async (index) => {
+        if (!skillMarkdown.includes(`references/${index}`)) return false;
+        const indexMarkdown = await read(path.join("references", index)).catch(() => "");
+        return indexMarkdown.includes(`](${reference})`) || indexMarkdown.includes(`](${reference}#`);
+      }),
+    );
+    if (!skillMarkdown.includes(`references/${reference}`) && !reachableViaIndex.some(Boolean)) {
       errors.push(`SKILL.md does not link references/${reference} (even via index)`);
     }
   }
@@ -519,13 +520,21 @@ async function validate() {
   }
 
   const linkedReferences = [
-    ...skillMarkdown.matchAll(/\]\((references\/[^)#?]+\.md)\)/g),
-  ].map((match) => match[1]);
-  for (const linkedReference of new Set(linkedReferences)) {
+    ...skillMarkdown.matchAll(/\]\((references\/[^)#?]+\.md)(?:#[^)]*)?\)/g),
+  ].map((match) => ["SKILL.md", match[1]]);
+  // 全量目录 references/INDEX.md 接替了原入口的「其余参考」表,它的链接同样必须指向真实文件。
+  const catalog = await read("references/INDEX.md").catch(() => "");
+  for (const match of catalog.matchAll(/\]\(([^)#?:]+\.md)(?:#[^)]*)?\)/g)) {
+    linkedReferences.push(["references/INDEX.md", path.normalize(path.join("references", match[1]))]);
+  }
+  const seenLinks = new Set();
+  for (const [from, linkedReference] of linkedReferences) {
+    if (seenLinks.has(`${from} ${linkedReference}`)) continue;
+    seenLinks.add(`${from} ${linkedReference}`);
     try {
       await read(linkedReference);
     } catch {
-      errors.push(`broken local Markdown link in SKILL.md: ${linkedReference}`);
+      errors.push(`broken local Markdown link in ${from}: ${linkedReference}`);
     }
   }
 

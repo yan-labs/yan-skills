@@ -56,13 +56,27 @@
 | 断链 | `.rankup/` 与 Skill references 里相对链接、锚点断链为 0 | `doc-lint.mjs --root <项目>/.rankup`；Skill 用 `doc-lint.mjs` |
 | 过期日期 | 时效契约覆盖的文件（`INDEX.md`、`plan.md`、`keywords.md`、`baseline.md`、`integrations.md`、`infrastructure.md`）最新日期超过 30 天：重新核实，或标「待核实」 | `rankup-doctor.mjs --stale-days 30` |
 | 过程数据残留 | `.rankup/` 内截图和图片、日志、trace/har、测试输出（如 surefire xml）、压缩包、超阈值或未被常驻文件（`INDEX.md`、`plan.md`、`decisions.md`、`leftovers.md` 等）直接引用的原始 `json`/`jsonl` 等可默认清理的过程数据为 0（证据与备份待确认除外）；默认时限7d；Git已跟踪文件不删并列待确认；常驻文档与非过程目录的脚本和代码保留（`mjs`/`js`/`cjs`/`ts`/`py`/`sh`/`sql`）、配置和状态文件（`skill-state.json`、`review-state.json`、`projects.json`、断点状态等）、`.rankup/.keep-data` 白名单及常驻文件直接引用的小体积结构化数据 | `rankup-clean.mjs --project-root <项目>`（默认只列计划，`--apply` 直接删除并改写 md 链接；`--staged` 供pre-commit限定候选，已跟踪/已暂存文件仍保留）；`rankup-doctor.mjs` 归入 A 类 |
-| 备份与临时文件 | 证据与备份的待确认核查、用户确认及显式删除参数统一见 [SKILL.md 清理用法](../SKILL.md#清理) | `rankup-doctor.mjs` |
+| 备份与临时文件 | 证据与备份的待确认核查、用户确认及显式删除参数统一见下文[清理用法](#清理用法) | `rankup-doctor.mjs` |
 | 目录外文件 | 顶层文件（含合法根层与已登记项目专属文件）都在[目录规范](project-memory.md#目录规范常驻文件保留什么去哪里多大)里；带日期的一次性文件归入 `research/` 或 `journal/` | `rankup-doctor.mjs` |
 | Skill 文档体积 | references 单文件 > 600 行或 > 80 KB 就拆，主文件留入口与判据 | `doc-lint.mjs`；拆用 `split-doc.mjs` |
 
 **必须保留（精华）**：长远目标与定位、当前进展与下一条动作、仍有效决策及原因、否决方向及复活条件、可复用脚本与入口登记。
 
 判不准是不是精华时，问一句「新会话少了这句会不会走错路」，不会就删；删的是**能从报告路径或 git 历史找回**的内容。
+
+### 清理用法
+
+本节是清理项目 `.rankup/` 过程数据的唯一源（fleet 的日志与报告归 agent-fleet）。用户说「清理一下」默认 7 天，普通清理直接执行不先问。
+
+```bash
+node "<rankup-skill-dir>/scripts/maintain/rankup-clean.mjs" --workspace <工作区> --older-than 7d --apply   # 单项目用 --project-root <项目>；一周可写 1w
+```
+
+- 不加 `--apply` 只预览（`--dry-run` 始终只预览）；`--apply` 直接删除，不进回收站、不备份。
+- 删什么：按修改时间删过程数据，以及 `research/`、`journal/`、`reports/`、`evidence/` 里的旧报告和临时脚本；历史 trash 按同一时限清。指向被删文件的链接改成行内文字。
+- 不删什么：Git 已跟踪的文件（列入待确认）、常驻文件、`.keep-data` 白名单、状态文件。Git 索引无法核实时整个项目不删并写明原因。
+- 证据和备份（路径含 backup/evidence/snapshot/dump，或 SQL、bak、数据库副本等）只列「待确认」，按目录或项目聚合成约 50 行以内的清单（路径前缀、文件数、总大小、最新时间、是否被引用）；`--json` 保留每项明细。未发现引用不等于无用。
+- 待确认项由主线程逐项核实后问用户，同意的才加 `--include-backups <路径…>` 删除，仍受时限与常驻、状态、运行中保护约束。
 
 ## 四、决策与结论类文档怎么维护
 
@@ -77,7 +91,7 @@
 7. **`journal/`**：已记录的判断原文不改写（被推翻时从推翻它的地方反向链接）；但逐步操作、命令输出、一次性 brief 这类流水按「三」压缩成结论加依据，不无限堆积。归档按原观察日期命名 `journal/YYYY-MM-DD-archive-<主题>.md`，超标拆成同日多篇，不改日期凑上限。
 8. **根层 `portfolio.md` / `projects.json`**：阶段、线上状态、下一步与项目内 `INDEX.md` 一致。回写 `projects.json` 前把原文件复制到 `.rankup/` 之外（或确认已在 git 里），用 `jq '… |= …'` 就地更新，改后比对条目数：`jq '.projects | length'`（按实际结构取数组或对象键数）前后必须相等，不等立即恢复。用 `select` 过滤登记表可能静默丢掉其他条目。备份统一按「三」的 C 类口径处理；没有根层登记时此项标 N/A，不创建登记表。doctor 只报当前条目数，执行者须把整理前后计数写进报告。
 
-按时间清理多个项目：`node <rankup>/scripts/maintain/rankup-clean.mjs --workspace <工作区> --older-than 7d --apply`；不指定 `--older-than` 默认7d，历史trash同样按mtime；不指定 `--apply` 只预览。时间筛选额外覆盖 research/journal/reports/evidence 的报告和临时脚本；常驻文件、白名单、state 保留；证据与备份走 [SKILL.md 清理用法](../SKILL.md#清理) 的待确认流程，历史 trash 也遵守同一规则。
+按时间清理多个项目：`node <rankup>/scripts/maintain/rankup-clean.mjs --workspace <工作区> --older-than 7d --apply`；不指定 `--older-than` 默认7d，历史trash同样按mtime；不指定 `--apply` 只预览。时间筛选额外覆盖 research/journal/reports/evidence 的报告和临时脚本；常驻文件、白名单、state 保留；证据与备份走「三」[清理用法](#清理用法)的待确认流程，历史 trash 也遵守同一规则。
 
 ## 五、维护 Skill 源码（rankup 本身）
 
@@ -87,7 +101,8 @@
 4. **拆分或移动文档**：写计划 JSON，跑 `node scripts/maintain/split-doc.mjs <plan.json>`（自动修相对链接与入站锚点），再跑 `node scripts/maintain/doc-lint.mjs` 到断链为 0；validate 断言与测试引用随内容迁移，不删断言。
 5. **一处一份**：判据只在 [`checklists.md`](checklists.md)，操作只在各自文档；缺 check 先补进 `checklists.md` 再去做。
 6. **发版**：`node scripts/validate-rankup.mjs` 与相关 `node --test` 通过；版本号 patch 文字与小经验、minor 向后兼容的新工作流、major 目录协议或核心行为破坏性变化；同时改 `SKILL.md` 的 `metadata.version`、`skill.json`、validate 预期与仓库 README。
-7. **Skill 自己的 `.rankup/`**（git 忽略）只放脚本试跑证据与 `skill-state.json`，`INDEX.md` 只写当前状态；`evidence/` 每个脚本只留最新一次试跑，其余先确认报告与 references 里没有目录名引用，再按Skill的待确认规则取得用户同意后显式纳入按时间删除；`node --test` 也会往这里写试跑证据，跑完测试顺手清。
+7. **本 Skill 必须保持项目中立与机器中立**：不带私有出处或身份（站点名、域名、流量数字、account/property ID、本机路径与代理、私有凭据位置）；公开供应商地址与必要的公开来源可保留。回流经验只带走剥离站点后仍成立的规则，由 `scripts/validate-rankup.mjs` 断言。令牌只有一份，放 Skill 根目录 `.env`，环境变量优先（[`discipline.md`](discipline.md) 十一）。
+8. **Skill 自己的 `.rankup/`**（git 忽略）只放脚本试跑证据与 `skill-state.json`，`INDEX.md` 只写当前状态；`evidence/` 每个脚本只留最新一次试跑，其余先确认报告与 references 里没有目录名引用，再按Skill的待确认规则取得用户同意后显式纳入按时间删除；`node --test` 也会往这里写试跑证据，跑完测试顺手清。
 
 `evals/trigger-evals.json`（20 条，应触发与不应触发各 10，负例以近似误触为主）定义触发评测；`evals/evals.json` 与 `evals/r1-…`～`evals/r5-…` 五个回归用例目录（skill-creator 用例格式：`prompt.md`、`case.yaml`、`graders/`）定义行为评测。改入口或任务第一站后按 `skill-creator` 的 `run_loop` / 新旧版本对比流程运行。当前评测均未运行过，静态校验不代表行为效果已验证。
 
@@ -156,7 +171,7 @@
 3. 在目标文件搜同主题，已有条目改写其范围、做法或理由；没有才新增。
 4. 新增后若超上限，同次合并或删掉一条。
 
-触发点以 [SKILL.md 收尾协议](../SKILL.md#收尾协议) 为准。lint 报重复或超限、跑 doctor、主会话交班时做整理；先对记录核实规则是否仍成立。判断复杂的交 Sonnet 或 Sol。
+触发点：规则被证伪当场原地修订或删除；用户纠正做法当场按上式蒸馏、原话存记录；同一坑多花一轮以上收尾时蒸馏；每次收尾自问「这单改变了哪条规则」，没有就不写。lint 报重复或超限、跑 doctor、主会话交班时做整理；先对记录核实规则是否仍成立。判断复杂的交 Sonnet 或 Sol。
 
 - 同一条规则在至少两个项目成立，才从项目层晋升全局层；仅一个项目用得上的全局规则下沉。
 - 与用户、机器无关的候选先搜源码。已有规则就留指针；缺规则的先进 `upstream-candidates.md`，剥离项目与机器信息并过[晋升门](evolution.md#7-通用规则晋升门)后进源码。当前是允许修改的源码检出时，可当轮复核并改现有文件；安装副本只维护候选。回流完成后原条目改指针或删除。

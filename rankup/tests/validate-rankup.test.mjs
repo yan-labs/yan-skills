@@ -374,3 +374,18 @@ test("release validator requires reusable test identity and login route rules", 
     }
   });
 });
+
+test("release validator 认 references/INDEX.md 为一跳可达的全量目录，并校验其中的链接", async () => {
+  await withSkillCopy(async (skillRoot) => {
+    const catalogPath = path.join(skillRoot, "references", "INDEX.md");
+    const original = await readFile(catalogPath, "utf8");
+    assert.ok(original.includes("](game-sites.md)"), "全量目录应链接 game-sites.md");
+    assert.equal(validate(skillRoot).status, 0, "入口不直链、只经目录一跳可达时应通过");
+
+    await writeFile(catalogPath, original.replace("](game-sites.md)", "](game-sites-missing.md)"));
+    const broken = validate(skillRoot);
+    assert.equal(broken.status, 1);
+    assert.match(broken.stderr, /broken local Markdown link in references\/INDEX\.md/);
+    assert.match(broken.stderr, /does not link references\/game-sites\.md/);
+  });
+});

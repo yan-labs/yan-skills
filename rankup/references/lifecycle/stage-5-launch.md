@@ -36,6 +36,7 @@
 | IndexNow 排在站长工具前面 | 它一样账号都不欠，先推了再慢慢验证所有权 |
 | **绑定正式域名后、上线验收前主动完成基础安全**：按 [`cloudflare-stack.md`](../cloudflare-stack.md) §8.8 核对 HTTPS、响应头及实际 API 防护，生产验证后记证据；已上线站 review 补查 | 属于上站后的检查优化；小改优先，嵌入/CSP/HSTS 先核用途，不批量上验证码或复杂 WAF |
 | **网站必须允许所有 AI 爬虫访问**：训练、搜索、用户代理类均不得在 Cloudflare、WAF、Bot Fight Mode 或 robots.txt 被禁；新 zone 关闭 Bot Management 四字段，按 [`checklists.md`](../checklists.md) 段 5 逐 UA 实测 | robots.txt 放行仍可能被 Cloudflare Block AI Bots 在边缘返回 403，页面和 llms.txt 都抓不到【实测 2026-09-28】 |
+| **接入先跑一次只读核查**：`node scripts/site-onboard.mjs --domain <域名> --repo <仓库> --check`，按结果补缺再执行 | 已接的平台重复接会冲掉现有验证与配置 |
 | 接入必须**线上实测**：`curl` grep beacon 只证脚本在，CF WA 还要 GraphQL `count > 0` | `site_token` 填成 `site_tag` 不报错，一个站空跑了 45 天 |
 | **第三方分析脚本（GA4、Clarity）一律延迟到首次交互或 6s 兜底再加载**（单用 `requestIdleCallback` 不够——空闲回调仍会落在 TBT 观测窗内），不许因为「脚本拖 LCP」把 GA4 标 ❌ 或推迟接入——延迟加载就完了，LCP 零影响 | 曾经因为这个理由把 GA4 标 ❌ 整整推迟了一天，纯属多此一举；【实测】单靠 `requestIdleCallback` 仍会被计入 TBT 观测窗 |
 | Ahrefs Site Audit 的问题按报告逐 URL 修完，回段 4 全套重跑 | 第二台爬虫的价值在它看得到你自己漏掉的整站问题 |

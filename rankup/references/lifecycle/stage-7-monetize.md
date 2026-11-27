@@ -118,6 +118,11 @@
 
 **没有任何一条命中时**，继续 7.2 打磨转化链路——不是回段 1，也不是重构架构。
 
+#### 流量涨跌怎么拆
+
+- **流量掉了、排名没了、疑似被 K**：按 [`webcafe-experiences-2.md`](../experiences/webcafe-experiences-2.md) 十七～十九排查。
+- **流量涨了**：先读项目 `.rankup/INDEX.md` 与 `decisions.md`，结合线上页面和代码核对已下线功能、重定向及实际能力；再按 GSC 日期 / 页面 / 查询与分析来源拆增量。URL 迁移期按 [`seo-experiences-2026-07-late.md`](../seo-experiences-2026-07-late.md)「URL 迁移期的页面报表必须把旧 URL 与新 canonical 合并看」判读；未显示查询与未定稿日期单列未知。
+
 #### 步骤 check
 
 **每步做完就核，不要攒到闸门再一起补。** 闸门（[`checklists.md`](../checklists.md)）判的是「这个环节能不能算完」，下表判的是「这一步做对了没有」——闸门过不了，一定是下面某一行没过。
