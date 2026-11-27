@@ -173,6 +173,9 @@ const requiredContent = {
     "scripts/maintain/engine-tools-diff.mjs",
   ],
   "references/lifecycle/stage-4-prelaunch.md": [
+    "模板化生成的内页正文 ≥ 150 字且必须含本页独有的事实",
+    "密度落在自然区间",
+    "声明的短语与测量的短语必须是同一个字符串",
     "图标专项未通过不许上线",
     "上线前与发布后复核入口",
     "Cloudflare 循环消耗红线未通过",
@@ -192,6 +195,9 @@ const requiredContent = {
   ],
   "references/experiences/content-seo-notes.md": ["【猜测】", "evolution.md", "## 和官方冲突、不执行的"],
   "references/checklists.md": [
+    "模板化内页正文 ≥ 150 字且含本页独有事实",
+    "密度在自然区间",
+    "「声明的短语」与「测量的短语」逐页是同一个字符串",
     "## 闸门性质：官方要求与项目自设",
     "## 主线：维护 checklist，使用 checklist",
     "Cloudflare 循环消耗红线",
@@ -551,6 +557,9 @@ async function validate() {
     }
     if (relativePath === "references/checklists.md") {
       const prose = text.replace(/^```[^\n]*\n[\s\S]*?^```[^\n]*$/gm, "");
+      if (/^\|[^|\n]+\|\s*覆\s*\|/m.test(prose)) {
+        errors.push("checklist engine coverage exceeds verified set (currently empty)");
+      }
       for (const [stage, label, bold = true] of [
         [3, "D15 · 品牌图标当天做齐"],
         [4, "图标专项（上线前必过）"],

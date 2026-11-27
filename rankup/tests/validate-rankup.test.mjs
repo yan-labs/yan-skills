@@ -402,3 +402,29 @@ test("release validator 只允许站点引擎产品名出现在集成文件里",
     assert.match(result.stderr, /site engine product name found in references\/playbooks\/build\.md/);
   });
 });
+
+test("release validator protects template and density gates and engine evidence", async () => {
+  await withSkillCopy(async (skillRoot) => {
+    for (const [file, phrase] of [
+      ["checklists.md", "模板化内页正文 ≥ 150 字且含本页独有事实"],
+      ["checklists.md", "密度在自然区间"],
+      ["lifecycle/stage-4-prelaunch.md", "模板化生成的内页正文 ≥ 150 字且必须含本页独有的事实"],
+      ["lifecycle/stage-4-prelaunch.md", "密度落在自然区间"],
+    ]) {
+      const target = path.join(skillRoot, "references", file);
+      const original = await readFile(target, "utf8");
+      assert.ok(original.includes(phrase));
+      await writeFile(target, original.replace(phrase, "[removed]"));
+      const result = validate(skillRoot);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /missing required content/);
+      await writeFile(target, original);
+    }
+    const target = path.join(skillRoot, "references", "checklists.md");
+    const original = await readFile(target, "utf8");
+    await writeFile(target, original.replace("| 外（仍需原证据） |", "| 覆 |"));
+    const result = validate(skillRoot);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /engine coverage exceeds verified set/);
+  });
+});
