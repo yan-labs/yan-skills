@@ -1,5 +1,8 @@
 import io
 import runpy
+import subprocess
+import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
@@ -30,6 +33,26 @@ class SupervisorTests(unittest.TestCase):
             spawn.return_value.poll.return_value = 1
             supervisor.tick(101)
         self.assertIn('gcpx idle reconciliation exited 1', stderr.getvalue())
+    def test_worker_status_is_inherited_by_watch_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'bin').mkdir()
+            executable = root / 'bin' / 'gcpx'
+            executable.write_text("#!/bin/sh\necho '{\"worker-a\":\"creation recovery failed\"}'\nexit 1\n")
+            executable.chmod(0o755)
+            code = """import runpy,sys
+from pathlib import Path
+n = runpy.run_path(sys.argv[1])
+cls = n['GcpxIdleSupervisor']
+cls.tick.__globals__['FLEET'] = Path(sys.argv[2])
+s = cls('/tmp/gcpx-test.json')
+s.tick(100)
+s.child.wait(timeout=10)
+s.tick(101)
+"""
+            result = subprocess.run([sys.executable, '-c', code, str(Path(__file__).resolve().parents[1] / 'bin/fleet-watch.py'), str(root)], capture_output=True, text=True, timeout=15, check=True)
+            self.assertIn('"worker-a":"creation recovery failed"', result.stdout)
+            self.assertIn('gcpx idle reconciliation exited 1', result.stderr)
     def test_relative_path_does_not_crash_watcher(self):
         with patch('subprocess.Popen') as spawn, redirect_stderr(io.StringIO()):
             supervisor = Supervisor('relative.json')

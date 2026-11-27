@@ -505,7 +505,7 @@ class GcpxIdleSupervisor:
                 if FLEET.parent.parent == runtime else FLEET / 'bin/gcpx')
         try:
             self.child = subprocess.Popen([str(gcpx), '--config', self.config, 'reconcile'],
-                                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                                          stdin=subprocess.DEVNULL)
         except OSError as error:
             print(f'gcpx idle reconciliation: {type(error).__name__}', file=sys.stderr, flush=True)
 
