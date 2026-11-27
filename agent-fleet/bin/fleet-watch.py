@@ -349,7 +349,27 @@ def wake_legacy_review_parks(db, root, now):
         if not RUN_ID.fullmatch(run) or run in ('.', '..'):
             continue
         entry = record(root / (run + '.yield'))
-        if entry.get('until') != 'review' or entry.get('resolvedAt'):
+        condition = entry.get('until', '')
+        if entry.get('resolvedAt'):
+            continue
+        if condition.startswith('compat-run:'):
+            target = condition.split(':', 1)[1]
+            candidates = []
+            for path in root.glob('*-detach-*.json'):
+                candidate = record(path)
+                if candidate.get('detach') and path.name == candidate.get('runId', '') + '.json' and (candidate['runId'] == target or candidate.get('name') == target or candidate['runId'].startswith(target)):
+                    candidates.append(candidate)
+            if len(candidates) != 1 or candidates[0].get('status') not in store['TERMINAL']:
+                continue
+            wake = root / (run + '.wake.json')
+            previous = record(wake)
+            if previous.get('condition') == condition and previous.get('at', 0) >= entry.get('at', 0):
+                continue
+            temp = root / (run + '.review-wake.tmp')
+            temp.write_text(json.dumps({'condition': condition, 'at': int(now * 1000), 'status': 'done' if candidates[0]['status'] == 'done' else 'failed', 'runId': candidates[0]['runId']}))
+            os.replace(temp, wake)
+            continue
+        if condition != 'review':
             continue
         maker = record(root / (run + '.json'))
         name = maker.get('name')

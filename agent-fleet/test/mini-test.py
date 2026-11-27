@@ -111,7 +111,7 @@ with patch.object(mini, 'call', side_effect=subprocess.TimeoutExpired('mm', 75))
 with tempfile.TemporaryDirectory() as d:
     root_fixture = Path(d)
     (root_fixture / 'src').mkdir()
-    (root_fixture / 'src/env.mjs').write_text('export function loadEnvFile() {}')
+    (root_fixture / 'src/env.mjs').write_text('export function loadEnvFile() {} export function loadRuntimeEnv() {}')
     (root_fixture / 'bin').mkdir()
     (root_fixture / 'bin/claude').write_text('#!/bin/sh\nexit 0\n')
     (root_fixture / 'bin/claude').chmod(0o755)

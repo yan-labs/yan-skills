@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const root = mkdtempSync(join(tmpdir(),'fleet-patrol-artifact-'));
+process.env.AGENT_FLEET_RUNS_DIR = join(root,'runs');
+const dir = join(root,'files'); mkdirSync(dir); mkdirSync(join(dir,'nested'));
+const top=join(dir,'top.txt'), nested=join(dir,'nested','result.txt');
+writeFileSync(top,'top'); writeFileSync(nested,'result');
+const {recentArtifacts} = await import('../src/patrol.mjs');
+const result = recentArtifacts({artifactDir:dir,artifacts:[nested]});
+assert.deepEqual(new Set(result.items.map(x=>x.path)),new Set([top,nested]));
+assert(result.items.every(x=>x.modifiedAt)); assert.equal(result.truncated,false);
+for (let i=0;i<520;i++) writeFileSync(join(dir,`item-${i}`),'x');
+assert.equal(recentArtifacts({artifactDir:dir}).truncated,true, '超过扫描上限必须标记');
+rmSync(root,{recursive:true,force:true}); console.log('PASS patrol recent artifacts');

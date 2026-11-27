@@ -107,7 +107,10 @@ try {
   run(['code','queued fixture','--cwd',scratch,'--name','behind-park','--no-wait'],local);
   const behind = states().find(s => s.name === 'behind-park');
   await waitFor(() => existsSync(join(scratch,`${behind.runId}.pid.json`)) && JSON.parse(readFileSync(join(scratch,`${behind.runId}.pid.json`),'utf8')).threadId);
-  run(['say',parked.runId,'收到，按原方案继续'],local);
+  const signal = JSON.parse(run(['asks','--pending'], local)).find(a => a.runId === parked.runId);
+  assert(signal?.id, '待答信号须有 ID');
+  run(['say',parked.runId,'收到，按原方案继续','--ask',signal.id],local);
+  assert(!JSON.parse(run(['asks','--pending'], local)).some(a => a.id === signal.id), '仅关联答复关闭该信号');
   run(['say',behind.runId,'排队任务完成'],local);
   run(['wait',behind.runId],local);
   assert.equal(await waitResult,0,'wait returns success only after say and terminal completion');

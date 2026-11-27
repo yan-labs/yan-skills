@@ -22,7 +22,7 @@ export function pendingFor(id) {
   return lines(join(root, `${id}.asks`)).map(a => ({ ...a, text: redactEvidence(a.text || '') })).filter(a => {
     if (!a.id || !a.at) return false;
     if (a.kind === 'review') return !linkedReview(a, maker);
-    return !replies.some(r => r.at && r.at >= a.at);
+    return !replies.some(r => r.askId === a.id);
   });
 }
 export function allPending() {
