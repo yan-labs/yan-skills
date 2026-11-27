@@ -256,6 +256,19 @@ class GcpxTests(unittest.TestCase):
                                  type('R', (), {'stdout': json.dumps({**instance, 'status': 'TERMINATED'})})()]
             self.assertEqual(self.call('down', 'worker')['status'], 'TERMINATED')
             self.assertEqual(cloud.call_args_list[1].args[0][1:4], ['compute', 'instances', 'stop'])
+    def test_foreground_mount_holds_lease_until_unmounted(self):
+        cfg = json.loads(self.cfg.read_text())
+        with patch.object(gcpx, 'ssh', self.fake_ssh): self.call('ws', 'new', 'repo', '--name', 'task')
+        cfg['workers']['worker'].update({'managed': True, 'project': 'proj', 'zone': 'us-central1-a', 'instance': 'vm-one', 'pool': 'fleet'})
+        state = gcpx.load_state()
+        def mounted(command, **kwargs):
+            self.assertIn('-f', command)
+            self.assertEqual(gcpx.reconcile_idle(cfg, state, 2000)['worker'], 'busy or unknown')
+        with patch.object(gcpx, 'run', side_effect=mounted):
+            with patch.object(sys, 'argv', ['gcpx', '--config', str(self.cfg), 'mount', 'task', str(self.root / 'mount')]):
+                gcpx.main()
+        self.assertEqual(gcpx.reconcile_idle(cfg, state, 2001)['worker'], 'observing idle')
+
     def test_idle_stop_requires_continuous_observation_and_resets_on_activity(self):
         cfg = json.loads(self.cfg.read_text())
         with patch.object(gcpx, 'ssh', self.fake_ssh): self.call('ws', 'new', 'repo', '--name', 'task')
