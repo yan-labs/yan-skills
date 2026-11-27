@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Bootstrap a dedicated Ubuntu 24.04 x86_64 gcpx worker; no credentials are copied.
+set -euo pipefail
+
+if [[ ${GCPX_WORKER_BOOTSTRAP:-} != yes || $(id -u) != 0 ]]; then
+  echo 'Run as root on a dedicated gcpx worker with GCPX_WORKER_BOOTSTRAP=yes.' >&2
+  exit 2
+fi
+if [[ $(uname -m) != x86_64 ]] || ! grep -q '^VERSION_ID="24.04"$' /etc/os-release; then
+  echo 'This bootstrap supports Ubuntu 24.04 x86_64 only.' >&2
+  exit 2
+fi
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends ca-certificates curl docker.io git gh gradle openjdk-17-jdk-headless python3 python3-venv xz-utils
+node_version=22.22.2
+node_archive="node-v${node_version}-linux-x64.tar.xz"
+node_sha=88fd1ce767091fd8d4a99fdb2356e98c819f93f3b1f8663853a2dee9b438068a
+node_root="/opt/gcpx/node-v${node_version}-linux-x64"
+mkdir -p /opt/gcpx/bin /opt/gcpx/corepack
+if [[ ! -x "$node_root/bin/node" ]]; then
+  tmp=$(mktemp -d /opt/gcpx/bootstrap.XXXXXXXX)
+  trap 'rm -rf -- "$tmp"' EXIT
+  curl -fsSL --retry 3 "https://nodejs.org/dist/v${node_version}/${node_archive}" -o "$tmp/$node_archive"
+  printf '%s  %s\n' "$node_sha" "$tmp/$node_archive" | sha256sum -c -
+  tar -xJf "$tmp/$node_archive" -C "$tmp"
+  mv "$tmp/node-v${node_version}-linux-x64" "$node_root"
+fi
+ln -sfn "$node_root/bin/node" /opt/gcpx/bin/node
+ln -sfn "$node_root/bin/corepack" /opt/gcpx/bin/corepack
+export PATH="/opt/gcpx/bin:$PATH" COREPACK_HOME=/opt/gcpx/corepack
+corepack prepare pnpm@12.18.0 --activate
+cat > /opt/gcpx/bin/pnpm <<'EOF'
+#!/bin/sh
+export COREPACK_HOME=/opt/gcpx/corepack
+exec /opt/gcpx/bin/corepack pnpm@12.18.0 "$@"
+EOF
+chmod 755 /opt/gcpx/bin/pnpm
+chmod -R a+rX /opt/gcpx/corepack
+printf '%s\n' 'export PATH=/opt/gcpx/bin:$PATH' > /etc/profile.d/gcpx-worker.sh
+node --version
+pnpm --version
+java -version
+git --version
+python3 --version
+install -d -m 755 /var/lib/gcpx
+printf '%s\n' 'node-22.22.2 pnpm-12.18.0' > /var/lib/gcpx/bootstrap-ready

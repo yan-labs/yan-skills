@@ -2,6 +2,7 @@
 """Read Mini run evidence and dispatch due timers on the Mini."""
 import argparse
 from contextlib import closing
+from collections import deque
 from datetime import datetime, time as clock, timedelta
 import hashlib
 import json
@@ -12,6 +13,7 @@ import runpy
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 from zoneinfo import ZoneInfo
 
@@ -480,6 +482,47 @@ def bounded_busy(db, label, operation):
         db.execute('PRAGMA busy_timeout=10000')
 
 
+class GcpxIdleSupervisor:
+    """Run at most one opt-in idle reconciliation without blocking the watcher."""
+    def __init__(self, config):
+        self.config = config
+        self.next_at = 0
+        self.child = None
+        self.child_output = None
+
+    def tick(self, now):
+        if not self.config: return
+        if not Path(self.config).is_absolute():
+            print('FLEET_GCPX_IDLE_CONFIG must be an absolute path', file=sys.stderr, flush=True)
+            self.config = None
+            return
+        if self.child is not None:
+            status = self.child.poll()
+            if status is None: return
+            if self.child_output is not None:
+                self.child_output.seek(0)
+                for line in deque(self.child_output, maxlen=50):
+                    print(line.decode('utf-8', errors='replace'), end='', flush=True)
+                self.child_output.close()
+                self.child_output = None
+            if status: print(f'gcpx idle reconciliation exited {status}', file=sys.stderr, flush=True)
+            self.child = None
+        if now < self.next_at: return
+        self.next_at = now + 60
+        runtime = Path.home() / '.agent-fleet/runtime'
+        gcpx = (runtime / 'current/agent-fleet/bin/gcpx'
+                if FLEET.parent.parent == runtime else FLEET / 'bin/gcpx')
+        try:
+            self.child_output = tempfile.TemporaryFile(mode='w+b')
+            self.child = subprocess.Popen([str(gcpx), '--config', self.config, 'reconcile'],
+                                          stdin=subprocess.DEVNULL, stdout=self.child_output, stderr=subprocess.STDOUT)
+        except OSError as error:
+            if self.child_output is not None:
+                self.child_output.close()
+                self.child_output = None
+            print(f'gcpx idle reconciliation: {type(error).__name__}', file=sys.stderr, flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--once', action='store_true')
@@ -496,6 +539,7 @@ def main():
                                     capture_output=True, text=True, check=True, timeout=5)
             reviews[run] = {**review, 'verdict': result.stdout.strip()}
     root = store['runs_root']()
+    gcpx_idle = GcpxIdleSupervisor(os.environ.get('FLEET_GCPX_IDLE_CONFIG'))
     with closing(store['connect']()) as db:
         previous = None
         while True:
@@ -520,6 +564,7 @@ def main():
                     action()
                 else:
                     bounded_busy(db, 'dispatch', action)
+                gcpx_idle.tick(time.monotonic())
             if args.once:
                 return
             time.sleep(max(1, 15 - (time.monotonic() - started)))

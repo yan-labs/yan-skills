@@ -233,5 +233,6 @@ if (freshHandoff.pending !== 'handoff' || freshHandoff.verdict !== 'partial' || 
 const explicitHandoff = acceptanceResult(four, staleReport, {type:'handoff'}, staleReport);
 if (explicitHandoff.pending !== 'handoff' || explicitHandoff.verdict !== 'partial') throw new Error('explicit current handoff remains valid');
 if (acceptanceResult(named, '## 结论\nV1｜已过｜证据\n## 未完成\n受阻：输入｜账单｜已查｜账单负责人提供').verdict !== 'needs-review') throw new Error('虚构负责人须复核');
+if (acceptanceResult(named + '\n受阻行格式：受阻：类型｜缺什么｜找过哪里｜派单方需做什么。验收 owner 只写本单。', '## 结论\nV1｜已过｜证据').verdict !== 'ok') throw new Error('格式说明不应被当作受阻行');
 if (acceptanceResult('## 验收\nV1 测试｜owner：派单方', '## 结论\nV1｜等外部｜等待派单方').pending !== 'external') throw new Error('派单方 owner');
 finish();

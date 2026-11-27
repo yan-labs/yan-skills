@@ -98,7 +98,7 @@ const conclusionText = report => String(report ?? '').match(/^## 结论[ \t]*\r?
 const handoffMarker = report => conclusionText(report).trimStart().match(/^巡检换班[，,:：][^\r\n]*/)?.[0]?.trim();
 
 export function acceptanceResult(brief = '', report = '', yielded = null, priorReport) {
-  const forbiddenOwner = /^.*(?:受阻[：:][^\r\n]*(?:维护方|负责人|owner)|owner[：:]\s*外部[：:]).*$/im.test(report + '\n' + brief);
+  const forbiddenOwner = /^(?:[ \t-]*受阻[：:][^\r\n]*(?:维护方|负责人|owner)|.*owner[：:]\s*外部[：:]).*$/im.test(report + '\n' + brief);
   if (forbiddenOwner) return { verdict: 'needs-review', pending: 'none', unmet: [], counts: null, table: '', note: '禁止虚构外部负责人；改为本单自行取数或用结构化信号交派单方。' };
   const items = new Map();
   const sections = [...brief.matchAll(/^## (?:验收|派单场景 · [^\r\n]+)[ \t]*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/gm)];

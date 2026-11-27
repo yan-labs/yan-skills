@@ -23,6 +23,8 @@ import { readState } from './detach.mjs';
 import { createSupervision, commandObservation, escalationAction, sleepSeconds } from './supervision.mjs';
 import { SCOPE_LOCK } from './scope.mjs';
 import { fleetEvent, FLEET_EVENTS } from './timeline.mjs';
+import { registerGcpEnvironment, validateGcpEnvironment } from './gcp-environment.mjs';
+import { remoteGit } from './gcp-git.mjs';
 
 const REVIEW_REFERENCE = fileURLToPath(new URL('../skill/references/codex-coding.md', import.meta.url));
 
@@ -101,7 +103,7 @@ function missingRollout(error) {
 
 /** 执行 Codex 任务；自动续做保留 thread，用户插话仍走现有 steer/resume 链路。 */
 export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = false, high = false, xhigh = false, max = false, simple = false, sol = false, luna = false, astra = false, fast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
-  codexBin = process.env.FLEET_CODEX_BIN || 'codex' }) {
+  codexBin = process.env.FLEET_CODEX_BIN || 'codex', gcpWorkspace = null, gitTransport = remoteGit }) {
   if ([low, high, xhigh, max].filter(Boolean).length > 1) throw new Error('--low、--high、--xhigh 和 --max 不能同用。');
   if ((xhigh || max) && !luna) throw new Error('--xhigh 和 --max 仅用于 --luna。');
   if (astra && (sol || simple || luna)) throw new Error('--astra 不能与 --sol、--simple 或 --luna 同用。');
@@ -113,7 +115,21 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const model = resolveCodexModel(family, { log: line => resolutionLog.push(line) });
   const serviceTier = fast ? 'priority' : null;
   const workdir = resolve(cwd);
+  const remoteEnvironment = gcpWorkspace ? validateGcpEnvironment(gcpWorkspace.environment) : null;
+  const gitRunner = remoteEnvironment ? args => gitTransport({ ...gcpWorkspace.git, cwd: remoteEnvironment.cwd }, args) : null;
+  const executionCwd = remoteEnvironment?.cwd || workdir;
+  const executionConfig = remoteEnvironment && gcpWorkspace.executionEnv
+    ? { config: { shell_environment_policy: { set: gcpWorkspace.executionEnv } } } : {};
   reportPath ||= prompt.match(/^REPORT:\s*(.+)$/m)?.[1]?.trim();
+  const remotePrompt = text => {
+    if (!remoteEnvironment) return text;
+    let mapped = gcpWorkspace.remoteReportPath && reportPath ? text.replaceAll(reportPath, gcpWorkspace.remoteReportPath) : text;
+    if (gcpWorkspace.localRepoPath) {
+      const prefix = gcpWorkspace.localRepoPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      mapped = mapped.replace(new RegExp(`${prefix}(?=$|/|\\s|["'、，,：:）)}>])`, 'g'), executionCwd);
+    }
+    return mapped;
+  };
   const taskHeader = prompt.match(/^归类：[^\n]*/m)?.[0] || '';
   const taskGoal = prompt.match(/^## 目标\s*\n([^\n]+)/m)?.[1] || '';
   const documentTask = /文档|文案|写作|翻译|校对|review|复核|审查/i.test(taskHeader) || /^(?:写|撰写|编写|更新|修改|整理|翻译|校对|复核|审查)(?:文档|报告|文章|文案|资料|说明|代码)/.test(taskGoal);
@@ -128,8 +144,8 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const base = join(runsDir(), runId);
   const logPath = `${base}.log`;
   const resultPath = `${base}.result.md`;
-  const before = snapshotGit(workdir);
-  const initial = readContinuationState(workdir, reportPath, prompt, null, null);
+  const before = snapshotGit(workdir, gitRunner);
+  const initial = readContinuationState(workdir, reportPath, prompt, null, null, gitRunner);
   let handoffBaseline = initial.report;
   const startedAt = Date.now();
   writeFileSync(resultPath, '');
@@ -176,7 +192,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const sample = at => {
     if (at - lastSample < 15_000) return;
     lastSample = at;
-    const state = readContinuationState(workdir, reportPath, prompt, null, handoffBaseline);
+    const state = readContinuationState(workdir, reportPath, prompt, null, handoffBaseline, gitRunner);
     if (state.head !== sampled.head || state.acceptance?.table !== sampled.acceptance?.table)
       supervision.progress(at, '提交或验收变化');
     for (const path of new Set([...Object.keys(state.fingerprints), ...Object.keys(sampled.fingerprints)])) {
@@ -201,7 +217,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     const safeItem = redactEvidence(item);
     const message = `〔${safeItem}〕监督命中 ${stateView.hits.join('、')}，距最近有效证据 ${Math.round((at - stateView.progressAt) / 60000)} 分钟，最近事件为${stateView.recent.at(-1)?.kind || '启动'}。换一条可验证路径；只剩外部条件时登记终态并 park。下次只报新证据或具体缺口。`;
     if (stateView.correction) {
-      intervention = rpc('turn/steer', { threadId: metadata.threadId, expectedTurnId: turnId, input: textInput(message) })
+      intervention = rpc('turn/steer', { threadId: metadata.threadId, expectedTurnId: turnId, input: textInput(remotePrompt(message)) })
         .then(() => {
           for (const hit of stateView.hits) supervision.delivered(hit, at);
           metadata.supervision = { ...stateView, delivered: Object.fromEntries(
@@ -330,7 +346,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
       if (metadata.backend === 'codex-app-server') {
         try {
           captureChildren();
-          await rpc('turn/steer', { threadId: metadata.threadId, expectedTurnId: turnId, input: textInput(text) });
+          await rpc('turn/steer', { threadId: metadata.threadId, expectedTurnId: turnId, input: textInput(remotePrompt(text)) });
           pendingAsks.delete(text);
           metadata.steerCount++; log(fleetEvent(FLEET_EVENTS.STEER)); record();
           continue;
@@ -576,7 +592,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
     previousHandoff = handoff;
   };
   const checkHandoff = yielded => {
-    checkProgress(readContinuationState(workdir, reportPath, prompt, metadata.yield, handoffBaseline), stages.latest);
+    checkProgress(readContinuationState(workdir, reportPath, prompt, metadata.yield, handoffBaseline, gitRunner), stages.latest);
     metadata.continueRequired = true;
     if (stagnant >= 2) metadata.continueStop = NO_PROGRESS_STOP;
     else metadata.continueCount++;
@@ -585,7 +601,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
   };
   let outcome, wakePrompt;
   try {
-    if (!stopping && process.env.FLEET_CODEX_BACKEND !== 'exec') {
+    if (!stopping && (remoteEnvironment || process.env.FLEET_CODEX_BACKEND !== 'exec')) {
       metadata.backend = 'codex-app-server';
       let finishTurn;
       const connect = async threadId => {
@@ -658,7 +674,8 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
         });
         await rpc('initialize', { clientInfo: { name: 'agent_fleet', version: '0.7.0' }, capabilities: { experimentalApi: true } });
         child.stdin.write('{"method":"initialized"}\n');
-        const response = await rpc(threadId ? 'thread/resume' : 'thread/start', { ...(threadId ? { threadId } : {}), cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
+        if (remoteEnvironment) await registerGcpEnvironment(rpc, remoteEnvironment);
+        const response = await rpc(threadId ? 'thread/resume' : 'thread/start', { ...(threadId ? { threadId } : {}), cwd: executionCwd, model, ...(serviceTier ? { serviceTier } : {}), ...executionConfig, sandbox: 'danger-full-access', approvalPolicy: 'never' });
         if (threadId && response.thread.id !== threadId) throw new Error('Codex resume 返回了不同的 threadId');
         metadata.threadId = metadata.sessionId = response.thread.id; ownsAppThread = true; record();
       };
@@ -699,6 +716,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
         while (true) {
           await reconnect();
           if (stopping) break;
+          if (remoteEnvironment && gcpWorkspace.flush) await gcpWorkspace.flush();
           // 每轮都先安装完成监听，避免很快结束的回合漏掉通知。
           completed = null;
           turnId = null;
@@ -707,10 +725,12 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           interruptedForPark = false;
           const turnDone = turnFinished = new Promise(resolve => { finishTurn = resolve; });
           writeFileSync(resultPath, '');
-          const turn = await rpc('turn/start', { threadId: metadata.threadId, input: textInput(nextPrompt), effort });
+          const turn = await rpc('turn/start', { threadId: metadata.threadId, input: textInput(remotePrompt(nextPrompt)), effort, ...(remoteEnvironment ? { environments: [{ environmentId: remoteEnvironment.id, cwd: executionCwd, runtimeWorkspaceRoots: [executionCwd] }] } : {}) });
           wakePrompt = undefined;
           turnId = turn.turn.id; record({ activeTurnId: turnId }); schedule();
           await turnDone;
+          if (remoteEnvironment && gcpWorkspace.flush) await gcpWorkspace.flush();
+          if (remoteEnvironment && gcpWorkspace.pullReport) gcpWorkspace.pullReport();
           inbox.pump(); await drain;
           if (stopping) break;
           if (restartPrompt && completed?.status === 'interrupted') {
@@ -730,7 +750,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           if (yielded?.handoff) {
             if (checkHandoff(yielded)) break;
             await rpc('thread/archive', { threadId: metadata.threadId });
-            const fresh = await rpc('thread/start', { cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
+            const fresh = await rpc('thread/start', { cwd: executionCwd, model, ...(serviceTier ? { serviceTier } : {}), ...executionConfig, sandbox: 'danger-full-access', approvalPolicy: 'never' });
             metadata.threadId = metadata.sessionId = fresh.thread.id;
             archived = false; activeSince = Date.now(); activeElapsed = 0; thresholdSent = false; record();
           }
@@ -743,7 +763,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
             continue;
           }
           if (offsetQueue.length) break;
-          const state = readContinuationState(workdir, reportPath, prompt, metadata.yield, handoffBaseline);
+          const state = readContinuationState(workdir, reportPath, prompt, metadata.yield, handoffBaseline, gitRunner);
           state.finalReply = readFileSync(resultPath, 'utf8');
           metadata.reportConclusion = state.conclusion;
           if (/^(?:阻塞|受阻)/.test(state.conclusion)) log(fleetEvent(FLEET_EVENTS.BLOCKED));
@@ -753,7 +773,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
             if (settleZeroTool(state)) {
               await archive();
               metadata.threadId = metadata.sessionId = null;
-              const fresh = await rpc('thread/start', { cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
+              const fresh = await rpc('thread/start', { cwd: executionCwd, model, ...(serviceTier ? { serviceTier } : {}), ...executionConfig, sandbox: 'danger-full-access', approvalPolicy: 'never' });
               metadata.threadId = metadata.sessionId = fresh.thread.id;
               archived = false;
               nextPrompt = fullPrompt + '\n' + CONTINUE_ACTION;
@@ -776,7 +796,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           if (state.acceptance && !noContinue && process.env.FLEET_NO_CONTINUE !== '1') {
             missing = namedMissing(state);
           } else if (continueEnabled && (reportPath || terra) && (terra || !state.conclusion.startsWith('失败'))) {
-            missing = reportPath && !review ? continuationRules(state, prompt, workdir, initial) : [];
+            missing = reportPath && !review ? continuationRules(state, prompt, workdir, initial, gitRunner) : [];
             if (!missing.length && state.conclusion.startsWith('完成')) {
               judgment = await judgeContinuation({ brief: prompt, report: state.report,
                 finalReply: readFileSync(resultPath, 'utf8'), judge: continuationJudge });
@@ -788,7 +808,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           if (metadata.continueRequired && stalled && settleZeroTool(state)) {
             await archive();
             metadata.threadId = metadata.sessionId = null;
-            const fresh = await rpc('thread/start', { cwd: workdir, model, ...(serviceTier ? { serviceTier } : {}), sandbox: 'danger-full-access', approvalPolicy: 'never' });
+            const fresh = await rpc('thread/start', { cwd: executionCwd, model, ...(serviceTier ? { serviceTier } : {}), ...executionConfig, sandbox: 'danger-full-access', approvalPolicy: 'never' });
             metadata.threadId = metadata.sessionId = fresh.thread.id;
             archived = false;
             nextPrompt = fullPrompt + '\n' + CONTINUE_ACTION;
@@ -806,6 +826,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
         if (completed?.status === 'completed' || metadata.yield?.external) outcome = { code: 0 };
         else outcome = { error: new Error(completed?.error?.message || `Codex turn ${completed?.status || 'disconnected'}`) };
       } catch (error) {
+        if (remoteEnvironment) throw new Error(`GCP workspace execution unavailable: ${error.message}`, { cause: error });
         fallback(`app-server unavailable: ${error.message}; exec${metadata.threadId ? ' resume' : ''}`);
       } finally {
         clearInterval(threshold);
@@ -813,7 +834,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
         activeChild = null;
       }
     }
-    if (!stopping && !metadata.yield && !metadata.resumeBlocked && (!outcome ||
+    if (!remoteEnvironment && !stopping && !metadata.yield && !metadata.resumeBlocked && (!outcome ||
         (offsetQueue.length && completed?.status !== 'failed' && (outcome.code === 0 || sayInterrupted)))) {
       metadata.backend = 'codex-exec';
       let session = metadata.threadId;
@@ -921,7 +942,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           nextPrompt = session && review ? reviewPrompt() : '';
           continue;
         }
-        const state = readContinuationState(workdir, reportPath, prompt, metadata.yield, handoffBaseline);
+        const state = readContinuationState(workdir, reportPath, prompt, metadata.yield, handoffBaseline, gitRunner);
         state.finalReply = readFileSync(resultPath, 'utf8');
         metadata.reportConclusion = state.conclusion;
         checkProgress(state);
@@ -949,7 +970,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           continue;
         }
         const missing = state.acceptance ? (!noContinue && process.env.FLEET_NO_CONTINUE !== '1' ? namedMissing(state) : [])
-          : continueEnabled && reportPath && !review ? continuationRules(state, prompt, workdir, initial) : [];
+          : continueEnabled && reportPath && !review ? continuationRules(state, prompt, workdir, initial, gitRunner) : [];
         metadata.continueRequired = missing.length > 0;
         if (metadata.continueRequired && stalled && settleZeroTool(state)) {
           await archive();
@@ -982,7 +1003,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
   outcome ||= { error: new Error('Codex stopped') };
   const result = existsSync(resultPath) ? readFileSync(resultPath, 'utf8') : '';
   if (!existsSync(resultPath)) writeFileSync(resultPath, '');
-  const git = inspectGit(workdir, before);
+  const git = inspectGit(workdir, before, gitRunner);
   let report = '';
   try { if (reportPath) report = readFileSync(resolve(workdir, reportPath), 'utf8'); } catch {}
   const acceptance = acceptanceResult(prompt, report, metadata.yield, handoffBaseline);

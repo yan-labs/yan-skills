@@ -11,7 +11,8 @@ import { acceptanceResult, computeVerdict, hasControlTokens } from './verdict.mj
 
 export const DEFAULT_BRIEF_LINES = 3;
 
-function git(cwd, args) {
+function git(cwd, args, gitRunner) {
+  if (gitRunner) return gitRunner(args).trim();
   try {
     return execFileSync('git', args, {
       cwd,
@@ -24,29 +25,29 @@ function git(cwd, args) {
 }
 
 /** 运行前拍一张 HEAD。空仓库 / 非 git 目录都算拍到,不抛。 */
-export function snapshotGit(cwd) {
+export function snapshotGit(cwd, gitRunner) {
   if (!cwd) return { isRepo: false, head: null };
-  const inside = git(cwd, ['rev-parse', '--is-inside-work-tree']);
+  const inside = git(cwd, ['rev-parse', '--is-inside-work-tree'], gitRunner);
   if (inside !== 'true') return { isRepo: false, head: null };
-  const head = git(cwd, ['rev-parse', 'HEAD']);
+  const head = git(cwd, ['rev-parse', 'HEAD'], gitRunner);
   return { isRepo: true, head: head || null };
 }
 
 /** 对比运行前快照,列出新提交短 hash、是否有未提交改动。运行期间 git init 也算。 */
-export function inspectGit(cwd, before = { isRepo: false, head: null }) {
-  const now = snapshotGit(cwd);
+export function inspectGit(cwd, before = { isRepo: false, head: null }, gitRunner) {
+  const now = snapshotGit(cwd, gitRunner);
   if (!now.isRepo) {
     return { newCommits: [], hasUncommittedChanges: false, isRepo: false };
   }
   let newCommits = [];
   if (before?.isRepo && before.head) {
-    const log = git(cwd, ['log', '--pretty=%h', `${before.head}..HEAD`]);
+    const log = git(cwd, ['log', '--pretty=%h', `${before.head}..HEAD`], gitRunner);
     newCommits = log ? log.split('\n').filter(Boolean) : [];
   } else {
-    const log = git(cwd, ['log', '--pretty=%h']);
+    const log = git(cwd, ['log', '--pretty=%h'], gitRunner);
     newCommits = log ? log.split('\n').filter(Boolean) : [];
   }
-  const porcelain = git(cwd, ['status', '--porcelain']);
+  const porcelain = git(cwd, ['status', '--porcelain'], gitRunner);
   return {
     newCommits,
     hasUncommittedChanges: Boolean(porcelain),

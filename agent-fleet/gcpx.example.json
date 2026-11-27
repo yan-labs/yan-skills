@@ -1,0 +1,25 @@
+{
+  "default_repo": "example",
+  "workers": {
+    "validation": {
+      "managed": false,
+      "project": "example-project",
+      "zone": "us-central1-a",
+      "root": "/home/worker/.fleet-gcpx",
+      "host": "gcpx-validation",
+      "ssh_config": "/absolute/path/to/gcpx-ssh-config",
+      "command_path": "/opt/gcpx/bin:/usr/local/bin:/usr/bin:/bin",
+      "exec_server_archive": "/absolute/path/to/codex-exec-server-x86_64-unknown-linux-musl.tar.gz",
+      "exec_server_sha256": "1276ea8882a5c96fbc35fdb57c169198fe95f845dab0be864a8a0bc026efa8d5",
+      "exec_server_member": "codex-exec-server-x86_64-unknown-linux-musl",
+      "capacity": 16
+    }
+  },
+  "repos": {
+    "example": {
+      "worker": "validation",
+      "url": "https://github.com/octocat/Hello-World.git",
+      "branch": "master"
+    }
+  }
+}
