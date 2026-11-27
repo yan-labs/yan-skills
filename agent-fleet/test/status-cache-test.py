@@ -14,7 +14,7 @@ with tempfile.TemporaryDirectory() as directory:
     node.write_text("""#!/bin/sh
 echo scan >> "$HOME/scans"
 if [ -e "$HOME/fail" ]; then exit 4; fi
-printf '%s\\n' '[{"runId":"a","state":"running"},{"runId":"b","state":"done"}]'
+case " $* " in *' --running ') printf '%s\\n' '[{"runId":"a","state":"running"}]';; *) printf '%s\\n' '[{"runId":"a","state":"running"},{"runId":"b","state":"done"}]';; esac
 """)
     node.chmod(0o700)
     env = dict(os.environ, HOME=directory, PATH=directory + ':' + os.environ['PATH'],
@@ -32,8 +32,10 @@ printf '%s\\n' '[{"runId":"a","state":"running"},{"runId":"b","state":"done"}]'
                                 range(8)))
     assert results == [['a', 'b'], ['a']] * 4
     scans = root / 'scans'
-    assert scans.read_text().splitlines() == ['scan']
-    cache, = (root / '.agent-fleet').glob('status-*.json')
+    assert scans.read_text().splitlines() == ['scan'] * 2
+    caches = list((root / '.agent-fleet').glob('status-*.json'))
+    assert len(caches) == 2
+    cache = next(path for path in caches if len(json.loads(path.read_text())) == 2)
     old = time.time() - 16
     os.utime(cache, (old, old))
     (root / 'fail').touch()
@@ -44,6 +46,6 @@ printf '%s\\n' '[{"runId":"a","state":"running"},{"runId":"b","state":"done"}]'
     cache.write_text('{}')
     assert ids(status(check=True)) == ['a', 'b']
     assert ids(status('--fresh', check=True)) == ['a', 'b']
-    assert scans.read_text().splitlines() == ['scan'] * 5
+    assert scans.read_text().splitlines() == ['scan'] * 6
 
 print('status cache: concurrent running/all, expiry, failed refresh, corrupt cache, and fresh reads OK')

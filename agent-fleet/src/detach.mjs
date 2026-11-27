@@ -1,3 +1,4 @@
+import { indexedRecords } from './status-index.mjs';
 import { readProgress, reportProgress, progressLimiter } from './live-progress.mjs';
 import { isCodexModel } from './model-family.mjs';
 import { dispatchSession, watchBinding, watchRequest } from './yield.mjs';
@@ -63,10 +64,11 @@ export function reconcileDetached(rec, { status = 'failed', reason } = {}) {
   writeState(next);
   return next;
 }
-export function listDetached() {
+export function listDetached({ indexed = false } = {}) {
   if (!existsSync(runsDir())) return [];
-  return readdirSync(runsDir()).filter(n => n.endsWith('.json') && !n.endsWith('.pid.json'))
-    .map(n => readState(n.slice(0, -5))).filter(Boolean);
+  const names = readdirSync(runsDir()).filter(n => n.endsWith('.json') && !n.endsWith('.pid.json'));
+  const read = n => readState(n.slice(0, -5));
+  return indexed ? indexedRecords(names, read, 'detached') : names.map(read).filter(Boolean);
 }
 export function resolveDetached(spec, cwd = process.cwd()) {
   if (spec !== 'latest') {

@@ -90,7 +90,7 @@ const state = id => JSON.parse(readFileSync(join(runs,`${id}.json`),'utf8'));
 async function launch(command='code', extra={}, prefix=[]) {
   const args=command==='code' ? ['code','stub brief','--cwd',scratch] : ['run','--model','stub','--prompt','stub brief','--models-config',cfg,'--cwd',scratch];
   const start=Date.now();const out=await cliRun([...args,...prefix,'--detach','--no-wait'],extra);
-  assert.equal(out.code,0,out.stderr);assert(Date.now()-start<2000,'launcher under two seconds');
+  assert.equal(out.code,0,out.stderr);assert(Date.now()-start < Number(process.env.FLEET_TEST_LAUNCH_TIMEOUT_MS || 2000), 'launcher within configured time limit');
   const id=out.stdout.match(/runId: (.+)/)[1];
   assert(out.stdout.includes(`status: ${join(runs,`${id}.json`)}`));
   console.log(`launch ${command}: ${Date.now()-start}ms ${id}`);

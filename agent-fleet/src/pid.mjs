@@ -1,3 +1,4 @@
+import { indexedRecords } from './status-index.mjs';
 // 运行中任务的 pid.json:启动时写入,sessionId 拿到后补写,正常结束标 finished。
 // 发信号前必须校验:pid 来自该文件,且 ps command 含 agent-fleet 且与记录一致。
 // 只按 pid 树杀,绝不按名字批量杀。
@@ -189,14 +190,14 @@ export function runIdFromPidFilename(name) {
   return name.endsWith('.pid.json') ? name.slice(0, -'.pid.json'.length) : name;
 }
 
-export function listAllPidRecords() {
-  const out = [];
-  for (const name of listPidFilenames()) {
+export function listAllPidRecords({ indexed = false } = {}) {
+  const names = listPidFilenames();
+  const read = name => {
     const runId = runIdFromPidFilename(name);
     const rec = readPidRecord(runId);
-    if (rec) out.push({ runId, ...rec });
-  }
-  return out;
+    return rec ? { runId, ...rec } : null;
+  };
+  return indexed ? indexedRecords(names, read, 'pid') : names.map(read).filter(Boolean);
 }
 
 /** realpath 规范化 cwd,目录不存在时退回 resolve,保证同路径不同写法仍能比。 */

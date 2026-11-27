@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { allPending, pendingFor } from '../src/requests.mjs';
+import { allPending, pendingFor, records as requestRecords } from '../src/requests.mjs';
 import { familyOf, isCodexModel, resolveCodexModel } from '../src/model-family.mjs';
 import { land } from '../src/land.mjs';
 import { currentRun, writeYield, ask, startBackground, watchBinding, watchRequest } from '../src/yield.mjs';
@@ -339,8 +339,10 @@ function matchCwd(flags) {
 function cmdStatus(argv, cachedRows) {
   const flags = parseFlags(argv);
   const cwd = flags.cwd ? resolvePath(flags.cwd) : undefined;
-  const rows = cachedRows ? cachedRows.filter(r => !cwd || sameCwd(r.cwd, cwd)) : collectStatus({ cwd });
-  const selected = rows.map(r => { const pending = pendingFor(r.runId); return { ...r, pendingAskCount: pending.length, oldestAskAgeMs: pending.length ? Math.max(0, Date.now() - Math.min(...pending.map(a => Date.parse(a.at)))) : null, pendingSignals: pending }; }).filter(r => !flags.running || ['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(r.state));
+  let reviewRecords;
+  const rows = cachedRows ? cachedRows.filter(r => !cwd || sameCwd(r.cwd, cwd)) : collectStatus({ cwd, onDetached: records => { reviewRecords = records.filter(r => r.detach && r.runId); } });
+  const getReviewRecords = () => reviewRecords ??= requestRecords();
+  const selected = rows.filter(r => !flags.running || ['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(r.state)).map(r => { const pending = pendingFor(r.runId, getReviewRecords); return { ...r, pendingAskCount: pending.length, oldestAskAgeMs: pending.length ? Math.max(0, Date.now() - Math.min(...pending.map(a => Date.parse(a.at)))) : null, pendingSignals: pending }; });
   process.stdout.write(flags.json ? `${JSON.stringify(selected, null, 2)}\n`
     : selected.length ? selected.map(r =>
       `${formatStatusHuman([r]).trimEnd()}${r.launchDetached ? '  ⚠ detached-launch' : ''}  未答=${r.pendingAskCount} 最老=${r.oldestAskAgeMs === null ? '-' : Math.floor(r.oldestAskAgeMs / 1000) + 's'}\n`).join('')

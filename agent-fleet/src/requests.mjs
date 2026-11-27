@@ -9,19 +9,22 @@ export function records() {
   if (!existsSync(runsDir())) return [];
   return readdirSync(runsDir()).filter(n => n.endsWith('.json')).map(n => json(join(runsDir(), n))).filter(r => r?.detach && r.runId);
 }
-export function linkedReview(ask, maker) {
-  return records().filter(r => {
+export function linkedReview(ask, maker, reviewRecords = records()) {
+  return reviewRecords.filter(r => {
+    if (!(Date.parse(r.startedAt) >= Date.parse(ask.at))) return false;
     const meta = r.briefPath && json(r.briefPath.replace(/\.md$/, '.json'));
-    return meta?.review && meta.for === maker?.name && Date.parse(r.startedAt) >= Date.parse(ask.at);
+    return meta?.review && meta.for === maker?.name;
   }).sort ( (a,b) => String(a.startedAt).localeCompare(String(b.startedAt)) )[0] || null;
 }
-export function pendingFor(id) {
+export function pendingFor(id, getReviewRecords = records) {
   const root = runsDir();
+  const asks = lines(join(root, `${id}.asks`));
+  if (!asks.length) return [];
   const maker = json(join(root, `${id}.json`));
   const replies = lines(join(root, `${id}.inbox`)).filter(r => r.type === 'say');
-  return lines(join(root, `${id}.asks`)).map(a => ({ ...a, text: redactEvidence(a.text || '') })).filter(a => {
+  return asks.map(a => ({ ...a, text: redactEvidence(a.text || '') })).filter(a => {
     if (!a.id || !a.at) return false;
-    if (a.kind === 'review') return !linkedReview(a, maker);
+    if (a.kind === 'review') return !linkedReview(a, maker, getReviewRecords());
     return !replies.some(r => r.askId === a.id);
   });
 }
