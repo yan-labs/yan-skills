@@ -11,7 +11,7 @@ import { appendInbox } from '../src/inbox.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { acceptanceResult } from '../src/verdict.mjs';
 import { runCode } from '../src/code-runner.mjs';
-import { CONTINUE_PROMPT, readContinuationState, continuationProgress, continuationRules, judgeContinuation, acceptanceContinuation } from '../src/code-continue.mjs';
+import { CONTINUE_PROMPT, readContinuationState, continuationProgress, continuationRules, reportContinuation, judgeContinuation, acceptanceContinuation } from '../src/code-continue.mjs';
 import { buildBrief, formatBriefHuman, redactEvidence } from '../src/brief.mjs';
 import { splitShortArgs } from '../src/shortcuts.mjs';
 
@@ -96,8 +96,10 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
     let previous = {}; try {previous = JSON.parse(fs.readFileSync(process.env.YIELD_FILE));} catch {}
     fs.writeFileSync(process.env.YIELD_FILE, JSON.stringify({type:'park',until:'file:never-ready',say:'继续等待输入',at:Date.now()-20,timeoutMs:10,timeouts:previous.timeouts||0}));
    }
-   const conclusion = (mode === 'finish' && count > 1) || (mode === 'progress' && count > 5) || mode.startsWith('judge-') || mode === 'complete' || mode === 'missing-sections' ? '完成' : mode === 'fail' ? '失败' : '部分完成';
+   const conclusion = ((mode === 'finish' || mode === 'unfinished-full') && count > 1) || (mode === 'progress' && count > 5) || mode.startsWith('judge-') || mode === 'complete' || (mode === 'yield-park' && count > 1) || mode === 'missing-sections' ? '完成' : mode === 'fail' ? '失败' : '部分完成';
    let report = '# 测试\\n## 规则回执\\n测试\\n## 实际执行\\n测试\\n## 改动与产物\\n测试\\n## 验证证据\\n测试\\n## 偏差\\n无\\n## 结论\\n' + conclusion + '。\\n## 未完成/风险/需要用户决定的事\\n' + (mode === 'progress' ? count : '待办');
+   if (mode === 'unfinished-full' && count === 1) report = report.replace('部分完成。', '未完成。');
+   if (mode === 'real-blocked') report += '\\n受阻：用户决定｜缺授权｜已查配置｜请决定';
    if (mode === 'missing-sections' || (['finish', 'stuck', 'progress', 'env-off'].includes(mode) && !(mode === 'finish' && count > 1) && !(mode === 'progress' && count > 5))) report = '## 结论\\n' + conclusion + (mode === 'progress' ? count : '');
    if (mode === 'review-complete') report = '## 结论\\n不可放行，列出必修项\\nV1｜未过｜问题一\\nV2｜已过｜已核验\\nLEDGER: blockers=1 verdict=fail';
    if (mode === 'deviation-complete') report = '## 结论\\n' + Array.from({length:5}, (_, i) => 'V' + (i+1) + '｜已过' + (i === 2 ? '（目标分支偏差）' : '') + '｜已核验').join('\\n');
@@ -331,7 +333,7 @@ try {
       assert.match(readFileSync(process.env.REPORT_FILE,'utf8'), /## 未完成\/风险\/需要用户决定的事\n受阻：input｜缺测试输入｜仓库、文档、配置｜主会话/);
     }
     assert.equal(result.continueCount, 0);
-    assert.equal(judgeCalls, 0);
+    assert.equal(judgeCalls, mode === 'yield-park' ? 1 : 0);
     await setSlotState(id, 'done');
   }
   process.env.FLEET_DETACHED_RUN_ID = process.env.FLEET_SLOT_RUN_ID = 'yield-timeout';
@@ -433,7 +435,7 @@ try {
   assert.match(readFileSync(bg.logPath,'utf8'), /job output/);
   console.log('PASS - yield 同线程唤醒、零挂起请求、释放/重拿槽、blocked 跳闸门、ask 不提前返回、本地条件与 bg');
   for (const [mode, options, expected] of [
-    ['finish', {}, 1], ['complete', {}, 0], ['fail', {}, 0],
+    ['finish', {}, 1], ['unfinished-full', {}, 1], ['real-blocked', {}, 0], ['complete', {}, 0], ['fail', {}, 0],
     ['missing-sections', {}, 2], ['judge-done', {}, 0], ['judge-missing', {}, 2], ['judge-low', {}, 0], ['judge-fail', {}, 0], ['judge-throw', {}, 0],
     ['stuck', {}, 2], ['progress', {}, 5], ['stuck', { review: true }, 0],
     ['stuck', { noContinue: true }, 0], ['env-off', {}, 0],
@@ -461,7 +463,7 @@ try {
     if (mode.startsWith('judge-')) assert(result.continuationChecks.every(check => check.judge));
     const brief = buildBrief(result);
     const stoppedNoProgress = ['stuck', 'missing-sections', 'judge-missing'].includes(mode) && expected === 2;
-    assert.equal(brief.verdict, mode === 'fail' ? 'fail' : ['finish', 'progress', 'complete', 'judge-done', 'judge-low', 'judge-fail', 'judge-throw'].includes(mode) ? 'ok' : stoppedNoProgress ? 'needs-review' : 'partial');
+    assert.equal(brief.verdict, mode === 'fail' ? 'fail' : ['finish', 'unfinished-full', 'progress', 'complete', 'judge-done', 'judge-low', 'judge-fail', 'judge-throw'].includes(mode) ? 'ok' : stoppedNoProgress ? 'needs-review' : 'partial');
     assert.match(formatBriefHuman(brief), new RegExp(`续做 ${expected} 次`));
     assert.match(readFileSync(result.resultPath, 'utf8'), new RegExp(`续做 ${expected} 次`));
     if (stoppedNoProgress) {
@@ -816,7 +818,11 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
     const decision = await judgeContinuation({ brief: choice === 'commit' ? authorizedCommit : '验收：交付文件', report: '', finalReply: '', judge: async () => ({ ok: true, answers: { deliverable: { choice, confidence: 0.9 } } }) });
     assert.equal(decision.decision, 'continue');
   }
-  assert.deepEqual(continuationRules({ ...completeReport, conclusion: '部分完成' }, '覆盖未穷尽，还可补证'), []);
+  assert(continuationRules({ ...completeReport, conclusion: '部分完成' }, '覆盖未穷尽，还可补证').includes('完成报告中未完成的任务'));
+  assert.deepEqual(reportContinuation({conclusion:'未完成', report:'受阻：用户决定｜缺授权｜已查配置｜请决定'}), []);
+  assert(reportContinuation({conclusion:'未完成', report:'受阻：本单｜缺工作｜已查｜继续做'}).length);
+  assert.deepEqual(reportContinuation({conclusion:'完成', report:''}), []);
+  assert.deepEqual(reportContinuation({conclusion:'完成', report:''}, {stages:['一','二'], stage:1}), ['完成阶段：二']);
   const localBrief = '## 授权覆盖\n本块不含 git 写操作\n## 验收\n产物清单：\n- 报告：report.md\n报告列出本地提交哈希';
   writeFileSync(join(scratch, 'report.md'), 'ok');
   assert.deepEqual(continuationRules(completeReport, localBrief, scratch), []);

@@ -162,11 +162,31 @@ export function acceptanceContinuation(before, after, logProgress = false) {
   return { missing: acceptance.unmet, blocked: !progress };
 }
 
+/** 报告真实阻塞须有结构化受阻行，且明确属于外部依赖或用户决定。 */
+export function hasReportBlocker(report = '') {
+  const blocked = /^[ \t]*(?:[-*][ \t]*)?受阻[：:]([^\r\n]*)/gm;
+  for (const match of String(report).matchAll(blocked)) {
+    const fields = match[1].split(/[｜|]/).map(x => x.trim());
+    if (fields.length >= 4 && fields.every(Boolean) && /^(?:外部|用户决定)(?:[：:]|$)/.test(fields[0])) return true;
+  }
+  return false;
+}
+
+export function reportContinuation(state, stages = null) {
+  if (state.yield || state.acceptance?.pending === 'handoff' || hasReportBlocker(state.report)) return [];
+  const missing = [];
+  if (/^(?:未完成|部分完成)/.test(state.conclusion || '')) missing.push('完成报告中未完成的任务');
+  if (Array.isArray(stages?.stages) && Number.isInteger(stages.stage) && stages.stage < stages.stages.length) {
+    missing.push(...stages.stages.slice(stages.stage).map(stage => `完成阶段：${stage}`));
+  }
+  return missing;
+}
+
 /** 第一层只检查报告结构及 brief 明确要求的交付凭据，不以“完成”二字代替证据。 */
 export function continuationRules(state, brief, cwd = process.cwd(), initial = null, gitRunner = null) {
-  if (state.conclusion.startsWith('失败') || state.yield) return [];
+  if (state.conclusion.startsWith('失败') || state.yield || hasReportBlocker(state.report)) return [];
   const missing = [];
-  if (state.conclusion.startsWith('未完成')) missing.push('完成报告中未完成的任务');
+  missing.push(...reportContinuation(state));
   for (const line of brief.match(/^产物清单：\n(?:- .*\n)*/m)?.[0].split('\n').slice(1) ?? []) {
     const path = line.match(/^- .*?[：:]\s*([^\s（(]+)/)?.[1];
     if (path && !existsSync(resolve(cwd, path))) missing.push(`缺少文件：${path}`);
