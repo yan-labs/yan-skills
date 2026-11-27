@@ -11,7 +11,7 @@ import { readPidRecord, processCommand } from '../src/pid.mjs';
 import { buildBrief, formatBriefHuman } from '../src/brief.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'fleet-codex-steer-'));
-const envKeys = ['AGENT_FLEET_RUNS_DIR', 'FLEET_DETACHED_RUN_ID', 'FLEET_CODEX_BACKEND', 'FLEET_STEER_TEST_MODE', 'FLEET_STEER_TEST_TRACE', 'HTTPS_PROXY', 'FLEET_EXPECTED_PROXY'];
+const envKeys = ['AGENT_FLEET_RUNS_DIR', 'FLEET_DETACHED_RUN_ID', 'FLEET_CODEX_BACKEND', 'FLEET_STEER_TEST_MODE', 'FLEET_STEER_TEST_TRACE', 'HTTPS_PROXY', 'FLEET_EXPECTED_PROXY', 'CODEX_HOME'];
 const saved = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
 process.env.HTTPS_PROXY = process.env.FLEET_EXPECTED_PROXY = 'http://127.0.0.1:19876';
 const mock = join(scratch, 'codex-mock');
@@ -25,7 +25,7 @@ trace({ args });
 trace({ nodeProxy: process.env.NODE_USE_ENV_PROXY, proxyInherited: process.env.HTTPS_PROXY === process.env.FLEET_EXPECTED_PROXY });
 process.on('SIGINT', () => { trace({ signal: 'SIGINT' }); process.exit(130); });
 if (args[0] === 'app-server') {
-  if (mode === 'app-fail') { process.stderr.write('mock app-server unavailable\n'); process.exit(2); }
+  if (mode === 'app-fail' || mode === 'app-fail-slow') { process.stderr.write('mock app-server unavailable\n'); process.exit(2); }
   const complete = () => {
     send({ method: 'thread/tokenUsage/updated', params: { tokenUsage: { total: { totalTokens: 17 } } } });
     send({ method: 'item/completed', params: { item: { type: 'agentMessage', phase: 'commentary', text: '处理中' } } });
@@ -37,6 +37,12 @@ if (args[0] === 'app-server') {
     if (req.method === 'initialize') send({ id: req.id, result: {} });
     if (req.method === 'thread/archive' || req.method === 'thread/unarchive') {
       if (mode === 'archive-fail' && req.method === 'thread/archive') send({ id: req.id, error: { code: -32000, message: 'mock archive failed' } });
+      else if (mode === 'reject-active' && req.method === 'thread/unarchive') {
+        const dir = require('node:path').join(process.env.CODEX_HOME, 'sessions', '2026', '11', '27');
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(require('node:path').join(dir, 'rollout-2026-11-27T09-00-00-thread-one.jsonl'), '');
+        send({ id: req.id, error: { code: -32000, message: 'no archived rollout found' } });
+      }
       else send({ id: req.id, result: {} });
     }
     if (req.method === 'thread/resume') {
@@ -67,7 +73,7 @@ if (args[0] === 'app-server') {
     }
     if (req.method === 'turn/steer') {
       if (mode === 'crash' || mode === 'crash-empty') process.exit(1);
-      if (mode === 'reject') send({ id: req.id, error: { code: -32000, message: 'mock steer rejected' } });
+      if (['reject', 'reject-missing', 'reject-active'].includes(mode)) send({ id: req.id, error: { code: -32000, message: 'mock steer rejected' } });
       else { send({ id: req.id, result: {} }); setTimeout(complete, 25); }
     }
   });
@@ -76,12 +82,22 @@ if (args[0] === 'app-server') {
   process.stdin.on('data', chunk => { prompt += chunk; });
   process.stdin.on('end', () => {
     trace({ prompt });
-    if (args.includes('resume') && args.includes('invalid-thread')) {
+    if (args.includes('resume') && (args.includes('invalid-thread') || mode === 'reject-missing')) {
       process.stderr.write('session not found\n'); process.exit(1);
     }
-    send({ type: 'thread.started', thread_id: 'thread-one' });
-    fs.writeFileSync(args[args.indexOf('-o') + 1], '任务完成');
-    send({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 7 } });
+    const complete = () => {
+      fs.writeFileSync(args[args.indexOf('-o') + 1], '任务完成');
+      send({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 7 } });
+    };
+    if (mode === 'exec-starting') {
+      trace({ execReady: true });
+      setTimeout(() => { send({ type: 'thread.started', thread_id: 'thread-one' }); setTimeout(complete, 150); }, 150);
+    } else {
+      send({ type: 'thread.started', thread_id: 'thread-one' });
+      trace({ execReady: true });
+      if (mode === 'app-fail-slow' || mode === 'exec-slow') setTimeout(complete, 300);
+      else complete();
+    }
   });
 }
 `);
@@ -89,7 +105,7 @@ chmodSync(mock, 0o755);
 process.env.AGENT_FLEET_RUNS_DIR = scratch;
 
 let scenarioNumber = 0;
-async function scenario(mode, { backend, say, stop, resume, review = false, low = false, high = false, xhigh = false, max = false, simple = false, sol = false, luna = false, fast = false, grant = '' } = {}) {
+async function scenario(mode, { backend, say, stop, resume, review = false, low = false, high = false, xhigh = false, max = false, simple = false, sol = false, luna = false, fast = false, grant = '', waitFor = 'turn/start' } = {}) {
   const runId = `codex-${++scenarioNumber}-${mode}-${review ? 'review' : 'code'}`;
   process.env.FLEET_DETACHED_RUN_ID = runId;
   process.env.FLEET_STEER_TEST_MODE = mode;
@@ -99,10 +115,10 @@ async function scenario(mode, { backend, say, stop, resume, review = false, low 
   const pending = runCode({ noContinue: true, prompt: '归类：(a) Codex 编码\nREPORT: /tmp/report\n原任务规则' + (grant ? '\n' + grant : ''), cwd: scratch, codexBin: mock, resume, review, low, high, xhigh, max, simple, sol, luna, fast });
   if (say || stop) {
     for (let attempt = 0; attempt < 500; attempt++) {
-      if (existsSync(process.env.FLEET_STEER_TEST_TRACE) && readFileSync(process.env.FLEET_STEER_TEST_TRACE, 'utf8').includes('turn/start')) break;
+      if (existsSync(process.env.FLEET_STEER_TEST_TRACE) && readFileSync(process.env.FLEET_STEER_TEST_TRACE, 'utf8').includes(waitFor)) break;
       await delay(10);
     }
-    assert.match(readFileSync(process.env.FLEET_STEER_TEST_TRACE, 'utf8'), /turn\/start/, '等待当前 turn 后才插话');
+    assert(readFileSync(process.env.FLEET_STEER_TEST_TRACE, 'utf8').includes(waitFor), '等待当前 turn 后才插话');
     appendInbox(runId, { type: stop ? 'stop' : 'say', text: say || '' });
   }
   const result = await pending;
@@ -250,6 +266,35 @@ try {
   assert.equal(rejected.result.ok, true);
   assert.match(rejected.result.fallbacks.join('\n'), /turn\/steer rejected.*SIGINT \+ exec resume/);
   assert.match(readFileSync(rejected.result.logPath, 'utf8'), /mock steer rejected/);
+
+  for (const mode of ['app-fail-slow', 'exec-slow', 'exec-starting']) {
+    const deferred = await scenario(mode, { backend: mode === 'app-fail-slow' ? undefined : 'exec', say: '回合结束后收到我', waitFor: 'execReady' });
+    assert.equal(deferred.result.ok, true);
+    assert.equal(deferred.result.numTurns, 2);
+    assert.equal(deferred.result.resumeCount, 1);
+    assert(!deferred.trace.some(entry => entry.signal === 'SIGINT'), 'exec 插话不杀进程');
+    assert.deepEqual(deferred.trace.filter(entry => entry.prompt).map(entry => entry.prompt).slice(1), ['回合结束后收到我']);
+    assert.equal(buildBrief(deferred.result).verdict, 'ok');
+  }
+  const missingResume = await scenario('reject-missing', { say: '旧线程不见也要执行这句' });
+  assert.equal(missingResume.result.ok, true);
+  assert.equal(buildBrief(missingResume.result).verdict, 'ok');
+  const missingPrompts = missingResume.trace.filter(entry => entry.prompt).map(entry => entry.prompt);
+  assert.equal(missingPrompts.length, 2);
+  assert.match(missingPrompts[1], /原任务规则/);
+  assert.match(missingPrompts[1], /旧线程不见也要执行这句/);
+  assert(!missingResume.trace.filter(entry => entry.args?.[0] === 'exec').at(-1).args.includes('resume'));
+
+  process.env.CODEX_HOME = join(scratch, 'codex-home');
+  const found = await scenario('reject-active', { say: '从活动 rollout 续接' });
+  assert.equal(found.result.ok, true);
+  assert.match(readFileSync(found.result.logPath, 'utf8'), /已在 sessions 找到 threadId/);
+  assert(!found.result.fallbacks.some(line => line.includes('unarchive failed')));
+  const active = await scenario('exec-slow', { backend: 'exec', say: '活动 rollout 无需解归档', waitFor: 'execReady' });
+  assert.equal(active.result.ok, true);
+  assert(!active.trace.some(entry => entry.method === 'thread/unarchive'));
+  if (saved.CODEX_HOME === undefined) delete process.env.CODEX_HOME;
+  else process.env.CODEX_HOME = saved.CODEX_HOME;
 
   const crashed = await scenario('crash', { say: '继续当前上下文' });
   assert.equal(crashed.result.ok, true);

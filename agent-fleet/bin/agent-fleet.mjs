@@ -350,7 +350,7 @@ function cmdSay(argv) {
   try {
     const { runId, mode } = deliverSay(spec, text, { cwd: matchCwd(flags) });
     const note = mode === 'steer' ? '（优先同轮 steer；接受不等于立即执行，失败尝试续会话）'
-      : mode === 'resume' ? '（中断当前轮后续会话）' : '';
+      : mode === 'resume' ? '（已排队，当前轮结束后续会话）' : '';
     console.log(`已投递到 ${runId}${note}`);
   } catch (err) {
     console.error(err.message);

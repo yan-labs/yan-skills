@@ -16,7 +16,7 @@ Codex 不可用或并发满时，编码按[工具链](fallback-chains.md)换手�
 
 每个 `fleet code` 任务优先启动独立 `codex app-server`，仅用 stdio，服务和通信限定在该任务的 stdio。`say` 在同一 thread/当前 turn 上调用 `turn/steer`；初始化期间先排队。简报保存 threadId、执行模式、steer/resume 次数与降级记录。`resume` 根据 threadId/sessionId 开新 run，沿用 cwd、档位、推理力度、复核模式、任务名和报告路径。
 
-app-server 启动或握手失败时退回原 `codex exec`；已有会话的 steer 被拒时，先 SIGINT 并等待当前执行结束，再 `codex exec resume` 同一会话（新一轮）。没有可续跑会话或续跑不可用时，明确提示改用 `fleet-go amend --restart`。exec 兜底始终保留；`--review` 的 app-server 与 exec（含 resume）均使用 `danger-full-access`；项目只读依靠提示约定，不以沙箱限制联网、临时脚本和测试。
+app-server 启动或握手失败时退回原 `codex exec`；已有会话的 steer 被拒时，先 SIGINT 并等待当前执行结束，再 `codex exec resume` 同一会话（新一轮）。已降级到 exec 的插话不打断当前轮，排队至自然结束后投递；按 threadId 优先查找 sessions 中的 rollout，插话续接未启动时保留原任务及消息开启新会话。若旧工具存活状态不明，仍不并发续跑，明确提示改用 `fleet-go amend --restart`。exec 兜底始终保留；`--review` 的 app-server 与 exec（含 resume）均使用 `danger-full-access`；项目只读依靠提示约定，不以沙箱限制联网、临时脚本和测试。
 
 steer 被接受不等于立即执行，插话无法撤销已经完成的文件写入；结束后仍要核验产物。旧记录需有 threadId/sessionId 才能 resume。server 异常退出且无法确认旧工具已结束时，会保守拒绝续跑并提示 `--restart`；执行器仍活着时沿用当前会话。
 

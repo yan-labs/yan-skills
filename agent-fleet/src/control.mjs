@@ -97,14 +97,14 @@ export function deliverSay(spec, text, { cwd } = {}) {
   if (!rec) throw new Error(`找不到任务 ${runId} 的 pid.json`);
   if (rec.model?.startsWith('grok-cli:') && !rec.sessionId) throw new Error('Grok CLI 尚未提供 sessionId，暂不支持 fleet say；当前任务继续运行。');
   const codex = isCodexModel(rec.model);
-  if (codex && rec.backend !== 'codex-app-server' && !rec.threadId && !rec.sessionId) {
+  if (codex && !['codex-app-server', 'codex-exec'].includes(rec.backend) && !rec.threadId && !rec.sessionId) {
     throw new Error('Codex 任务不支持 fleet say（当前没有可续跑的会话）；改方向请用 fleet-go amend --restart。');
   }
   if (rec.finished || !isRecordedProcessAlive(rec.pid, rec.command)) {
     throw new Error(`任务 ${runId} 已不在运行,无法投递插话。`);
   }
   appendInbox(runId, { type: 'say', text });
-  return { runId, delivered: true, mode: codex ? rec.backend === 'codex-app-server' ? 'steer' : 'resume' : undefined };
+  return { runId, delivered: true, mode: codex ? rec.backend === 'codex-app-server' && !rec.resumeBlocked ? 'steer' : 'resume' : undefined };
 }
 
 function sleep(ms) {

@@ -77,7 +77,7 @@ Codex app-server 和 exec 会在报告必需节或 brief 明确要求的文件�
 
 Codex app-server 任务运行中仍显示在 Codex APP，结束后自动归档本任务线程；归档失败只记降级。历史保留，fleet 续跑前取消归档，结束后再归档。
 
-网关与 Grok 任务支持 say/resume；Codex 默认用独立 stdio app-server 支持同轮 `turn/steer`，失败尝试 SIGINT 后 `codex exec resume`；启动/握手失败退回原 exec，没有可续跑会话时明确提示 `--restart`。`fleet-go amend --say` 同样生效，异常中断可用 threadId/sessionId `fleet resume`，沿用 cwd、low/review、name/report；简报记录 steer/resume 次数与降级。review 同样支持 app-server，及 exec/resume 兜底，两路均为 `danger-full-access`。steer 接受不等于立即执行，也不能撤销已完成写入，详见 [中途插话](skill/references/codex-coding.md#中途插话)。macOS 沿用系统 caffeinate 防空闲睡眠；机器重启、合盖强制休眠仍会中断或暂停，不提供重启恢复。监督器被 SIGKILL 时标 abnormal，可用完整runId stop 清理存活执行器。
+网关与 Grok 任务支持 say/resume；Codex 默认用独立 stdio app-server 支持同轮 `turn/steer`，失败尝试 SIGINT 后 `codex exec resume`；启动/握手失败退回原 exec；exec 的 say 排队至自然回合结束，续接未启动时保留原任务和插话开启新会话。`fleet-go amend --say` 同样生效，异常中断可用 threadId/sessionId `fleet resume`，沿用 cwd、low/review、name/report；简报记录 steer/resume 次数与降级。review 同样支持 app-server，及 exec/resume 兜底，两路均为 `danger-full-access`。steer 接受不等于立即执行，也不能撤销已完成写入，详见 [中途插话](skill/references/codex-coding.md#中途插话)。macOS 沿用系统 caffeinate 防空闲睡眠；机器重启、合盖强制休眠仍会中断或暂停，不提供重启恢复。监督器被 SIGKILL 时标 abnormal，可用完整runId stop 清理存活执行器。
 
 ## Kollab 文字模型与多模态
 
@@ -293,7 +293,7 @@ agent-fleet resume <run-id> "接着把剩下的做完"
 ```
 
 - `status`:列出 pid 仍存活的任务。pid 已不在但未标 finished →「异常终止（可能被外部信号杀掉）」。
-- `say`:把消息追加进收件箱；网关 query 使用 streaming input，Codex 优先同轮 steer，Grok 与 Codex 兜底中断当前轮后续会话。
+- `say`:把消息追加进收件箱；网关 query 使用 streaming input，Codex 优先同轮 steer，Grok 中断当前轮后续会话，Codex exec 排队至自然回合结束后续会话。
 - `stop`:先投递「请立即收尾」;宽限期后 `query.interrupt()`,仍在则对该 pid 发 SIGTERM,再 5 秒 SIGKILL。发信号前校验 pid 来自该 run 的 pid.json,且 `ps` command 含 `agent-fleet` 并与记录一致。只杀这棵 pid 树,绝不 `pkill`/`killall`。结果文件和简报仍会写出,`verdict=stopped`。
 - `resume`:用记录中的 threadId/sessionId 续跑，生成新 run-id，简报带 `resumedFrom`；Codex 仍运行时用 say，避免重复执行。
 

@@ -9,7 +9,8 @@ import { readContinuationState, continuationProgress, continuationRules, judgeCo
 import { judgeTask } from './judge-task.mjs';
 import { loadModelsConfig } from './config.mjs';
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -78,6 +79,18 @@ async function threadLifecycle(codexBin, method, threadId, overrides) {
     lines.close();
     child.kill('SIGKILL');
   }
+}
+
+function activeRollout(threadId) {
+  const root = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'sessions');
+  const suffix = `-${threadId}.jsonl`;
+  const walk = dir => {
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return false; }
+    return entries.some(entry => entry.isFile() && entry.name.startsWith('rollout-') && entry.name.endsWith(suffix)) ||
+      entries.some(entry => entry.isDirectory() && walk(join(dir, entry.name)));
+  };
+  return walk(root);
 }
 
 /** 执行 Codex 任务；自动续做保留 thread，用户插话仍走现有 steer/resume 链路。 */
@@ -303,7 +316,9 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     while (offsetQueue.length && !stopping && activeChild) {
       const yielded = readYield(runId);
       if (yielding || (yielded && !yielded.resolvedAt)) return;
-      if (metadata.backend === 'codex-app-server' && !turnId) return;
+      // exec has no live steering protocol. Preserve its current turn and deliver
+      // at the next turn boundary, including while a resume is starting.
+      if (metadata.backend !== 'codex-app-server' || metadata.resumeBlocked || !turnId || completed) return;
       if (!metadata.threadId) return;
       const text = offsetQueue.shift();
       if (metadata.backend === 'codex-app-server') {
@@ -314,6 +329,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
           metadata.steerCount++; log(fleetEvent(FLEET_EVENTS.STEER)); record();
           continue;
         } catch (error) {
+          if (completed) { offsetQueue.unshift(text); return; }
           fallback(`turn/steer rejected: ${error.message}; SIGINT + exec resume`);
         }
       }
@@ -785,12 +801,13 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
       } finally {
         clearInterval(threshold);
         await interrupt();
+        activeChild = null;
       }
     }
     if (!stopping && !metadata.yield && !metadata.resumeBlocked && (!outcome || offsetQueue.length)) {
       metadata.backend = 'codex-exec';
       let session = metadata.threadId;
-      let nextPrompt = session ? [wakePrompt, ...offsetQueue.splice(0)].filter(Boolean).join('\n\n') || fullPrompt : fullPrompt;
+      let nextPrompt = wakePrompt || (session && offsetQueue.length ? '' : fullPrompt);
       do {
         resetTurn();
         writeFileSync(resultPath, '');
@@ -798,12 +815,24 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           '--sandbox', 'danger-full-access', '-C', workdir, '-o', resultPath,
           ...(session ? ['resume', session, '-'] : ['-'])];
         if (session) {
-          try { await threadLifecycle(codexBin, 'thread/unarchive', session, overrides); }
-          catch (error) { fallback(`thread/unarchive failed: ${error.message}; exec resume`); }
+          if (!activeRollout(session)) {
+            try { await threadLifecycle(codexBin, 'thread/unarchive', session, overrides); }
+            catch (error) {
+              if (activeRollout(session)) log('[codex] unarchive 未命中；已在 sessions 找到 threadId，直接 resume');
+              else fallback(`thread/unarchive failed: ${error.message}; exec resume`);
+            }
+          } else log('[codex] 已在 sessions 找到 threadId，直接 resume');
           archived = false;
           metadata.resumeCount++;
         }
+        inbox.pump(); await drain;
+        if (stopping) break;
+        const replies = offsetQueue.splice(0);
+        const sayInPrompt = replies.length > 0;
+        nextPrompt = [nextPrompt, ...replies].filter(Boolean).join('\n\n');
+        if (replies.length) log('[codex] say: 在 exec 回合边界投递');
         metadata.numTurns++;
+        let threadStarted = false;
         const child = start(args);
         let buffer = '';
         child.stdout.setEncoding('utf8');
@@ -814,7 +843,7 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
             log(line);
             try {
               const event = JSON.parse(line);
-              if (event.type === 'thread.started') { metadata.threadId = metadata.sessionId = event.thread_id; record(); schedule(); }
+              if (event.type === 'thread.started') { threadStarted = true; metadata.threadId = metadata.sessionId = event.thread_id; record(); schedule(); }
               if (/^item\.(started|completed)$/.test(event.type) && /^(command_execution|mcp_tool_call|dynamic_tool_call|file_change|web_search|collab_agent_tool_call)$/.test(event.item?.type || '')) {
                 turnUsedTool = true;
                 if (metadata.numTurns === 1) firstTurnUsedTool = true;
@@ -835,7 +864,25 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
         if (buffer) log(buffer);
         inbox.pump(); await drain;
         activeChild = null;
-        if (stopping || outcome.code !== 0) break;
+        if (stopping) break;
+        if (outcome.code !== 0) {
+          // A failed resume before the thread even started has not received
+          // the queued instruction. Retry once in a fresh session, preserving
+          // the brief, handoff and the exact prompt that would have been sent.
+          if (session && sayInPrompt && !threadStarted) {
+            fallback('say 续接未启动；保留上下文和插话，新开会话');
+            session = metadata.threadId = metadata.sessionId = null;
+            nextPrompt = [stages.anchor, stages.latest, '以下是上一轮未成功投递的指令；与上面的修订重复时只执行一次：\n' + nextPrompt].filter(Boolean).join('\n\n');
+            continue;
+          }
+          if (offsetQueue.length) {
+            session = metadata.threadId;
+            nextPrompt = session ? '' : stages.anchor;
+            continue;
+          }
+          break;
+        }
+        for (const text of replies) pendingAsks.delete(text);
         const yielded = await handleYield();
         inbox.pump(); await drain;
         if (stopping || yielded?.blocked) break;
@@ -853,10 +900,8 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           nextPrompt = yielded.prompt; continue;
         }
         if (offsetQueue.length) {
-          if (!metadata.threadId) { fallback('Codex 不支持插话，改方向请用 --restart'); break; }
           session = metadata.threadId;
-          nextPrompt = `${review ? `${reviewPrompt()}\n\n` : ''}${offsetQueue.splice(0).join('\n\n')}`;
-          log('\n[codex] say: exec resume same thread\n');
+          nextPrompt = session ? (review ? reviewPrompt() : '') : stages.anchor;
           continue;
         }
         const state = readContinuationState(workdir, reportPath, prompt, metadata.yield, handoffBaseline);

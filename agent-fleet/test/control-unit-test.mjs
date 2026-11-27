@@ -56,6 +56,10 @@ assert(parseInboxLine(JSON.stringify({ type: 'ping' })) === null, '未知 type �
     assert(readInboxSince(join(isolated, 'codex-starting.inbox'), 0, '').entries[0]?.text === '只写到 3', 'Codex say 保留原始指令');
     writePidRecord('codex-exec', { ...base, backend: 'codex-exec', threadId: 'thread-1' });
     assert(deliverSay('codex-exec', '继续').mode === 'resume', 'Codex exec 有 threadId 时允许续会话插话');
+    writePidRecord('codex-exec-starting', { ...base, backend: 'codex-exec' });
+    assert(deliverSay('codex-exec-starting', '继续').mode === 'resume', 'Codex exec 尚未返回 threadId 也可排队插话');
+    writePidRecord('codex-resume-blocked', { ...base, backend: 'codex-app-server', resumeBlocked: true });
+    assert(deliverSay('codex-resume-blocked', '继续').mode === 'resume', '不可安全续接时不宣称实时 steer');
     writePidRecord('codex-legacy', base);
     let failure = '';
     try { deliverSay('codex-legacy', '继续'); } catch (err) { failure = err.message; }
