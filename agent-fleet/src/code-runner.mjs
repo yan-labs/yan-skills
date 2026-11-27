@@ -465,7 +465,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         result = { status: 'ask', text: '先处理子任务求助，再决定是否继续等待原条件。' };
         break;
       }
-      if (Date.now() >= nextConditionCheck || offsetQueue.length !== seenReplies) {
+      if (Date.now() >= nextConditionCheck || Date.now() >= entry.at + entry.timeoutMs || /^(after|at):/.test(entry.until) || offsetQueue.length !== seenReplies) {
         metadata.pollCount = (metadata.pollCount ?? 0) + 1;
         metadata.waitMs = waited + Date.now() - parkedAt;
         if (metadata.pollCount === 1 || metadata.pollCount % 20 === 0) record();

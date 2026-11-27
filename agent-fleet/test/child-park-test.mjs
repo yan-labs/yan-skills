@@ -22,7 +22,7 @@ require('readline').createInterface({input:process.stdin}).on('line',line=>{
   fs.writeFileSync(path.join(dir,'launched'),'yes');
   const p=cp.spawn(process.execPath,[path.join(process.env.MOCK_ROOT,'agent-fleet/bin/agent-fleet.mjs'),'code','child fixture','--cwd',dir,'--name','isolated-child','--no-continue'],{env:{...process.env,MOCK_CHILD:'1'},stdio:'ignore'});
   fs.writeFileSync(path.join(dir,'launch-result'),JSON.stringify({launcherPid:p.pid}));
-  const timer=setInterval(()=>{if(!fs.existsSync(path.join(dir,'child-ready')))return; clearInterval(timer); fs.writeFileSync(path.join(dir,'runs/parent.yield'),JSON.stringify({type:'park',until:'file:ready',say:'resume',at:Date.now(),timeoutMs:30000,timeouts:0})); send({method:'turn/completed',params:{turn:{id:'turn',status:'completed'}}});},30);return;
+  const timer=setInterval(()=>{if(!fs.existsSync(path.join(dir,'child-ready')))return; clearInterval(timer); fs.writeFileSync(path.join(dir,'runs/parent.yield'),JSON.stringify({type:'park',until:'file:ready',say:'resume',at:Date.now(),timeoutMs:15000,timeouts:0})); send({method:'turn/completed',params:{turn:{id:'turn',status:'completed'}}});},30);return;
  }
  if(q.method==='turn/interrupt'){send({id:q.id,result:{}});send({method:'turn/completed',params:{turn:{id:'turn',status:'interrupted'}}});return;}
  if(q.id!==undefined)send({id:q.id,result:{}});
@@ -33,13 +33,14 @@ const {runCode}=await import(pathToFileURL(join(root,'agent-fleet/src/code-runne
 const {queueRecord}=await import(pathToFileURL(join(root,'agent-fleet/src/queue.mjs')));
 const {readState,stopDetached}=await import(pathToFileURL(join(root,'agent-fleet/src/detach.mjs')));
 const pending=runCode({prompt:'parent fixture',cwd:dir,codexBin:mock,noContinue:true});
-let rec;
+let rec, readyScheduled=false;
 try {
- for(let i=0;i<800;i++){await delay(25);const f=readdirSync(join(dir,'runs')).find(x=>x.includes('-detach-')&&x.endsWith('.json')&&!x.endsWith('.pid.json')&&!x.endsWith('.queue.json')&&!x.endsWith('.stages.json'));if(f)rec=JSON.parse(readFileSync(join(dir,'runs',f)));if(existsSync(join(dir,'runs/parent.pid.json')) && JSON.parse(readFileSync(join(dir,'runs/parent.pid.json'))).codexPid===null && rec?.pid)break;}
+ for(let i=0;i<800;i++){await delay(25); if (!readyScheduled && existsSync(join(dir,'runs/parent.yield'))) { readyScheduled=true; setTimeout(()=>writeFileSync(join(dir,'ready'),'ready'),1000); }const f=readdirSync(join(dir,'runs')).find(x=>x.includes('-detach-')&&x.endsWith('.json')&&!x.endsWith('.pid.json')&&!x.endsWith('.queue.json')&&!x.endsWith('.stages.json'));if(f)rec=JSON.parse(readFileSync(join(dir,'runs',f)));if(existsSync(join(dir,'runs/parent.pid.json')) && JSON.parse(readFileSync(join(dir,'runs/parent.pid.json'))).codexPid===null && rec?.pid)break;}
  if(!rec)throw new Error('child missing: '+(existsSync(join(dir,'launch-result'))?readFileSync(join(dir,'launch-result'),'utf8'):'no launcher result'));
  let alive=true;try{process.kill(rec.pid,0)}catch{alive=false};
  let workerAlive=true; try { process.kill(rec.childPid,0); } catch { workerAlive=false; }
- writeFileSync(join(dir,'ready'),'ready'); await pending;
+ await pending;
+ assert.equal(JSON.parse(readFileSync(join(dir,'runs/parent.yield'),'utf8')).result.status,'done','condition satisfied between probes must not time out');
  assert.equal(alive,true,'park must preserve independent child supervisor');
  assert.equal(workerAlive,true,'park must preserve child executor');
  console.log('PASS - parent park preserves detached child supervisor and executor while launcher waits');
