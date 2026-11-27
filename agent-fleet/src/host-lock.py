@@ -49,21 +49,57 @@ def overflow_to_gcpx(command):
                          'sh', '-c', 'cd -- "$1" || exit; shift; exec "$@"', 'sh', str(relative), *command])
 
 
+# Keep headroom for the next job; yellow pressure tightens both limits.
+CPU_LIMIT = {1: 85.0, 2: 70.0}
+# Pages per second over roughly one minute; sustained paging indicates contention.
+PAGING_LIMIT = {1: 100.0, 2: 25.0}
+
+
+def capacity_decision(cpu, pressure, paging):
+    if pressure == 4:
+        return False
+    if pressure not in CPU_LIMIT or cpu is None or paging is None:
+        return None
+    return cpu < CPU_LIMIT[pressure] and paging < PAGING_LIMIT[pressure]
+
+
 def capacity_state():
-    """Return True/False, or None when any required metric is unavailable."""
+    """Return True/False, or None when required observations are unavailable."""
     try:
-        cpus = os.cpu_count()
-        if not cpus:
-            return None
-        load = os.getloadavg()[0]
         if sys.platform != 'darwin':
             return None
         pressure = int(subprocess.check_output(
             ['sysctl', '-n', 'kern.memorystatus_vm_pressure_level'], text=True, timeout=3).strip())
-        if pressure not in (1, 2, 4):
+        if pressure == 4:
+            return False
+        top = subprocess.check_output(['top', '-l', '2', '-s', '1', '-n', '0'], text=True, timeout=5)
+        idle = re.findall(r'CPU usage:.*?([0-9.]+)% idle', top)
+        cpu = 100.0 - float(idle[-1]) if idle else None
+        vm = subprocess.check_output(['vm_stat'], text=True, timeout=3)
+        counts = [int(x) for x in re.findall(r'^(?:Pageouts|Swapouts):\s*(\d+)\.', vm, re.M)]
+        if len(counts) != 2:
             return None
-        return load < cpus * 1.5 and pressure != 4
-    except (OSError, ValueError, subprocess.SubprocessError):
+        now = time.time()
+        ROOT.mkdir(mode=0o700, exist_ok=True)
+        history = ROOT / 'heavy-paging-sample.json'
+        try:
+            samples = json.loads(history.read_text())
+            samples = [x for x in samples if 0 <= now - x[0] <= 120]
+        except (OSError, ValueError, TypeError):
+            samples = []
+        eligible = [x for x in samples if 55 <= now - x[0] <= 120]
+        paging = None
+        if eligible:
+            old = min(eligible, key=lambda x: abs(now - x[0] - 60))
+            delta = sum(counts) - old[1]
+            if delta >= 0:
+                paging = delta / (now - old[0])
+        # At most one point per five seconds; serialized by allocation_guard.
+        if not samples or now - samples[-1][0] >= 5:
+            samples.append([now, sum(counts)])
+        history.write_text(json.dumps(samples))
+        return capacity_decision(cpu, pressure, paging)
+    except (OSError, ValueError, IndexError, TypeError, subprocess.SubprocessError):
         return None
 
 

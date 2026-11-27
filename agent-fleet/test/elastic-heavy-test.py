@@ -55,21 +55,28 @@ class ElasticHeavyTests(unittest.TestCase):
             self.assertTrue(mod.queue_head(second))
             self.assertFalse(first.exists())
             os.close(fd2)
-    def test_pressure_levels_without_swap_dependency(self):
-        with patch.object(mod.sys, 'platform', 'darwin'), patch.object(mod.os, 'cpu_count', return_value=10), patch.object(mod.os, 'getloadavg', return_value=(1,0,0)):
-            for level, expected in [('1',True),('2',True),('4',False)]:
-                with patch.object(mod.subprocess, 'check_output', return_value=level) as read:
-                    self.assertEqual(mod.capacity_state(), expected)
-                    self.assertEqual(read.call_count, 1)
-
-    def test_metrics_thresholds(self):
-        def run(cmd, **kw):
-            return '1' if 'kern.memorystatus_vm_pressure_level' in cmd else 'total = 4096M used = 1000M free = 3096M'
-        with patch.object(mod.sys, 'platform', 'darwin'), patch.object(mod.os, 'cpu_count', return_value=10), patch.object(mod.os, 'getloadavg', return_value=(14, 0, 0)), patch.object(mod.subprocess, 'check_output', side_effect=run):
+    def test_sampled_capacity_and_counter_reset(self):
+        import json
+        history = mod.ROOT / 'heavy-paging-sample.json'
+        history.write_text(json.dumps([[1000, 100]]))
+        def output(cmd, **kwargs):
+            if cmd[0] == 'sysctl': return '1'
+            if cmd[0] == 'top': return 'CPU usage: 10% user, 10% sys, 80% idle'
+            return 'Pageouts: 80.\nSwapouts: 80.\n'
+        with patch.object(mod.sys, 'platform', 'darwin'), patch.object(mod.time, 'time', return_value=1060), patch.object(mod.subprocess, 'check_output', side_effect=output):
             self.assertTrue(mod.capacity_state())
-            with patch.object(mod.os, 'getloadavg', return_value=(15, 0, 0)):
-                self.assertFalse(mod.capacity_state())
-            with patch.object(mod.subprocess, 'check_output', side_effect=OSError()):
-                self.assertIsNone(mod.capacity_state())
+        history.write_text(json.dumps([[1000, 999]]))
+        with patch.object(mod.sys, 'platform', 'darwin'), patch.object(mod.time, 'time', return_value=1060), patch.object(mod.subprocess, 'check_output', side_effect=output):
+            self.assertIsNone(mod.capacity_state())
+
+    def test_capacity_metrics(self):
+        for cpu, pressure, paging, expected in [
+            (30, 1, 0, True), (84, 1, 99, True), (85, 1, 0, False),
+            (70, 2, 0, False), (69, 2, 25, False), (69, 2, 24, True),
+            (0, 4, 0, False), (0, 3, 0, None), (None, 1, 0, None),
+            (0, 1, None, None),
+        ]:
+            with self.subTest(cpu=cpu, pressure=pressure, paging=paging):
+                self.assertEqual(mod.capacity_decision(cpu, pressure, paging), expected)
 
 if __name__ == '__main__': unittest.main()
