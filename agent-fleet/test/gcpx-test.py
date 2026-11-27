@@ -319,10 +319,12 @@ class GcpxTests(unittest.TestCase):
             self.assertEqual(program, 'sshfs')
             self.assertIn('-f', command)
             self.assertEqual(gcpx.reconcile_idle(cfg, state, 2000)['worker'], 'busy or unknown')
-        with patch.object(gcpx.os, 'execvp', side_effect=mounted):
+        cloud_instance = type('R', (), {'stdout':json.dumps({'name':'vm-one', 'labels':{'gcpx-managed':'true', 'gcpx-pool':'fleet'}})})()
+        with patch.object(gcpx, 'run', return_value=cloud_instance), patch.object(gcpx, 'verify_worker_disks'), patch.object(gcpx.os, 'execvp', side_effect=mounted):
             with patch.object(sys, 'argv', ['gcpx', '--config', str(self.cfg), 'mount', 'task', str(self.root / 'mount')]):
                 gcpx.main()
-        self.assertEqual(gcpx.reconcile_idle(cfg, state, 2001)['worker'], 'observing idle')
+        with patch.object(gcpx, 'run', return_value=cloud_instance), patch.object(gcpx, 'verify_worker_disks'):
+            self.assertEqual(gcpx.reconcile_idle(cfg, state, 2001)['worker'], 'observing idle')
 
     def test_idle_stop_requires_continuous_observation_and_resets_on_activity(self):
         cfg = json.loads(self.cfg.read_text())
@@ -330,7 +332,8 @@ class GcpxTests(unittest.TestCase):
         cfg['workers']['worker'].update({'managed': True, 'project': 'proj', 'zone': 'us-central1-a', 'instance': 'vm-one', 'pool': 'fleet'})
         self.cfg.write_text(json.dumps(cfg))
         state = gcpx.load_state()
-        with patch.object(gcpx, 'stop_worker', return_value={'status': 'TERMINATED'}) as stop:
+        cloud_instance = type('R', (), {'stdout':json.dumps({'name':'vm-one', 'labels':{'gcpx-managed':'true', 'gcpx-pool':'fleet'}})})()
+        with patch.object(gcpx, 'run', return_value=cloud_instance), patch.object(gcpx, 'verify_worker_disks'), patch.object(gcpx, 'stop_worker', return_value={'status': 'TERMINATED'}) as stop:
             self.assertEqual(gcpx.reconcile_idle(cfg, state, 100)['worker'], 'observing idle')
             self.assertEqual(gcpx.reconcile_idle(cfg, state, 1899)['worker'], 'observing idle')
             with gcpx.workspace_lease('task'):
@@ -340,6 +343,14 @@ class GcpxTests(unittest.TestCase):
             self.assertEqual(gcpx.reconcile_idle(cfg, state, 3701)['worker'], 'observing idle')
             self.assertEqual(gcpx.reconcile_idle(cfg, state, 5501)['worker'], 'TERMINATED')
             stop.assert_called_once()
+    def test_idle_refuses_unverified_disk(self):
+        cfg = json.loads(self.cfg.read_text())
+        cfg['workers']['worker'].update({'managed':True, 'project':'proj', 'zone':'us-central1-a', 'instance':'vm-one', 'pool':'fleet'})
+        gcpx.ROOT.mkdir()
+        instance = type('R', (), {'stdout':json.dumps({'name':'vm-one', 'labels':{'gcpx-managed':'true','gcpx-pool':'fleet'}})})()
+        with patch.object(gcpx, 'run', return_value=instance), patch.object(gcpx, 'verify_worker_disks', side_effect=ValueError('disk label missing')), patch.object(gcpx, 'stop_worker') as stop:
+            self.assertEqual(gcpx.reconcile_idle(cfg, {}, 4000)['worker'], 'disk or ownership unconfirmed')
+            stop.assert_not_called()
     def test_sync_lifecycle(self):
         with patch.object(gcpx, 'ssh', self.fake_ssh), patch.object(gcpx, 'mutagen') as m:
             self.call('ws', 'new', 'repo', '--name', 'task')

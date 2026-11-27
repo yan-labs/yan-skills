@@ -424,6 +424,16 @@ def reconcile_idle(config_data, state, now):
         if worker.get('managed') is not True: continue
         name(worker_id)
         try:
+            instance = json.loads(run(['gcloud', 'compute', 'instances', 'describe', worker['instance'], '--project', worker['project'], '--zone', worker['zone'], '--format=json'], text=True, capture_output=True).stdout)
+            labels = instance.get('labels') or {}
+            if instance.get('name') != worker['instance'] or labels.get('gcpx-managed') != 'true' or labels.get('gcpx-pool') != worker['pool']:
+                raise ValueError('worker ownership labels do not match')
+            verify_worker_disks(worker, instance)
+        except (ValueError, KeyError, OSError, subprocess.CalledProcessError):
+            idle.pop(worker_id, None)
+            result[worker_id] = 'disk or ownership unconfirmed'
+            continue
+        try:
             with ExitStack() as leases:
                 for ws_id, item in state.items():
                     if item.get('worker') != worker_id: continue
