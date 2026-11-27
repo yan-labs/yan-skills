@@ -90,7 +90,7 @@ if (action === "create" && !name) name = site.split(".")[0]
 // ── OpenCLI 封装 ──────────────────────────────────────────
 function cli(action_, { timeout = 30000 } = {}) {
   try {
-    return execSync(`opencli browser --session "${session}" --window dedicated ${action_}`,
+    return execSync(`opencli browser --session "${session}" --window foreground ${action_}`,
       { encoding: "utf-8", timeout, stdio: ["pipe", "pipe", "pipe"] }).trim()
   } catch (e) {
     const err = (e.stderr?.toString() || e.stdout?.toString() || e.message).trim()
