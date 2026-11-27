@@ -226,6 +226,9 @@ class GcpxTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'Budget alert'): gcpx.check_credit(worker, 1)
         with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '150'}), patch.object(gcpx, 'run', side_effect=[response(billing), response(project), response([good])]):
             gcpx.check_credit(worker, 1)
+        scoped = {**good, 'budgetFilter': {'projects': ['projects/123'], 'labels': {'gcpx-managed': ['true']}}}
+        with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '150'}), patch.object(gcpx, 'run', side_effect=[response(billing), response(project), response([scoped])]):
+            gcpx.check_credit(worker, 1)
         with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '150'}), patch.object(gcpx, 'run', side_effect=OSError('cloud unavailable')):
             with self.assertRaisesRegex(OSError, 'cloud unavailable'): gcpx.check_credit(worker, 1)
     def test_status_marks_recorded_credit_as_unverified_and_stale(self):

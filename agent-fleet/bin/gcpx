@@ -274,7 +274,8 @@ def check_credit(worker, now):
             return (amount.get('currencyCode') == 'USD' and math.isfinite(budget) and 0 < budget <= cap and alert and
                     (not projects or 'projects/' + number in projects) and
                     f.get('calendarPeriod', 'MONTH') == 'MONTH' and
-                    not any(f.get(k) for k in ('labels', 'services', 'subaccounts', 'resourceAncestors', 'creditTypes')) and
+                    (not f.get('labels') or f.get('labels') == {'gcpx-managed': ['true']}) and
+                    not any(f.get(k) for k in ('services', 'subaccounts', 'resourceAncestors', 'creditTypes')) and
                     bool(b.get('thresholdRules')) and
                     not (b.get('notificationsRule') or {}).get('disableDefaultIamRecipients', False))
         if not any(covers(b) for b in budgets): raise ValueError('no existing Budget alert covers this project; create none automatically')
