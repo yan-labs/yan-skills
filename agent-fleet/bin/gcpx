@@ -180,6 +180,7 @@ def allocate_worker(config_data, state, repo, requested=None):
         if instance.get('name') != worker['instance'] or labels.get('gcpx-managed') != 'true' or labels.get('gcpx-pool') != worker['pool']:
             raise ValueError('worker ownership labels do not match')
         if instance.get('status') == 'RUNNING':
+            verify_worker_disks(worker, instance)
             try:
                 ensure_worker_ready(worker)
                 return worker_id, worker
@@ -306,6 +307,36 @@ def credit_summary(config_data, now):
             'fresh': 0 <= now - observed <= 3600, 'compute_scope_claimed': proof.get('compute_scope_verified') is True,
             'source': 'operator_record', 'independently_verified': False}
 
+def verify_worker_disks(worker, instance):
+    disks = instance.get('disks')
+    if not isinstance(disks, list) or not disks or not any(d.get('boot') is True for d in disks):
+        raise ValueError('worker boot disk unavailable')
+    for attached in disks:
+        source = attached.get('source', '')
+        prefix = 'https://www.googleapis.com/compute/v1/projects/' + worker['project'] + '/zones/' + worker['zone'] + '/disks/'
+        if not source.startswith(prefix) or not NAME.fullmatch(source[len(prefix):]):
+            raise ValueError('worker disk is outside the configured project and zone')
+        disk = json.loads(run(['gcloud', 'compute', 'disks', 'describe', source[len(prefix):], '--project', worker['project'], '--zone', worker['zone'], '--format=json'], text=True, capture_output=True).stdout)
+        labels = disk.get('labels') or {}
+        if labels.get('gcpx-managed') != 'true' or labels.get('gcpx-pool') != worker['pool']:
+            raise ValueError('worker disk ownership labels do not match')
+
+def public_network_args(worker, spec):
+    if spec.get('public_egress') is not True:
+        return ['--no-address']
+    network, subnet = spec.get('network'), spec.get('subnet')
+    if any(not isinstance(v, str) or not NAME.fullmatch(v) for v in (network, subnet)):
+        raise ValueError('public egress requires explicit network and subnet')
+    region = worker['zone'].rsplit('-', 1)[0]
+    sub = json.loads(run(['gcloud', 'compute', 'networks', 'subnets', 'describe', subnet, '--project', worker['project'], '--region', region, '--format=json'], text=True, capture_output=True).stdout)
+    network_url = 'https://www.googleapis.com/compute/v1/projects/' + worker['project'] + '/global/networks/' + network
+    if sub.get('network') != network_url: raise ValueError('subnet network mismatch')
+    rules = json.loads(run(['gcloud', 'compute', 'firewall-rules', 'list', '--project', worker['project'], '--format=json'], text=True, capture_output=True).stdout)
+    ingress = [r for r in rules if r.get('network') == network_url and r.get('direction') == 'INGRESS' and not r.get('disabled') and r.get('allowed')]
+    if not ingress or any(r.get('sourceRanges') != ['35.235.240.0/20'] or r.get('allowed') != [{'IPProtocol':'tcp', 'ports':['22']}] or r.get('sourceTags') or r.get('sourceServiceAccounts') or r.get('targetTags') or r.get('targetServiceAccounts') for r in ingress):
+        raise ValueError('public worker network must allow only IAP SSH ingress')
+    return ['--network', network, '--subnet', subnet]
+
 def create_worker(config_data, worker_id, now):
     name(worker_id)
     worker = config_data['workers'][worker_id]
@@ -332,14 +363,19 @@ def create_worker(config_data, worker_id, now):
     if not isinstance(pool, list) or len(pool) >= limit: raise ValueError('managed worker pool is at its configured limit')
     if any(item.get('name') == worker['instance'] and item.get('zone', '').endswith('/' + worker['zone']) for item in pool):
         raise ValueError('worker instance already exists; inspect before retry')
+    network_args = public_network_args(worker, spec)
+    disk_name = worker['instance'] + '-boot'
+    name(disk_name)
+    run(['gcloud', 'compute', 'disks', 'create', disk_name, '--project', worker['project'], '--zone', worker['zone'],
+         '--image-family', spec['image_family'], '--image-project', spec['image_project'], '--size', str(disk) + 'GB',
+         '--labels', 'gcpx-managed=true,gcpx-pool=' + worker['pool'], '--quiet'], stdout=sys.stderr)
     bootstrap = Path(__file__).resolve().parent / 'gcpx-worker-bootstrap'
     script = ROOT / ('bootstrap.' + uuid.uuid4().hex + '.sh')
     script.write_text('#!/bin/bash\nexport GCPX_WORKER_BOOTSTRAP=yes\n' + bootstrap.read_text())
     os.chmod(script, 0o600)
     try:
         cmd = ['gcloud', 'compute', 'instances', 'create', worker['instance'], '--project', worker['project'], '--zone', worker['zone'],
-               '--machine-type', spec['machine_type'], '--image-family', spec['image_family'], '--image-project', spec['image_project'],
-               '--boot-disk-size', str(disk) + 'GB', '--no-address', '--no-service-account', '--no-scopes',
+               '--machine-type', spec['machine_type'], '--disk', 'name=' + disk_name + ',boot=yes,auto-delete=yes', *network_args, '--no-service-account', '--no-scopes',
                '--labels', 'gcpx-managed=true,gcpx-pool=' + worker['pool'], '--metadata-from-file', 'startup-script=' + str(script), '--quiet']
         run(cmd, stdout=sys.stderr)
     finally:
@@ -349,6 +385,7 @@ def create_worker(config_data, worker_id, now):
     labels = instance.get('labels') or {}
     if instance.get('name') != worker['instance'] or instance.get('status') != 'RUNNING' or labels.get('gcpx-managed') != 'true' or labels.get('gcpx-pool') != worker['pool']:
         raise ValueError('created worker state or ownership was not confirmed')
+    verify_worker_disks(worker, instance)
     ensure_worker_ready(worker)
     return {'worker': worker_id, 'status': 'RUNNING'}
 
@@ -368,6 +405,7 @@ def start_worker(config_data, worker_id, now):
     labels = instance.get('labels') or {}
     if instance.get('name') != worker['instance'] or labels.get('gcpx-managed') != 'true' or labels.get('gcpx-pool') != worker['pool']:
         raise ValueError('worker ownership labels do not match; refusing start')
+    verify_worker_disks(worker, instance)
     if instance.get('status') == 'RUNNING':
         ensure_worker_ready(worker)
         return {'worker': worker_id, 'status': 'RUNNING'}

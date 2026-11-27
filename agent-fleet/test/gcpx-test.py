@@ -162,7 +162,7 @@ class GcpxTests(unittest.TestCase):
             status = 'RUNNING' if instance == 'vm-one' else 'TERMINATED'
             return type('R', (), {'stdout': json.dumps({'name': instance, 'status': status, 'labels': {'gcpx-managed':'true', 'gcpx-pool':'fleet'}})})()
         gcpx.ROOT.mkdir()
-        with patch.object(gcpx, 'run', side_effect=describe), patch.object(gcpx, 'start_worker') as start:
+        with patch.object(gcpx, 'run', side_effect=describe), patch.object(gcpx, 'verify_worker_disks'), patch.object(gcpx, 'start_worker') as start:
             self.assertEqual(gcpx.allocate_worker(cfg, {}, 'repo')[0], 'worker')
             start.assert_not_called()
             self.assertEqual(gcpx.allocate_worker(cfg, {'task': {'worker':'worker'}}, 'repo')[0], 'other')
@@ -176,7 +176,7 @@ class GcpxTests(unittest.TestCase):
             instance = 'vm-two' if 'list' in argv else 'vm-one'
             info = {'name':instance, 'status':'RUNNING', 'labels':{'gcpx-managed':'true','gcpx-pool':'fleet'}}
             return type('R', (), {'stdout': json.dumps([info] if 'list' in argv else info)})()
-        with patch.object(gcpx, 'run', side_effect=describe), patch.object(gcpx, 'ssh', side_effect=OSError('not ready')), patch.object(gcpx, 'create_worker') as create:
+        with patch.object(gcpx, 'run', side_effect=describe), patch.object(gcpx, 'verify_worker_disks'), patch.object(gcpx, 'ssh', side_effect=OSError('not ready')), patch.object(gcpx, 'create_worker') as create:
             self.assertEqual(gcpx.allocate_worker(cfg, {}, 'repo')[0], 'worker')
             cfg['repos']['repo']['workers'] = ['other']
             with self.assertRaisesRegex(ValueError, 'bootstrap is not ready'):
@@ -197,12 +197,12 @@ class GcpxTests(unittest.TestCase):
         with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '99'}):
             with self.assertRaisesRegex(ValueError, 'credit evidence'): gcpx.check_credit(cfg['workers']['worker'], 10000)
         evidence.write_text(json.dumps({**proof, 'observed_at': 1}))
-        with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '150'}), patch.object(gcpx, 'run') as cloud, patch.object(gcpx.time, 'time', return_value=10000):
+        with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '150'}), patch.object(gcpx, 'run') as cloud, patch.object(gcpx, 'verify_worker_disks'), patch.object(gcpx.time, 'time', return_value=10000):
             cloud.return_value.stdout = json.dumps(instance)
             with self.assertRaisesRegex(ValueError, 'credit evidence'): self.call('up', 'worker')
             self.assertEqual(cloud.call_count, 1)
         evidence.write_text(json.dumps(proof))
-        with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '150'}), patch.object(gcpx, 'run') as cloud, patch.object(gcpx.time, 'time', return_value=10000):
+        with patch.dict(os.environ, {'FLEET_GCP_MONTHLY_CAP': '150'}), patch.object(gcpx, 'run') as cloud, patch.object(gcpx, 'verify_worker_disks'), patch.object(gcpx.time, 'time', return_value=10000):
             billing = {'billingEnabled': True, 'billingAccountName': 'billingAccounts/one'}
             cloud.side_effect = [type('R', (), {'stdout': json.dumps(instance)})(),
                                  type('R', (), {'stdout': json.dumps(billing)})(), None,
@@ -248,11 +248,14 @@ class GcpxTests(unittest.TestCase):
         gcpx.ROOT.mkdir()
         instance = {'name':'vm-one', 'status':'RUNNING', 'labels':{'gcpx-managed':'true', 'gcpx-pool':'fleet'}}
         result = lambda value: type('R', (), {'stdout':json.dumps(value)})()
-        with patch.object(gcpx, 'check_credit') as credit, patch.object(gcpx, 'run') as cloud, patch.object(gcpx, 'ssh') as remote:
-            cloud.side_effect = [result([]), None, result(instance)]
+        with patch.object(gcpx, 'check_credit') as credit, patch.object(gcpx, 'run') as cloud, patch.object(gcpx, 'ssh') as remote, patch.object(gcpx, 'verify_worker_disks') as verify:
+            cloud.side_effect = [result([]), None, None, result(instance)]
             self.assertEqual(gcpx.create_worker(cfg, 'worker', 100)['status'], 'RUNNING')
             credit.assert_called_once()
-            create = cloud.call_args_list[1].args[0]
+            disk_create = cloud.call_args_list[1].args[0]
+            self.assertIn('gcpx-managed=true,gcpx-pool=fleet', disk_create)
+            create = cloud.call_args_list[2].args[0]
+            verify.assert_called_once()
             self.assertIn('--no-service-account', create)
             self.assertIn('--no-address', create)
             remote.assert_called_once()
@@ -265,6 +268,30 @@ class GcpxTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'credit missing'):
                 gcpx.create_worker(cfg, 'worker', 100)
             cloud.assert_not_called()
+    def test_public_network_requires_only_iap_ssh(self):
+        worker = {'project':'proj', 'zone':'us-central1-a'}
+        spec = {'public_egress':True, 'network':'safe', 'subnet':'sub'}
+        net = 'https://www.googleapis.com/compute/v1/projects/proj/global/networks/safe'
+        subnet = {'network':net}
+        rule = {'network':net, 'direction':'INGRESS', 'sourceRanges':['35.235.240.0/20'], 'allowed':[{'IPProtocol':'tcp', 'ports':['22']}]}
+        response = lambda value: type('R', (), {'stdout':json.dumps(value)})()
+        with patch.object(gcpx, 'run', side_effect=[response(subnet), response([rule])]):
+            self.assertEqual(gcpx.public_network_args(worker, spec), ['--network','safe','--subnet','sub'])
+        with patch.object(gcpx, 'run', side_effect=[response(subnet), response([rule, {**rule, 'sourceRanges':['0.0.0.0/0']}])]):
+            with self.assertRaisesRegex(ValueError, 'only IAP'): gcpx.public_network_args(worker, spec)
+        with patch.object(gcpx, 'run', return_value=response({'network':'other'})):
+            with self.assertRaisesRegex(ValueError, 'mismatch'): gcpx.public_network_args(worker, spec)
+        self.assertEqual(gcpx.public_network_args(worker, {}), ['--no-address'])
+    def test_worker_disks_must_be_labelled_and_owned(self):
+        worker = {'project':'proj', 'zone':'zone', 'pool':'fleet'}
+        instance = {'disks':[{'boot':True, 'source':'https://www.googleapis.com/compute/v1/projects/proj/zones/zone/disks/vm-boot'}]}
+        result = lambda value: type('R', (), {'stdout':json.dumps(value)})()
+        with patch.object(gcpx, 'run', return_value=result({'labels':{'gcpx-managed':'true', 'gcpx-pool':'fleet'}})):
+            gcpx.verify_worker_disks(worker, instance)
+        with patch.object(gcpx, 'run', return_value=result({'labels':{}})):
+            with self.assertRaisesRegex(ValueError, 'disk ownership'): gcpx.verify_worker_disks(worker, instance)
+        with self.assertRaisesRegex(ValueError, 'boot disk'): gcpx.verify_worker_disks(worker, {'disks':[]})
+        with self.assertRaisesRegex(ValueError, 'outside'): gcpx.verify_worker_disks(worker, {'disks':[{'boot':True, 'source':'https://example.com/disk'}]})
     def test_stop_requires_ownership_and_no_active_workspace(self):
         cfg = json.loads(self.cfg.read_text())
         with patch.object(gcpx, 'ssh', self.fake_ssh): self.call('ws', 'new', 'repo', '--name', 'task')
