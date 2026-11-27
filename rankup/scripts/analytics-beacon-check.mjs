@@ -198,7 +198,7 @@ function isDedicatedPoolExhausted(text) {
 }
 function cli(session, args, timeout = 30000) {
   try {
-    return execFileSync("opencli", ["browser", session, "--window", "dedicated", ...args],
+    return execFileSync("opencli", ["browser", "--session", session, "--window", "foreground", ...args],
       { encoding: "utf8", timeout, stdio: ["pipe", "pipe", "pipe"] }).trim();
   } catch (error) {
     const detail = opencliError(error);
@@ -224,7 +224,8 @@ async function openPage(session, pageUrl) {
 }
 function evalJs(session, js) { return cli(session, ["eval", `(()=>{${js}})()`]); }
 function readJson(raw) {
-  const value = JSON.parse(raw);
+  const envelope = JSON.parse(raw);
+  const value = envelope?.ok === true && Object.hasOwn(envelope, "data") ? envelope.data : envelope;
   return typeof value === "string" ? JSON.parse(value) : value;
 }
 function settle(session, seconds) {
