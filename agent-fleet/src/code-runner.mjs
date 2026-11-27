@@ -363,7 +363,9 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   };
   const schedule = () => { drain = drain.then(consume); };
   record({ finished: false });
+  let wakeParkProbe = null;
   const inbox = watchInbox(runId, entry => {
+    if (['stop', 'say', 'ask'].includes(entry.type)) wakeParkProbe?.();
     if (entry.type === 'stop') { stopping = true; if (!yielding) void interrupt(); }
     else if (entry.type === 'say') {
       stages.revisions = [...(stages.revisions || []), entry.text];
@@ -456,6 +458,8 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
     await setSlotState(slotId, 'parked');
     supervision.pause(parkedAt);
     let result;
+    let nextConditionCheck = 0;
+    let seenReplies = 0;
     while (!stopping) {
       inbox.pump();
       // A child waiting for our answer cannot finish the run we parked on.
@@ -463,12 +467,24 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         result = { status: 'ask', text: '先处理子任务求助，再决定是否继续等待原条件。' };
         break;
       }
-      metadata.pollCount = (metadata.pollCount ?? 0) + 1;
-      metadata.waitMs = waited + Date.now() - parkedAt;
-      if (metadata.pollCount === 1 || metadata.pollCount % 20 === 0) record();
-      result = await localCondition(entry.until, { id: entry.sourceId || runId, entry, cwd: workdir, replies: offsetQueue });
+      if (Date.now() >= nextConditionCheck || Date.now() >= entry.at + entry.timeoutMs || /^(after|at):/.test(entry.until) || offsetQueue.length !== seenReplies) {
+        metadata.pollCount = (metadata.pollCount ?? 0) + 1;
+        metadata.waitMs = waited + Date.now() - parkedAt;
+        if (metadata.pollCount === 1 || metadata.pollCount % 20 === 0) record();
+        seenReplies = offsetQueue.length;
+        const interruptedProbe = Symbol('inbox');
+        const wake = new Promise(resolve => { wakeParkProbe = () => resolve(interruptedProbe); });
+        try {
+          result = await Promise.race([localCondition(entry.until, { id: entry.sourceId || runId, entry, cwd: workdir, replies: offsetQueue }), wake]);
+        } finally { wakeParkProbe = null; }
+        if (result === interruptedProbe) { result = null; continue; }
+        nextConditionCheck = Date.now() + 30000;
+        inbox.pump();
+        // A reply may arrive while a condition probe is awaiting external I/O.
+        if (offsetQueue.length !== seenReplies) { result = null; continue; }
+      }
       if (result || Date.now() >= entry.at + entry.timeoutMs) break;
-      await new Promise(resolve => setTimeout(resolve, 250));
+      await new Promise(resolve => setTimeout(resolve, Math.min(250, Math.max(0, entry.at + entry.timeoutMs - Date.now()))));
     }
     if (stopping) { resolveYield(runId, entry, { status: 'stopped' }); return { blocked: true }; }
     metadata.waitMs = waited + Date.now() - parkedAt;
