@@ -51,6 +51,14 @@ class GcpxTests(unittest.TestCase):
                 self.assertEqual(gcpx.main(), 37)
         self.assertNotIn('secret-argument', (gcpx.ROOT / 'events.log').read_text())
         self.assertEqual(self.call('logs')[-1]['exit_code'], 37)
+    def test_run_uses_configured_command_path(self):
+        cfg = json.loads(self.cfg.read_text())
+        cfg['workers']['worker']['command_path'] = '/opt/gcpx/bin:/usr/bin:/bin'
+        self.cfg.write_text(json.dumps(cfg))
+        with patch.object(gcpx, 'ssh', self.fake_ssh): self.call('ws', 'new', 'repo', '--name', 'task')
+        with patch.object(gcpx.subprocess, 'run', return_value=type('Result', (), {'returncode':0})()) as proc:
+            with patch.object(sys, 'argv', ['gcpx', '--config', str(self.cfg), 'run', 'task', '--', 'node', '--version']): gcpx.main()
+            self.assertIn('PATH=/opt/gcpx/bin:/usr/bin:/bin', proc.call_args.args[0][-1])
     def test_creation_releases_registry_and_reserves_name(self):
         def check_lock(worker, command, capture=False, tty=False):
             with (gcpx.ROOT / 'lock').open('a') as other:

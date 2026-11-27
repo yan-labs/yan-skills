@@ -636,7 +636,8 @@ def main():
                     flush_sync(worker, item)
                 # Do not hold the registry lock during a potentially long-running command.
                 fcntl.flock(lock, fcntl.LOCK_UN)
-                result = subprocess.run([*ssh_args(worker), 'cd -- ' + shlex.quote(item['path']) + ' && exec ' + cmdstr(command)])
+                path_env = ['env', 'PATH=' + worker['command_path']] if worker.get('command_path') else []
+                result = subprocess.run([*ssh_args(worker), 'cd -- ' + shlex.quote(item['path']) + ' && exec ' + cmdstr([*path_env, *command])])
                 if item.get('sync'):
                     flush_sync(worker, item)
                 log_event('run', workspace=args.workspace, worker=item['worker'], exit_code=result.returncode)
