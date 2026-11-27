@@ -33,7 +33,7 @@ class OverflowTests(unittest.TestCase):
             previous = os.getcwd()
             try:
                 os.chdir(Path(root) / 'nested')
-                with patch.dict(os.environ, env, clear=True), patch.object(mod, 'try_lease', return_value=None), patch.object(mod.os, 'execv', side_effect=RuntimeError('intercepted')) as run, contextlib.redirect_stderr(io.StringIO()):
+                with patch.dict(os.environ, env, clear=True), patch.object(mod, 'capacity_state', return_value=False), patch.object(mod.os, 'execv', side_effect=RuntimeError('intercepted')) as run, contextlib.redirect_stderr(io.StringIO()):
                     with self.assertRaisesRegex(RuntimeError, 'intercepted'): mod.heavy(['--','printf','%s','$(unsafe)'])
                     argv = run.call_args.args[1]
                     self.assertEqual(argv[-4:], ['nested', 'printf', '%s', '$(unsafe)'])
@@ -42,11 +42,11 @@ class OverflowTests(unittest.TestCase):
     def test_outside_mapping_never_executes_or_falls_back(self):
         with tempfile.TemporaryDirectory(dir=os.environ.get('GCPX_TEST_TMPDIR')) as root:
             env={'FLEET_GCP_WORKSPACE_EXPERIMENTAL':'1', 'FLEET_HEAVY_CAPACITY':'1', 'FLEET_GCPX_WORKSPACE':'task', 'FLEET_GCPX_CONFIG':'/tmp/config.json','FLEET_GCPX_MIRROR':root}
-            with patch.dict(os.environ, env, clear=True), patch.object(mod, 'try_lease', return_value=None), patch.object(mod.os, 'execv') as run:
+            with patch.dict(os.environ, env, clear=True), patch.object(mod, 'capacity_state', return_value=False), patch.object(mod.os, 'execv') as run:
                 with self.assertRaisesRegex(ValueError, 'outside'): mod.heavy(['--','true'])
                 run.assert_not_called()
     def test_missing_mapping_fails_instead_of_queueing(self):
-        with patch.dict(os.environ, {'FLEET_GCP_WORKSPACE_EXPERIMENTAL':'1','FLEET_HEAVY_CAPACITY':'1'}, clear=True), patch.object(mod, 'try_lease', return_value=None), contextlib.redirect_stderr(io.StringIO()):
+        with patch.dict(os.environ, {'FLEET_GCP_WORKSPACE_EXPERIMENTAL':'1','FLEET_HEAVY_CAPACITY':'1'}, clear=True), patch.object(mod, 'capacity_state', return_value=False), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(mod.heavy(['--','true']),75)
 
 if __name__ == '__main__': unittest.main()
