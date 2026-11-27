@@ -98,11 +98,18 @@ const conclusionText = report => String(report ?? '').match(/^## 结论[ \t]*\r?
 const handoffMarker = report => conclusionText(report).trimStart().match(/^巡检换班[，,:：][^\r\n]*/)?.[0]?.trim();
 
 export function acceptanceResult(brief = '', report = '', yielded = null, priorReport) {
+  const forbiddenOwner = /^.*(?:受阻[：:][^\r\n]*(?:维护方|负责人|owner)|owner[：:]\s*外部[：:]).*$/im.test(report + '\n' + brief);
+  if (forbiddenOwner) return { verdict: 'needs-review', pending: 'none', unmet: [], counts: null, table: '', note: '禁止虚构外部负责人；改为本单自行取数或用结构化信号交派单方。' };
   const items = new Map();
   const sections = [...brief.matchAll(/^## (?:验收|派单场景 · [^\r\n]+)[ \t]*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/gm)];
   for (const [, section] of sections) {
-    for (const [, id, owner] of section.matchAll(/^[ \t]*(?:- )?(V\d+) +[^\r\n｜|]+[｜|]owner[：:] *(本单|外部[:：][^\r\n｜|]+|下游[:：][^\r\n｜|]+)(?=[｜|]|\r?$)/gm)) {
+    for (const [, id, owner] of section.matchAll(/^[ \t]*(?:- )?(V\d+) +[^\r\n｜|]+[｜|]owner[：:] *(本单|派单方|下游[:：][^\r\n｜|]+)(?=[｜|]|\r?$)/gm)) {
       items.set(id, owner.trim());
+    }
+  }
+  for (const [, section] of sections) {
+    for (const [, owner] of section.matchAll(/^[ \t]*(?:- )?V\d+[^\r\n]*?[｜|]owner[：:] *([^\r\n｜|]+)/gm)) {
+      if (!/^(?:本单|派单方|下游[:：]\s*\S+)$/.test(owner.trim())) return { verdict: 'needs-review', pending: 'none', unmet: [], counts: null, table: '', note: '验收 owner 仅允许本单、派单方或点名下游 run。' };
     }
   }
   const conclusion = conclusionText(report);
@@ -134,7 +141,7 @@ export function acceptanceResult(brief = '', report = '', yielded = null, priorR
       if (status === '未过' && !reviewComplete) unmet.push(id);
       else if (!status || status === '等外部' || status === '待下游' || (status === '已回滚' && !rollback) || (status === '已过' && !hasEvidence(rows.get(id)?.evidence))) missing.push(id);
     }
-    if (status === '等外部' || (!status && owner.startsWith('外部'))) pending = 'external';
+    if (status === '等外部' || (!status && owner === '派单方')) pending = 'external';
     else if ((status === '待下游' || (!status && owner.startsWith('下游'))) && pending !== 'external') pending = 'downstream';
     else if (status === '已回滚' && rollback && pending === 'none') pending = 'rolled-back';
   }

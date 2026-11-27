@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { allPending, pendingFor } from '../src/requests.mjs';
 import { familyOf, isCodexModel, resolveCodexModel } from '../src/model-family.mjs';
 import { land } from '../src/land.mjs';
 import { currentRun, writeYield, ask, startBackground, watchBinding, watchRequest } from '../src/yield.mjs';
@@ -41,7 +42,7 @@ import { readPidRecord, resolveRunId, isRecordedProcessAlive, patchPidRecord, ru
 import { shortRunOptions, splitShortArgs, resolveBrief } from '../src/shortcuts.mjs';
 import { runCode, launchArchiveSweep } from '../src/code-runner.mjs';
 import { runGrok } from '../src/grok-runner.mjs';
-import { launchDetached, readState, resolveDetached, supervise, waitDetached } from '../src/detach.mjs';
+import { launchDetached, readState, resolveDetached, supervise, waitDetached, reconcileDetached, detachedState } from '../src/detach.mjs';
 import { runMedia } from '../src/media.mjs';
 import { runAgy } from '../src/agy-runner.mjs';
 import { runGeminiApi } from '../src/gemini-api-runner.mjs';
@@ -61,6 +62,10 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
   fleet land --repo <主克隆> --env test [--commit SHA --run ID | --flush --config <私有JSON> | --status]
   fleet timeline <runId|名字>
   fleet wait <id|latest> [--timeout 秒]   等待终态；ask 醒目标出并继续等待
+  fleet wait --any <id>... [--timeout 秒]   任一终态或未答信号即返回
+  fleet asks --pending   列全部未答信号及年龄
+  fleet signal --kind resource|decision "说明"
+  fleet review-request --repo owner/repo --range base..head [--range base..head] --focus "重点"
   fleet heavy [--gcp] -- <命令> [参数]
   fleet park --until <条件> --timeout 2h --item V1 --say <醒来做什么>
   fleet blocked --need auth|input|access --what <缺口> --tried <查过哪里> --who <谁能给>
@@ -68,7 +73,7 @@ const HELP_TEXT = `fleet ${PKG_VERSION} — 简短任务入口
   fleet plan --file <阶段计划>   每行范围与完成条件，提交后自动继续
   fleet handoff --next <第一动作> --file <五项交接单，≤2KB>
   fleet bg -- <命令> [参数]
-  本地条件：file:<路径> / run:<本机runId> / job:<jobId> / after:2m / at:<ISO时间> / reply
+  本地条件：file:<路径> / run:<本机runId> / job:<jobId> / after:2m / at:<ISO时间> / reply / review
   all:/any: 后接条件 JSON 数组；cmd:<命令> 探测间隔至少 2 分钟。
   Actions 使用 gh-run:<GitHub Actions URL>@<完整 SHA>，runner 对同条件限频读取。
   远程条件由 watchd 写 runs/<runId>.wake.json：{condition,at(毫秒),status:done|failed,logPath?}。
@@ -335,10 +340,10 @@ function cmdStatus(argv, cachedRows) {
   const flags = parseFlags(argv);
   const cwd = flags.cwd ? resolvePath(flags.cwd) : undefined;
   const rows = cachedRows ? cachedRows.filter(r => !cwd || sameCwd(r.cwd, cwd)) : collectStatus({ cwd });
-  const selected = rows.filter(r => !flags.running || ['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(r.state));
+  const selected = rows.map(r => { const pending = pendingFor(r.runId); return { ...r, pendingAskCount: pending.length, oldestAskAgeMs: pending.length ? Math.max(0, Date.now() - Math.min(...pending.map(a => Date.parse(a.at)))) : null, pendingSignals: pending }; }).filter(r => !flags.running || ['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(r.state));
   process.stdout.write(flags.json ? `${JSON.stringify(selected, null, 2)}\n`
     : selected.length ? selected.map(r =>
-      `${formatStatusHuman([r]).trimEnd()}${r.launchDetached ? '  ⚠ detached-launch' : ''}\n`).join('')
+      `${formatStatusHuman([r]).trimEnd()}${r.launchDetached ? '  ⚠ detached-launch' : ''}  未答=${r.pendingAskCount} 最老=${r.oldestAskAgeMs === null ? '-' : Math.floor(r.oldestAskAgeMs / 1000) + 's'}\n`).join('')
     : formatStatusHuman(selected));
 }
 
@@ -712,6 +717,23 @@ async function main() {
         console.log(JSON.stringify(result));
         break;
       }
+      case 'asks': {
+        const rows = allPending().map(a => ({ ...a, ageMs: Math.max(0, Date.now() - Date.parse(a.at)) }));
+        console.log(JSON.stringify(rows, null, 2));
+        break;
+      }
+      case 'review-request':
+      case 'signal': {
+        const { flags, positionals } = splitShortArgs(rest);
+        const id = currentRun(flags);
+        const ranges = rest.flatMap((v, i) => v === '--range' ? [rest[i + 1]] : []);
+        const kind = command === 'review-request' ? 'review' : flags.kind;
+        if (!['review', 'resource', 'decision'].includes(kind)) throw new Error('signal --kind review|resource|decision');
+        if (kind === 'review' && (!/^[\w.-]+\/[\w.-]+$/.test(flags.repo || '') || !ranges.length || ranges.some(r => !/^\S+\.\.\S+$/.test(r || '')) || !flags.focus)) throw new Error('review-request 需要 --repo、--range 和 --focus');
+        const details = kind === 'review' ? { repo: flags.repo, ranges, focus: flags.focus } : undefined;
+        console.log(JSON.stringify(ask(id, { kind, text: details ? JSON.stringify(details) : positionals.join(' '), review: details })));
+        break;
+      }
       case 'bg': {
         const args = rest[0] === '--' ? rest.slice(1) : rest;
         console.log(JSON.stringify(startBackground(args)));
@@ -720,6 +742,23 @@ async function main() {
       case 'wait': {
         const { flags, positionals } = splitShortArgs(rest);
         if (!positionals[0]) throw new Error('用法: fleet wait <runId|latest> [--timeout 秒]');
+        if (flags.any) {
+          const ids = positionals.map(spec => resolveDetached(spec, matchCwd(flags)));
+          const start = Date.now();
+          for (;;) {
+            for (const id of ids) {
+              const initial = readState(id);
+              if (!initial) throw new Error(`找不到 detach 任务 ${id}`);
+              const rec = initial.pid ? reconcileDetached(initial) : initial;
+              const pending = pendingFor(id);
+              if (pending.length) { console.log(JSON.stringify({ runId: id, event: 'pending', signals: pending.map(a => ({...a, ageMs: Date.now() - Date.parse(a.at)})) })); return; }
+              const state = detachedState(rec);
+              if (!['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(state)) { console.log(JSON.stringify({runId: id, event: 'terminal', status: state})); return; }
+            }
+            if (flags.timeout && Date.now() - start >= Number(flags.timeout) * 1000) { process.exitCode = 1; return; }
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
         process.exitCode = await waitDetached(positionals[0], { cwd: matchCwd(flags), timeout: flags.timeout, quiet: Boolean(flags.quiet || flags.json) });
         break;
       }

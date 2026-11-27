@@ -67,13 +67,13 @@ fleet stop latest
 
 Claude Code 派单写法与误加 `&` 后的补救见 [Skill「派单流程」第 4 步](skill/SKILL.md#派单流程)。默认等待 launcher 在 Claude 工具环境下检测到父进程变化时会告警，并在 status 标出 `⚠ detached-launch`（JSON 字段 `launchDetached: true`）；任务继续执行，不要杀掉重派。
 
-新会话先 `fleet status --running`，对已有任务逐个 `fleet wait <id>` 接着等，不要重派。`status` 默认跨 cwd 列出全部非终态及最近24小时终态，`--running` 只列 running/abnormal，`--json` 返回数组；每行包含 runId、短名、模型、状态、时长、cwd、报告路径及最后心跳。`--name`、`--report` 可指定元数据，未传时从 brief 的“归类…”行及 `REPORT:` 行提取。
+新会话先 `fleet status --running`，用 `fleet wait --any <id>...` 等任一终态或未答信号，不要重派；`fleet asks --pending` 列出未答信号。`status` 默认跨 cwd 列出全部非终态及最近24小时终态，`--running` 只列 running/abnormal，`--json` 返回数组；每行包含 runId、短名、模型、状态、时长、cwd、报告路径及最后心跳。`--name`、`--report` 可指定元数据，未传时从 brief 的“归类…”行及 `REPORT:` 行提取。
 
 Claude 通道（haiku/sonnet/opus）的 key 是用户级 `sk-ant-usr-…` 时，Anthropic 要求每个请求带 `anthropic-workspace-id` 头，否则 400「This API key is not scoped to a workspace」。`models.config.json` 的 claude-* 条目用 `headerEnvs` 指向 `.env` 里的 `ANTHROPIC_WORKSPACE_ID`（`wrkspc_` 开头，非密钥，在 Console 的 Settings > Workspaces 的 ID 列；只有 Default 工作区时填它）。缺这个变量时 fleet 直接报缺变量名，而不是发出必然 400 的请求。该头通过 Claude Code 的 `ANTHROPIC_CUSTOM_HEADERS` 随每个请求发出。返回「Credit balance is too low」说明工作区头已生效、月度额度已用完，需要用户在 Console 充值或等下次发放。
 
 状态保存在 `~/.agent-fleet/runs/<runId>.json`，原子更新监督/执行 PID、每30秒心跳、结果/日志路径及简报。PID死亡（或 pid 已被别的进程复用：记录里存了启动时的命令行，当前命令行不同即视为已死）或心跳超过90秒判为 abnormal；若最后心跳早于启动+10分钟，提示可能重启/强制休眠中断及 `fleet resume <id>`。监督进程与执行进程都已不在的记录，`status`/`wait`/`stop` 读到时会自动补写失败终态（`status: failed`、`abnormalExit: true`，结束时间取最后心跳；对已死任务执行 stop 则记为 stopped），之后按普通终态 24 小时退出列表，不再长期停在 abnormal；进程还活着只是心跳过期、或监督进程已死但执行进程仍在跑，保持 abnormal，交人处理（`fleet stop`）。读不到进程命令行或无权发信号（EPERM）时按存活处理，不会因此误判已死。监督进程忽略未带停止请求的 SIGTERM/SIGINT；使用 `fleet stop` 停止任务。`wait` 每两秒只读状态与 PID，终态立即返回简报；超时只结束等待，任务继续。`wait` / `tail` 支持短名、唯一runId前缀，`latest` 指当前目录最近任务（包括终态）；stop/say/resume 的 latest 保持当前目录最近存活任务规则。
 
-Codex app-server 和 exec 会在报告必需节或 brief 明确要求的文件、已授权提交哈希、读回结果缺失时续做；app-server 还会用 JEV 核对硬性产物。低置信度或 JEV 不可用时按规则结果走；没有固定续做次数上限，连续两次没有新提交或产物内容变化时停止，单独改报告不算进展。仍有缺项时 verdict 为 partial。`--no-continue` / `FLEET_NO_CONTINUE=1` 可关闭，review 和文档任务不自动续做。阶段计划、交接自动放行，`fleet wait` 提示 ask 后继续等终态，详情见 [Codex 阶段接力与等待](skill/references/codex-coding.md#阶段接力与等待)。脱离启动的任务按监督器对应的执行进程和收件箱插话，嵌套 fleet 不继承外层任务身份；送不进会报告具体缺口。
+Codex app-server 和 exec 会在报告必需节或 brief 明确要求的文件、已授权提交哈希、读回结果缺失时续做；app-server 还会用 JEV 核对硬性产物。低置信度或 JEV 不可用时按规则结果走；没有固定续做次数上限，连续两次没有新提交或产物内容变化时停止，单独改报告不算进展。仍有缺项时 verdict 为 partial。`--no-continue` / `FLEET_NO_CONTINUE=1` 可关闭，review 和文档任务不自动续做。阶段计划、交接自动放行，单任务 `fleet wait` 提示 ask 后继续等终态，多任务用 `--any` 返回信号，详情见 [Codex 阶段接力与等待](skill/references/codex-coding.md#阶段接力与等待)。脱离启动的任务按监督器对应的执行进程和收件箱插话，嵌套 fleet 不继承外层任务身份；送不进会报告具体缺口。
 
 Codex app-server 任务运行中仍显示在 Codex APP，结束后自动归档本任务线程；归档失败只记降级。历史保留，fleet 续跑前取消归档，结束后再归档。
 

@@ -2225,6 +2225,7 @@ def build_parser():
     p.add_argument('--to', choices=PRODUCTS, default='gpt')
     order.add_parser(sub)
     sub.add_parser('team')
+    sub.add_parser('patrol', help='汇总在途任务实况')
     p = sub.add_parser('status')
     p.add_argument('--all', action='store_true')
     p = sub.add_parser('score')
@@ -2336,6 +2337,8 @@ def main():
         sys.exit(mini.read(rec, 'log' if args.log else 'result' if args.result else 'report', args.head, args.pull))
     elif args.action in ('say', 'stop'):
         os.execvp('fleet', ['fleet', args.action, args.name] + ([args.message] if args.action == 'say' else []))
+    elif args.action == 'patrol':
+        os.execvp('node', ['node', str(Path(__file__).with_name('patrol.mjs'))])
     elif args.action == 'team':
         os.execvp('fleet', ['fleet', 'team'])
     elif args.action == 'lint':

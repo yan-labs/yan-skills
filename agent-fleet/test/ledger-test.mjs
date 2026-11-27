@@ -210,7 +210,7 @@ try {
   // 12. buildRow 输出全部结构化新字段并确保脱敏
   const accBrief = join(scratch, 'acc.brief.md');
   const accReport = join(scratch, 'acc.report.md');
-  writeFileSync(accBrief, '## 思维准则（每单首要）\n你是这单的负责人\n## 验收\nV1 编译｜owner：本单\nV2 单测｜owner：本单\nV3 流水线｜owner：外部：CI\n');
+  writeFileSync(accBrief, '## 思维准则（每单首要）\n你是这单的负责人\n## 验收\nV1 编译｜owner：本单\nV2 单测｜owner：本单\nV3 流水线｜owner：派单方\n');
   writeFileSync(accBrief.replace(/\.md$/, '.json'), JSON.stringify({ prompt_template: 'v1/role-single/model-terra', reroute_reason: 'relaunch:gpt->grok' }));
   writeFileSync(accReport, '## 结论\nV1｜已过｜编译退出码 0\nV2｜未过｜单测失败\nV3｜等外部｜CI 运行中\n');
   const richRec = rec({

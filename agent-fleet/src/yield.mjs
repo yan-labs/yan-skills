@@ -10,6 +10,7 @@ import { appendInbox } from './inbox.mjs';
 import { readPidRecord } from './pid.mjs';
 import { redactEvidence } from './brief.mjs';
 import { fleetEvent } from './timeline.mjs';
+import { linkedReview, records } from './requests.mjs';
 
 const pathFor = (id, suffix) => join(runsDir(), `${id}.${suffix}`);
 const validId = id => {
@@ -37,7 +38,7 @@ export function actionsTerminal(run, sha) {
   return { status: run.conclusion === 'success' ? 'done' : 'failed', conclusion: run.conclusion, sha };
 }
 export function validateCondition(condition) {
-  if (condition === 'reply') return;
+  if (condition === 'reply' || condition === 'review') return;
   const index = String(condition).indexOf(':');
   const kind = condition.slice(0, index), value = condition.slice(index + 1);
   if (index < 1 || !value) throw new Error('缺少有效 --until 条件。');
@@ -108,10 +109,10 @@ export function watchBinding(rec) {
   };
 }
 
-export function ask(id, { kind = 'help', text, wait = false, timeout } = {}) {
+export function ask(id, { kind = 'help', text, wait = false, timeout, review } = {}) {
   validId(id);
-  if (!['help', 'shared', 'decision'].includes(kind) || !text?.trim()) throw new Error('ask 需要 --kind help|shared|decision 和问题。');
-  const rec = { type: 'ask', id: randomUUID(), runId: id, kind, text, at: new Date().toISOString() };
+  if (!['help', 'shared', 'decision', 'review', 'resource'].includes(kind) || !text?.trim()) throw new Error('ask 需要 --kind help|shared|decision 和问题。');
+  const rec = { type: 'ask', id: randomUUID(), runId: id, kind, text: redactEvidence(text), ...(review ? { review: { repo: redactEvidence(review.repo), ranges: review.ranges.map(redactEvidence), focus: redactEvidence(review.focus) } } : {}), at: new Date().toISOString() };
   // Install the reply wait before publishing the question so a fast say cannot race it.
   const park = wait && writeYield(id, { type: 'park', until: 'reply', timeout: timeout || '30m', say: `答复后继续：${text}` });
   const state = readJSON(pathFor(id, 'json')) || readJSON(pathFor(id, 'queue.json')) || {};
@@ -130,6 +131,11 @@ export function ask(id, { kind = 'help', text, wait = false, timeout } = {}) {
   return rec;
 }
 export async function localCondition(condition, { id, entry, cwd, replies = [] }) {
+  if (condition === 'review') {
+    const asks = (existsSync(pathFor(id, 'asks')) ? readFileSync(pathFor(id, 'asks'), 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)) : []).filter(a => a.kind === 'review');
+    const review = asks.length && linkedReview(asks.at(-1), readJSON(pathFor(id, 'json')));
+    return review ? localCondition(`run:${review.runId}`, { id, entry, cwd, replies }) : null;
+  }
   if (condition === 'reply') return replies.length ? { status: 'done', text: replies.join('\n\n') } : null;
   const index = condition.indexOf(':'), kind = condition.slice(0, index), value = condition.slice(index + 1);
   if (kind === 'all' || kind === 'any') {
@@ -145,8 +151,10 @@ export async function localCondition(condition, { id, entry, cwd, replies = [] }
   if (kind === 'file') return existsSync(resolve(cwd, value)) ? { status: 'done', path: value } : null;
   if (kind === 'after' || kind === 'at') return Date.now() >= (kind === 'after' ? entry.at + duration(value) : Date.parse(value)) ? { status: 'done' } : null;
   if (kind === 'run' || kind === 'job') {
-    const rec = readJSON(pathFor(value, kind === 'job' ? 'job.json' : 'json')) || (kind === 'run' ? readPidRecord(value) : null);
-    if (!rec) return { status: 'failed', text: `找不到本地 ${kind}:${value}；跨机 run 由 watchd 提供终态。` };
+    const matches = kind === 'run' ? records().filter(r => r.runId === value || r.name === value || r.runId.startsWith(value)) : [];
+    if (matches.length > 1) return { status: 'failed', text: `run:${value} 匹配不唯一，请指定完整 runId。` };
+    const rec = matches[0] || readJSON(pathFor(value, kind === 'job' ? 'job.json' : 'json')) || (kind === 'run' ? readPidRecord(value) : null);
+    if (!rec) return kind === 'run' ? null : { status: 'failed', text: `找不到本地 job:${value}` };
     if (['running', 'queued', 'parked', 'waiting'].includes(rec.status) || (!rec.status && !rec.finished)) return null;
     return { status: rec.status === 'done' || (!rec.status && rec.verdict === 'ok') ? 'done' : 'failed', logPath: rec.logPath, resultPath: rec.resultPath };
   }
