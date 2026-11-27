@@ -248,8 +248,33 @@ def stop_worker(config_data, state, worker_id):
 
 def check_credit(worker, now):
     proof_path = worker.get('credit_evidence')
+    if not proof_path:
+        estimate = worker.get('monthly_estimate_usd')
+        try: cap = float(os.environ.get('FLEET_GCP_MONTHLY_CAP', '300'))
+        except ValueError: raise ValueError('invalid estimated monthly cap')
+        if isinstance(estimate, bool) or not isinstance(estimate, (int, float)) or not math.isfinite(estimate) or estimate <= 0 or not math.isfinite(cap) or cap <= 0 or estimate > cap:
+            raise ValueError('monthly estimate must be positive and within FLEET_GCP_MONTHLY_CAP')
+        billing = json.loads(run(['gcloud', 'billing', 'projects', 'describe', worker['project'], '--format=json'], text=True, capture_output=True).stdout)
+        account = billing.get('billingAccountName', '')
+        if billing.get('billingEnabled') is not True or not account.startswith('billingAccounts/'):
+            raise ValueError('project billing account unavailable')
+        project = json.loads(run(['gcloud', 'projects', 'describe', worker['project'], '--format=json'], text=True, capture_output=True).stdout)
+        number = str(project.get('projectNumber', ''))
+        if not number.isdigit(): raise ValueError('project number unavailable')
+        budgets = json.loads(run(['gcloud', 'billing', 'budgets', 'list', '--billing-account', account.split('/')[-1], '--format=json'], text=True, capture_output=True).stdout)
+        def covers(b):
+            f = b.get('budgetFilter') or {}
+            projects = f.get('projects') or []
+            return ((not projects or 'projects/' + number in projects) and
+                    f.get('calendarPeriod', 'MONTH') == 'MONTH' and
+                    not any(f.get(k) for k in ('labels', 'services', 'subaccounts', 'resourceAncestors', 'creditTypes')) and
+                    bool(b.get('thresholdRules')) and
+                    not (b.get('notificationsRule') or {}).get('disableDefaultIamRecipients', False))
+        if not any(covers(b) for b in budgets): raise ValueError('no existing Budget alert covers this project; create none automatically')
+        print(f'gcpx: estimated monthly USD {estimate}, cap USD {cap}; credit balance unknown, existing Budget alert found', file=sys.stderr)
+        return
     if not isinstance(proof_path, str) or not Path(proof_path).is_absolute():
-        raise ValueError('current credit balance evidence is required before increasing capacity')
+        raise ValueError('credit evidence path must be absolute')
     proof = json.loads(Path(proof_path).read_text())
     observed, remaining, estimate = (proof.get(k) for k in ('observed_at', 'remaining_usd', 'monthly_estimate_usd'))
     if (any(isinstance(v, bool) or not isinstance(v, (float, int)) or not math.isfinite(v) for v in (observed, remaining, estimate))
