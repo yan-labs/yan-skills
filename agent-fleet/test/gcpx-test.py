@@ -261,7 +261,7 @@ class GcpxTests(unittest.TestCase):
             self.assertEqual(gcpx.create_worker(cfg, 'worker', 100)['status'], 'RUNNING')
             credit.assert_called_once()
             disk_create = cloud.call_args_list[1].args[0]
-            self.assertIn('gcpx-managed=true,gcpx-pool=fleet', disk_create)
+            self.assertTrue(any(str(x).startswith('gcpx-managed=true,gcpx-pool=fleet,gcpx-create-id=') for x in disk_create))
             create = cloud.call_args_list[2].args[0]
             verify.assert_called_once()
             self.assertIn('--no-service-account', create)
@@ -276,6 +276,42 @@ class GcpxTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'credit missing'):
                 gcpx.create_worker(cfg, 'worker', 100)
             cloud.assert_not_called()
+    def test_failed_instance_create_triggers_tagged_cleanup(self):
+        cfg = json.loads(self.cfg.read_text())
+        cfg['workers']['worker'].update({'managed':True, 'project':'proj', 'zone':'us-central1-a', 'instance':'vm-one', 'pool':'fleet',
+            'create':{'machine_type':'n2-standard-16','image_family':'ubuntu-2404-lts-amd64','image_project':'ubuntu-os-cloud','disk_gb':100}})
+        gcpx.ROOT.mkdir()
+        response = type('R', (), {'stdout':'[]'})()
+        failure = gcpx.subprocess.CalledProcessError(1, ['gcloud'])
+        with patch.object(gcpx, 'check_credit'), patch.object(gcpx, 'run', side_effect=[response, None, failure]) as cloud, patch.object(gcpx, 'cleanup_failed_creation') as cleanup:
+            with self.assertRaises(gcpx.subprocess.CalledProcessError): gcpx.create_worker(cfg, 'worker', 1)
+            marker = cloud.call_args_list[1].args[0][cloud.call_args_list[1].args[0].index('--labels') + 1].split('gcpx-create-id=')[1]
+            cleanup.assert_called_once_with(cfg['workers']['worker'], 'vm-one-boot', marker)
+            self.assertEqual(list(gcpx.ROOT.glob('bootstrap.*.sh')), [])
+    def test_cleanup_deletes_only_owned_unattached_disk(self):
+        worker = {'project':'proj','zone':'zone','instance':'vm','pool':'fleet'}
+        disk = {'name':'vm-boot','zone':'https://example/zones/zone','labels':{'gcpx-create-id':'mine'}}
+        response = lambda v: type('R', (), {'stdout':json.dumps(v)})()
+        with patch.object(gcpx, 'run', side_effect=[response([]), response([disk]), None, response([])]) as cloud:
+            gcpx.cleanup_failed_creation(worker, 'vm-boot', 'mine')
+            self.assertEqual(cloud.call_args_list[2].args[0][1:4], ['compute','disks','delete'])
+        with patch.object(gcpx, 'run', side_effect=[response([]), response([{**disk, 'users':['attached']}])]) as cloud:
+            with self.assertRaisesRegex(ValueError, 'still attached'): gcpx.cleanup_failed_creation(worker, 'vm-boot', 'mine')
+            self.assertEqual(cloud.call_count, 2)
+        with patch.object(gcpx, 'run', side_effect=[response([]), response([{**disk, 'labels':{'gcpx-create-id':'other'}}])]) as cloud:
+            gcpx.cleanup_failed_creation(worker, 'vm-boot', 'mine')
+            self.assertEqual(cloud.call_count, 2)
+    def test_cleanup_deletes_only_matching_instance(self):
+        worker = {'project':'proj','zone':'zone','instance':'vm','pool':'fleet'}
+        disk_url = 'https://www.googleapis.com/compute/v1/projects/proj/zones/zone/disks/vm-boot'
+        instance = {'name':'vm','zone':'https://example/zones/zone','labels':{'gcpx-create-id':'mine'},'disks':[{'boot':True,'source':disk_url}]}
+        response = lambda v: type('R', (), {'stdout':json.dumps(v)})()
+        with patch.object(gcpx, 'run', side_effect=[response([instance]), response([]), None, response([]), response([])]) as cloud:
+            gcpx.cleanup_failed_creation(worker, 'vm-boot', 'mine')
+            self.assertEqual(cloud.call_args_list[2].args[0][1:4], ['compute','instances','delete'])
+        with patch.object(gcpx, 'run', side_effect=[response([{**instance,'disks':[]}]), response([])]) as cloud:
+            with self.assertRaisesRegex(ValueError, 'unconfirmed'): gcpx.cleanup_failed_creation(worker, 'vm-boot', 'mine')
+            self.assertEqual(cloud.call_count, 2)
     def test_public_network_requires_only_iap_ssh(self):
         worker = {'project':'proj', 'zone':'us-central1-a'}
         spec = {'public_egress':True, 'network':'safe', 'subnet':'sub'}

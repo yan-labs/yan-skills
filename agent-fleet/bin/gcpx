@@ -337,6 +337,27 @@ def public_network_args(worker, spec):
         raise ValueError('public worker network must allow only IAP SSH ingress')
     return ['--network', network, '--subnet', subnet]
 
+def cleanup_failed_creation(worker, disk_name, creation_id):
+    identity = ['--project', worker['project'], '--zones', worker['zone']]
+    disk_source = 'https://www.googleapis.com/compute/v1/projects/' + worker['project'] + '/zones/' + worker['zone'] + '/disks/' + disk_name
+    def listing(kind, target):
+        items = json.loads(run(['gcloud', 'compute', kind, 'list', *identity, '--filter', 'name=' + target, '--format=json'], text=True, capture_output=True).stdout)
+        matches = [x for x in items if x.get('name') == target and x.get('zone', '').endswith('/' + worker['zone'])]
+        if len(matches) > 1: raise ValueError('ambiguous cleanup resource')
+        return matches[0] if matches else None
+    instance = listing('instances', worker['instance'])
+    disk = listing('disks', disk_name)
+    if instance and (instance.get('labels') or {}).get('gcpx-create-id') == creation_id:
+        if not any(d.get('source') == disk_source and d.get('boot') is True for d in instance.get('disks', [])):
+            raise ValueError('created instance disk ownership unconfirmed')
+        run(['gcloud', 'compute', 'instances', 'delete', worker['instance'], '--project', worker['project'], '--zone', worker['zone'], '--quiet'], stdout=sys.stderr)
+        if listing('instances', worker['instance']): raise ValueError('instance deletion unconfirmed')
+        disk = listing('disks', disk_name)
+    if disk and (disk.get('labels') or {}).get('gcpx-create-id') == creation_id:
+        if disk.get('users'): raise ValueError('created disk still attached; cleanup refused')
+        run(['gcloud', 'compute', 'disks', 'delete', disk_name, '--project', worker['project'], '--zone', worker['zone'], '--quiet'], stdout=sys.stderr)
+        if listing('disks', disk_name): raise ValueError('disk deletion unconfirmed')
+
 def create_worker(config_data, worker_id, now):
     name(worker_id)
     worker = config_data['workers'][worker_id]
@@ -366,18 +387,25 @@ def create_worker(config_data, worker_id, now):
     network_args = public_network_args(worker, spec)
     disk_name = worker['instance'] + '-boot'
     name(disk_name)
-    run(['gcloud', 'compute', 'disks', 'create', disk_name, '--project', worker['project'], '--zone', worker['zone'],
-         '--image-family', spec['image_family'], '--image-project', spec['image_project'], '--size', str(disk) + 'GB',
-         '--labels', 'gcpx-managed=true,gcpx-pool=' + worker['pool'], '--quiet'], stdout=sys.stderr)
+    creation_id = uuid.uuid4().hex
+    labels = 'gcpx-managed=true,gcpx-pool=' + worker['pool'] + ',gcpx-create-id=' + creation_id
     bootstrap = Path(__file__).resolve().parent / 'gcpx-worker-bootstrap'
     script = ROOT / ('bootstrap.' + uuid.uuid4().hex + '.sh')
-    script.write_text('#!/bin/bash\nexport GCPX_WORKER_BOOTSTRAP=yes\n' + bootstrap.read_text())
-    os.chmod(script, 0o600)
     try:
+        run(['gcloud', 'compute', 'disks', 'create', disk_name, '--project', worker['project'], '--zone', worker['zone'],
+             '--image-family', spec['image_family'], '--image-project', spec['image_project'], '--size', str(disk) + 'GB',
+             '--labels', labels, '--quiet'], stdout=sys.stderr)
+        script.write_text('#!/bin/bash\nexport GCPX_WORKER_BOOTSTRAP=yes\n' + bootstrap.read_text())
+        os.chmod(script, 0o600)
         cmd = ['gcloud', 'compute', 'instances', 'create', worker['instance'], '--project', worker['project'], '--zone', worker['zone'],
                '--machine-type', spec['machine_type'], '--disk', 'name=' + disk_name + ',boot=yes,auto-delete=yes', *network_args, '--no-service-account', '--no-scopes',
-               '--labels', 'gcpx-managed=true,gcpx-pool=' + worker['pool'], '--metadata-from-file', 'startup-script=' + str(script), '--quiet']
+               '--labels', labels, '--metadata-from-file', 'startup-script=' + str(script), '--quiet']
         run(cmd, stdout=sys.stderr)
+    except (OSError, subprocess.CalledProcessError) as error:
+        try: cleanup_failed_creation(worker, disk_name, creation_id)
+        except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as cleanup_error:
+            raise ValueError('creation failed; cleanup unconfirmed for ' + worker['instance'] + ' and ' + disk_name + ': ' + str(cleanup_error)) from error
+        raise
     finally:
         script.unlink(missing_ok=True)
     describe = ['gcloud', 'compute', 'instances', 'describe', worker['instance'], '--project', worker['project'], '--zone', worker['zone'], '--format=json']
