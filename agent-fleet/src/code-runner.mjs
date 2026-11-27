@@ -93,6 +93,12 @@ function activeRollout(threadId) {
   return walk(root);
 }
 
+// Only a positive missing-session diagnostic permits replay in a new thread.
+// Auth, transport, quota, signal and execution failures are not resume misses.
+function missingRollout(error) {
+  return /\bno (?:archived )?(?:rollout|session|thread) found\b|\b(?:rollout|session|thread)(?: id)?(?: [0-9a-f-]{36})? (?:not found|does not exist)\b/i.test(error);
+}
+
 /** 执行 Codex 任务；自动续做保留 thread，用户插话仍走现有 steer/resume 链路。 */
 export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = false, high = false, xhigh = false, max = false, simple = false, sol = false, luna = false, astra = false, fast = false, review = false, noContinue = false, reportPath, resume, resumedFrom, continuationJudge = params => judgeTask({ ...params, friendlyModel: 'jev', config: loadModelsConfig(), signal: AbortSignal.timeout(15000) }),
   codexBin = process.env.FLEET_CODEX_BIN || 'codex' }) {
@@ -136,7 +142,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   const persistStages = () => { saveStages(sourceId, stages); saveStages(runId, stages); };
   let thresholdSent = false, activeSince = Date.now(), activeElapsed = 0;
 
-  let offsetQueue = [], drain = Promise.resolve(), activeDescendants = [];
+  let offsetQueue = [], drain = Promise.resolve(), activeDescendants = [], sayInterrupted = false;
   const pendingAsks = new Set();
   const slot = process.env.FLEET_SLOT_RUN_ID ? queueRecord(process.env.FLEET_SLOT_RUN_ID) : null;
   briefPath ??= slot?.briefPath;
@@ -334,6 +340,7 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         }
       }
       offsetQueue.unshift(text);
+      sayInterrupted = true;
       await interrupt();
       return;
     }
@@ -634,7 +641,9 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
               rpc('turn/interrupt', { threadId: metadata.threadId, turnId }).catch(() => { interruptedForPark = false; });
             }
           }
-          if (event.method === 'turn/completed') { completed = params.turn; finishTurn(); }
+          // A steer/interrupt race may produce a second terminal notification.
+          // The first terminal state (including failure) is authoritative.
+          if (event.method === 'turn/completed' && !completed) { completed = params.turn; finishTurn(); }
         };
         child.stdout.setEncoding('utf8');
         child.stdout.on('data', chunk => {
@@ -804,7 +813,8 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
         activeChild = null;
       }
     }
-    if (!stopping && !metadata.yield && !metadata.resumeBlocked && (!outcome || offsetQueue.length)) {
+    if (!stopping && !metadata.yield && !metadata.resumeBlocked && (!outcome ||
+        (offsetQueue.length && completed?.status !== 'failed' && (outcome.code === 0 || sayInterrupted)))) {
       metadata.backend = 'codex-exec';
       let session = metadata.threadId;
       let nextPrompt = wakePrompt || (session && offsetQueue.length ? '' : fullPrompt);
@@ -836,7 +846,8 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           : [nextPrompt, ...replies].filter(Boolean).join('\n\n');
         if (replies.length) log('[codex] say: 在 exec 回合边界投递');
         metadata.numTurns++;
-        let threadStarted = false;
+        let executionStarted = false, resumeDiagnostic = '';
+        const stderrStart = stderr.length;
         const child = start(args);
         let buffer = '';
         child.stdout.setEncoding('utf8');
@@ -847,7 +858,11 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
             log(line);
             try {
               const event = JSON.parse(line);
-              if (event.type === 'thread.started') { threadStarted = true; metadata.threadId = metadata.sessionId = event.thread_id; record(); schedule(); }
+              if (event.type === 'thread.started') { executionStarted = true; metadata.threadId = metadata.sessionId = event.thread_id; record(); schedule(); }
+              if (['turn.started', 'turn.completed', 'turn.failed'].includes(event.type) ||
+                  (event.type?.startsWith('item.') && event.item?.type !== 'error')) executionStarted = true;
+              if (event.type === 'error' || event.type === 'turn.failed' || event.item?.type === 'error')
+                resumeDiagnostic += '\n' + (event.message || event.error?.message || event.item?.message || event.item?.text || '');
               if (/^item\.(started|completed)$/.test(event.type) && /^(command_execution|mcp_tool_call|dynamic_tool_call|file_change|web_search|collab_agent_tool_call)$/.test(event.item?.type || '')) {
                 turnUsedTool = true;
                 if (metadata.numTurns === 1) firstTurnUsedTool = true;
@@ -873,17 +888,15 @@ ${emptyRun ? '按 brief 执行并遵守其授权和限制；不要因本提示�
           // A failed resume before the thread even started has not received
           // the queued instruction. Retry once in a fresh session, preserving
           // the brief, handoff and the exact prompt that would have been sent.
-          if (session && sayInPrompt && !threadStarted) {
+          if (session && sayInPrompt && !executionStarted && Number.isInteger(outcome.code) &&
+              missingRollout(stderr.slice(stderrStart) + '\n' + resumeDiagnostic)) {
             fallback('say 续接未启动；保留上下文和插话，新开会话');
             session = metadata.threadId = metadata.sessionId = null;
             nextPrompt = [stages.anchor, stages.latest, '以下是上一轮未成功投递的指令；与上面的修订重复时只执行一次：\n' + nextPrompt].filter(Boolean).join('\n\n');
             continue;
           }
-          if (offsetQueue.length) {
-            session = metadata.threadId;
-            nextPrompt = '';
-            continue;
-          }
+          if (offsetQueue.length || (replies.length && !executionStarted))
+            log('[codex] 当前轮真实失败；未投递插话保留在 inbox，不覆盖失败终态');
           break;
         }
         for (const text of replies) pendingAsks.delete(text);

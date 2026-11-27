@@ -73,7 +73,11 @@ if (args[0] === 'app-server') {
     }
     if (req.method === 'turn/steer') {
       if (mode === 'crash' || mode === 'crash-empty') process.exit(1);
-      if (['reject', 'reject-missing', 'reject-active'].includes(mode)) send({ id: req.id, error: { code: -32000, message: 'mock steer rejected' } });
+      if (['reject', 'reject-missing', 'reject-active', 'reject-auth', 'reject-run-failed'].includes(mode)) send({ id: req.id, error: { code: -32000, message: 'mock steer rejected' } });
+      else if (mode === 'reject-turn-failed') {
+        send({ id: req.id, error: { code: -32000, message: 'mock steer rejected' } });
+        send({ method: 'turn/completed', params: { turn: { id: 'turn-one', status: 'failed', error: { message: 'mock genuine failure' } } } });
+      }
       else { send({ id: req.id, result: {} }); setTimeout(complete, 25); }
     }
   });
@@ -85,6 +89,9 @@ if (args[0] === 'app-server') {
     if (args.includes('resume') && (args.includes('invalid-thread') || mode === 'reject-missing')) {
       process.stderr.write('session not found\n'); process.exit(1);
     }
+    if (args.includes('resume') && mode === 'reject-auth') {
+      process.stderr.write('HTTP 401 authentication failed\n'); process.exit(1);
+    }
     const complete = () => {
       fs.writeFileSync(args[args.indexOf('-o') + 1], '任务完成');
       send({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 7 } });
@@ -95,7 +102,11 @@ if (args[0] === 'app-server') {
     } else {
       send({ type: 'thread.started', thread_id: 'thread-one' });
       trace({ execReady: true });
-      if (mode === 'app-fail-slow' || mode === 'exec-slow') setTimeout(complete, 300);
+      if (mode === 'exec-failed' && !args.includes('resume')) {
+        setTimeout(() => { process.stderr.write('mock genuine failure\n'); process.exit(7); }, 300);
+      } else if (mode === 'reject-run-failed' && args.includes('resume')) {
+        process.stderr.write('session not found during execution\n'); process.exit(7);
+      } else if (mode === 'app-fail-slow' || mode === 'exec-slow') setTimeout(complete, 300);
       else complete();
     }
   });
@@ -284,6 +295,23 @@ try {
   assert.match(missingPrompts[1], /原任务规则/);
   assert.match(missingPrompts[1], /旧线程不见也要执行这句/);
   assert(!missingResume.trace.filter(entry => entry.args?.[0] === 'exec').at(-1).args.includes('resume'));
+
+  const genuineFailure = await scenario('exec-failed', { backend: 'exec', say: '不能覆盖真实失败', waitFor: 'execReady' });
+  assert.equal(genuineFailure.result.ok, false);
+  assert.equal(buildBrief(genuineFailure.result).verdict, 'fail');
+  assert.equal(genuineFailure.result.progress.exitCode, 7);
+  assert.equal(genuineFailure.trace.filter(entry => entry.args?.[0] === 'exec').length, 1);
+  assert(!genuineFailure.trace.some(entry => entry.signal === 'SIGINT'));
+  assert.match(readFileSync(genuineFailure.result.logPath, 'utf8'), /未投递插话保留在 inbox/);
+  for (const mode of ['reject-auth', 'reject-run-failed']) {
+    const failedResume = await scenario(mode, { say: '不能重放真实错误' });
+    assert.equal(failedResume.result.ok, false);
+    assert.equal(buildBrief(failedResume.result).verdict, 'fail');
+    assert.equal(failedResume.trace.filter(entry => entry.args?.[0] === 'exec').length, 1);
+  }
+  const failedApp = await scenario('reject-turn-failed', { say: 'app-server 真失败不可覆盖' });
+  assert.equal(failedApp.result.ok, false);
+  assert.equal(failedApp.trace.filter(entry => entry.args?.[0] === 'exec').length, 0);
 
   process.env.CODEX_HOME = join(scratch, 'codex-home');
   const found = await scenario('reject-active', { say: '从活动 rollout 续接' });
