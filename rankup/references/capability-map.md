@@ -161,9 +161,9 @@
 
 | 能力 | 一句话能干什么 | 入口 | 典型触发说法 |
 |---|---|---|---|
-| 默认建站栈 | 用户指定模板起站；未指定则用默认 shadcn 命令初始化 TanStack Start Monorepo + Cloudflare-first 资源选型 | [`references/cloudflare-stack.md`](cloudflare-stack.md) + [`lifecycle/stage-3-build.md`](lifecycle/stage-3-build.md) 段 3 | 「新建个站」「搭个工具站」 |
+| 默认建站栈 | 默认建在站点引擎上（[`playbooks/build.md`](playbooks/build.md)）；自建站回退时用户指定模板起站，未指定则用默认 shadcn 命令初始化 TanStack Start Monorepo + Cloudflare-first 资源选型 | [`references/cloudflare-stack.md`](cloudflare-stack.md) + [`lifecycle/stage-3-scaffold.md`](lifecycle/stage-3-scaffold.md) 段 3 | 「新建个站」「搭个工具站」 |
 | 设计组件库参考 | 外部 shadcn 生态组件库（21st.dev 等），做页面级设计（Hero / landing page / 动画动效）时先浏览找案例再实现 | [`references/design-references.md`](design-references.md) | 「做个好看的页面」「找设计参考」「Hero 怎么设计」 |
-| 脚手架四个坑 | 每一条都实际踩过的初始化陷阱 | [`lifecycle/stage-3-build.md`](lifecycle/stage-3-build.md) 段 3 · 3.1 | 「init 报错了」 |
+| 脚手架四个坑 | 每一条都实际踩过的初始化陷阱 | [`lifecycle/stage-3-scaffold.md`](lifecycle/stage-3-scaffold.md) 3.1 | 「init 报错了」 |
 | 域名接入 Cloudflare | zone onboarding 并读回 NS 对（Wrangler 没有 zone 命令）；`status` 只读、`create` 建 | `scripts/cf-zone-setup.mjs` | 「把域名挂到 CF」 |
 | 域龄与首次快照 | 公开 WHOIS 注册日期、Wayback 首次快照与域龄；缺失保留原因 | `scripts/domain-age.mjs` | 「查域龄」「查首次快照」 |
 | 支付 / 邮件 / 第三方接入 | 接入方式与边界；三方库与现成服务优先 | [`references/integrations.md`](integrations.md) | 「接个 Stripe」「这个功能有没有现成的」 |

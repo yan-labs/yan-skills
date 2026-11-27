@@ -19,3 +19,7 @@
 **完成标志**：整理报告交付；`rankup-doctor.mjs` 与 `doc-lint.mjs --root .rankup` 回读无已处理项残留。
 
 **收尾**：`journal/<日期>.md` 写一行（整理了什么、报告在哪）。
+
+## 引擎站步骤
+
+站建在站点引擎上时（见 [`integrations/site-engine.md`](../integrations/site-engine.md)）：清理前 `trash_list` 看一眼；引擎里的东西只放回收站，彻底删除只有站长能做。发布史对账读 `list_versions`。

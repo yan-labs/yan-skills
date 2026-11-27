@@ -389,3 +389,16 @@ test("release validator 认 references/INDEX.md 为一跳可达的全量目录�
     assert.match(broken.stderr, /does not link references\/game-sites\.md/);
   });
 });
+
+
+test("release validator 只允许站点引擎产品名出现在集成文件里", async () => {
+  await withSkillCopy(async (skillRoot) => {
+    const isolated = { RANKUP_PROJECT_ROOTS: "", RANKUP_HOME: path.join(skillRoot, "..", "no-home") };
+    assert.equal(validate(skillRoot, { env: isolated }).status, 0, "集成文件里的产品名应放行");
+    const card = path.join(skillRoot, "references", "playbooks", "build.md");
+    await writeFile(card, (await readFile(card, "utf8")) + "\n站建在 GeFeiSites 上时照做。\n");
+    const result = validate(skillRoot, { env: isolated });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /site engine product name found in references\/playbooks\/build\.md/);
+  });
+});

@@ -325,7 +325,7 @@ function saveRecord(dir, record) {
 
 // ── 根层留痕：判杀 / 全部通过时自动追写 workspace 根 .rankup/decisions.md、rejected.md ──
 //
-// selection.md §13「收尾」写死了这条约定：每个候选的七道闸门结果要写进根级
+// experiences/selection-history.md §13「收尾」写死了这条约定：每个候选的七道闸门结果要写进根级
 // .rankup/decisions.md；被闸门 0–5 判杀的候选还要另写一行进 .rankup/rejected.md。
 // 这段代码之前不存在——跑几轮全靠人工事后补录，根层记录必然和实际判定脱节
 // （这正是这次要补的闭环缺口）。只在两个终态触发：判杀（任意闸门）、全部通过
@@ -349,7 +349,7 @@ export function resolveRootRankupDir(dir) {
   return path.dirname(path.resolve(dir));
 }
 
-/** decisions.md 模板（selection.md §13）里单道闸门的一行；还没判到的闸门按模板写
+/** decisions.md 模板（experiences/selection-history.md §13）里单道闸门的一行；还没判到的闸门按模板写
  * "未到这步"，不是空着或猜一个结论。 */
 function renderGateLine(gateDef, gateState) {
   if (gateState.status !== 'pass' && gateState.status !== 'kill') return `闸门${gateDef.id} ${gateDef.name}：未到这步`;
@@ -375,7 +375,7 @@ export function renderDecisionsEntry(record, relRecordPath) {
 }
 
 /** rejected.md 的追写块（纯函数）。只应在闸门 0–5 判杀时调用——闸门 6 判杀已经走完
- * research.md 的完整量化流程，留痕方式由那条流程自己的约定负责，selection.md §13
+ * research.md 的完整量化流程，留痕方式由那条流程自己的约定负责，experiences/selection-history.md §13
  * 点名要求另写 rejected.md 一行的只有闸门 0–5。 */
 export function renderRejectedEntry(record, relRecordPath, revival) {
   const date = (record.updatedAt || '').slice(0, 10);
@@ -984,7 +984,7 @@ function selfTest() {
     saveRecord(selDir, recB);
     const traceB = recordRootTrace(selDir, recB);
     check('根层留痕: 闸门6判杀会写 decisions.md', traceB.decisions.written === true);
-    check('根层留痕: 闸门6判杀不写 rejected.md（selection.md §13 只点名闸门0–5）', traceB.rejected === undefined);
+    check('根层留痕: 闸门6判杀不写 rejected.md（experiences/selection-history.md §13 只点名闸门0–5）', traceB.rejected === undefined);
     const rejText3 = fs.readFileSync(rejectedPath, 'utf8');
     check('根层留痕: rejected.md 里没有混入闸门6判杀的候选', !rejText3.includes('自测判杀候选B'));
 

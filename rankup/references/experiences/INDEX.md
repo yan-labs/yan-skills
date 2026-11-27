@@ -28,6 +28,8 @@
 | [`webcafe-experiences.md`](webcafe-experiences.md) | SEO 与建站裁定：老站救不救、多站重复、多语言、品牌名、KGR、页面下限、索引与惩罚、首页关键词覆盖、外链取舍与验收、选词陷阱、**AdSense/Adsterra/会员变现**、**产品节奏**、**部署坑（CF Pages 404、R2、Vercel 绑域）**、**收款与结汇**、工具选型；续篇 [`webcafe-experiences-2.md`](webcafe-experiences-2.md) 二十七：**低量词出单、词的寿命、大词路线、拆词与词找站串联、细分深度路线（哥飞群聊 2026-10～11）** | 技术 SEO、站群、变现、上线部署决策时 |
 | [`demand-discovery.md`](demand-discovery.md) | **历史前期调研经验**：需求来源、反推收入线索与原始筛选案例；旧裁决效力见文件头 | 收集候选与回溯来源时；当前验证走上方 entry 指针 |
 | [`demand-judgment.md`](demand-judgment.md) | **历史经营观察**：需求认知、CPC / 收益、付费信号与三个公式；旧裁决效力见文件头 | 参考经营假设与证据边界时；不作当前选词裁决入口 |
+| [`selection-gates.md`](selection-gates.md) | **旧七闸的经营观察字段**：硬约束、频次、痛点、付费、护城河、获客与历史案例；只描述候选，不单独否决 | 写开发方案里的经营假设时 |
+| [`selection-history.md`](selection-history.md) | **六轮选品失败复盘**：倒序排查的来历、四条防复发规则、历史读数与证据分层 | 想知道为什么现在这样选品时 |
 | [`zero-to-one.md`](zero-to-one.md) | **0→1 规划与迭代纪律**：「1」怎么定义、三道关、虚荣指标、打磨 vs 重构、止损线 | 规划新站、每轮迭代决定加注还是止损时 |
 | [`demand-discovery-sources.md`](demand-discovery-sources.md) | 需求挖掘分册：用户原话与信号源 | 找需求线索时 |
 | [`../seo-experiences.md`](../seo-experiences.md) | 方法层的带日期 SEO 实测判断；归档 [`../seo-experiences-2026-07.md`](../seo-experiences-2026-07.md)、[`../seo-experiences-2026-07-late.md`](../seo-experiences-2026-07-late.md) | 查某条 SEO 判断有没有实测时 |

@@ -18,8 +18,10 @@
 | [`playbooks/research.md`](playbooks/research.md) | 调研的五个取数动作、四条铁律、App 市场验证分支、P4 反查域名 |
 | [`playbooks/research/p1-discovery.md`](playbooks/research/p1-discovery.md) | 没给词：挖需求 |
 | [`playbooks/research/p2-keyword-root.md`](playbooks/research/p2-keyword-root.md) | 词根调研全流程；小语种开工卡与三关 |
-| [`playbooks/selection.md`](playbooks/selection.md) | 选方向、选品 |
-| [`playbooks/selection/gates.md`](playbooks/selection/gates.md) | 方向候选的经营观察字段与历史案例 |
+| [`playbooks/selection.md`](playbooks/selection.md) | 选品：候选 → 裁决 → 完整开发方案 |
+| [`playbooks/build.md`](playbooks/build.md) | 建站与加功能：引擎优先、多站成批、自建回退 |
+| [`experiences/selection-gates.md`](experiences/selection-gates.md) | 方向候选的经营观察字段与历史案例（旧七闸） |
+| [`experiences/selection-history.md`](experiences/selection-history.md) | 六轮选品失败复盘、防复发规则与历史读数 |
 | [`playbooks/selection/generator.md`](playbooks/selection/generator.md) | 候选采集工具（领先指标法等）及其边界 |
 | [`playbooks/site-review.md`](playbooks/site-review.md) | `rankup check`（第二节）与 `rankup review`（第一节） |
 | [`research-checklist.md`](research-checklist.md) | 调研交付前核对证据覆盖 |
@@ -31,7 +33,8 @@
 | [`lifecycle.md`](lifecycle.md) | 七段总述、各段常用脚本速查、旧阶段号映射、每段开头的对账 |
 | [`lifecycle/stage-1-research.md`](lifecycle/stage-1-research.md) | 段 1 调研 |
 | [`lifecycle/stage-2-positioning.md`](lifecycle/stage-2-positioning.md) | 段 2 立项与定位：做不做、语种、产品形态、问法簇到页面 |
-| [`lifecycle/stage-3-build.md`](lifecycle/stage-3-build.md) | 段 3 建站与开发：硬规则全文 |
+| [`lifecycle/stage-3-build.md`](lifecycle/stage-3-build.md) | 段 3 建站与开发：两条路共用的硬规则 |
+| [`lifecycle/stage-3-scaffold.md`](lifecycle/stage-3-scaffold.md) | 段 3 自建站：脚手架、Cloudflare 全栈基础与 Day-1、开发测试、集成 |
 | [`lifecycle/stage-4-prelaunch.md`](lifecycle/stage-4-prelaunch.md) | 段 4 上线前 SEO/GEO：体检全套、图标专项、新增内页随手清单 |
 | [`lifecycle/stage-5-launch.md`](lifecycle/stage-5-launch.md) | 段 5 上线与接入：黑历史闸门、正式域名验收 |
 | [`lifecycle/stage-6-backlinks.md`](lifecycle/stage-6-backlinks.md) | 段 6 外链：时机、数量与证据台账（执行在 backlink） |
@@ -98,6 +101,7 @@
 | [`design-references.md`](design-references.md) | 页面设计参考案例；多功能工具站侧栏统一规范 |
 | [`search-platforms.md`](search-platforms.md) | GSC、Bing、IndexNow 等搜索平台接入 |
 | [`analytics-platforms.md`](analytics-platforms.md) | GA4、Clarity 等分析平台接入 |
+| [`integrations/site-engine.md`](integrations/site-engine.md) | 站建在站点引擎上：开工核对、工具分组、返回字段、成批多站、稿件包、漂移核对 |
 | [`integrations/browser-data.md`](integrations/browser-data.md) | 登录态后台批量取数、网页版 AI 取答 |
 | [`integrations/kie.md`](integrations/kie.md)、[`integrations/kie-models.md`](integrations/kie-models.md) | 需要 AI 图片或视频生成时的可选供应商与模型快照 |
 | [`../templates/kie/README.md`](../templates/kie/README.md) | 复制 Kie Worker 接入模板时 |

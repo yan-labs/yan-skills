@@ -10,6 +10,12 @@
 - **读哪里**：每组的判据见 [4. 判读](#4-判读每组对照哪个文档的哪一节)。
 - **完成标志与收尾**：见 [6. 收尾](#6-收尾结论写回哪里)。
 
+## 引擎站步骤
+
+站建在站点引擎上时（见 [`integrations/site-engine.md`](../integrations/site-engine.md)）：
+- check：先调引擎整站 `check` 与 `issue_list`，再跑 rankup 自己的检查；两边结果合并汇报，引擎已报的不重复记。
+- review：发现的问题用 `issue_add` 落进引擎待办（按 seo、content、design、ux、tech 分区），下一轮用 `issue_list` 复查并 `issue_update` 留言；站内访问与互动读 `pvuv_report`、`engage_stats`。
+
 review/check 均按[建设中红线](../discipline.md#二十一禁止建设中内容与功能区域)检查：本轮重扫渲染文案与公开附属文件，逐入口核实现，回读已有设计稿与说明；缺项记失败。
 
 **每次 review 必查 [Cloudflare 循环消耗红线](../cloudflare-stack.md#89-循环消耗与账单熔断红线)**（判据复用 `checklists.md` 段 3 同名项）；开始大规模爬取或性能采样前先读触发配置与短窗口用量，发现异常先隔离链路。代码或控制面不可读则记未核验，不用首页 200 或账单未到账代替通过。

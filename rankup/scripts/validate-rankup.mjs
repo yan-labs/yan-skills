@@ -17,7 +17,7 @@ import { lint as lintDocs } from "./maintain/doc-lint.mjs";
 const execFileAsync = promisify(execFile);
 
 const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const expectedVersion = "4.3.0";
+const expectedVersion = "5.0.0";
 const requiredReferences = [
   "commands.md",
   "integrations/kie.md",
@@ -44,6 +44,10 @@ const requiredReferences = [
   "playbooks/launch.md",
   "playbooks/growth.md",
   "playbooks/records.md",
+  "playbooks/build.md",
+  "playbooks/selection.md",
+  "integrations/site-engine.md",
+  "lifecycle/stage-3-scaffold.md",
   "cloudflare-stack.md",
   "project-memory.md",
   "integrations.md",
@@ -86,6 +90,7 @@ const requiredContent = {
     "scripts/maintain/read-memory-index.mjs",
     "references/commands.md",
     "references/INDEX.md",
+    "references/integrations/site-engine.md",
   ],
   // 2026-11-20 SKILL.md 精简为路由：命令细则迁到 commands.md，各段脚本速查迁到 lifecycle.md，断言随内容迁移，一条未删。
   "references/commands.md": [
@@ -145,11 +150,25 @@ const requiredContent = {
     "品牌图标在开发当天做齐",
     "design-references.md#多功能工具站侧栏统一规范",
     "cloudflare-stack.md#89-循环消耗与账单熔断红线",
+    "### 两条路：引擎站与自建站",
+  ],
+  // 5.0.0：段 3 的 3.1–3.4（自建站路径，含 Day-1 清单）拆到 stage-3-scaffold.md，下面五条随内容迁来。
+  "references/lifecycle/stage-3-scaffold.md": [
     "清除 React / Vite / TanStack 脚手架默认图标",
     "域名与索引开关共享构建期配置",
     "合法 JSON 不等于 Schema 语义合法",
     "https://validator.schema.org/",
     "grid → row → gridcell",
+  ],
+  "references/playbooks/build.md": ["## 开工卡", "../executor.md", "## 引擎站步骤", "## 自建站（回退）", "由派单方取一次再分发", "品牌图标在开发当天做齐", "design-references.md#多功能工具站侧栏统一规范"],
+  "references/playbooks/selection.md": ["## 开工卡", "../executor.md", "## 开发方案模板", "第一个工作包的验证与止损", "不给一张清单让用户自己挑"],
+  "references/integrations/site-engine.md": [
+    "## 开工核对（每次任务第一步）",
+    "工具不全先开新会话核对，仍不全再检查连接器授权或改用令牌",
+    "## 返回里必须处理的字段",
+    "## 稿件包（没有 MCP 时的交付面）",
+    "<!-- tools:start -->",
+    "scripts/maintain/engine-tools-diff.mjs",
   ],
   "references/lifecycle/stage-4-prelaunch.md": [
     "图标专项未通过不许上线",
@@ -223,7 +242,7 @@ const requiredContent = {
   "references/playbooks/launch.md": ["## 开工卡", "../executor.md", "site-onboard.mjs", "ai-crawler-access.mjs"],
   "references/playbooks/growth.md": ["## 开工卡", "../executor.md", "backlink", "流量涨跌怎么拆"],
   "references/playbooks/records.md": ["## 开工卡", "../executor.md", "scripts/maintain/rankup-doctor.mjs", "scripts/maintain/rankup-clean.mjs"],
-  "references/executor.md": ["严禁在 Skill、`.rankup/`、Git、测试或回复中保存真实密钥", "## 五条红线", "## 证据口径", "不再往下派单"],
+  "references/executor.md": ["稿件包", "严禁在 Skill、`.rankup/`、Git、测试或回复中保存真实密钥", "## 五条红线", "## 证据口径", "不再往下派单"],
   "references/playbooks/site-review.md": [
     "G6 循环与费用止损",
   ],
@@ -284,6 +303,17 @@ const projectLeakPatterns = [
   ["absolute host path", /\/Users\/[A-Za-z0-9._-]+\//g],
   ["hardcoded local proxy", /\b127\.0\.0\.1:\d{2,5}\b/g],
   ["credential store location", /\.claude\.json\b/g],
+];
+
+// 站点引擎的产品名只许出现在专门的集成文件里（2026-11-27 起）：入口、开工卡、闸门表只写「站点引擎」
+// 并指向集成文件，这样换引擎或引擎改名只动一个文件。这条在任何环境都查（不依赖本机配置）；
+// 白名单文件在跑本机动态项目名扫描前先抹掉这个名字，免得引擎仓库目录名把它误报成项目代号。
+const vendorNameBoundaries = [
+  {
+    label: "site engine product name",
+    pattern: /gefei[\s_-]*sites/gi,
+    allowedIn: new Set(["references/integrations/site-engine.md"]),
+  },
 ];
 
 // 本机配置 `$RANKUP_HOME/config.json`（默认 ~/.rankup/config.json）,只存在于本机、从不进仓库:
@@ -570,9 +600,18 @@ async function validate() {
     if (leakScanExcludes.has(relativePath)) {
       continue;
     }
+    let scanText = text;
+    for (const { label, pattern, allowedIn } of vendorNameBoundaries) {
+      pattern.lastIndex = 0;
+      if (allowedIn.has(relativePath)) {
+        scanText = scanText.replace(pattern, "");
+      } else if (pattern.test(text)) {
+        errors.push(`${label} found in ${relativePath} — 只许出现在 ${[...allowedIn].join("、")}，其余文件写「站点引擎」并指向它`);
+      }
+    }
     for (const [label, pattern] of allLeakPatterns) {
       pattern.lastIndex = 0;
-      const match = pattern.exec(text);
+      const match = pattern.exec(scanText);
       if (match) {
         errors.push(
           `${label} "${match[0]}" found in ${relativePath} — 项目可归属内容属于 <project>/.rankup/,不进 Skill`,

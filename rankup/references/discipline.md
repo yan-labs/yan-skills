@@ -550,7 +550,7 @@ Semrush / Similarweb / seo.web.cafe（含哥飞 AI）/ 哥飞论坛 / GSC、Bing
 | 先 `ls components/ui/` 看有没有；有就用，没有就 `pnpm dlx shadcn@latest add <组件>`；shadcn 没有的装同一生态（Radix / React 生态里带可访问性的现成包），装完再用 | 组件库带着键盘导航、焦点管理、暗色模式、ARIA 和统一视觉，手写一个下拉框这些全丢，且每个站各写一遍没人维护 | 用 `<div onClick>` 拼一个下拉菜单；用绝对定位 `<div>` 当弹窗；自己写日期选择器 |
 | **禁止手写**：下拉框、弹窗 / Dialog / Sheet、日期选择、表格分页、Toast、Tabs、Tooltip、Command 面板这类基础控件 | 这些正是最容易「看着能用、键盘和读屏全坏」的一类，也是 Lighthouse 可访问性分和 GEO 就绪度掉分的常见来源 | 「组件库那个不好改样式，我自己写一个」——改样式走 className 与 variants，不走重写 |
 | 判据：在业务目录 `grep -rn 'role="dialog"\|role="listbox"\|role="combobox"\|<select' apps/`，命中的每一处都要能指出来自 `components/ui/` 哪个文件或哪个已安装的包；指不出来的就是手写，打回 | 让「有没有手写」变成可 grep 的事实，不靠自觉 | 代码评审时说「应该都是组件库的」 |
-| 这条与「不重复造轮子」（段 3）是同一条纪律在 UI 层的落地，闸门在 `checklists.md` 段 3「UI 只来自组件库」，步骤 check 在 `references/lifecycle/stage-3-build.md` 3.3 | 一处判据两处指路，不各存一份 | — |
+| 这条与「不重复造轮子」（段 3）是同一条纪律在 UI 层的落地，闸门在 `checklists.md` 段 3「UI 只来自组件库」，步骤 check 在 `references/lifecycle/stage-3-scaffold.md` 3.3 | 一处判据两处指路，不各存一份 | — |
 
 ---
 

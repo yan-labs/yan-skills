@@ -2,7 +2,7 @@
 name: rankup
 description: 独立开发者项目的指挥台：选词选品与需求验证、建站（默认走站点引擎 MCP，可多站成批）、上线前 SEO/GEO 体检、上线接入、变现与监控，并用项目 `.rankup/` 记录做跨会话接力。用户提到 rankup 或 /rankup（check、review、init、doctor），或说「这个词能不能做」「挖点需求」「选品」「做个站」「批量建站」「能不能上线」「接 GSC、提交 sitemap」「流量掉了」「ChatGPT 会不会推荐我们」「定价、接支付」时使用；在有 `.rankup/` 的项目里说「继续」「上次做到哪」「下一步做什么」「整理项目记录」时也使用，即使没提 SEO。macOS、iOS、iPad 原生 App 的立项与项目记录同样适用。不用于：纯写文章或文案（write、blog）、外链执行（backlink）、浏览器驱动（opencli）、配图（imagegen）、派单本身与 fleet 产物清理（agent-fleet）、与项目记录无关的通用开发和部署排错。
 metadata:
-  version: "4.3.0"
+  version: "5.0.0"
 ---
 
 # Rankup
@@ -37,14 +37,16 @@ SEO/GEO 是主要手段，不是适用边界：项目计划、交接、功能迭
 | 选品、这个方向值不值得做 | [playbooks/selection.md](references/playbooks/selection.md) | 候选移交 `entry.md` 裁决 |
 | 热度查询与对比、趋势监控 | [trends.md](references/trends.md)（长期监控见其中指针） | 结论带基线与口径 |
 | App 有没有需求 | [research.md App 分支](references/playbooks/research.md#app-市场验证分支) | 网页指标标 N/A |
-| 做个站、加功能、成批建站 | [stage-3-build.md](references/lifecycle/stage-3-build.md) | [checklists](references/checklists.md) 段 3 |
-| 写页面内容 | blog Skill（英文站内页）、write Skill（中文） | 回读证据齐 |
+| 做个站、加功能、成批建站 | [playbooks/build.md](references/playbooks/build.md) | [checklists](references/checklists.md) 段 3 |
+| 写页面内容 | 文章类页面走 blog Skill；工具首页、长尾内页、FAQ、title、description 走 write Skill 的站内页面卡 | 回读证据齐 |
 | 能不能上线、SEO/GEO 体检 | [playbooks/prelaunch.md](references/playbooks/prelaunch.md) | 段 4 全绿或写明原因 |
 | 上线、绑域名、接平台、不收录 | [playbooks/launch.md](references/playbooks/launch.md) | `.rankup/integrations.md` 逐行有证据 |
 | 外链、推荐位、变现、定价、流量涨跌 | [playbooks/growth.md](references/playbooks/growth.md) | 台账与验证记录有证据 |
 | check、review | [playbooks/site-review.md](references/playbooks/site-review.md)（init 等命令见 [commands.md](references/commands.md)） | 结论写回 `.rankup/` |
 | doctor、清理项目过程数据、压缩记忆 | [playbooks/records.md](references/playbooks/records.md) | 整理报告 |
 | 改 rankup 自身、经验回流 | [maintenance.md 五](references/maintenance.md#五维护-skill-源码rankup-本身) | 校验与测试通过 |
+
+站建在站点引擎上时（项目 `.rankup/infrastructure.md` 写了站点标识，或全局层配了默认引擎）：建站、改页、体检、发布、看数据默认走引擎 MCP，先读 [references/integrations/site-engine.md](references/integrations/site-engine.md) 的「开工核对」；不起脚手架、不写部署脚本、不手工进后台改页面。
 
 以上没有的：[references/INDEX.md](references/INDEX.md)。已有项目但没说做什么：先 check。连方向都没有：只问一句有没有想好的词。
 

@@ -23,3 +23,12 @@
 **完成标志**：对应台账有证据：外链 submitted → public → indexed；推荐位复审结果；支付在目标环境的验证记录进 `.rankup/integrations.md`；读数带日期进 `baseline.md`。
 
 **收尾**：实验与结论写 `experiments.md`、`decisions.md`；判定回段 1 的，在接力里写清新词根。
+
+## 引擎站步骤
+
+站建在站点引擎上时（工具与返回字段见 [`integrations/site-engine.md`](../integrations/site-engine.md)）：
+1. 读数：`pvuv_report`（总览、按页、搜索来源、漏斗）、`engage_stats`、`orders_list`、`subscriptions_list`，带日期写进 `.rankup/baseline.md`；查询词与排名仍读 GSC。
+2. 动线上页之前先看它的搜索来源流量：有流量的只用 `page_edit` 小修，不动标题、描述、H1、URL 与主话题；要新词就加新页。
+3. 有假设就开实验：`experiment_create` → `experiment_arm_put` → `publish` → 到观察窗口后 `experiment_end` 写结论，赢的版本再写回。
+4. 收款：`saas_status`、`stripe_status` 看现状；没到账先 `orders_reconcile`。退款、收回积分、换密钥要站长在后台确认。
+5. 有依据的结论 `lesson_add` 记进引擎经验本，同时按 rankup 的晋升门写项目经验。

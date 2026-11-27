@@ -26,3 +26,14 @@
 **完成标志**：段 4 闸门全绿，或逐条写明改不动的理由；每项在 `.rankup/checks.md` 记 ✅、证据位置与日期。
 
 **收尾**：问题与复验结果写 `.rankup/audit.md`；按 [maintenance.md 二](../maintenance.md#二收尾维护五步顺序固定)收口。
+
+## 引擎站步骤
+
+站建在站点引擎上时（工具与返回字段见 [`integrations/site-engine.md`](../integrations/site-engine.md)）：
+1. 整站 `check` 调到 `done: true`；errors 必须为 0，warn 逐条处置或写明不改的理由。没到 `done: true` 不写「体检通过」。
+2. `issue_list` 读待办，修复类的清掉；访客端脚本报错（key 以 `js:` 开头）先修出现次数多的。
+3. 引擎不查的照 `checklists.md` 段 4 标「外」的行跑：占位扫描、密度、文案体检、PSI、`is-agentic`、AITDK。草稿阶段用 `preview`（完整 HTML）喂脚本，发布后在正式域名重跑。
+4. 自己查出的问题用 `issue_add` 记进引擎待办（稳定 key、写清怎么改），`audit.md` 只留指针。
+5. `launch_checklist` 读一遍，把下一项和等站长的项写进接力。
+
+引擎体检通过只等于段 4 标「覆」的行通过，不等于段 4 通过。

@@ -10,13 +10,13 @@
 - [6 · 闸门 5：获客可行性](#6--闸门-5获客可行性)
 - [7 · 闸门 6：量化验证](#7--闸门-6量化验证)
 
-> 本文件从 [`selection.md`](../selection.md) 拆出（2026-09-30）。旧闸门标题只保留为兼容锚点，七类信息改为经营观察；频次、抱怨数、付费与护城河不判杀。关键词与立项裁决只见 [entry.md](../entry.md#选词判据只看两个)。
+> 本文件从 [`selection.md`](../playbooks/selection.md) 拆出（2026-09-30）。旧闸门标题只保留为兼容锚点，七类信息改为经营观察；频次、抱怨数、付费与护城河不判杀。关键词与立项裁决只见 [entry.md](../playbooks/entry.md#选词判据只看两个)。
 
 观察记录附来源、日期与证据指针，未知如实写；按已有材料记录，不要求为了填满本表追加采集。历史归档块里的旧判据、数量线与话术均不执行。
 
 ## 1 · 闸门 0：硬约束
 
-记录用户明确给定的平台、预算、范围与原文来源；需求验证的执行约束只见 [entry.md「触发」](../entry.md#1--触发)。
+记录用户明确给定的平台、预算、范围与原文来源；需求验证的执行约束只见 [entry.md「触发」](../playbooks/entry.md#1--触发)。
 
 | 观察字段 | 记录什么 | 规划用途 |
 |---|---|---|
@@ -60,7 +60,7 @@ sales-led 获客（官网原话"Contact our sales team to discuss volume, SLAs, 
 | 重复使用原因 | 同一用户是否有持续任务，或每次由新用户触发 | 比较订阅、买断、Credit 或单次使用的适配性 |
 | 现有替代 | 用户现在怎样解决、耗时与支出 | 说明产品要承接的动作 |
 
-低频不直接否决，结论只按 [entry.md](../entry.md#4--判读)；不规定补搜次数或通过频档。
+低频不直接否决，结论只按 [entry.md](../playbooks/entry.md#4--判读)；不规定补搜次数或通过频档。
 
 > 历史复盘推断，不承担现行裁决。
 
@@ -82,7 +82,7 @@ sales-led 获客（官网原话"Contact our sales team to discuss volume, SLAs, 
 | 独立来源 | 去重后的来源数及是否同一人跨平台重复 | 描述覆盖，不设最低抱怨数 |
 | 已有行为 | 现在怎样解决、花多少时间/钱、现有办法差在哪 | 区分经历、找办法与意愿表态 |
 
-来源分流只见 [demand-sources.md](../../demand-sources.md)，平台采集走其专门入口；新问法的验证只见 [entry.md](../entry.md)。
+来源分流只见 [demand-sources.md](../demand-sources.md)，平台采集走其专门入口；新问法的验证只见 [entry.md](../playbooks/entry.md)。
 
 > 历史实测快照：下列 2026-09-12 backend 表与原话记录范式原样保留，不代表当前 backend，旧闸门编号仅作历史语境。
 
@@ -118,19 +118,19 @@ sales-led 获客（官网原话"Contact our sales team to discuss volume, SLAs, 
 「独立抱怨来源 ≥3」这个计数本身怎么算。
 
 1. **跨来源类型数，不在一个帖子里数。** 同一条抱怨在社区帖、竞品差评区、问答站各出现一次，
-   强度高于单个帖子里几百个赞——赞只说明这条话引起了注意（[§11](../selection.md#11--证据强度分层) 第一档），
+   强度高于单个帖子里几百个赞——赞只说明这条话引起了注意（[§11](selection-history.md#11--证据强度分层) 第一档），
    而"换一个场景又有人独立撞上同一件事"才是重复性的证据。三条来源全挤在同一类源里，
    只能当一条来算。
 2. **分清他在发泄还是在找办法。** 只骂现有产品的多半是情绪；骂完还在问"有没有替代品"
    "大家都在用什么""有没有更快的做法"的，已经在找答案了——后者离可解决的需求近得多，
    计数时单独标出来。迁移类句式（`alternative` / `replacement` / `too expensive`）是这类人的
-   固定说法，见 [`../experiences/demand-discovery.md`](../../experiences/demand-discovery.md) 四·3。
+   固定说法，见 [`../experiences/demand-discovery.md`](demand-discovery.md) 四·3。
 3. **数得出是谁在骂。** 抱怨者能收敛成一类说得清的人（某个职业、某种角色、某类小生意），
    后面才验证得了具体场景；画像糊成"大家""很多人"的，到闸门 5 也说不出这批人聚在哪，
    两道闸门会在同一个地方一起卡住。
 4. **问行为，不问意愿。** 真找到这些人聊时，问的是已经发生过的事：上次遇到这个问题怎么处理的、
    花了多少时间和钱、最后怎么收场、现在还会不会遇到。能讲出具体过程说明他真的经历过；
-   "我会用的""这个想法不错"是意愿表态，按 [§11](../selection.md#11--证据强度分层) 压根不算数。
+   "我会用的""这个想法不错"是意愿表态，按 [§11](selection-history.md#11--证据强度分层) 压根不算数。
 
 ---
 
@@ -143,7 +143,7 @@ sales-led 获客（官网原话"Contact our sales team to discuss volume, SLAs, 
 | 交易与使用 | 可核验外包订单、工具付款、续费、任务发生情况 | 外包付费必然迁移成软件付费 |
 | 买方工作流 | 可标准化环节、节省的劳动、买方为什么换 | 尚未验证的支付承诺 |
 
-证据分层见 [selection.md §11](../selection.md#11--证据强度分层)；取数入口见 [users-and-launches.md](../../demand-sources/users-and-launches.md#五谁在为这件事付外包费)。KD/KDRoi 的处理只见 [entry.md](../entry.md#选词判据只看两个)。
+证据分层见 [selection.md §11](selection-history.md#11--证据强度分层)；取数入口见 [users-and-launches.md](../demand-sources/users-and-launches.md#五谁在为这件事付外包费)。KD/KDRoi 的处理只见 [entry.md](../playbooks/entry.md#选词判据只看两个)。
 
 > 历史对话：下列原话和数字原样保留，工具数据未独立核实，不承担现行裁决。
 
@@ -171,7 +171,7 @@ sales-led 获客（官网原话"Contact our sales team to discuss volume, SLAs, 
 缺一道就不能把它记进付费证据栏：**这件事是不是重复发生**（否则退回闸门 1）、
 **流程能不能标准化**（每一单都要现场判断的，工具替不掉）、
 **人工流程里有没有一整段能被工具吃下来**（只替掉二十步里的一步，省下的时间撑不起一次付费）。
-取数入口见 [`demand-sources/users-and-launches.md`](../../demand-sources/users-and-launches.md#五谁在为这件事付外包费) 五「谁在为这件事付外包费」。
+取数入口见 [`demand-sources/users-and-launches.md`](../demand-sources/users-and-launches.md#五谁在为这件事付外包费) 五「谁在为这件事付外包费」。
 
 ## 5 · 闸门 4：护城河
 
@@ -181,7 +181,7 @@ sales-led 获客（官网原话"Contact our sales team to discuss volume, SLAs, 
 | 维护与积累 | 持续数据维护、历史积累、复制方式与资源投入 | 估计后续交付和维护工作 |
 | 竞品结构 | 开发者/公司、免费层、功能与渠道，附来源 | 解释竞争背景，不把工厂或资本出现当淘汰票 |
 
-可复制、没有护城河或存在免费层均只记观察，裁决只见 [entry.md](../entry.md#4--判读)。
+可复制、没有护城河或存在免费层均只记观察，裁决只见 [entry.md](../playbooks/entry.md#4--判读)。
 
 > 历史推断：日本 JIS 简历、沙特 ZATCA 发票作为独立开发者成功模式尚未验证；以下原话保留原有限定。
 
@@ -290,7 +290,7 @@ Cardmarket 生态的 Flipzi／TCGGraph、Vinted 生态的 VintPulse 等独立开
 | 原生分发 | 商店搜索、榜单历史、macOS 下载/激活来源 | 区分 App 与网站渠道 |
 | 可争任务 | 已存入口卡、问法及相关证据指针 | 回到实际需求与页面能力 |
 
-SEO/GEO 采集与判读只按 [entry.md](../entry.md)；App 渠道采集见 [research.md 的 App 分支](../research.md#app-市场验证分支)。同类站未发现、渠道未知或巨头出现不在此判杀。
+SEO/GEO 采集与判读只按 [entry.md](../playbooks/entry.md)；App 渠道采集见 [research.md 的 App 分支](../playbooks/research.md#app-市场验证分支)。同类站未发现、渠道未知或巨头出现不在此判杀。
 
 > 历史案例：下列原始数字、核实边界和当时渠道解释原样保留；“只走 SEO”的旧约束不沿用。
 
@@ -308,15 +308,15 @@ DR 0、5 万月访问、搜索占比仅 10.3%、平均停留 18 分半、跳出�
 
 ## 7 · 闸门 6：量化验证
 
-验证顺序、GT 卡、问法链路、逐问法 Google 证据、两路结论与页面移交只按 [entry.md](../entry.md#3--流水线)；本节不再保留独立量化门槛或 GO/NO-GO 模板。
+验证顺序、GT 卡、问法链路、逐问法 Google 证据、两路结论与页面移交只按 [entry.md](../playbooks/entry.md#3--流水线)；本节不再保留独立量化门槛或 GO/NO-GO 模板。
 
 | 移交字段 | 权威入口 |
 |---|---|
-| GT 测量与默认 gpts 参考 | [trends.md 的 gpts 基线节](../../trends.md#gpts-基线判读到底怎么才算有搜索量唯一判据源) |
-| 问法池、自然采样、追问与三清单 | [seo-geo.md](../../seo-geo.md#geo-反推测试ai-需求验证流程) |
-| 每条长尾问法的 Google 卡 | [seo-serp.md](../../seo-serp.md#逐问法-google-读法) |
-| 反查与本地词表达补漏 | [P2](../research/p2-keyword-root.md) |
-| 历史校准读数 | [selection.md §10](../selection.md#10--校准值速查表) |
+| GT 测量与默认 gpts 参考 | [trends.md 的 gpts 基线节](../trends.md#gpts-基线判读到底怎么才算有搜索量唯一判据源) |
+| 问法池、自然采样、追问与三清单 | [seo-geo.md](../seo-geo.md#geo-反推测试ai-需求验证流程) |
+| 每条长尾问法的 Google 卡 | [seo-serp.md](../seo-serp.md#逐问法-google-读法) |
+| 反查与本地词表达补漏 | [P2](../playbooks/research/p2-keyword-root.md) |
+| 历史校准读数 | [selection.md §10](selection-history.md#10--校准值速查表) |
 
 观察字段和以上产物通过证据指针关联，不以“通过前六闸”作为移交前提。
 

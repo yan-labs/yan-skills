@@ -24,7 +24,7 @@
 |---|---|---|
 | 1 调研 | [`lifecycle/stage-1-research.md`](lifecycle/stage-1-research.md) | [`checklists.md`](checklists.md) 段 1 |
 | 2 立项与定位 | [`lifecycle/stage-2-positioning.md`](lifecycle/stage-2-positioning.md) | [`checklists.md`](checklists.md) 段 2 |
-| 3 建站与开发 | [`lifecycle/stage-3-build.md`](lifecycle/stage-3-build.md) | [`checklists.md`](checklists.md) 段 3 |
+| 3 建站与开发 | [`lifecycle/stage-3-build.md`](lifecycle/stage-3-build.md)（自建站步骤在 [`stage-3-scaffold.md`](lifecycle/stage-3-scaffold.md)） | [`checklists.md`](checklists.md) 段 3 |
 | 4 上线前 SEO/GEO | [`lifecycle/stage-4-prelaunch.md`](lifecycle/stage-4-prelaunch.md) | [`checklists.md`](checklists.md) 段 4 |
 | 5 上线与接入 | [`lifecycle/stage-5-launch.md`](lifecycle/stage-5-launch.md) | [`checklists.md`](checklists.md) 段 5 |
 | 6 外链 | [`lifecycle/stage-6-backlinks.md`](lifecycle/stage-6-backlinks.md) | [`checklists.md`](checklists.md) 段 6 |

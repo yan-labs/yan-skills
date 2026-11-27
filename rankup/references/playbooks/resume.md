@@ -22,3 +22,8 @@
 **完成标志**：下一步已有执行证据（提交、线上回读或产物路径），接力已覆盖为当前状态。
 
 **收尾**：按 [maintenance.md 一](../maintenance.md#一什么时候必须走本章)选轻量路径或五步维护；回复末尾一行维护摘要。
+
+## 引擎站步骤
+
+站建在站点引擎上时（见 [`integrations/site-engine.md`](../integrations/site-engine.md)）：三方对账改为 `plan.md` 勾选 ↔ `get_site` 的页面清单与状态 ↔ 线上 `sitemap.xml`；发布史读 `list_versions`。
+接手先读 `launch_checklist` 的下一项与 `issue_list` 未关项。
