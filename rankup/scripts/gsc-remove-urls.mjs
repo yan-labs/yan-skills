@@ -108,7 +108,7 @@ function usage() {
 
 // ── OpenCLI 封装 ─────────────────────────────────────────
 function cli(action, { timeout = 15000 } = {}) {
-  const cmd = `opencli browser "${session}" ${action}`
+  const cmd = `opencli browser --session "${session}" ${action}`
   try {
     return execSync(cmd, { encoding: "utf-8", timeout, stdio: ["pipe", "pipe", "pipe"] }).trim()
   } catch (e) {

@@ -54,8 +54,8 @@ const sleep = (s) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0
 const mask = (s) => String(s).replace(/\b(\d{1,3}\.\d{1,3})\.\d{1,3}\.\d{1,3}\b/g, '$1.x.x')
 
 function oc(...a) {
-  const r = spawnSync('opencli', ['browser', session, ...a], { encoding: 'utf8', timeout: 120000 })
-  return (r.stdout || '').trim()
+  const r = spawnSync('opencli', ['browser', "--session", session, '--window', 'foreground', ...a], { encoding: 'utf8', timeout: 120000 })
+  const raw=(r.stdout || '').trim(); try { const x=JSON.parse(raw); if(x.ok===true && Object.hasOwn(x,'data')) return typeof x.data==='string'?x.data:JSON.stringify(x.data); } catch {} return raw
 }
 function ev(js, frame) {
   return oc('eval', ...(frame == null ? [] : ['--frame', String(frame)]), js)
@@ -167,7 +167,7 @@ try {
         const set=(el,v)=>{const p=el.tagName==='SELECT'?HTMLSelectElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(el,v);['input','change','blur'].forEach(t=>el.dispatchEvent(new Event(t,{bubbles:true})))};
         const ins=[...document.querySelectorAll('input')];
         const name=ins.find(e=>e.placeholder==='示例：公司总部'), val=ins.find(e=>e.placeholder==='示例：192.0.2.0/24'), sel=document.querySelector('select');
-        if(!name||!val||!sel)return 'missing-fields';
+        if(!name||!val||!sel)return 'missing-fields '+JSON.stringify({inputs:ins.map(e=>({placeholder:e.placeholder,aria:e.getAttribute('aria-label'),type:e.type})),selects:[...document.querySelectorAll('select')].map(e=>({aria:e.getAttribute('aria-label'),options:[...e.options].map(o=>o.textContent.trim())}))});
         const opt=[...sel.options].find(o=>o.textContent.trim()==='IP 地址等于'); if(!opt)return 'missing-equals-option';
         set(sel,opt.value); set(name,${JSON.stringify(ruleName)}); set(val,${JSON.stringify(ip)});
         const tt=ins.find(e=>e.value==='internal');

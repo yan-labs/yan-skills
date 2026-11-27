@@ -33,7 +33,7 @@ const d8 = (s) => s.replace(/-/g, '')
 const sleep = (s) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, s * 1000)
 
 function oc(...a) {
-  const r = spawnSync('opencli', ['browser', session, ...a], { encoding: 'utf8', timeout: 120000 })
+  const r = spawnSync('opencli', ['browser', "--session", session, ...a], { encoding: 'utf8', timeout: 120000 })
   return (r.stdout || '') + (r.stderr || '')
 }
 function extractContent() {

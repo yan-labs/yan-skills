@@ -11,9 +11,9 @@ for (const input of hosts) {
   const host = new URL(input.includes('://') ? input : `https://${input}`).hostname;
   const session = `bing-recs-${host.replace(/[^a-z0-9]/g, '-')}-${process.pid}x`;
   try {
-    run('browser', session, '--window', 'dedicated', 'open', `https://www.bing.com/webmasters/seoreports?siteUrl=${encodeURIComponent(`https://${host}/`)}`);
-    run('browser', session, 'wait', 'time', '3');
-    const raw = run('browser', session, 'eval', `JSON.stringify({text:document.body.innerText,sites:[...document.querySelectorAll('a[href*="seoreports?siteUrl="]')].map(a=>a.href),index:[...document.querySelectorAll('a')].filter(a=>a.innerText.trim()==='IndexNow').map(a=>a.href)})`);
+    run('browser', "--session", session, '--window', 'dedicated', 'open', `https://www.bing.com/webmasters/seoreports?siteUrl=${encodeURIComponent(`https://${host}/`)}`);
+    run('browser', "--session", session, 'wait', 'time', '3');
+    const raw = run('browser', "--session", session, 'eval', `JSON.stringify({text:document.body.innerText,sites:[...document.querySelectorAll('a[href*="seoreports?siteUrl="]')].map(a=>a.href),index:[...document.querySelectorAll('a')].filter(a=>a.innerText.trim()==='IndexNow').map(a=>a.href)})`);
     const data = JSON.parse(raw.slice(0, raw.indexOf('\n  Update available') === -1 ? undefined : raw.indexOf('\n  Update available')).trim());
     const member = /用户无权访问此网站|You (?:do not|don't) have access to this site/i.test(data.text) ? false : data.sites.some(u => { try { return new URL(new URL(u).searchParams.get('siteUrl')).hostname === host; } catch { return false; } }) ? true : null;
     const text = data.text;
@@ -23,8 +23,8 @@ for (const input of hosts) {
     const issues = [];
     for (let i=0; i+2<lines.length; i++) if (/^(高|中等|低)$/.test(lines[i+1])) { issues.push({type:lines[i],severity:lines[i+1],pages:lines[i+2]}); i+=2; }
     let indexnow = null;
-    if (member && data.index[0]) { run('browser', session, 'open', data.index[0]); run('browser', session, 'wait', 'time', '2'); indexnow = run('browser', session, 'eval', 'JSON.stringify(document.body.innerText)').split('\n  Update available')[0].trim(); try { indexnow = JSON.parse(indexnow); } catch {} }
+    if (member && data.index[0]) { run('browser', "--session", session, 'open', data.index[0]); run('browser', "--session", session, 'wait', 'time', '2'); indexnow = run('browser', "--session", session, 'eval', 'JSON.stringify(document.body.innerText)').split('\n  Update available')[0].trim(); try { indexnow = JSON.parse(indexnow); } catch {} }
     console.log(JSON.stringify({host,member,counts,issues,indexnow,raw:text}));
   } catch (e) { console.log(JSON.stringify({host,error:String(e.message)})); }
-  finally { try { run('browser',session,'close'); } catch {} }
+  finally { try { run('browser',"--session", session,'close'); } catch {} }
 }

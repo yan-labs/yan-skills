@@ -89,15 +89,15 @@ domain = domain ? domain.replace(/^https?:\/\//, "").replace(/\/.*$/, "") : doma
 
 function cli(args, { timeout = 30000 } = {}) {
   try {
-    const windowArgs = ["--window", "dedicated", "--window-slot", windowSlot]
-    return execFileSync("opencli", ["browser", session, ...windowArgs, ...args],
+    const windowArgs = ["--window", "foreground"]
+    return execFileSync("opencli", ["browser", "--session", session, ...windowArgs, ...args],
       { encoding: "utf8", timeout, stdio: ["pipe", "pipe", "pipe"] }).trim()
   } catch (e) {
     const err = (e.stderr?.toString() || e.stdout?.toString() || e.message).trim()
     throw new Error(`opencli 失败: ${args[0]}\n  ${err}`)
   }
 }
-function evalJs(js) { return cli(["eval", `(()=>{${js}})()`]) }
+function evalJs(js) { const raw=cli(["eval", `(()=>{${js}})()`]); try { const r=JSON.parse(raw); if(r.ok===true && Object.hasOwn(r,"data")) return typeof r.data==="string"?r.data:JSON.stringify(r.data); } catch {} return raw }
 function open(url) { cli(["open", url], { timeout: 45000 }) }
 function pageText(max = 4000) {
   return evalJs(`return (document.body.innerText||"").replace(/\\n{2,}/g,"\\n").slice(0,${max})`)
@@ -313,9 +313,9 @@ function reuseExisting() {
   const found = evalJs(`
     const want = ${JSON.stringify(domain)};
     const wantName = ${JSON.stringify(name)};
-    const items = [...document.querySelectorAll('[role="option"],button,a,div')].filter(el => {
+    const items = [...document.querySelectorAll('[role="option"],button,a')].filter(el => {
       const t = (el.innerText||'').replace(/\\s+/g,' ').trim();
-      return t && t.length < 80 && (t.toLowerCase().includes(want.toLowerCase()) || t === wantName);
+      return t && t.length < 80 && (t.toLowerCase() === want.toLowerCase() || t.toLowerCase() === wantName.toLowerCase());
     });
     const hit = items.sort((a,b)=>a.innerText.length-b.innerText.length)[0];
     if (!hit) return '';

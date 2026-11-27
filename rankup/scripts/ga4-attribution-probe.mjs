@@ -26,7 +26,7 @@ if (!args.url) { console.error("缺 --url"); process.exit(1); }
 const session = args.session || "ga4-attribution-probe";
 const from = args.from || "https://www.bing.com/";
 const waitSec = Number(args.wait || 20);
-const run = (...a) => execFileSync("opencli", ["browser", session, ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+const run = (...a) => execFileSync("opencli", ["browser", "--session", session, ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 const evalJson = (js) => {
   const out = run("eval", js).trim();
   const m = out.match(/\{[\s\S]*\}|\[[\s\S]*\]|"[\s\S]*"/);

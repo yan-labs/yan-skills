@@ -28,7 +28,7 @@ const out = resolve(opt.out)
 mkdirSync(out, { recursive: true })
 const sleep = (s) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, s * 1000)
 const oc = (...a) => {
-  const r = spawnSync('opencli', ['browser', session, '--window', 'dedicated', ...a], { encoding: 'utf8', timeout: 120000 })
+  const r = spawnSync('opencli', ['browser', "--session", session, '--window', 'dedicated', ...a], { encoding: 'utf8', timeout: 120000 })
   return (r.stdout || '') + (r.stderr || '')
 }
 const url = `https://search.google.com/search-console/performance/search-analytics?resource_id=${encodeURIComponent(opt.property)}&num_of_days=${days}${opt.compare ? '&compare_date=PREV' : ''}&metrics=CLICKS%2CIMPRESSIONS%2CCTR%2CPOSITION&num_of_rows=500&breakdown=date`

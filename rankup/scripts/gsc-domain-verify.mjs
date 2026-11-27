@@ -35,15 +35,15 @@ const propertyUrl = `https://search.google.com/search-console/sitemaps?resource_
 let opened = false
 let sitemapListed = false
 function browser(...parts) {
-  return execFileSync("opencli", ["browser", session, "--window", "dedicated", ...parts],
+  return execFileSync("opencli", ["browser", "--session", session, "--window", "foreground", ...parts],
     { encoding: "utf8", timeout: 90000, stdio: ["ignore", "pipe", "pipe"] }).trim()
 }
 function render() {
   // 被遮挡的专用窗口会暂停 GSC 的绘制；截图只推进合成帧，丢弃图像，不落盘或输出。
-  execFileSync("opencli", ["browser", session, "--window", "dedicated", "screenshot"],
+  execFileSync("opencli", ["browser", "--session", session, "--window", "foreground", "screenshot"],
     { stdio: ["ignore", "ignore", "pipe"], timeout: 90000 })
 }
-function evalJs(source) { return browser("eval", `(()=>{${source}})()`) }
+function evalJs(source) { const raw=browser("eval", `(()=>{${source}})()`); try { const r=JSON.parse(raw); if(r.ok===true && Object.hasOwn(r,"data")) return typeof r.data==="string"?r.data:JSON.stringify(r.data); } catch {} return raw }
 function open(url) { opened = true; browser("open", url) }
 function text() {
   // 2026-10-02：页面跳转瞬间 document.body 为 null，原写法会抛 TypeError；最多等 10 秒重取。
@@ -151,7 +151,7 @@ try {
         throw new Error("资源类型弹窗未打开，不能输入域名")
       }
       evalJs(`const el=${visibleDomainInput()};el.setAttribute('data-gsc-input','1');return true`)
-      const filled = JSON.parse(browser("fill", "[data-gsc-input=\"1\"]", domain))
+      const response = JSON.parse(browser("fill", "[data-gsc-input=\"1\"]", domain)); const filled = response.data ?? response
       if (!filled.verified || filled.actual !== domain) throw new Error("网域输入未被 GSC 接受")
       stamp("[...document.querySelectorAll('[role=dialog] [role=button]')].find(e=>e.offsetParent!==null&&e.getAttribute('aria-disabled')!=='true'&&/^(继续|Continue)$/i.test(e.innerText.trim()))", "网域继续")
     }

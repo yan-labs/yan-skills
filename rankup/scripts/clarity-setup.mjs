@@ -90,14 +90,14 @@ if (action === "create" && !name) name = site.split(".")[0]
 // ── OpenCLI 封装 ──────────────────────────────────────────
 function cli(action_, { timeout = 30000 } = {}) {
   try {
-    return execSync(`opencli browser "${session}" --window dedicated ${action_}`,
+    return execSync(`opencli browser --session "${session}" --window dedicated ${action_}`,
       { encoding: "utf-8", timeout, stdio: ["pipe", "pipe", "pipe"] }).trim()
   } catch (e) {
     const err = (e.stderr?.toString() || e.stdout?.toString() || e.message).trim()
     throw new Error(`opencli 失败: ${action_}\n  ${err}`)
   }
 }
-function evalJs(js) { return cli(`eval '${`(()=>{${js}})()`.replace(/'/g, "'\\''")}'`) }
+function evalJs(js) { const raw= cli(`eval '${`(()=>{${js}})()`.replace(/'/g, "'\\''")}'`); try { const r=JSON.parse(raw); if(r.ok===true && Object.hasOwn(r,"data")) return typeof r.data==="string"?r.data:JSON.stringify(r.data); } catch {} return raw }
 function open(url) { cli(`open "${url}"`) }
 function pageText(max = 4000) {
   return evalJs(`return (document.querySelector('main')||document.body).innerText.replace(/\\n{2,}/g,'\\n').slice(0,${max})`)

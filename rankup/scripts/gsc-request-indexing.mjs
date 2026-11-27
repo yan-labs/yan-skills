@@ -385,7 +385,7 @@ export function findButtonMatch(candidateTexts, wantList) {
  *    测试不会碰到它们。 ─────────────────────────────────────────── */
 function cli(action, { timeout = 60000 } = {}) {
   try {
-    return execSync(`opencli browser "${session}" --window dedicated ${action}`,
+    return execSync(`opencli browser --session "${session}" --window dedicated ${action}`,
       { encoding: "utf-8", timeout, stdio: ["pipe", "pipe", "pipe"] }).trim()
   } catch (e) {
     const timedOut = e.killed || e.signal === "SIGTERM" || e.code === "ETIMEDOUT"
