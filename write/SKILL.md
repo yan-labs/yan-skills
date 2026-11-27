@@ -29,6 +29,8 @@ description: |
 
 | 任务 | 第一站 |
 |---|---|
+| 工具站首页、长尾内页、FAQ、title、description（一页或一批） | `references/cards/site-page.md`，官方要求是必读 |
+| 看一页的 title 和 description 行不行 | `references/site-copy.md`「title 与 description」加官方层第四、五节，再跑 `check.py --meta` |
 | 落地页、定价页、功能页等营销文案 | `references/site-copy.md` |
 | 公众号长文、随笔、评论，要有人的声音 | `references/longform-voice.md` |
 | 标题、开头钩子 | `references/title-formulas.md` |
@@ -37,6 +39,8 @@ description: |
 | 翻译、摘要、只调格式、公众号 HTML | `references/translate-and-format.md` |
 | 站内 blog、模型页、对比文 | 交 blog Skill |
 | 这页该不该做、目标词是什么 | 交 rankup |
+
+稿子要落到建在站点引擎上的站时，字段落点、写入与验收顺序见 `cards/site-page.md`「落稿与验收：有站点引擎时」：先过 check.py，再写入，再用引擎的预览和体检验收，三步都过才算交稿。
 
 ## 诊断（用户说别扭、AI 味重时先做这个）
 
