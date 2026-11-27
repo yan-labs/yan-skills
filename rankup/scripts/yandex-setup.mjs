@@ -76,7 +76,7 @@
  * 已验证：2026-09-13（status 在两个真实已验证站点上跑通；add-site/verify 的
  * 交互序列取自同日真实跑通的手工操作记录，脚本化后未在真实账号里重新执行写
  * 操作——写操作的等价性由上面记录的 DOM 结构与网络判据保证，下次真正用到
- * add-site/verify 时如页面结构有出入，按 discipline.md 十五分诊后回写这里）。
+ * add-site/verify 时如页面结构有出入，按 discipline/drift-triage.md 分诊后回写这里）。
  */
 import { execSync, execFileSync } from "node:child_process"
 import { dirname, join, resolve as resolvePath } from "node:path"

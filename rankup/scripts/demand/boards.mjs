@@ -84,7 +84,7 @@
  *     --resolve-domains（读 /tool/<handle> 的 data[0].tool.website）。
  *     该行的 created_at 是榜单记录写入时间，不是工具收录时间，date 取榜单月份。
  *     是不是平台最近才去掉 website 未能证实（没有更早的 trending 实跑记录），
- *     按 discipline.md 十五只修脚本、不改参考文档。
+ *     按 discipline/drift-triage.md 只修脚本、不改参考文档。
  *   - toolify 榜单页（trending / revenue）一页即全量 300 条：?page=2 被忽略、原样返回
  *     第一页、next_page_url=null。旧代码 --pages 2 会灌出整页重复行；现在按
  *     next_page_url / total 停止翻页，并按 handle 去重。/new 的 total 上千、next_page_url=1，

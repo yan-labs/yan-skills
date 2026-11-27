@@ -173,7 +173,7 @@ rankup 自己只保留 `cf-zone-setup.mjs`（zone onboarding，**Wrangler 没有
 2. **它的核心限制条款 rankup 早就绕过了。** 它花了整节警告「`web_fetch`/`curl` 看不到 JS 注入的
    schema，请改用浏览器或 Rich Results Test」——rankup 有 opencli 真浏览器、有 `rankup-cli.mjs audit`
    逐页存 DOM/AX/网络结构，这个限制对 rankup 不成立。
-3. **判读层 rankup 更全。** 它的阈值建议是通用的；rankup 的 [`seo-box.md`](seo-box.md)
+3. **判读层 rankup 更全。** 它的阈值建议是通用的；rankup 的 [`seo-audit-reading.md`](seo-audit-reading.md)
    有「seo-audit 判读指引」的 error/warning 分级实测、Ahrefs 档位实测、第三方工具接不接的对账。
 
 **结论：不加载。**「帮我看看这站有什么 SEO 问题」的正确链路是

@@ -4,7 +4,7 @@
 
 ## 自建站流程
 
-### 3.1 初始化项目（原阶段 3）
+### 3.1 初始化项目
 
 #### 输入
 
@@ -102,7 +102,7 @@
 | 8 | 远端已建且**私有**（`gh repo view --json isPrivate` 为 true），脚手架状态已推送，`git log origin/HEAD..HEAD` 为空；公开的话 journal 里有用户明说的原话 | `git remote -v` |
 | 9 | 实际结构与 `architecture.md` 已对账，差异要么改代码要么改文档，没有放着不管 | `.rankup/architecture.md` |
 
-### 3.2 建立 Cloudflare 全栈基础（原阶段 4，域名部分已移到段 5）
+### 3.2 建立 Cloudflare 全栈基础（域名部分已移到段 5）
 
 #### 输入
 
@@ -162,7 +162,7 @@
 | 8 | 匿名页面线上连续两次 `curl` 第二次带 `x-edge-cache: HIT` 且 TTFB 明显下降 | `.rankup/infrastructure.md` |
 | 9 | Day-1 默认清单（D1–D15）逐条核对，客观通过条件见 [`checklists.md`](../checklists.md) 段 3 对应行；**没有跳过任何一条也没有留到段 4 才做** | `checklists.md` 段 3 |
 
-### 3.3 开发与测试（原阶段 5）
+### 3.3 开发与测试
 
 #### 输入
 
@@ -196,7 +196,7 @@
 | 7 | 本轮新增页面/区块过了无占位扫描，零命中 | grep 输出 |
 | 8 | 本轮新增的每一个 UI 控件都来自 `components/ui/`、`shadcn add` 或已安装的 shadcn / React 生态组件；**没有一个手写的下拉框、弹窗、日期选择、表格分页、Toast**。判据是 `grep -rn "role=\"dialog\"\|role=\"listbox\"\|<select" apps/` 命中的都在组件库内部，业务代码里没有 | 本轮 diff + `components/ui/` 清单 |
 
-### 3.4 集成专项能力（原阶段 6）
+### 3.4 集成专项能力
 
 #### 输入
 

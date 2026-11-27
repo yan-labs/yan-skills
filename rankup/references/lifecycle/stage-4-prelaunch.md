@@ -1,6 +1,6 @@
 # 生命周期 · 段 4：上线前 SEO/GEO
 
-> 本文件是 [`lifecycle.md`](../lifecycle.md) 的段 4 全文（2026-09-30 从单文件拆出）。开工先做[对账](../lifecycle.md#每段开头的固定动作对账原阶段-0)；闸门判据在 [`checklists.md`](../checklists.md) 段 4，本文件只写怎么做。
+> 本文件是 [`lifecycle.md`](../lifecycle.md) 的段 4 全文（2026-09-30 从单文件拆出）。开工先做[对账](../lifecycle.md#每段开头的固定动作对账)；闸门判据在 [`checklists.md`](../checklists.md) 段 4，本文件只写怎么做。
 
 ## 目录
 
@@ -35,7 +35,7 @@
 | 在预览域上做完，预览域 **noindex** | 半成品被收录，第一印象就是半成品 |
 | **页面与问法簇的关系** | 唯一规划源见 [段 2 · 2.3](stage-2-positioning.md#23-问法簇--页面--faqdescription与站点结构) |
 | 每页目标词 + 密度达标；价格表等无关区块改**客户端加载**，SSR 只输出目标文案（与 [`seo-ssr.md`](../seo-ssr.md) 的「首次交互后注入」是同一节）；**想被 AI 引用的价格表与推荐位除外，保持 SSR**（OpenAI 爬虫不执行 JS，2024-12 单一独立实测） | 密度按 SSR 输出的 HTML 算，无关区块会把目标词冲淡 |
-| **占位专项复查**是上线 review 必做项：按 sitemap 逐 URL grep（正则见 `discipline.md` 十四）+ 人工抽查首页/定价/关于/联系/法律页每个链接可点、每张图有内容，重跑不采信上一轮 | 段 3 的开发期禁令拦不住上线后仍有占位——这是漏法本身，闸门必须落在「上线前」这个时间点上才管用 |
+| **占位专项复查**是上线 review 必做项：按 sitemap 逐 URL grep（正则见 `discipline/placeholders.md`）+ 人工抽查首页/定价/关于/联系/法律页每个链接可点、每张图有内容，重跑不采信上一轮 | 段 3 的开发期禁令拦不住上线后仍有占位——这是漏法本身，闸门必须落在「上线前」这个时间点上才管用 |
 | **Cloudflare 循环消耗红线未通过不许启用付费后台链路**：上线前复查 `checklists.md` 段 3 同名项，操作按 [§8.9](../cloudflare-stack.md#89-循环消耗与账单熔断红线)，不采信旧勾选 | SEO/性能全绿不能证明后台有界；预览测试也可能计费 |
 | **图标专项未通过不许上线**：段 4 必过 `checklists.md` 图标专项，操作统一见本文件段 4 · A 节；发布后正式域名回读 | 必须核对全部实际引用与图案，文件存在、200 或标签页正常都不能代替实图核验；搜索结果刷新单独观察 |
 | **上线前与发布后复核入口**：`checklists.md` D1 / D4 / D12 / D13 / P3（索引水合、Schema 语义、网格与键盘、SSR 可达性、分析去重与真实上报），上线前与发布后各核一次 | 这几项在预览域与正式域名上的表现可能不同，只核一次会漏掉域名切换带来的回退 |
@@ -174,7 +174,7 @@
 | B8 | 全站 title / description / `og:image` 三样逐页互不重复；每页至少一张真实 `<img>`；`og:image` 尺寸声明是真值 | seo-audit `--json` |
 | B9 | `llms.txt` 的路径与 sitemap 逐条对得上，没有模板行 | curl + diff |
 | C0–C6 | 上线前闸门九行（含 4b、4c）逐行有证据，落点按 C 节表格。**只跑了命令、没留证据不算过**；预览封锁引起的 robots 类问题标了「设计」 | `audit.md` / `agentic/` / `baseline.md` / `evidence/` |
-| C-占位 | **上线 review 必含占位专项**：按 sitemap 逐 URL grep [`discipline.md`](../discipline.md) 十四的正则，零命中；人工抽查首页/定价/关于/联系/法律页每个链接可点、每张图有内容；**本轮 review 必须重跑，不采信上一轮（含段 3 开发期）的结果**——页面在这之间可能又动过 | grep 输出（逐 URL）+ 人工抽查记录进 `.rankup/audit.md` |
+| C-占位 | **上线 review 必含占位专项**：按 sitemap 逐 URL grep [`discipline/placeholders.md`](../discipline/placeholders.md) 的正则，零命中；人工抽查首页/定价/关于/联系/法律页每个链接可点、每张图有内容；**本轮 review 必须重跑，不采信上一轮（含段 3 开发期）的结果**——页面在这之间可能又动过 | grep 输出（逐 URL）+ 人工抽查记录进 `.rankup/audit.md` |
 | C10 | 外部工具与 AI 的每条发现都逐条判过；**被否决的都写了理由**，与硬约束冲突的写明冲突的是哪条 | `.rankup/audit.md` |
 | C11 | 分数逼近满分时写了封板声明，剩余建议逐条判「不做」及理由 | `.rankup/audit.md` |
 | C12 | 本段内每一轮页面改动之后都**全套**重跑了 0–6 + 4b + 4c，对比数字进了 `experiments.md`；**没有「只重跑某两行」的记录** | `.rankup/experiments.md` |

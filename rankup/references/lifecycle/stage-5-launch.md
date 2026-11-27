@@ -12,7 +12,7 @@
   - [完成门禁](#完成门禁)
   - [交给下一段的](#交给下一段的)
 
-> 本文件是 [`lifecycle.md`](../lifecycle.md) 的段 5 全文（2026-09-30 从单文件拆出）。开工先做[对账](../lifecycle.md#每段开头的固定动作对账原阶段-0)；闸门判据在 [`checklists.md`](../checklists.md) 段 5，本文件只写怎么做。
+> 本文件是 [`lifecycle.md`](../lifecycle.md) 的段 5 全文（2026-09-30 从单文件拆出）。开工先做[对账](../lifecycle.md#每段开头的固定动作对账)；闸门判据在 [`checklists.md`](../checklists.md) 段 5，本文件只写怎么做。
 
 ## 段 5：上线与接入
 
@@ -138,7 +138,7 @@ API 能立刻生效。AI 爬虫的 Bot Management 四字段已有 zone API，按
 16a. **绑定正式域名后主动补齐基础安全**：域名可访问后按 [`cloudflare-stack.md`](../cloudflare-stack.md) §8.8 检查并配置；在 5.4 的生产验证中一并验收，再放开索引。已上线站 review 补查，开发期无需提前完成正式域名配置。
     新 zone 同时按 §8.5 显式关闭 Bot Management 四个 AI 拦截字段；正式域名上线按 [`checklists.md`](../checklists.md) 段 5 的 AI 爬虫实测闸门验收。
 
-**5.4 部署到正式域名并真实线上验证（原阶段 7）**
+**5.4 部署到正式域名并真实线上验证**
 
 17. 部署前确认精确 Git SHA、目标环境、bindings、待执行迁移、域名和回滚点。
 18. **默认部署路径是 Cloudflare Git 集成**（Pages 用「Git 存储库连接」，Worker 用 Workers Builds）：

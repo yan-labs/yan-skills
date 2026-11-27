@@ -209,7 +209,7 @@ test("chatbot uninstall: 注入清单可关闭 —— window.__rk 拿得掉", ()
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// integrations.md 里的 captureDownloadedBlob 范本
+// search-platforms.md 里的 captureDownloadedBlob 范本（2026-11-27 从 integrations.md 并入）
 //
 // 它是**文档里的代码片段**，没有任何执行路径会跑到它——所以更容易悄悄烂掉，
 // 而它偏偏是别人会照抄的范本。老版本三行搞定：永久换掉 URL.createObjectURL、
@@ -219,12 +219,12 @@ test("chatbot uninstall: 注入清单可关闭 —— window.__rk 拿得掉", ()
 // ═══════════════════════════════════════════════════════════════════════════
 
 function loadSnippet() {
-  const md = readFileSync(path.join(root, "rankup/references/integrations.md"), "utf8");
+  const md = readFileSync(path.join(root, "rankup/references/search-platforms.md"), "utf8");
   const block = md
     .split(/```js\n/)
     .map((chunk) => chunk.split("```")[0])
     .find((chunk) => chunk.includes("async function captureDownloadedBlob"));
-  assert.ok(block, "integrations.md 里找不到 captureDownloadedBlob 范本");
+  assert.ok(block, "search-platforms.md 里找不到 captureDownloadedBlob 范本");
   const body = block.split("// 用法：")[0];
   return new Function("URL", "setTimeout", `${body}\nreturn captureDownloadedBlob`);
 }

@@ -52,6 +52,12 @@
 | [`evolution.md`](evolution.md) | 经验回流的晋升门、失败分类、证据阶梯 |
 | [`discipline.md`](discipline.md) | 执行纪律、红线、测试身份与登录通路、部署红线 |
 | [`discipline/browser-rendering.md`](discipline/browser-rendering.md) | 驱动浏览器等第三方页面渲染卡住时 |
+| [`discipline/browser.md`](discipline/browser.md) | 纪律五全文：浏览器通道、例外与下载目录 |
+| [`discipline/panels.md`](discipline/panels.md) | 纪律六全文：数据面板先查能力表、会话名、流量口径 |
+| [`discipline/integrations-board.md`](discipline/integrations-board.md) | 纪律十全文：接入看板与完整平台清单 |
+| [`discipline/tokens.md`](discipline/tokens.md) | 纪律十一全文：令牌放 Skill `.env` 与读取顺序 |
+| [`discipline/placeholders.md`](discipline/placeholders.md) | 纪律十四全文：占位五类型、grep 正则、处置原则 |
+| [`discipline/drift-triage.md`](discipline/drift-triage.md) | 纪律十五全文：面板对不上时的五层分诊 |
 | [`registry.md`](registry.md) | 可复用接入分支登记 |
 | [`capability-map.md`](capability-map.md) | 全量能力底账：说的事别处没有时先查 |
 | [`skill-ecosystem.md`](skill-ecosystem.md) | 兄弟 Skill 编排：什么时候不该自己动手 |
@@ -84,7 +90,8 @@
 | [`seo-agentic-scan.md`](seo-agentic-scan.md) | AI 代理就绪度扫描 |
 | [`seo-ssr.md`](seo-ssr.md) | 无关区块不进 SSR；AI 爬虫 UA 一致性 |
 | [`seo-helpful-content.md`](seo-helpful-content.md) | 有用内容、E-E-A-T、AI 内容自检 |
-| [`seo-box.md`](seo-box.md) | 外部工具清单对账、PageSpeed 判读、AITDK 报告离线分流 |
+| [`seo-box.md`](seo-box.md) | 外部工具清单对账、AITDK 报告离线分流、重定向链与技术栈指纹 |
+| [`seo-audit-reading.md`](seo-audit-reading.md) | PageSpeed 网页版与 LHR 直抠、`seo-audit.mjs` 观察记录的分级判读 |
 | [`seo-opportunity.md`](seo-opportunity.md) | 候选池与冷启动的背景框架 |
 | [`seo-data-channels.md`](seo-data-channels.md) | 接新项目时选数据通道 |
 | [`seo-workflow.md`](seo-workflow.md) | 每轮 SEO 优化的工作流 |
@@ -99,8 +106,9 @@
 | [`cloudflare/deploy.md`](cloudflare/deploy.md) | 自建站部署 |
 | [`cloudflare/domain-email.md`](cloudflare/domain-email.md) | 绑域名、品牌邮箱 |
 | [`design-references.md`](design-references.md) | 页面设计参考案例；多功能工具站侧栏统一规范 |
-| [`search-platforms.md`](search-platforms.md) | GSC、Bing、IndexNow 等搜索平台接入 |
-| [`analytics-platforms.md`](analytics-platforms.md) | GA4、Clarity 等分析平台接入 |
+| [`search-platforms.md`](search-platforms.md) | GSC、Bing、IndexNow 等搜索平台接入；所有权验证与抓取指令通用规则 |
+| [`search-platforms/regional.md`](search-platforms/regional.md) | Naver、Yandex、DuckDuckGo |
+| [`analytics-platforms.md`](analytics-platforms.md) | GA4、Clarity 等分析平台接入；隐私声明、同意门槛与 snippet 通用规则 |
 | [`integrations/site-engine.md`](integrations/site-engine.md) | 站建在站点引擎上：开工核对、工具分组、返回字段、成批多站、稿件包、漂移核对 |
 | [`integrations/browser-data.md`](integrations/browser-data.md) | 登录态后台批量取数、网页版 AI 取答 |
 | [`integrations/kie.md`](integrations/kie.md)、[`integrations/kie-models.md`](integrations/kie-models.md) | 需要 AI 图片或视频生成时的可选供应商与模型快照 |

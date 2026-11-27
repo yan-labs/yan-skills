@@ -111,11 +111,7 @@ node "<rankup-skill-dir>/scripts/maintain/rankup-clean.mjs" --workspace <工作�
 **触发**：在整理项目 `.rankup/` 记录的语境下，「/rankup doctor」「doctor」「整理一下项目记录」「整理一下 rankup」「帮我把这个项目的 .rankup 重新整理」「.rankup 太乱了」。
 它就是本章的显式入口：用在一个用了很久、产出很多文档的项目上，一次性把整个 `.rankup/` 与相关记录整理到「只留长远规划和当前进展」。
 
-| 命令 | 回答什么 | 动什么 |
-|---|---|---|
-| `rankup check` | 现在在哪一段、下一步做什么 | 只读定位，零配额 |
-| `rankup review` | 这个站本身有什么问题 | 全站体检，修站 |
-| `rankup doctor` | 项目记录还可不可信、好不好接手 | 只整理 `.rankup/` 与根层登记，不碰站点代码与线上 |
+三个命令与 init 的分工只在 [`commands.md`「四个命令的分工」](commands.md#四个命令的分工)；doctor 只整理 `.rankup/` 与根层登记，不碰站点代码与线上。
 
 **与开工叠加**：doctor 免 `check-version` 与线上三方对账；诊断阶段纯只读免写接力，实际改记录前仍先写，里程碑更新，最后覆盖；禁止改 Skill 的任务即使在源码检出也只给候选文字或允许范围内的 `upstream-candidates.md`。
 

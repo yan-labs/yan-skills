@@ -79,7 +79,7 @@ Rankup 只负责判断**什么时候需要哥飞数据、结果如何进入本�
 
 | 工具 | 当前文档 / 源码口径 | 判读入口 |
 |---|---|---|
-| `seo-audit.mjs` | title 10–60 / description 50–160，字符数 | 分级只见 [seo-box.md「seo-audit 判读指引」](seo-box.md#seo-audit-判读指引分级表从脚本迁来) |
+| `seo-audit.mjs` | title 10–60 / description 50–160，字符数 | 分级只见 [seo-audit-reading.md「seo-audit 判读指引」](seo-audit-reading.md#seo-audit-判读指引分级表从脚本迁来) |
 | `seo-webcafe.mjs string` | title 30–60 / description 70–160；ASCII 记 1，其他字符记 2，近似展示宽度 | 本地长度观察，不是实际像素测量 |
 | Ahrefs | 既有文档记录 description 110–160；随报告口径与抓取日期核对 | 档位与报告边界见 [seo-box.md「Ahrefs AWT 免费档」](seo-box.md#ahrefs-awt-免费档边界在哪能拿什么) |
 

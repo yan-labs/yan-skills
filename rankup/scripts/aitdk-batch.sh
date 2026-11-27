@@ -45,7 +45,7 @@ set -uo pipefail
 # exactly that worker's whole subtree (`kill -TERM -- -$pid`) instead of either doing
 # nothing to its grandchildren (a plain `kill $pid` on a shell blocked on a foreground
 # child does not reach that child — the classic orphaned-process failure mode from
-# discipline.md 八) or `kill 0`, which would hit THIS script's own process group and
+# references/experiences/ops-pitfalls.md) or `kill 0`, which would hit THIS script's own process group and
 # risk killing whatever invoked it.
 set -m
 

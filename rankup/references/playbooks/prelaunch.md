@@ -12,8 +12,8 @@
 
 1. 开工对账：`.rankup/checks.md` 里标「每轮」「动了页面」的项打回 ⬜。
 2. 逐项过 [`checklists.md` 段 4](../checklists.md#段-4--上线前-seogeo预览域-noindex九行闸门)，操作按 [`stage-4-prelaunch.md` 必做动作](../lifecycle/stage-4-prelaunch.md#必做动作)。
-3. 技术与 TDK：`node scripts/seo-audit.mjs --sitemap <sitemap-url>`；密度 `--density-only`；判读按 [`seo-box.md` 判读指引](../seo-box.md#seo-audit-判读指引分级表从脚本迁来)。
-4. 性能：`node scripts/pagespeed.mjs collect --strategy both`，判读按 [`seo-box.md` 一](../seo-box.md#一--pagespeed-网页版--补上闸门-6-缺的那一半)。
+3. 技术与 TDK：`node scripts/seo-audit.mjs --sitemap <sitemap-url>`；密度 `--density-only`；判读按 [`seo-box.md` 判读指引](../seo-audit-reading.md#seo-audit-判读指引分级表从脚本迁来)。
+4. 性能：`node scripts/pagespeed.mjs collect --strategy both`，判读按 [`seo-box.md` 一](../seo-audit-reading.md#一--pagespeed-网页版--补上闸门-6-缺的那一半)。
 5. GEO 与 AI 代理：`scripts/is-agentic.mjs scan --save`、`scripts/ai-crawler-access.mjs --url <域名>`、`scripts/ua-parity.mjs <url>`。
 6. **图标专项**：按 [`stage-4-prelaunch.md` A 节](../lifecycle/stage-4-prelaunch.md#必做动作)逐个取图并解码核对。图标专项未通过不许上线。
 7. **占位专项**：按 sitemap 逐 URL grep（正则见 [纪律十四](../discipline.md)）加人工抽查首页、定价、关于、联系、法律页。

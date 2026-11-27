@@ -4,7 +4,7 @@
  *
  * 双证人化第二波（2026-08-30）：本脚本降级为**纯机械工具**——只输出事实
  * （标签存在与否、长度、计数、密度），不再给 error/warning/info 分级，也不给
- * 修复建议。分级与阈值判读表迁到 references/seo-box.md「seo-audit 判读指引」，
+ * 修复建议。分级与阈值判读表迁到 references/seo-audit-reading.md「seo-audit 判读指引」，
  * 由拿着上下文的判读者决定哪条算致命。每页抓取失败也进输出
  * （`{url, fetchError}`），不再只在 stderr 里喊一声就丢掉。
  *

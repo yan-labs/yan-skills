@@ -17,7 +17,7 @@
 - 三条规则
 - 复查口径：哪些 check 下一轮还要再过
 - 状态记在 `<project>/.rankup/checks.md`
-- 对账 · 每段开头的固定动作（原阶段 0）
+- 对账 · 每段开头的固定动作
 - 段 1 · 调研
 - 段 2 · 立项与定位
 - 段 3 · 建站与开发
@@ -27,12 +27,9 @@
 - 段 7 · 变现与监控
 - 缺 check 的时候
 
-## 旧阶段号 → 新七段
+## 旧阶段号
 
-3.0 起环节按七段编号；项目里旧的 `.rankup/checks.md` 用的是阶段 `0`–`10` 与 `7.5`。对照表在
-[`lifecycle.md`](lifecycle.md) 顶部「旧阶段号 → 新七段 映射表」，速记：
-`0` → 每段开头的对账 · `1` → 段 1 · `2` → 段 2 · `3/4/5/6` → 段 3 · `7.5` 的 D 表 → 段 4 ·
-`4` 的域名部分 + `7` + `7.5` 的接入 → 段 5 · `9` → 段 6 · `8/10` → 段 7。读到旧号按此换算，不重写旧 `checks.md`。
+项目里旧的 `.rankup/checks.md` 若还用阶段 `0`–`10` 与 `7.5`，按 [`lifecycle.md`「旧阶段号 → 新七段 映射表」](lifecycle.md#旧阶段号--新七段-映射表) 换算，不重写旧 `checks.md`。
 
 ## 两层 check：闸门 + 步骤
 
@@ -91,7 +88,7 @@
 
 ---
 
-## 对账 · 每段开头的固定动作（原阶段 0）
+## 对账 · 每段开头的固定动作
 
 说明见 [`lifecycle.md`](lifecycle.md)「每段开头的固定动作：对账」。**每一段开工前都过一遍**，不是只在段 1 之前。
 
@@ -156,7 +153,7 @@ Web组件、Cloudflare和后续URL/SEO检查仅适用Web面；原生App按[`life
 | 构建缓存生效 | 无 | 连续两次构建，第二次命中缓存 | 项目仓库 | 连跑两次比对耗时与缓存日志 | 一次 |
 | 站点身份不是模板占位 | 覆 | title/description/manifest/OG 里没有脚手架预设文案，且是段 2 裁定的语种；`<html lang>` 对得上 | 项目仓库 | grep 脚手架默认字符串及模板占位站名/文案；用模板时尤其要核对模板占位已全部替换 | 一次 |
 | **无占位红线** | 外 | 全站任何页面任何地方**没有**占位链接（`href="#"`、`example.com`、`javascript:void(0)`）、占位文案（lorem ipsum、「待补充」、`Project ready!`、`Hello world`）、占位图片（灰块、`placeholder`、`via.placeholder`）；grep 零命中且预览域逐页人眼过过 | grep 输出 + `.rankup/audit.md` | 扫描词表见 [`lifecycle/stage-3-scaffold.md`](lifecycle/stage-3-scaffold.md) 段 3 · 3.1 第 7 条。**Google 据此判垃圾站，整站连坐**；命中的要么换真实内容要么删区块，不许「先留着」 | 动了页面 |
-| **占位专项：源码 grep 零命中** | 外 | 源码目录用 [`discipline.md`](discipline.md) 十四那批正则全量 `grep -rn`（排除 `node_modules`、构建产物），零命中；命中的立即处置，不许标「待补」 | 命令与输出进 `.rankup/audit.md` | 正则见 discipline 十四；这是与「无占位红线」互补的**独立必过项**——前者是人眼过页面，这项是机械扫源码，两者都要过 | 动了页面 |
+| **占位专项：源码 grep 零命中** | 外 | 源码目录用 [`discipline/placeholders.md`](discipline/placeholders.md) 那批正则全量 `grep -rn`（排除 `node_modules`、构建产物），零命中；命中的立即处置，不许标「待补」 | 命令与输出进 `.rankup/audit.md` | 正则见 `discipline/placeholders.md`；这是与「无占位红线」互补的**独立必过项**——前者是人眼过页面，这项是机械扫源码，两者都要过 | 动了页面 |
 | **域名是一处配置留位** | 无 | 域名只存在于一个常量/环境变量；**全仓库 grep 不到域名字面量**；预览构建输出 `noindex` 与 `robots.txt` `Disallow: /`，两处由同一个索引开关控制 | 项目仓库 + 预览域 `curl` | 做法见 [`lifecycle/stage-3-scaffold.md`](lifecycle/stage-3-scaffold.md) 段 3 · 3.1 第 6 条。开发期不接正式域名 | 一次 |
 | **远端仓库私有且已推送** | 无 | `gh repo view --json isPrivate` 为 true，当前状态已推；若公开，journal 里有用户明说「公开」的原话 | 项目仓库 | `gh repo create <name> --private --source . --push`。未上线项目的仓库里带着选题与定价策略，公开等于把选题送人 | 每轮 |
 | 入库内容不含凭据 | 外 | 将要入库的文件里没有真实密钥、token、私钥 | 项目仓库 | 提交前扫一遍 diff | 每轮 |
@@ -208,9 +205,9 @@ Web组件、Cloudflare和后续URL/SEO检查仅适用Web面；原生App按[`life
 | **功能声明逐条对代码核** | 外 | 页面与首页对比表里每一条「有 / 无」都能指到源码；产品文档（FEATURES 之类）与代码不一致时以代码为准并回改文档；不写「即将推出」占位 | agent 报告里的 file:line 清单进 `.rankup/audit.md` | 起稿 prompt 写「只写代码能证明的，证明不了就删」；产品文档可能把桩或菜单入口误写成可用功能或快捷键，必须以源码核实 | 动了页面 |
 | 闸门 0 · 站点身份 | 配 | OG 元数据（`og:image` ≥1200px，逐页独立）与图标全集预览域 200，`manifest.json` 引用全部命中真实文件，标记经 16px 实测；`manifest.json` 的 `display` 按站点类型判过（详见 [段 4 操作](lifecycle/stage-4-prelaunch.md) 段 4 · A 节第 5b 条），纯营销/引流/内容站预览域没有浏览器安装提示；无占位扫描零命中 | `.rankup/integrations.md` | [段 4 操作](lifecycle/stage-4-prelaunch.md) A 节、C0 | 动了页面 |
 | **图标专项（上线前必过）** | 配 | 标准图标集（由同一品牌 logo 源图通过 `make-favicons.mjs` 生成的 `favicon.ico` 内含 16/32/48、`favicon-48.png`、`favicon-96.png`、`favicon-192.png`、`apple-touch-icon.png` 180×180、`icon-512.png`）做齐；首页及各模板的 SSR / 水合后 DOM 所有 icon、shortcut icon、apple-touch-icon 引用，manifest icons 与根 `/favicon.ico` 均完成核对；head 声明 `<link rel="icon" href="/favicon.ico" sizes="48x48">` 与 48/96/192 三个 PNG 图标及 apple-touch-icon、manifest，不引用与 logo 不一致的 SVG；逐个 GET 为 200 且解码为真图（非 HTML），响应类型、声明尺寸与真实尺寸一致，方形、URL 稳定且有 ICO/PNG 搜索回退；每张图经人眼确认属于同一品牌、非脚手架默认图标；16px 可辨认 | 引用清单、响应类型/真实尺寸、实图预览进 `.rankup/audit.md` | [段 4 操作](lifecycle/stage-4-prelaunch.md) 段 4 · A 节第 4–5a 条；仅有文件或浏览器标签显示正常均不算通过 | 动了图标或 head/manifest |
-| **占位专项（硬性红线，不过不许进段 5）** | 外 | 按 sitemap 逐 URL `curl` 全站 HTML，用 [`discipline.md`](discipline.md) 十四那批正则 grep 零命中；**且人工抽查首页、定价页、关于页、联系页、法律页（隐私政策/条款）**，每个链接真的可点（不是 404、不是 `#`）、每张图真的有内容（不是占位图床、不是空 `src`）；按[建设中红线](discipline.md#二十一禁止建设中内容与功能区域)核渲染词表命中 0、无未实现或无后端入口、设计稿与说明待上线状态 0 | grep 输出（逐 URL）+ 人工抽查记录进 `.rankup/audit.md` | [段 4 操作](lifecycle/stage-4-prelaunch.md)「步骤 check」C-占位；`seo-audit.mjs` 的 `PLACEHOLDER_*` 只做字面检测，不能替代人工抽查；`site-page-audit.mjs` 检查文本与元数据，逐入口回读实现 | 动了页面 |
+| **占位专项（硬性红线，不过不许进段 5）** | 外 | 按 sitemap 逐 URL `curl` 全站 HTML，用 [`discipline/placeholders.md`](discipline/placeholders.md) 那批正则 grep 零命中；**且人工抽查首页、定价页、关于页、联系页、法律页（隐私政策/条款）**，每个链接真的可点（不是 404、不是 `#`）、每张图真的有内容（不是占位图床、不是空 `src`）；按[建设中红线](discipline.md#二十一禁止建设中内容与功能区域)核渲染词表命中 0、无未实现或无后端入口、设计稿与说明待上线状态 0 | grep 输出（逐 URL）+ 人工抽查记录进 `.rankup/audit.md` | [段 4 操作](lifecycle/stage-4-prelaunch.md)「步骤 check」C-占位；`seo-audit.mjs` 的 `PLACEHOLDER_*` 只做字面检测，不能替代人工抽查；`site-page-audit.mjs` 检查文本与元数据，逐入口回读实现 | 动了页面 |
 | 闸门 1 · 技术 SEO | 覆 | sitemap 条目与按 D10 裁定的 URL 集合一致且零 404；全体可索引页面的 SSR 可达性另按 P3 核验；内链零 404、零 `href="#"`；`llms.txt` 列出的路径与真实 URL 一致（不是模板占位）；robots 除预览封锁外未误挡应收录路径；已验证 Ahrefs 所有权时，本地与 Ahrefs 两边均无问题才通过，记录 Ahrefs 抓取日期，逐 URL 对账后修复并重抓核销 | `.rankup/audit.md` | [段 4 操作](lifecycle/stage-4-prelaunch.md) C1；Ahrefs 逐 URL 清单与重抓核销见 [工具取数](seo-box.md)「Ahrefs AWT 免费档」 | 动了页面 |
-| 闸门 2 · TDK | 覆 | 全站 title 互不重复、description 互不重复且长度在截断阈值内；**每页恰好一个 `h1`**；必修观察项清零（seo-audit 已改为只出事实记录，哪些算必修按 [工具取数](seo-box.md)「seo-audit 判读指引」判：NO_TITLE / NO_DESCRIPTION / NO_VIEWPORT / NO_H1 等为零，`fetchError` 为零——抓取失败 ≠ 通过；预览域的 NOINDEX 记为设计）。**覆盖全站每一个 URL，不是抽样** | `.rankup/audit.md`（逐 URL，不是一条总述） | [段 4 操作](lifecycle/stage-4-prelaunch.md) C2；`--json` 顶层经 `Object.values()` 逐页读 `issues`，title/description 为 `{text,length}` 对象 | 动了页面 |
+| 闸门 2 · TDK | 覆 | 全站 title 互不重复、description 互不重复且长度在截断阈值内；**每页恰好一个 `h1`**；必修观察项清零（seo-audit 已改为只出事实记录，哪些算必修按 [`seo-audit-reading.md`](seo-audit-reading.md)「seo-audit 判读指引」判：NO_TITLE / NO_DESCRIPTION / NO_VIEWPORT / NO_H1 等为零，`fetchError` 为零——抓取失败 ≠ 通过；预览域的 NOINDEX 记为设计）。**覆盖全站每一个 URL，不是抽样** | `.rankup/audit.md`（逐 URL，不是一条总述） | [段 4 操作](lifecycle/stage-4-prelaunch.md) C2；`--json` 顶层经 `Object.values()` 逐页读 `issues`，title/description 为 `{text,length}` 对象 | 动了页面 |
 | 闸门 3 · 关键词密度 | 外 | 密度在自然区间，且**「声明的短语」与「测量的短语」逐页是同一个字符串** | `.rankup/audit.md` | [段 4 操作](lifecycle/stage-4-prelaunch.md) B6、C3 | 动了页面 |
 | **sitemap 内容日期** | 覆 | 每个 URL 有有效 lastmod、无未来日期；全站同日须核实真实历史；内容更改后对应日期确实变化 | sitemap 快照及改动前后证据 | `sitemap-lastmod-check.mjs <域名>` + 对照内容提交 | 动了页面 |
 | 闸门 4 · GEO / AI Agent 就绪度 | 外 | 有带分数与逐项结果的基线报告，且**每条 `partial`/`failed` 都独立核实过**（成立则改，误报则记驳回理由）；`llms.txt` 存在且与 sitemap 一致 | `.rankup/agentic/<domain>/<date>.json` + 核实结论进 `audit.md` | `is-agentic.mjs scan <domain> --save` | 动了页面 |

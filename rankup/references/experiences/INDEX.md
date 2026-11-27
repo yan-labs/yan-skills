@@ -30,6 +30,8 @@
 | [`demand-judgment.md`](demand-judgment.md) | **历史经营观察**：需求认知、CPC / 收益、付费信号与三个公式；旧裁决效力见文件头 | 参考经营假设与证据边界时；不作当前选词裁决入口 |
 | [`selection-gates.md`](selection-gates.md) | **旧七闸的经营观察字段**：硬约束、频次、痛点、付费、护城河、获客与历史案例；只描述候选，不单独否决 | 写开发方案里的经营假设时 |
 | [`selection-history.md`](selection-history.md) | **六轮选品失败复盘**：倒序排查的来历、四条防复发规则、历史读数与证据分层 | 想知道为什么现在这样选品时 |
+| [`ops-pitfalls.md`](ops-pitfalls.md) | **已证实的高频操作错误**：取数入口、本地命令、匿名 200 等踩过的坑与正确做法 | 取数或操作前想确认有没有踩过的坑时 |
+| [`checker-failures.md`](checker-failures.md) | **检查器自身的失败形态**：可信的错误结果、空心断言、按类别漏检、批量测出 0、改一半、内容搬家 | 写或改门禁、校验器、测试时 |
 | [`zero-to-one.md`](zero-to-one.md) | **0→1 规划与迭代纪律**：「1」怎么定义、三道关、虚荣指标、打磨 vs 重构、止损线 | 规划新站、每轮迭代决定加注还是止损时 |
 | [`demand-discovery-sources.md`](demand-discovery-sources.md) | 需求挖掘分册：用户原话与信号源 | 找需求线索时 |
 | [`../seo-experiences.md`](../seo-experiences.md) | 方法层的带日期 SEO 实测判断；归档 [`../seo-experiences-2026-07.md`](../seo-experiences-2026-07.md)、[`../seo-experiences-2026-07-late.md`](../seo-experiences-2026-07-late.md) | 查某条 SEO 判断有没有实测时 |

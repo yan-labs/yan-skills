@@ -8,6 +8,7 @@
 - [6. 提交 sitemap](#6-提交-sitemap)
 - [验收：写进 .rankup/integrations.md 的东西](#验收写进-rankupintegrationsmd-的东西)
 - [7. Bing Webmaster 的「关键词研究」是一个被长期忽略的免费实测源](#7-bing-webmaster-的关键词研究是一个被长期忽略的免费实测源)
+- [接入通用规则：验证、增量提交与抓取指令](#接入通用规则验证增量提交与抓取指令)
 
 段 5 · 上线与接入的一个子环节，独立成文是因为它**每建一个站都要原样做一遍**，
 而每次重新摸索的成本远高于抄一份。这份文档要回答三件事：
@@ -191,169 +192,9 @@ meta 标签的形状（token 是公开值，本来就印在每一页的 HTML 里
 
 `gsc-domain-verify.mjs status|add-site --domain <域名>` 查验或添加网域资源；已有验证时不重复写 TXT。`bing-import-from-gsc.mjs --sites <域名> [--sitemap]` 只导入指定的缺失站点，提交前核对勾选。两者的 sitemap 状态与提交仍用 `webmaster-sitemap.mjs`。
 
-### 步骤 5：Naver Search Advisor（仅韩国市场）
+### 步骤 5–6 与 DuckDuckGo：区域搜索引擎
 
-**什么时候需要这一步：项目有韩文版（`/ko` 或 `.kr` 域名）才做。** 不做韩国市场可以跳过。
-
-韩国人基本上都在用 Naver，整个 Naver 生态相当于百度 + 小红书 + 大众点评 + 抖音的合体。
-Naver 虽然通过 IndexNow 被动接收 URL 推送，但 **Naver Search Advisor（站长工具）提供的
-站点诊断、收录状态、搜索分析是 IndexNow 给不了的**——和 Bing/GSC 一样，不注册就没有数据。
-
-入口：`https://searchadvisor.naver.com/`
-
-自动化脚本：`scripts/naver-setup.mjs`（`status` / `register` / `submit-sitemap`）
-
-```bash
-# 查看注册状态
-node <rankup-skill-dir>/scripts/naver-setup.mjs status --site example.com
-
-# 注册站点并获取验证 meta 标签
-node <rankup-skill-dir>/scripts/naver-setup.mjs register --site example.com
-
-# 验证通过后提交 sitemap
-node <rankup-skill-dir>/scripts/naver-setup.mjs submit-sitemap --site example.com
-```
-
-**CAPTCHA 限制：** 所有权验证需要人机验证，脚本会取出 meta 标签内容但无法自动完成验证点击。
-用户部署 meta 标签后必须在浏览器中手动完成验证。
-
-**输出是证据不是结论（2026-08-30 双证人化）：** `submit-sitemap` 每步截图落
-`.rankup/evidence/naver-setup-<ts>/`，结束时报「页面回读命中/未命中哪些文案 +
-suggested」。**eval 超时（读不到页面）不再被当成提交成功**——那只说明读不到，
-成没成看最后一张截图。
-
-#### 验证方式
-
-与 Bing/GSC 同理，优先 HTML meta 标签：
-
-```ts
-{ name: "naver-site-verification", content: NAVER_SITE_VERIFICATION }
-```
-
-Naver 也支持 HTML 文件上传和 DNS TXT，选择逻辑与上面 GSC/Bing 一致。
-
-#### 验证后要做的
-
-1. **提交 sitemap**——`node <rankup-skill-dir>/scripts/naver-setup.mjs submit-sitemap --site example.com`，
-   或在 Search Advisor 后台「要求 > Sitemap 提交」里手动提交，
-   地址格式与 GSC/Bing 一致（`https://example.com/sitemap.xml`）。
-2. **提交 RSS**——Naver 额外支持 RSS 订阅源提交，对博客/内容型站点有加速收录效果。
-3. **查看「网站诊断」**——Naver 有自己的一套诊断标准，与 Google Lighthouse 不完全重叠，
-   上线后跑一次，把结果记进 `.rankup/audit.md`。
-
-#### 注意事项
-
-- **Naver 账号注册可能需要韩国手机号验证**，这是用户本人的事，不代做。
-  如果用户没有韩国手机号，可以尝试用邮箱注册的国际版流程。
-- **日本以外的 Yahoo 用的是 Bing 引擎，日本 Yahoo 用的是 Google 引擎。**
-  所以做日本市场不需要额外接 Yahoo，GSC 已经覆盖；做其他市场 Bing Webmaster 已经覆盖 Yahoo。
-- **Naver 的爬虫 User-Agent 是 `Yeti`**，确认 `robots.txt` 没有误拦它。
-
-### 步骤 6：Yandex Webmaster
-
-**什么时候需要这一步：建议所有站点都接。** Yandex 是全球第五大搜索引擎，俄罗斯市场占有率超过 60%。
-即使不做俄语市场，Yandex 也是 IndexNow 的共同创建者——注册 Webmaster 能拿到收录状态和搜索分析数据，
-而且 Yandex 对行为指标的权重远高于 Google（用户停留时长、跳出率、点击率都直接影响排名），
-这些数据本身就有参考价值。
-
-入口：`https://webmaster.yandex.com/`
-
-自动化脚本：`scripts/yandex-setup.mjs`（`status` / `add-site` / `verify`），这是默认路径，
-不要手工点后台——添加站点、选 DNS record 验证方式、把 TXT 记录写进 Cloudflare、点
-Verify 全部由脚本完成，只有 DNS 传播这段等待需要人耐心：
-
-```bash
-# 查验证状态（只读）
-node <rankup-skill-dir>/scripts/yandex-setup.mjs status --site https://example.com
-
-# 添加站点 + 从页面 DOM 取 DNS TXT 验证值 + 自动写进 Cloudflare DNS
-# （站点已存在、TXT 已存在都会被识别并跳过，不重复加）
-node <rankup-skill-dir>/scripts/yandex-setup.mjs add-site --site https://example.com
-
-# 可选：验证 pending 也能提交 sitemap，不用等两天，串起来一次做完
-node <rankup-skill-dir>/scripts/yandex-setup.mjs add-site --site https://example.com --submit-sitemap
-
-# DNS 传播到权威 NS 之后点 Verify
-node <rankup-skill-dir>/scripts/yandex-setup.mjs verify --site https://example.com
-```
-
-**两个已实测的 UI 竞态坑（2026-09-13，两个真实站点上复现），脚本已经内置对策，
-不需要人工干预**：
-
-1. **Add 按钮首次点击常常不生效**——`fill` 已经把值写进了输入框，但第一次点击后
-   页面停在原地。判据是点击后 URL 有没有变成该站点的 access 设置页，没变就对同一个
-   目标重试，`--max-retries` 控制上限（默认 3）。
-2. **Verify 按钮同理，但更隐蔽**：点击后**页面文案完全不变**，opencli 的 `click`
-   本身永远返回成功——**唯一可靠判据是网络请求**：点击生效的那次会打一个
-   `POST .../gate/verification/verify/` 并返回 2xx，不生效的那几次这个请求压根
-   没发出去。脚本用 `opencli browser <s> network --since Ns` 判定，没命中就重试。
-
-**边界事实：验证 pending 也能提交 sitemap。** 两个站点在 DNS 验证仍处于
-「Check is in progress, it can take up to two days」的待定状态时，
-`webmaster-sitemap.mjs yandex status/submit` 依然能正常访问 Indexing/Sitemap
-页面并成功提交——**站点加入账号（哪怕验证 pending）就已经解锁这个功能，
-不需要先等验证通过**，别被这条直觉带偏而白白拖慢流程。
-
-#### 验证方式
-
-与 Bing/GSC/Naver 同理，优先 HTML meta 标签：
-
-```ts
-{ name: "yandex-verification", content: YANDEX_VERIFICATION }
-```
-
-Yandex 也支持 HTML 文件上传（文件名格式 `yandex_<验证码>.html`，内容必须精确匹配模板，
-不能有任何额外标签/CSS/JS）和 DNS TXT 记录（值格式 `yandex-verification: <验证码>`）。
-选择逻辑与上面 GSC/Bing/Naver 一致。**WHOIS 验证已于 2025 年移除。**
-
-注意：添加站点时必须填入精确的协议和子域（`https://` vs `http://`，`www` vs 非 `www`），
-Yandex 把这些当作不同的资源。
-
-#### 验证后要做的
-
-1. **提交 sitemap**——在 Webmaster 后台「Indexing > Sitemap files」里提交。
-   Yandex **只接受 XML 和 TXT 格式，不支持 RSS/Atom**。两周内处理完成。
-   手动触发重新处理有次数限制（每个 host 10 次，之后等 30 天）。
-   也可以在 `robots.txt` 里用 `Sitemap:` 指令声明。
-2. **设置地区**——在「Site region settings」里设置站点的目标地区。
-   Yandex 是城市级地域搜索引擎，约 30% 的查询结果因地区而异。
-   设置后需要人工审核（几天到几周），不是即时生效。
-3. **关联 Yandex Metrica**（可选但推荐）——Yandex Metrica 是免费的分析工具（类似 GA4），
-   与 Webmaster 关联后可以加速收录。在 Webmaster 后台「Settings > Yandex Metrica tags」关联。
-4. **查看「Site diagnostics」**——Yandex 有自己的一套诊断标准（缺失 meta 标签、HTTP 错误、
-   重复内容、安全问题），与 Google Lighthouse 不完全重叠。
-5. **检查 robots.txt**——用 Webmaster 后台的「Robots.txt analysis」工具验证规则是否正确。
-
-#### Yandex 爬虫与 robots.txt
-
-- **主爬虫 User-Agent**：`YandexBot`（完整字符串 `Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)`）
-- robots.txt 里用 `User-agent: Yandex` 可以覆盖**全部** Yandex 机器人（图片、视频、广告等），
-  而 `User-agent: YandexBot` 只针对主索引爬虫。
-- **`Clean-param` 指令**（Yandex 独有）：告诉爬虫哪些 URL 参数不影响内容，避免重复抓取。
-  格式：`Clean-param: utm_source&utm_medium&ref /`
-- **`Crawl-delay` 已于 2018 年弃用**——改用 Webmaster 后台的抓取速率设置。
-- 确认 `robots.txt` 没有误拦 `YandexBot`。
-
-#### 注意事项
-
-- **Yandex 账号注册无特殊限制**，用邮箱即可在 `passport.yandex.com` 注册。
-- **Turbo Pages 已于 2025-04-01 停用**，不要再投入。
-- **Yandex 对行为因素的权重极高**（2023 年源码泄漏确认权重 ~0.8），
-  包括点击率、停留时长、跳出率、滚动深度、回访率。
-  人为刷点击会触发「PF filter」惩罚——**绝对不做**。
-- **商业查询有独立排名因子**：联系方式、法人信息、配送/支付/退货页面、
-  产品卡片完整度、价格透明度。做电商站时参考。
-
-### DuckDuckGo：无需额外操作
-
-**DuckDuckGo 没有自己的站长工具，没有站点提交入口。**
-
-DuckDuckGo 的搜索结果主要来自 Bing 索引，因此**提交 Bing Webmaster = 覆盖 DuckDuckGo**。
-我们在步骤 3 已经做完了。
-
-DuckDuckGo 有自己的爬虫 `DuckDuckBot`（User-Agent: `DuckDuckBot/1.1`），
-用于补充特定功能和即时回答（Instant Answers）。
-确保 `robots.txt` 没有误拦 `DuckDuckBot` 即可——不需要额外的验证或提交。
+Naver Search Advisor（仅韩国市场）、Yandex Webmaster 与 DuckDuckGo 的全文见 [`search-platforms/regional.md`](search-platforms/regional.md)。
 
 ### 域名有「前世」时
 
@@ -518,3 +359,118 @@ Google Ads Keyword Planner。但那条路有两个已实测的问题：
   与闭环反推（Similarweb 实测点击反推点击率）是两条独立方法，**互为交叉验证**。
 - **不能**：直接换算成 Google 的月搜索量。两者引擎份额、口径、时间窗都不同，
   只能比**比例**，不能拿绝对数去替换。报数字时必须写明「Bing 实测展示 / N 个月」。
+
+## 接入通用规则：验证、增量提交与抓取指令
+
+> 2026-11-27 从 `integrations.md`「分析与搜索平台接入」并入。
+
+### 所有权验证：一次性文件 / TXT > OAuth 授权
+
+几乎每个平台都会把「连接你的 Google 账号 / 从搜索控制台一键导入」放在最显眼处，
+标成「推荐」，手动方式藏在旁边。手动方式**效果完全一样**，
+区别只是不用交出一份常驻的第三方读取权。
+
+- DNS 托管商被识别出来时，平台会推荐「授权我们访问你的 DNS 账号」。
+  把服务商下拉改成「任何 / 其他 DNS 提供商」，就会给出手动 TXT 值。
+- 在**文件**和 **meta 标签**之间选文件：meta 标签要挂进每一个页面的 `<head>`，
+  文件只是一个静态资源，对页面字节零影响。
+
+> 说清楚一个例外：如果这个工作区/账号**早就**为别的站连过第三方账号，
+> 那条连接对新建的项目通常同样生效。此时「我们没有授权 OAuth」并不完整，
+> 要如实说明，并把「要不要收回」交给站主——收回会影响其他项目。
+
+### 验证文件的内容必须来自真实产物，不能推断
+
+有的平台只给一个「下载验证文件」按钮，不显示内容。此时文件名里往往含一段 token，
+同一页面 meta 标签方式给的值也正是那段 token，于是「文件内容 = token」
+看起来是显然的。**这个推断会失败**，而报错通常只有一句「令牌无效」，
+不会告诉你差在哪。真实内容可能带前缀、带换行、或是别的封装格式。
+
+不必真的下载到磁盘也能拿到确切字节——在页面里劫持 `URL.createObjectURL`，
+点那个下载按钮，再读回 blob：
+
+**照抄下面这一版，别照抄那个三行的。** 三行版把 `URL.createObjectURL` 永久换掉、
+把 blob 攒在 `window.__cap` 里从不清空，后果是此后**任何**「这个页面产生下载了吗、
+产生了几个 blob」的问题，答案都来自我们自己留在页面上的钩子——
+而 `window.__cap[0]` 很可能是**上一个页面**留下的那个，会被读成这一次的产物。
+装钩子的这段代码要能还原，采集前要归零，失败要能分辨是哪一种失败：
+
+```js
+// ── 注入清单：本段改动页面上的 URL.createObjectURL，一条，用完在 finally 里还原。
+//    不写任何 window 全局：捕获到的 blob 收在闭包里，每次 capture() 归零。
+//    道理见 backlink/SKILL.md 的 law `readiness-must-bind-to-this-query`：
+//    注入进页面的任何东西都会成为后续观测的一部分，哪怕它从没被当成判据。
+async function captureDownloadedBlob(clickIt, waitMs = 800) {
+  const orig = URL.createObjectURL
+  const blobs = []                                   // ← 每次调用一份新的，绝不跨调用累积
+  const wrapper = function (b) { blobs.push(b); return orig.call(URL, b) }
+  try { URL.createObjectURL = wrapper } catch { /* 属性被冻住，装不上 */ }
+  const installed = URL.createObjectURL === wrapper   // ← 装没装上，当场记，别事后猜
+  let displaced = false
+  try {
+    clickIt()                                        // 点「下载验证文件」
+    await new Promise((r) => setTimeout(r, waitMs))
+  } finally {
+    // 只有还是我们那层时才写回；否则说明页面在我们之上又换了一次实现，
+    // 硬覆盖回去等于把页面自己的实现抹掉。
+    if (URL.createObjectURL === wrapper) URL.createObjectURL = orig
+    else displaced = true
+  }
+  if (blobs.length) return { ok: true, 个数: blobs.length, 内容: await blobs[0].text() }
+  // 三种「拿不到」不是一回事，别塌成一句「没抓到」：
+  if (!installed) return { ok: false, 原因: "hook-not-installed —— 钩子没装上（属性被冻住 / 注入被拦）" }
+  if (displaced) return { ok: false, 原因: "hook-displaced —— 页面换了下载实现，我们那层被顶掉了" }
+  return { ok: false, 原因: "no-blob-observed —— 钩子在，但这次点击没走 createObjectURL（可能是直链下载）" }
+}
+
+// 用法：把「点哪个按钮」当参数传进去，钩子的寿命就等于这一次点击。
+await captureDownloadedBlob(() => document.querySelector("#download-verification").click())
+```
+
+**判据：凡是「把这个文件放到根目录」的验证，内容必须来自真实产物。**
+文件名里含 token 不等于文件内容就是 token。
+
+### 增量提交（IndexNow 一类）
+
+无状态 lastmod 窗口、部署命令与提交失败处理的唯一操作源见 [搜索平台发布流程](search-platforms.md#挂进发布流程这一节是规则不是建议)；不再使用提交内容哈希状态或 `--mark-only` 基线。
+
+### sitemap 与 IndexNow 的内容日期
+
+页面注册表的 lastmod、sitemap 输出和无状态推送窗口统一按 [搜索平台日期纪律](search-platforms.md#无状态-lastmod-窗口与页面日期)；不另维护本地推送状态。
+
+### 改「抓取指令」而不是内容时，增量推送不会触发
+
+给全站加 `<meta name="robots" content="max-image-preview:large, ...">`、
+改 canonical、加 hreflang——这些都**不改可索引内容**，所以基于内容比对的
+增量推送会正确地报「无变化，不推送」。判据没错，但你确实希望搜索引擎尽快重读。
+
+**判据：改这类「不是内容、但影响抓取与展示」的东西之后，手动强推一次。**
+这正是 `--all` 之类开关存在的理由。
+
+### `robots` meta 只写上限参数，不写 `index, follow`
+
+`index, follow` 是默认值，写了是噪声。这个标签真正值钱的是三个上限：
+
+```html
+<meta name="robots" content="max-snippet:-1, max-image-preview:large, max-video-preview:-1">
+```
+
+不写的话抓取器按自己的保守默认裁剪——摘要被截短、缩略图只给一张小图。
+站点已经在认真做 OG 大图（1200×630）时，缺 `max-image-preview:large`
+等于白做。
+
+### 容易整站漏掉的几个根目录文件
+
+- **`/.well-known/security.txt`（RFC 9116）**：`Expires` 是必填，
+  过期即失效，所以它**会腐烂**——要么构建期生成，要么把续期提醒写进项目记录。
+  顺带：`public/` 下的**点开头目录，Vite 会照常拷贝**（实测），
+  不需要为它改 publicDir 配置，但构建完 `ls` 一下产物确认，别靠猜。
+- **`ads.txt`**：没接广告时 404 是对的；**接广告的同一次改动里必须一起上**，
+  缺它直接影响填充与收入，而后台提示往往不显眼。
+- **`humans.txt`**：不建议加，没有任何搜索引擎读它。
+
+### `og:image:alt` 有了不代表 `twitter:image:alt` 也有
+
+两边各读各的字段。只配 OG 那套时，X/Twitter 的大图卡片对读屏软件
+就是一张无名图片。检查 head 时把这两个当成两件事。
+

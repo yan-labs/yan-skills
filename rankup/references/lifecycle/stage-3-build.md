@@ -1,6 +1,6 @@
 # 生命周期 · 段 3：建站与开发
 
-> 本文件是 [`lifecycle.md`](../lifecycle.md) 的段 3 全文（2026-09-30 从单文件拆出）。开工先做[对账](../lifecycle.md#每段开头的固定动作对账原阶段-0)；闸门判据在 [`checklists.md`](../checklists.md) 段 3，本文件只写怎么做。
+> 本文件是 [`lifecycle.md`](../lifecycle.md) 的段 3 全文（2026-09-30 从单文件拆出）。开工先做[对账](../lifecycle.md#每段开头的固定动作对账)；闸门判据在 [`checklists.md`](../checklists.md) 段 3，本文件只写怎么做。
 
 ## 目录
 

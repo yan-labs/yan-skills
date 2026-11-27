@@ -10,11 +10,11 @@
 - [6. R2 对象与上传](#6-r2-对象与上传)
 - [7. KV、Queues、Workflows 与 Durable Objects](#7-kvqueuesworkflows-与-durable-objects)
 - [8. 环境隔离](#8-环境隔离)
-- [8.5 接入域名 · 8.6 品牌邮箱（已下沉）](#85-接入域名--86-品牌邮箱已下沉)
+- [8.5 接入域名 · 8.6 品牌邮箱](#85-接入域名--86-品牌邮箱)
 - [8.7 Cloudflare 的 AI 爬虫阻止（边缘拦截与 robots.txt）](#87-cloudflare-的-ai-爬虫阻止边缘拦截与-robotstxt)
 - [8.8 基础安全：主动补齐，按用途取舍](#88-基础安全主动补齐按用途取舍)
 - [8.9 循环消耗与账单熔断红线](#89-循环消耗与账单熔断红线)
-- [9. 部署（已下沉）](#9-部署已下沉)
+- [9. 部署](#9-部署)
 - [10. Live verification：真实线上验证](#10-live-verification真实线上验证)
 - [11. 已验证的部署陷阱](#11-已验证的部署陷阱)
 - [12. 匿名页面 HTML 边缘缓存（Cache API）](#12-匿名页面-html-边缘缓存cache-api)
@@ -210,7 +210,7 @@ npx skills add cloudflare/skills --skill workers-best-practices -g -y
 4. secrets 均存在于目标环境，但输出不包含真实值。
 5. 回滚部署或前滚修复路径已记录。
 
-## 8.5 接入域名 · 8.6 品牌邮箱（已下沉）
+## 8.5 接入域名 · 8.6 品牌邮箱
 
 §8.5「接入域名：把 zone 加进 Cloudflare」（含域名绑定到 Workers 全 API 流程、AI 爬虫 Bot Management 四字段）与 §8.6「品牌邮箱：Cloudflare Email Routing」（含 SPF / DKIM / DMARC）全文见 [`cloudflare/domain-email.md`](cloudflare/domain-email.md)。
 
@@ -287,7 +287,7 @@ DO 官方保证至少执行一次，异常自动重试有限；**应用重新 `s
 
 发现异常先停触发源、持久化 disabled/终态，取消已知对象 alarm，暂停队列交付并停止生产者/通知/Cron，部署能在后台入口退出的版本；仅撤 HTTP 路由、删 DNS 或只暂停 consumer 都不足。暂停队列仍会接收和存储新消息，存量也可能有费用；清空队列/删除数据另核可恢复性，不用毁数据代替熔断。保留最小脱敏证据，回读操作增长已止住后再修根因、限定恢复；不得赌事后减免。具体停机命令按目标项目资源和当前官方 API 核验，记录在 `.rankup/infrastructure.md`，并将触发图、成本上界、故障测试和真实停机证据记入 `.rankup/audit.md`。来源：[Queues 暂停与清空](https://developers.cloudflare.com/queues/configuration/pause-purge/)。
 
-## 9. 部署（已下沉）
+## 9. 部署
 
 §9「部署」（Cloudflare 原生 Git 集成、Workers Builds、模板与坑）全文见 [`cloudflare/deploy.md`](cloudflare/deploy.md)。
 

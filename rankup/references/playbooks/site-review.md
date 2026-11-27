@@ -282,7 +282,7 @@ E 组依赖 A/B/D 的事实，先完成这些取数再综合判读。开放 API 
 
 | 组 | 判读依据 | 最容易判错的地方 |
 |---|---|---|
-| A · 技术与内容 SEO | [`../seo-box.md`](../seo-box.md)「seo-audit 判读指引」的分级表；闸门判据 [`../checklists.md`](../checklists.md) 段 4 闸门 1/2/3，A6 的判据是段 4 闸门 4c | `fetchError` 当成通过；Ahrefs 与自家脚本不一致时忘了看 Ahrefs 那次抓取的**日期**（日期对不上就不是矛盾）；A6 的 Issues/评分**没有满分/零问题就是必修**，不因为 A1–A5 已经全绿就跳过 |
+| A · 技术与内容 SEO | [`../seo-audit-reading.md`](../seo-audit-reading.md)「seo-audit 判读指引」的分级表；闸门判据 [`../checklists.md`](../checklists.md) 段 4 闸门 1/2/3，A6 的判据是段 4 闸门 4c | `fetchError` 当成通过；Ahrefs 与自家脚本不一致时忘了看 Ahrefs 那次抓取的**日期**（日期对不上就不是矛盾）；A6 的 Issues/评分**没有满分/零问题就是必修**，不因为 A1–A5 已经全绿就跳过 |
 | B · 速度 | [`../seo-box.md`](../seo-box.md) 一；闸门 6 判据在 [`../checklists.md`](../checklists.md) 段 4「闸门 6」 | 「现场：无数据」被读成 0 或通过；性能分够 90、CWV 达标就不看 opportunity/diagnostic 清单——这两项逐条必修，和 A6 的 Issues 清单同等，不能因为分数已过线就跳过 |
 | C · GEO / AI | [`../seo-ai-search.md`](../seo-ai-search.md)（2026 AI 搜索范式）+ [seo-geo.md](../seo-geo.md)（自然推荐与采样）+ [`../seo-agentic-scan.md`](../seo-agentic-scan.md)（AI Agent 就绪度）；内容形态补 `ai-seo` Skill | 把 AI 就绪度或知情复审当自然推荐；把 AEO/GEO 当成另一套技术——Google 的定论是它就是 SEO；`llms.txt` 已被 Google 明确否定为排名信号（见 `seo-ai-search.md`），别拿它充数；**把缓存报告当即时结果**——`is-agentic scan` 回的是上游缓存，failed 项没用当天的 curl 复核就写成必修项，会凭空造出一条不存在的活 |
 | D · 关键词与长尾 | [entry.md](entry.md#4--判读)两路裁决；[seo-serp.md](../seo-serp.md)逐问法 Google；[stage-2-positioning.md](../lifecycle/stage-2-positioning.md)页面规划 | 把工具分数、历史词龄或收益经验当裁决；只补词而不关联问法、样本与页面 |

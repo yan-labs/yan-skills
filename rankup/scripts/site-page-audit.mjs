@@ -15,7 +15,7 @@
 //   NODE_USE_ENV_PROXY=1 node site-page-audit.mjs --sitemap https://example.com/sitemap.xml [--extra /,/x] [--out DIR]
 //   NODE_USE_ENV_PROXY=1 node site-page-audit.mjs https://example.com/ https://example.com/a
 // 输出：<out>/site-page-audit.json 与 <out>/site-page-audit.md（默认 ./site-page-audit-out/）
-// 只出事实，不分级；判读按 seo-box.md「seo-audit 判读指引」与 checklists.md 段 4。
+// 只出事实，不分级；判读按 seo-audit-reading.md「seo-audit 判读指引」与 checklists.md 段 4。
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
