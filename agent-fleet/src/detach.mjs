@@ -7,7 +7,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { runsDir } from './progress.mjs';
-import { assertSafeToSignal, isPidAlive, isRecordedProcessAlive, sameCwd, signalProcessTree, processCommand, collectDescendantPids, readPidPpidTable, readPidRecord, writePidRecord } from './pid.mjs';
+import { assertSafeToSignal, isPidAlive, isRecordedProcessAlive, isRunStateFile, sameCwd, signalProcessTree, processCommand, collectDescendantPids, readPidPpidTable, readPidRecord, writePidRecord } from './pid.mjs';
 import { buildBrief, formatBriefHuman, redactEvidence, snapshotGit, inspectGit, fillReport } from './brief.mjs';
 import { recordRun } from './ledger.mjs';
 import { registerQueue, acquireSlot, queueRecord, setSlotState, queueEvent, taskIdentity, releaseParentSlot } from './queue.mjs';
@@ -66,7 +66,8 @@ export function reconcileDetached(rec, { status = 'failed', reason } = {}) {
 }
 export function listDetached({ indexed = false } = {}) {
   if (!existsSync(runsDir())) return [];
-  const names = readdirSync(runsDir()).filter(n => n.endsWith('.json') && !n.endsWith('.pid.json'));
+  // A run state file is <runId>.json and runIds contain no dot; <runId>.queue/stages/job/pid.json are companions.
+  const names = readdirSync(runsDir()).filter(isRunStateFile);
   const read = n => readState(n.slice(0, -5));
   return indexed ? indexedRecords(names, read, 'detached') : names.map(read).filter(Boolean);
 }

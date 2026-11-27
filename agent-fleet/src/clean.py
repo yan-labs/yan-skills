@@ -223,7 +223,10 @@ def clean_local(older_than='7d', dry_run=False, home=None, runs=None, location='
             p = Path(item['path'])
             pending.append({'path': str(p), 'bytes': 0, 'modifiedAt': datetime.datetime.fromtimestamp(p.lstat().st_mtime, datetime.timezone.utc).isoformat(), 'isDirectory': True, 'taskOrProject': '未知（空目录）', 'referencedBy': referenced_by(p, docs), 'referenceScope': 'runs 与报告目录内 Markdown', 'usefulness': '空证据/备份目录，需主线程核实并取得用户同意'})
     def active(p):
-        return any(p == q or q in p.parents for q in protected) or any(part == i or part.startswith(i + '.') for i in active_ids for part in p.parts)
+        # 逐文件只查集合：protected 和 active_ids 各有上百项，逐项比较会让 4 万个 runs 文件跑上十分钟。
+        if p in protected or any(q in protected for q in p.parents):
+            return True
+        return any(part[:end] in active_ids for part in p.parts for end in (*(i for i, c in enumerate(part) if c == '.'), len(part)))
     def eligible(p):
         if symlink_path(p) or config_or_state(p) or whitelisted(p, keep_rules) or p.name.startswith('.queue-lock'):
             skipped.append({'path': str(p), 'reason': 'preserved'})

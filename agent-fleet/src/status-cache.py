@@ -12,10 +12,13 @@ import time
 ACTIVE = {'running', 'queued', 'parked', 'waiting', 'abnormal'}
 
 
-def status_rows(cli, fresh, running):
+FILTERS = ('--name', '--brief-path')
+
+
+def status_rows(cli, fresh, running, filters=()):
     root = Path.home() / '.agent-fleet'
     scope = Path(os.environ.get('AGENT_FLEET_RUNS_DIR') or root / 'runs').resolve()
-    key = hashlib.sha256(os.fsencode(str(cli) + '\0' + str(scope) + ('\0running' if running else '\0all'))).hexdigest()
+    key = hashlib.sha256(os.fsencode(str(cli) + '\0' + str(scope) + ('\0running' if running else '\0all') + ''.join('\0' + part for part in filters))).hexdigest()
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     cache = root / ('status-' + key + '.json')
     fd = os.open(cache.with_suffix('.lock'), os.O_CREAT | os.O_WRONLY, 0o600)
@@ -29,9 +32,13 @@ def status_rows(cli, fresh, running):
                         return rows
             except (FileNotFoundError, ValueError):
                 pass
-        raw = subprocess.check_output(
-            ['node', str(cli), 'status', '--json', *(['--running'] if running else [])], timeout=float(os.environ.get('FLEET_STATUS_TIMEOUT_SECONDS', '60')), pass_fds=(lock.fileno(),)
-        )
+        limit = float(os.environ.get('FLEET_STATUS_TIMEOUT_SECONDS', '60'))
+        try:
+            raw = subprocess.check_output(
+                ['node', str(cli), 'status', '--json', *(['--running'] if running else []), *filters], timeout=limit, pass_fds=(lock.fileno(),)
+            )
+        except subprocess.TimeoutExpired:
+            raise TimeoutError(f'扫描 runs 超过 {limit:g} 秒未完成（机器负载高或历史过多）；可用 FLEET_STATUS_TIMEOUT_SECONDS 调大') from None
         rows = json.loads(raw)
         with tempfile.NamedTemporaryFile(dir=root, delete=False) as temp:
             try:
@@ -47,8 +54,9 @@ def main():
     args = sys.argv[1:]
     cli = Path(__file__).resolve().parent.parent / 'bin' / 'agent-fleet.mjs'
     running = '--running' in args
-    rows = status_rows(cli, '--fresh' in args, running)
-    if '--json' in args and set(args) <= {'--json', '--running', '--fresh'}:
+    filters = tuple(part for flag in FILTERS if flag in args[:-1] for part in (flag, args[args.index(flag) + 1]))
+    rows = status_rows(cli, '--fresh' in args, running, filters)
+    if '--json' in args and set(args) <= {'--json', '--running', '--fresh', *filters}:
         if '--running' in args:
             rows = [row for row in rows if row.get('state') in ACTIVE]
         print(json.dumps(rows, ensure_ascii=False, indent=2))

@@ -33,6 +33,7 @@ writeFileSync(join(bin, 'fleet'), `#!${process.execPath}
 const fs = require('fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.CALLS, JSON.stringify({args, pid:process.pid, cwd:process.cwd()})+'\\n');
+if(args[0]==='status' && process.env.STATUS_FAIL) { console.error('fleet status: '+process.env.STATUS_FAIL); process.exit(1); }
 if(args[0]==='status') { const rows=JSON.parse(fs.readFileSync(process.env.STATES,'utf8')); console.log(JSON.stringify(args.includes('--running')?rows.filter(r=>r.status==='running'):rows)); }
 if(args[0]==='stop') fs.writeFileSync(process.env.STATES,JSON.stringify(JSON.parse(fs.readFileSync(process.env.STATES,'utf8')).map(r=>r.runId===args[1]?{...r,status:'stopped'}:r)));
 if(args[0]==='say' && process.env.SAY_FAIL) process.exit(1);
@@ -550,7 +551,13 @@ with patch.dict(m.mini.os.environ, {'FLEET_MINI_HOSTNAME':'remote-host'}), patch
     assert.equal(reused.status,0,reused.stderr);
     assert.match(reused.stderr, /本次改用 prior-lite-2/);
     writeFileSync(states, JSON.stringify([{name:prior,status:'running'}]));
+    reset();
     assert.match(preview(prior,'改代码').stderr, /同名任务仍未结束/);
+    const statusCalls = history().filter(c => c.args[0] === 'status');
+    assert.ok(statusCalls.length > 0 && statusCalls.every(c => c.args[c.args.indexOf('--name') + 1] === prior), '判同名只查该任务名，不取全量状态');
+    const refused = spawnSync(script, ['new', prior, '--to', 'gpt', '--goal', '整理代码', '--dry-run', '--action', '改代码'], {encoding:'utf8', env:{...env, FLEET_STRICT:'', STATUS_FAIL:'扫描 runs 超过 60 秒未完成；可用 FLEET_STATUS_TIMEOUT_SECONDS 调大'}, input:entry});
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /fleet status 失败.*FLEET_STATUS_TIMEOUT_SECONDS/s, '失败原因带出超时说明');
     writeFileSync(states, '[]');
 
     for (const strict of [false, true]) {

@@ -20,7 +20,7 @@ export function recentArtifacts(r) {
   if (found.length > 20) truncated = true;
   return { items:found.slice(0,20), truncated };
 }
-for (const r of collectStatus().filter(r => ['running','queued','parked','waiting','abnormal'].includes(r.state))) {
+for (const r of collectStatus({ active: true }).filter(r => ['running','queued','parked','waiting','abnormal'].includes(r.state))) {
   const y = read(join(runsDir(), `${r.runId}.yield`));
   const pending = pendingFor(r.runId).map(a => ({...a, ageMs: Date.now() - Date.parse(a.at)}));
   const stages = read(join(runsDir(), `${r.runId}.stages.json`));

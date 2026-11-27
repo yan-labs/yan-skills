@@ -67,7 +67,7 @@ fleet stop latest
 
 Claude Code 派单写法与误加 `&` 后的补救见 [Skill「派单流程」第 4 步](skill/SKILL.md#派单流程)。默认等待 launcher 在 Claude 工具环境下检测到父进程变化时会告警，并在 status 标出 `⚠ detached-launch`（JSON 字段 `launchDetached: true`）；任务继续执行，不要杀掉重派。
 
-新会话先 `fleet status --running`，用 `fleet wait --any <id>...` 等任一终态或未答信号，不要重派；`fleet asks --pending` 列出未答信号。`status` 默认跨 cwd 列出全部非终态及最近24小时终态，`--running` 只列 running/abnormal，`--json` 返回数组；每行包含 runId、短名、模型、状态、时长、cwd、报告路径及最后心跳。`--name`、`--report` 可指定元数据，未传时从 brief 的“归类…”行及 `REPORT:` 行提取。
+新会话先 `fleet status --running`，用 `fleet wait --any <id>...` 等任一终态或未答信号，不要重派；`fleet asks --pending` 列出未答信号。`status` 默认跨 cwd 列出全部非终态及最近24小时终态，`--running` 只列 running/abnormal，`--json` 返回数组；每行包含 runId、短名、模型、状态、时长、cwd、报告路径及最后心跳。`--name <短名>`、`--brief-path <brief>` 只留同名或同 brief 的行（派单判重只查这一个名字，不取全量）；扫描只读活跃与近期记录，几万个历史文件下也在几秒内返回，上限由 `FLEET_STATUS_TIMEOUT_SECONDS`（默认 60）控制，超时会报这个变量名。`--name`、`--report` 可指定元数据，未传时从 brief 的“归类…”行及 `REPORT:` 行提取。
 
 Claude 通道（haiku/sonnet/opus）的 key 是用户级 `sk-ant-usr-…` 时，Anthropic 要求每个请求带 `anthropic-workspace-id` 头，否则 400「This API key is not scoped to a workspace」。`models.config.json` 的 claude-* 条目用 `headerEnvs` 指向 `.env` 里的 `ANTHROPIC_WORKSPACE_ID`（`wrkspc_` 开头，非密钥，在 Console 的 Settings > Workspaces 的 ID 列；只有 Default 工作区时填它）。缺这个变量时 fleet 直接报缺变量名，而不是发出必然 400 的请求。该头通过 Claude Code 的 `ANTHROPIC_CUSTOM_HEADERS` 随每个请求发出。返回「Credit balance is too low」说明工作区头已生效、月度额度已用完，需要用户在 Console 充值或等下次发放。
 

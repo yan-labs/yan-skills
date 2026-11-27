@@ -1,5 +1,6 @@
-// Cache only immutable-looking, old terminal records. Active and recent runs are
-// always read; file identity and timestamps invalidate cached entries.
+// Cache only immutable-looking records. Old terminal runs and files that are not run records
+// (the cache stores a null record for them) are skipped by file identity; active and recent
+// runs are always read. Any change of inode, size or timestamps invalidates the entry.
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -15,6 +16,7 @@ export function indexedRecords(names, read, kind) {
   try { const data = JSON.parse(readFileSync(path, 'utf8')); if (data?.version === 1) previous = data.entries; } catch {}
   const entries = {};
   const out = [];
+  let changed = false;
   const signature = name => {
     try { const s = statSync(join(root, name), { bigint: true }); return [s.ino, s.size, s.mtimeNs, s.ctimeNs].join(':'); } catch { return null; }
   };
@@ -22,6 +24,10 @@ export function indexedRecords(names, read, kind) {
   for (const name of names) {
     const before = signature(name);
     const cached = previous?.[name];
+    if (before && cached?.signature === before && cached.record === null) {
+      entries[name] = cached;
+      continue;
+    }
     const cachedRecord = cached?.record;
     const cachedFinished = Date.parse(kind === 'detached' ? cachedRecord?.finishedAt : cachedRecord?.finishedAt ?? cachedRecord?.startedAt);
     const cachedTerminal = kind === 'detached' ? cachedRecord?.detach && !['running', 'queued', 'parked', 'waiting', 'abnormal'].includes(cachedRecord.status) : cachedRecord?.finished === true;
@@ -31,7 +37,10 @@ export function indexedRecords(names, read, kind) {
       continue;
     }
     const record = read(name);
-    if (!record) continue;
+    if (!record) {
+      if (before && before === signature(name)) { entries[name] = { signature: before, record: null }; changed = true; }
+      continue;
+    }
     out.push(record);
     const finished = Date.parse(kind === 'detached' ? record.finishedAt : record.finishedAt ?? record.startedAt);
     const terminal = kind === 'detached'
@@ -42,8 +51,11 @@ export function indexedRecords(names, read, kind) {
         ? ['runId', 'detach', 'status', 'finishedAt', 'startedAt', 'briefPath']
         : ['runId', 'finished', 'finishedAt', 'startedAt'];
       entries[name] = { signature: before, record: Object.fromEntries(fields.filter(k => record[k] !== undefined).map(k => [k, record[k]])) };
+      changed = true;
     }
   }
+  // Rewrite the index only when an entry was added, replaced or dropped.
+  if (!changed && Object.keys(entries).length === Object.keys(previous).length) return out;
   let temp;
   try {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
