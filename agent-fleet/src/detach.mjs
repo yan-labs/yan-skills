@@ -1,4 +1,5 @@
 import { indexedRecords } from './status-index.mjs';
+import { finishCleanup, appendResidual } from './auto-clean.mjs';
 import { readProgress, reportProgress, progressLimiter } from './live-progress.mjs';
 import { isCodexModel } from './model-family.mjs';
 import { dispatchSession, watchBinding, watchRequest } from './yield.mjs';
@@ -276,19 +277,18 @@ export async function supervise(cli) {
     if (admitted) process.send?.({ ready: true, warnings });
     if (stopping) stop();
     const { code, signal } = await outcome;
-    // 执行器退出也清掉它留下的进程组/子孙，终态不留下后台子任务。
-    forceStop();
     rec.brief = summary ?? buildBrief({ ...failureFacts(rec), ok: false, progress: { phase: '执行进程结束', exitCode: code, signal }, error: `执行进程退出 ${code ?? signal}`,
       durationMs: Date.now() - Date.parse(rec.startedAt), resultPath: rec.resultPath, logPath: rec.logPath });
     rec.output = output;
     if (stopping) rec.brief = { ...rec.brief, ok: false, verdict: 'stopped', stopped: true };
     rec.verdict = Array.isArray(rec.brief) ? rec.brief.every(b => b.verdict === 'ok') ? 'ok' : 'fail' : rec.brief.verdict;
-    rec.pending = rec.brief?.pending;
+    rec.pending = Array.isArray(rec.brief) ? undefined : (rec.brief?.pending ?? 'none');
     rec.exitCode = rec.verdict === 'ok' ? 0 : 1;
     const blocked = rec.yield?.type === 'blocked' || rec.brief?.continueStop?.startsWith('受阻：');
     rec.status = stopping ? 'stopped' : blocked ? 'blocked' : rec.verdict === 'ok' ? 'done' : 'failed';
+    if (!stopping && !blocked && rec.verdict === 'ok' && rec.pending === 'none') forceStop();
   } catch (err) {
-    if (child?.pid) forceStop();
+    if (stopping && child?.pid) forceStop();
     rec.status = stopping ? 'stopped' : 'failed';
     rec.verdict = stopping ? 'stopped' : 'fail';
     rec.exitCode = 1;
@@ -305,6 +305,13 @@ export async function supervise(cli) {
     if (!summary && rec.brief?.failureReport) writeFileSync(rec.resultPath, `${redactEvidence(readFileSync(rec.resultPath, 'utf8'))}\n\n## 失败事实\n${JSON.stringify(rec.brief.failureReport, null, 2)}\n`);
     if (rec.fallbackWarning) appendFileSync(rec.resultPath, `\n${rec.fallbackWarning}\n`);
     beat();
+    try {
+      const notes = finishCleanup(rec, listDetached());
+      if (rec.status === 'done' && rec.verdict === 'ok' && rec.pending === 'none') {
+        appendFileSync(rec.logPath, `[agent-fleet] 自动收尾：${notes.join('；') || '无残留'}\n`);
+        if (notes.some(n => n.startsWith('跳过'))) appendResidual(rec, notes.filter(n => n.startsWith('跳过')));
+      }
+    } catch (err) { appendFileSync(rec.logPath, `[agent-fleet] 自动收尾失败：${err.message}\n`); appendResidual(rec, [`清理失败：${err.message}`]); }
     await setSlotState(rec.runId, rec.status);
     appendFileSync(rec.logPath, `[agent-fleet] done ${rec.status === 'done' ? 'ok' : 'error'}\n`);
     if (process.connected) process.disconnect();
