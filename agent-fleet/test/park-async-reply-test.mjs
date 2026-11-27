@@ -12,7 +12,7 @@ for (const key of ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'FLEET_CODEX_BACKEND'
 const gh = join(bin, 'gh');
 writeFileSync(gh, `#!/usr/bin/env node
 require('fs').writeFileSync(process.env.TEST_DIR+'/gh-started','yes');
-setTimeout(()=>console.log(JSON.stringify({status:'in_progress',headSha:'${'a'.repeat(40)}'})),2000);
+setTimeout(()=>console.log(JSON.stringify({status:'in_progress',headSha:'${'a'.repeat(40)}'})),5000);
 `, { mode: 0o755 });
 const mock = join(dir, 'mock.cjs');
 writeFileSync(mock, `#!/usr/bin/env node
@@ -41,8 +41,10 @@ const { appendInbox } = await import('../src/inbox.mjs');
 const pending = runCode({prompt:'fixture',cwd:dir,codexBin:mock,noContinue:true});
 for (let i=0; i<400 && !existsSync(join(dir,'gh-started')); i++) await delay(25);
 assert(existsSync(join(dir,'gh-started')), 'async probe started');
+const replyAt = Date.now();
 appendInbox('parent', {type:'say',text:'answer while probing'});
 await pending;
+assert(Date.now() - replyAt < 4000, 'reply wakes the parked run before the slow probe finishes');
 const result = JSON.parse(readFileSync(join(runs,'parent.yield'),'utf8')).result;
 assert.equal(result.status, 'done', 'reply received during async probe wins over timeout');
 assert(result.results.some(r => r?.text?.includes('answer while probing')));

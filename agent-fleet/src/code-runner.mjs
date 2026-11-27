@@ -363,7 +363,9 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
   };
   const schedule = () => { drain = drain.then(consume); };
   record({ finished: false });
+  let wakeParkProbe = null;
   const inbox = watchInbox(runId, entry => {
+    if (['stop', 'say', 'ask'].includes(entry.type)) wakeParkProbe?.();
     if (entry.type === 'stop') { stopping = true; if (!yielding) void interrupt(); }
     else if (entry.type === 'say') {
       stages.revisions = [...(stages.revisions || []), entry.text];
@@ -470,7 +472,12 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         metadata.waitMs = waited + Date.now() - parkedAt;
         if (metadata.pollCount === 1 || metadata.pollCount % 20 === 0) record();
         seenReplies = offsetQueue.length;
-        result = await localCondition(entry.until, { id: entry.sourceId || runId, entry, cwd: workdir, replies: offsetQueue });
+        const interruptedProbe = Symbol('inbox');
+        const wake = new Promise(resolve => { wakeParkProbe = () => resolve(interruptedProbe); });
+        try {
+          result = await Promise.race([localCondition(entry.until, { id: entry.sourceId || runId, entry, cwd: workdir, replies: offsetQueue }), wake]);
+        } finally { wakeParkProbe = null; }
+        if (result === interruptedProbe) { result = null; continue; }
         nextConditionCheck = Date.now() + 30000;
         inbox.pump();
         // A reply may arrive while a condition probe is awaiting external I/O.
