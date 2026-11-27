@@ -193,6 +193,7 @@ def evidence_summary(root, run, state, pid, meta, yielded, watch):
             continue
 
     artifacts = set()
+    scan_truncated = False
 
     def record_file(path):
         try:
@@ -217,11 +218,21 @@ def evidence_summary(root, run, state, pid, meta, yielded, watch):
     task_name = state.get('name') or pid.get('name') or meta.get('name')
     if task_name and RUN_ID.fullmatch(task_name) and task_name not in ('.', '..'):
         artifact_dirs.append(Path('/tmp') / task_name)
+    # Task temp directories may contain whole checkouts and dependency trees. Keep
+    # the common top-level artifacts observable without traversing those trees on
+    # every 15-second dispatch tick. Explicitly registered artifacts are below.
     for directory in artifact_dirs:
         try:
             if directory.is_dir() and not directory.is_symlink():
-                for entry in directory.rglob('*'):
-                    record_file(entry)
+                info = directory.stat()
+                mtimes.append(info.st_mtime)
+                with os.scandir(directory) as entries:
+                    for index, entry in enumerate(entries):
+                        if index >= 512:
+                            scan_truncated = True
+                            break
+                        if entry.is_file(follow_symlinks=False):
+                            record_file(Path(entry.path))
         except OSError:
             pass
 
@@ -244,6 +255,7 @@ def evidence_summary(root, run, state, pid, meta, yielded, watch):
         'logSize': log_size,
         'lastUpdatedAt': round(max(mtimes), 6) if mtimes else None,
         'artifactCount': len(artifacts),
+        **({'artifactScanTruncated': True} if scan_truncated else {}),
     }
 
 
@@ -301,7 +313,7 @@ def patrol(db, root, now, reviews=None):
             evidence = hashlib.sha256(json.dumps(
                 [facts['state'], facts['lastProgressAt'], hits, facts['decision'], facts.get('deadlineAt'),
                  brief_digest, row['progress'] if not watch and not waiting else None,
-                 summary['logSize'], summary['lastUpdatedAt'], summary['artifactCount']], sort_keys=True
+                 summary['logSize'], summary['lastUpdatedAt'], summary['artifactCount'], summary.get('artifactScanTruncated')], sort_keys=True
             ).encode()).hexdigest()
             db.execute('BEGIN IMMEDIATE')
             if facts['decision'] == '交主会话':
@@ -328,6 +340,53 @@ def patrol(db, root, now, reviews=None):
                          reusedAt=reviewed, review=verdict, inputTokens=input_tokens)
             rows.append(facts)
     return {'rows': rows, 'reviewBatch': [row['runId'] for row in rows if row['reviewRequired']]}
+
+
+def wake_legacy_review_parks(db, root, now):
+    """Wake supervisors pinned to a pre-review runtime after a linked review ends."""
+    for row in db.execute("SELECT id FROM runs WHERE state='parked'").fetchall():
+        run = row['id']
+        if not RUN_ID.fullmatch(run) or run in ('.', '..'):
+            continue
+        entry = record(root / (run + '.yield'))
+        if entry.get('until') != 'review' or entry.get('resolvedAt'):
+            continue
+        maker = record(root / (run + '.json'))
+        name = maker.get('name')
+        if not name:
+            continue
+        try:
+            with (root / (run + '.asks')).open() as f:
+                asks = [json.loads(line) for line in f if line.strip()]
+        except (OSError, ValueError):
+            continue
+        asks = [a for a in asks if a.get('kind') == 'review']
+        if not asks:
+            continue
+        requested = timestamp(asks[-1].get('at'), now)
+        reviews = []
+        for path in root.glob('*-detach-*.json'):
+            candidate = record(path)
+            if not candidate.get('detach') or path.name != candidate.get('runId', '') + '.json':
+                continue
+            metadata = store['brief_metadata'](candidate.get('briefPath'))
+            if metadata.get('review') and metadata.get('for') == name and timestamp(candidate.get('startedAt'), 0) >= requested:
+                reviews.append(candidate)
+        if not reviews:
+            continue
+        review = min(reviews, key=lambda r: r.get('startedAt', ''))
+        status = review.get('status')
+        if status not in store['TERMINAL']:
+            continue
+        wake = root / (run + '.wake.json')
+        previous = record(wake)
+        if previous.get('condition') == 'review' and previous.get('at', 0) >= entry.get('at', 0):
+            continue
+        temp = root / (run + '.review-wake.tmp')
+        temp.write_text(json.dumps({'condition': 'review', 'at': int(now * 1000),
+                                    'status': 'done' if status == 'done' else 'failed',
+                                    'reviewRunId': review['runId']}))
+        os.replace(temp, wake)
 
 
 def next_due(timer, now):
@@ -411,10 +470,11 @@ def main():
                 print(json.dumps({'runs': sum(seats.values()), 'seats': seats}, ensure_ascii=False), flush=True)
             previous = seats
             if args.dispatch:
+                wake_legacy_review_parks(db, root, time.time())
                 dispatch(db, time.time())
             if args.once:
                 return
-            time.sleep(max(0, 15 - (time.monotonic() - started)))
+            time.sleep(max(1, 15 - (time.monotonic() - started)))
 
 
 if __name__ == '__main__':

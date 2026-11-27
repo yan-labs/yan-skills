@@ -3,7 +3,7 @@
 ---
 正文带齐 runId 清单、时间窗及每个 run 的读取入口。按清单逐条读取，每个 run 选一个动作：不动、插话纠正、要求写快照、停止、交主会话。执行动作须有正文授权。任务仍在运行也照实填行并结束。
 
-以 `fleet watch patrol` 的事实表和脱敏摘要为输入。所有在途 run 逐单核对，未变且仍有效的判定标出复用时间。park 只核条件健康；首审、证据不足、范围变化或异常一起复核。可用 `fleet watch patrol --record-reviews` 写回带 evidence 的逐单裁定以供复用。
+以 `fleet-go patrol` 和 `fleet asks --pending` 为输入，逐单读取日志、阶段及完成条件、park 条件与时长、未答信号和最近产物及提交，判断当前动作、空等和派单方处理状态；未答信号或无进展的 park 超 30 分钟列为事故。可用 `fleet watch patrol --record-reviews` 写回带 evidence 的逐单裁定以供复用。
 
 1. 哪项证据支持当前根因？
 2. 动作对应哪个原始验收，解决的是真问题吗？

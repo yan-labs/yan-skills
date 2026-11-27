@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+const dir = mkdtempSync(join(tmpdir(), 'fleet-any-'));
+const env = {...process.env, AGENT_FLEET_RUNS_DIR:dir};
+for (const id of ['one','two']) writeFileSync(join(dir,id+'.json'), JSON.stringify({detach:true,runId:id,name:id,status:'running'}));
+const cli = fileURLToPath(new URL('../bin/agent-fleet.mjs',import.meta.url));
+const child = spawn(process.execPath,[cli,'wait','--any','one','two','--timeout','10'],{env});
+let out='', err=''; child.stdout.on('data', x => out+=x); child.stderr.on('data',x=>err+=x);
+setTimeout(() => writeFileSync(join(dir,'two.asks'), JSON.stringify({id:'a',runId:'two',kind:'resource',text:'资源',at:new Date().toISOString()})+'\n'), 1500);
+const code = await new Promise(resolve => child.on('close',resolve));
+assert.equal(code,0,err); const result=JSON.parse(out); assert.equal(result.runId,'two'); assert.equal(result.event,'pending'); assert.equal(result.signals[0].kind,'resource');
+rmSync(dir,{recursive:true,force:true}); console.log('wait any test passed');

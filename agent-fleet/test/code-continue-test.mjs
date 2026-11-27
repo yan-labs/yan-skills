@@ -408,10 +408,10 @@ try {
   const probeEntry = {at:Date.now()};
   const conditionContext = {id:'conditions',entry:probeEntry,cwd:scratch};
   assert.equal((await localCondition('any:["run:missing-local","file:ready"]', conditionContext)).status, 'done', 'any 成功优先于失败');
-  assert.equal((await localCondition('any:["run:missing-local","file:pending"]', conditionContext)).status, 'failed', 'any 失败加 pending 立即返回失败');
+  assert.equal(await localCondition('any:["run:missing-local","file:pending"]', conditionContext), null, '未登记 run 保持等待');
   assert.equal((await localCondition('any:["run:missing-local","job:missing-local"]', conditionContext)).status, 'failed', 'any 全失败才失败');
   assert.equal((await localCondition('all:["file:ready","after:1ms"]', {id:'conditions',entry:{at:Date.now()-10},cwd:scratch})).status, 'done');
-  assert.equal((await localCondition('run:missing-local', {id:'conditions',entry:probeEntry,cwd:scratch})).status, 'failed');
+  assert.equal(await localCondition('run:missing-local', {id:'conditions',entry:probeEntry,cwd:scratch}), null);
   assert.equal(await localCondition('gh-run:123', {id:'conditions',entry:probeEntry,cwd:scratch}), null);
   writeFileSync(join(scratch,'conditions.wake.json'), JSON.stringify({condition:'gh-run:123',at:Date.now(),status:'failed',logPath:'failure.log'}));
   assert.equal((await localCondition('gh-run:123', {id:'conditions',entry:probeEntry,cwd:scratch})).logPath, 'failure.log');
@@ -489,7 +489,7 @@ try {
     process.env.FLEET_DETACHED_RUN_ID = mode;
     process.env.TRACE = join(scratch, mode + '.trace');
     process.env.REPORT_FILE = join(scratch, mode + '.md');
-    const result = await runCode({ prompt: `REPORT: ${process.env.REPORT_FILE}\n## 验收\nV1 fixture｜owner：${mode === 'named-external' ? '外部：服务' : '本单'}`, cwd: scratch, codexBin: mock });
+    const result = await runCode({ prompt: `REPORT: ${process.env.REPORT_FILE}\n## 验收\nV1 fixture｜owner：${mode === 'named-external' ? '派单方' : '本单'}`, cwd: scratch, codexBin: mock });
     assert.equal(result.continueCount, wanted, mode);
     assert.equal(buildBrief(result).verdict, verdict, mode);
     if (wanted) assert.match(result.continueStop, /无进展停续做/);
@@ -542,7 +542,7 @@ try {
     ['named-empty-unmet', '本单', {}, 2, 'partial'],
     ['named-empty-stuck', '本单', {}, 2, 'needs-review'],
     ['named-empty-disabled', '本单', { noContinue: true }, 1, 'needs-review'],
-    ['named-empty-external', '外部：服务', {}, 1, 'ok'],
+    ['named-empty-external', '派单方', {}, 1, 'ok'],
     ['named-empty-downstream', '下游：服务', {}, 1, 'ok'],
   ]) {
     process.env.MODE = mode;
@@ -927,7 +927,7 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
     assert.deepEqual(result.externalWait, { waiting: true, reason: 'park:file' }, '记录 park 外部等待');
   }
   {
-    const namedBrief = '## 验收\n- V1 验证｜owner：本单\n- V2 外部｜owner：外部:CI';
+    const namedBrief = '## 验收\n- V1 验证｜owner：本单\n- V2 外部｜owner：派单方';
     const r1 = '## 结论\nV1｜未过｜尝试一\nV2｜等外部｜等待 CI';
     const r2 = '## 结论\nV1｜未过｜仅改写证据文字尝试二\nV2｜等外部｜等待 CI';
     const r3 = '## 结论\nV1｜已过｜测试通过\nV2｜等外部｜等待 CI';
@@ -952,7 +952,7 @@ console.log(JSON.stringify({type:'thread.started',thread_id:'exec-thread'}));
 }
 
 // Named items use only report rows and new evidence.
-const named = '## 验收\n- V1 验证｜owner：本单\n- V2 外部｜owner：外部:CI';
+const named = '## 验收\n- V1 验证｜owner：本单\n- V2 外部｜owner：派单方';
 const state = report => ({ head: 'same', acceptance: acceptanceResult(named, '## 结论\n' + report) });
 const before = state('V1｜未过｜a\nV2｜等外部｜CI');
 assert.deepEqual(acceptanceContinuation(before, before), { missing: ['V1'], blocked: true });
