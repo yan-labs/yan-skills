@@ -9,7 +9,7 @@
   python3 check.py --meta pages/*.md        # 另报 title、description 长度与批内重复，只提示
 英文及其他语言 --clean 只清字符与空白，不改标点。
 硬禁项必须清零；提示项回到上下文判断；档位只是分诊，不是对作者的判断。
-代码块、行内代码、网址不检查也不改；front matter 只查 title 与 description 的值，--clean 不改。
+代码块、行内代码、网址不检查也不改；front matter 默认不检查；--check-front-matter 检查 title 与 description，--clean 不改。
 多个文件时逐个出报告，任一文件有硬禁则退出码为 1。
 """
 import argparse
@@ -118,11 +118,11 @@ def front_matter(block):
     return "\n".join(out), fields
 
 
-def mask(text):
-    """把代码、网址、front matter（title 与 description 的值除外）换成同长度占位，保持行号不变。"""
+def mask(text, check_front_matter=False):
+    """把代码、网址和 front matter 换成同长度占位；可选保留 title 与 description 的值。 """
     def blank(m):
         return _blank(m.group(0))
-    return CODE.sub(blank, FRONT.sub(lambda m: front_matter(m.group(0))[0], text))
+    return CODE.sub(blank, FRONT.sub(lambda m: front_matter(m.group(0))[0] if check_front_matter else blank(m), text))
 
 
 def mask_en_quotes(text):
@@ -257,6 +257,7 @@ def main():
     parser.add_argument("--lang", choices=("zh", "en"))
     parser.add_argument("--json", action="store_true", help="抽出 JSON 字符串值再查")
     parser.add_argument("--meta", action="store_true", help="另报 title、description 长度与批内重复")
+    parser.add_argument("--check-front-matter", action="store_true", help="检查 front matter 的 title 和 description")
     args = parser.parse_args()
     if args.clean and (args.json or args.meta or len(args.files) > 1):
         parser.error("--clean 只接受一个 Markdown 或文本文件")
@@ -272,7 +273,7 @@ def main():
             text, spans = json_text(raw)
             where = (lambda l, spans=spans: next(
                 (p if a == b else f"{p} L{l - a + 1}" for a, b, p in spans if a <= l <= b), f"L{l}"))
-        lines, hard = analyze(text, args.lang or detect_language(text), where)
+        lines, hard = analyze(text, args.lang or detect_language(text), where, args.check_front_matter)
         hard_total += hard
         if len(inputs) > 1:
             print(f"== {name}")
@@ -285,9 +286,9 @@ def main():
     sys.exit(1 if hard_total else 0)
 
 
-def analyze(raw, lang, where=lambda l: f"L{l}"):
+def analyze(raw, lang, where=lambda l: f"L{l}", check_front_matter=False):
     """返回 ([档位行, 命中或「无命中」], 硬禁数)。where 把行号换成位置标签。"""
-    text = mask(raw)
+    text = mask(raw, check_front_matter)
     if lang == "en":
         text = mask_en_quotes(text)
     report, hard_total, soft_kinds = [], 0, 0

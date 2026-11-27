@@ -56,7 +56,7 @@ description: |
 
 ## 收尾体检（每份稿都过，被别的任务调用时也过）
 
-1. 跑 `python3 "${CLAUDE_SKILL_DIR}/scripts/check.py" 稿件.md`（JSON 稿件加 `--json`，站内页加 `--meta`）。
+1. 跑 `python3 "${CLAUDE_SKILL_DIR:-$HOME/.agents/skills/write}/scripts/check.py" 稿件.md`（JSON 稿件加 `--json`，站内页可加 `--check-front-matter --meta`）。
 2. 硬禁清零；按档位决定动多大手，红线、分档、守事实、防改平、清字符的规则都在 `references/check.md`，第一次用先读它。
 3. 改完重核计数：配图数、小结条数、章节引用。
 

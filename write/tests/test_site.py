@@ -31,7 +31,8 @@ class SiteChecks(unittest.TestCase):
         text = ('---\ntitle: PDF Merger — Free Online Tool\n'
                 'description: Merge PDF files online for free.\n---\n\n'
                 'Drop two PDF files and download one merged file.\n')
-        r = run(stdin=text)
+        self.assertEqual(run(stdin=text).returncode, 0)
+        r = run('--check-front-matter', stdin=text)
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn('[硬禁] 破折号 x1', r.stdout)
         self.assertIn('L2:', r.stdout)
@@ -39,7 +40,7 @@ class SiteChecks(unittest.TestCase):
     def test_front_matter_quoted_and_block_values(self):
         text = ('---\ntitle: "PDF Merger — Free"\ndescription: |\n'
                 '  It is not just a merger, it is a workspace.\n---\n\nBody text here.\n')
-        r = run('--lang', 'en', stdin=text)
+        r = run('--check-front-matter', '--lang', 'en', stdin=text)
         self.assertIn('[硬禁] 破折号', r.stdout)
         self.assertIn('[硬禁] 翻案腔', r.stdout)
 
