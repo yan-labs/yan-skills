@@ -469,9 +469,12 @@ export async function runCode({ prompt, briefPath, cwd = process.cwd(), low = fa
         metadata.pollCount = (metadata.pollCount ?? 0) + 1;
         metadata.waitMs = waited + Date.now() - parkedAt;
         if (metadata.pollCount === 1 || metadata.pollCount % 20 === 0) record();
+        seenReplies = offsetQueue.length;
         result = await localCondition(entry.until, { id: entry.sourceId || runId, entry, cwd: workdir, replies: offsetQueue });
         nextConditionCheck = Date.now() + 30000;
-        seenReplies = offsetQueue.length;
+        inbox.pump();
+        // A reply may arrive while a condition probe is awaiting external I/O.
+        if (offsetQueue.length !== seenReplies) { result = null; continue; }
       }
       if (result || Date.now() >= entry.at + entry.timeoutMs) break;
       await new Promise(resolve => setTimeout(resolve, Math.min(250, Math.max(0, entry.at + entry.timeoutMs - Date.now()))));
