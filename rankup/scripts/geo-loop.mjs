@@ -147,7 +147,8 @@ function save() {
 
 try {
   const doctor = oc(['doctor'], { timeoutS: 30 });
-  data.doctor = { ok: doctor.status === 0 && ['Daemon', 'Extension', 'Connectivity'].every(x => new RegExp(`\\[OK\\] ${x}:`).test(doctor.stdout)) };
+  let doctorJson; try { doctorJson = JSON.parse(doctor.stdout); } catch {}
+  data.doctor = { ok: doctor.status === 0 && (doctorJson ? doctorJson.ok === true && doctorJson.data?.daemonRunning === true && doctorJson.data?.extensionConnected === true && doctorJson.data?.connectivity?.ok === true : ['Daemon', 'Extension', 'Connectivity'].every(x => new RegExp(`\\[OK\\] ${x}:`).test(doctor.stdout))) };
   if (!data.doctor.ok) throw new Error('opencli doctor 未通过；未打开聊天。');
   sampling: for (const [p, prompt] of prompts.entries()) {
     for (let rep = 1; rep <= (args.smoke ? 1 : Number(args.reps)); rep++) {
