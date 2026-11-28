@@ -16,6 +16,7 @@
  * 新增权限同意、密码与验证码仍停止；批量缺站分支未在本轮复测。
  */
 import { execFileSync } from "node:child_process"
+import { parseCname, verificationBranch, ensureCname } from "./bing-cname-lib.mjs"
 
 const argv = process.argv.slice(2)
 if (!argv.length || argv.includes("--help") || argv.includes("-h")) {
@@ -25,14 +26,27 @@ if (!argv.length || argv.includes("--help") || argv.includes("-h")) {
 function opt(name) { const index = argv.indexOf(name); return index === -1 ? undefined : argv[index + 1] }
 const sites = (opt("--sites") || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean)
 const session = opt("--session") || "bing-import-gsc"
+const verifyMode = opt("--verify") || "gsc"
+if (!["gsc", "cname"].includes(verifyMode)) throw new Error("--verify 仅支持 gsc 或 cname")
 const submitSitemap = argv.includes("--sitemap")
 if (!sites.length || sites.some(s => !/^[a-z\d-]+(?:\.[a-z\d-]+)+$/i.test(s)) || new Set(sites).size !== sites.length) {
   throw new Error("--sites 需要不重复、逗号分隔的合法域名")
 }
 let opened = false
 function browser(...parts) {
-  return execFileSync("opencli", ["browser", "--session", session, "--window", "foreground", ...parts],
-    { encoding: "utf8", timeout: 90000 }).trim()
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return execFileSync("opencli", ["browser", "--session", session, "--window", "foreground", ...parts],
+        { encoding: "utf8", timeout: 90000 }).trim()
+    } catch (error) {
+      const msg = String(error.stdout || error.stderr || error.message)
+      if (attempt < 2 && /Native input requires a visible browser page/.test(msg)) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1200)
+        continue
+      }
+      throw error
+    }
+  }
 }
 function evalJs(source) { const raw= browser("eval", `(()=>{${source}})()`); try { const r=JSON.parse(raw); if(r.ok===true && Object.hasOwn(r,"data")) return typeof r.data==="string"?r.data:JSON.stringify(r.data); } catch {} return raw }
 function open(url) {
@@ -50,10 +64,11 @@ function inspect() {
   return JSON.parse(evalJs(`return {url:location.origin+location.pathname,
     text:(document.body?.innerText||'').slice(0,3000),password:!!document.querySelector('input[type=password]'),
     permissions:[...document.querySelectorAll('input[type=checkbox],[role=checkbox]')].some(e=>e.offsetParent!==null),
-    navigation:!!document.querySelector('button[aria-label="显示导航面板"],button[aria-label="选择网站"]'),
+    navigation:!!document.querySelector('button[aria-label="显示导航面板"],button[aria-label="Show navigation panel"],button[aria-label="选择网站"],button[aria-label="Select site"],button[aria-label="Select website"]'),
     buttons:[...document.querySelectorAll('button,a,[role=button]')].filter(e=>e.offsetParent!==null)
       .map(e=>({text:(e.innerText||e.getAttribute('aria-label')||'').trim().slice(0,90),
         href:e.getAttribute('href')||''})).filter(e=>e.text).slice(0,90),
+    dataTags:[...document.querySelectorAll('button[data-tag]')].filter(e=>e.offsetParent!==null).map(e=>e.getAttribute('data-tag')),
     dialogs:[...document.querySelectorAll('[role=dialog]')].map(e=>e.innerText.slice(0,2400))}`))
 }
 function existingConsent(page) {
@@ -93,8 +108,9 @@ function recoverSession({ preview = false } = {}) {
   const deadline = Date.now() + 90_000
   while (Date.now() < deadline) {
     const page = inspect()
+    if (preview && verificationBranch(verifyMode, page) === "cname") return "cname"
     stopIfSensitive(page)
-    if (preview && page.dialogs.some(d => /可导入的网站|Sites available for import/i.test(d))) return
+    if (preview && (page.dataTags.includes("importButton") || page.dialogs.some(d => /可导入的网站|Sites available for import|Choose sites to import|Select sites to import/i.test(d)))) return
     if (!preview && isDashboard(page)) return
     if (/accounts\.google\.com/.test(page.url)) {
       if (/您正在重新登录|signing back in/i.test(page.text) || existingConsent(page)) {
@@ -141,7 +157,7 @@ function listedSites() {
 }
 function selectedSites() {
   return JSON.parse(evalJs(`const d=[...document.querySelectorAll('[role=dialog]')]
-    .find(e=>e.innerText.includes('可导入的网站')||e.innerText.includes('Sites available for import'));
+    .find(e=>e.querySelector('button[data-tag="importButton"]')||/可导入的网站|Sites available for import|Choose sites to import|Select sites to import/i.test(e.innerText));
     if(!d)return null;return [...d.querySelectorAll('[role=row]')]
     .filter(e=>e.innerText.includes('https://')).map(e=>({text:e.innerText.slice(0,200),
       domain:(e.innerText.match(/https:\\/\\/([^\\s/]+)\\//)||[])[1]?.toLowerCase()||'',
@@ -158,7 +174,7 @@ function selectOnly(missing) {
     const shouldCheck = wanted.has(row.domain)
     if ((row.checked === "true") === shouldCheck) continue
     const marked = evalJs(`const d=[...document.querySelectorAll('[role=dialog]')]
-      .find(e=>e.innerText.includes('可导入的网站')||e.innerText.includes('Sites available for import'));
+      .find(e=>e.querySelector('button[data-tag="importButton"]')||/可导入的网站|Sites available for import|Choose sites to import|Select sites to import/i.test(e.innerText));
       const row=[...d.querySelectorAll('[role=row]')].find(e=>e.innerText.includes(${JSON.stringify(`https://${row.domain}/`)}));
       const box=row?.querySelector('[role=checkbox]');if(!box)return false;
       document.querySelectorAll('[data-bing-checkbox]').forEach(e=>e.removeAttribute('data-bing-checkbox'));
@@ -172,6 +188,31 @@ function selectOnly(missing) {
     throw new Error(`导入预览勾选与目标站点不一致；停止：${JSON.stringify(rows)}`)
   }
   console.log(`Bing 预览已逐项核对，仅导入 ${missing.join(", ")}`)
+}
+async function addByCname(domain) {
+  open("https://www.bing.com/webmasters/")
+  recoverSession()
+  const selector = 'button[aria-label="选择网站"],button[aria-label="Select site"],button[aria-label="Select website"]'
+  if (evalJs(`return !!document.querySelector(${JSON.stringify(selector)})?.offsetParent`) !== "true") click('button[aria-label="显示导航面板"],button[aria-label="Show navigation panel"]')
+  click(selector)
+  if (listedSites().has(domain)) { console.log(`Bing 已有 ${domain}；跳过重复导入。`); return }
+  click('button[aria-label="添加网站"],button[aria-label="Add site"],button[aria-label="Add a site"]')
+  waitFor(() => evalJs(`return !!document.querySelector('input[aria-label="Enter your site URL"],input[aria-label="输入网站 URL"],input[aria-label="输入站点网址"]')`) === "true", "手动添加输入框")
+  const input = 'input[aria-label="Enter your site URL"],input[aria-label="输入网站 URL"],input[aria-label="输入站点网址"]'
+  const filled = JSON.parse(browser("fill", input, `https://${domain}`))
+  if (filled.ok === false || (filled.data && filled.data.verified === false)) throw new Error("站点 URL 输入失败")
+  clickVisible(`[...document.querySelectorAll('button')].find(e=>e.offsetParent!==null&&/^(Add|添加)$/i.test((e.innerText||e.getAttribute('aria-label')||'').trim()))`, "手动添加")
+  waitFor(p => /Add CNAME record to DNS|添加 CNAME/i.test(p.text), "CNAME 验证方式")
+  clickVisible(`[...document.querySelectorAll('button,[role=button],label,div')].find(e=>e.offsetParent!==null&&/^(Add CNAME record to DNS|添加 CNAME.*DNS)$/i.test(e.innerText.trim()))`, "CNAME 验证")
+  const page = waitFor(p => !!parseCname(p.text, domain), "CNAME 记录")
+  const record = parseCname(page.text, domain)
+  console.log(`Bing 验证记录: ${record.name} CNAME ${record.content}.（不代理）`)
+  const result = await ensureCname(domain, record)
+  if (result === 'no-zone') throw new Error(`Cloudflare 账号没有 ${domain} 对应 zone；请手动添加上述记录后重试`)
+  console.log(`Cloudflare CNAME ${result === 'existing' ? '已存在' : '已创建并回读'}。`)
+  clickVisible(`[...document.querySelectorAll('button')].find(e=>e.offsetParent!==null&&/^(Verify|验证)$/i.test((e.innerText||e.getAttribute('aria-label')||'').trim()))`, "验证")
+  waitFor(p => /验证成功|successfully verified|verification successful|Congratulations/i.test(p.text), "Bing 验证结果", 35)
+  console.log(`${domain} Bing 显示验证成功；请在后台回读站点。`)
 }
 function submitMissingSitemaps() {
   for (const domain of sites) {
@@ -200,29 +241,38 @@ try {
   } else {
   open("https://www.bing.com/webmasters/")
   recoverSession()
-  if (evalJs(`return !!document.querySelector('button[aria-label="选择网站"],button[aria-label="Select site"]')?.offsetParent`) !== "true") {
+  const siteSelector = 'button[aria-label="选择网站"],button[aria-label="Select site"],button[aria-label="Select website"]'
+  if (evalJs(`return !!document.querySelector(${JSON.stringify(siteSelector)})?.offsetParent`) !== "true") {
     click('button[aria-label="显示导航面板"],button[aria-label="Show navigation panel"]')
   }
-  if (evalJs(`return !!document.querySelector('button[aria-label="选择网站"],button[aria-label="Select site"]')`) !== "true") {
+  if (evalJs(`return !!document.querySelector(${JSON.stringify(siteSelector)})`) !== "true") {
     throw new Error("Bing 左侧网站选择器未出现；停止")
   }
-  click('button[aria-label="选择网站"],button[aria-label="Select site"]')
+  click(siteSelector)
   const existing = listedSites()
   const missing = sites.filter(site => !existing.has(site))
   if (!missing.length) {
     console.log(`Bing 已有 ${sites.join(", ")}；跳过重复导入。`)
   } else {
-    click('button[aria-label="添加网站"],button[aria-label="Add site"]')
-    waitFor(p => p.dialogs.some(d => /从 GSC 导入|Import from Google Search Console/i.test(d)), "Bing 添加网站弹窗")
+    if (verifyMode === "cname") {
+      for (const domain of missing) await addByCname(domain)
+    } else {
+    click('button[aria-label="添加网站"],button[aria-label="Add site"],button[aria-label="Add a site"]')
+    waitFor(p => p.dataTags.includes("importFromGSC") || p.dialogs.some(d => /从 GSC 导入|Import.*(?:GSC|Google Search Console)/i.test(d)), "Bing 添加网站弹窗")
     click('button[data-tag="importFromGSC"]')
-    waitFor(p => p.dialogs.some(d => /我们将从你的 Google Search Console|what data.*Search Console/i.test(d)), "Bing 导入说明")
+    waitFor(p => p.dataTags.includes("addSiteButton") || p.dialogs.some(d => /我们将从你的 Google Search Console|what data.*Search Console|Import.*Search Console/i.test(d)), "Bing 导入说明")
     click('button[data-tag="addSiteButton"]')
-    recoverSession({ preview: true })
-    waitFor(p => p.dialogs.some(d => /可导入的网站|Sites available for import/i.test(d)), "GSC 站点预览", 35)
+    const branch = recoverSession({ preview: true })
+    if (branch === "cname") {
+      for (const domain of missing) await addByCname(domain)
+    } else {
+    waitFor(p => p.dataTags.includes("importButton") || p.dialogs.some(d => /可导入的网站|Sites available for import|Choose sites to import|Select sites to import/i.test(d)), "GSC 站点预览", 35)
     selectOnly(missing)
     click('button[data-tag="importButton"]')
-    waitFor(p => p.dialogs.some(d => /正在添加网站信息|Adding site|成功添加/i.test(d)) || p.dialogs.length === 0, "导入提交响应")
+    waitFor(p => p.dialogs.some(d => /正在添加网站信息|Adding site|成功添加|Congratulations|Sites added/i.test(d)) || p.dialogs.length === 0, "导入提交响应")
     console.log(`已点击导入 ${missing.length} 站；需逐站读回 Bing sitemap 页面确认。`)
+    }
+    }
   }
   }
 } finally {

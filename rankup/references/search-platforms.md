@@ -190,7 +190,7 @@ meta 标签的形状（token 是公开值，本来就印在每一页的 HTML 里
 点提交后列表仍为空、不报错（`webmaster-sitemap.mjs` 已对 sc-domain 自动补全）。站点仍 `Disallow: /` 时 GSC 里这条 sitemap 显示「无法抓取」，
 放开索引后才会转正，不是提交失败。GSC 验证后立刻提交即可，不必等数据就绪。
 
-`gsc-domain-verify.mjs status|add-site --domain <域名>` 查验或添加网域资源；已有验证时不重复写 TXT。`bing-import-from-gsc.mjs --sites <域名> [--sitemap]` 只导入指定的缺失站点，提交前核对勾选。两者的 sitemap 状态与提交仍用 `webmaster-sitemap.mjs`。
+`gsc-domain-verify.mjs status|add-site --domain <域名>` 查验或添加网域资源；已有验证时不重复写 TXT。`bing-import-from-gsc.mjs --sites <域名> [--sitemap]` 只导入指定的缺失站点，提交前核对勾选。Google 遇通行密钥、密码或验证码时转用 DNS CNAME；也可用 `--verify cname` 直接选择。Cloudflare 凭据从 `CLOUDFLARE_EMAIL` / `CLOUDFLARE_API_KEY` 或 `~/.config/cloudflare/global.env` 加载，zone 不在账号时打印记录并停止。两者的 sitemap 状态与提交仍用 `webmaster-sitemap.mjs`。
 
 ### 步骤 5–6 与 DuckDuckGo：区域搜索引擎
 
