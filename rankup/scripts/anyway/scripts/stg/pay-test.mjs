@@ -178,7 +178,7 @@ function ocBatch(commands, { timeoutMs = 45_000 } = {}) {
 
 function checkDoctor() {
   const out = execFileSync('opencli', ['doctor'], { encoding: 'utf8' });
-  if (!/\[OK\] Daemon/.test(out) || !/\[OK\] Extension/.test(out)) {
+  if (!(/\[OK\] Daemon/.test(out) && /\[OK\] Extension/.test(out)) && !/"daemonRunning":\s*true[\s\S]*"extensionConnected":\s*true/.test(out)) {
     throw new Error(`opencli doctor did not report both Daemon and Extension OK:\n${out}`);
   }
   log('[doctor] OpenCLI bridge OK');

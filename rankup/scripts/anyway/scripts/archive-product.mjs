@@ -51,7 +51,7 @@ async function main() {
   if (DRY_RUN || !toArchive.length) return;
 
   const doctor = execFileSync('opencli', ['doctor'], { encoding: 'utf8' });
-  if (!/\[OK\] Daemon/.test(doctor) || !/\[OK\] Extension/.test(doctor)) throw new Error('opencli doctor failed');
+  if (!(/\[OK\] Daemon/.test(doctor) && /\[OK\] Extension/.test(doctor)) && !/"daemonRunning":\s*true[\s\S]*"extensionConnected":\s*true/.test(doctor)) throw new Error('opencli doctor failed');
   try {
     for (const product of toArchive) {
       const id = product.productId || product.id;

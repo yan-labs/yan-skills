@@ -86,7 +86,15 @@ function runOpencliBrowser(args, { allowFail = false } = {}) {
     });
     const trimmed = out.trim();
     try {
-      return JSON.parse(trimmed);
+      const parsed = JSON.parse(trimmed);
+      // opencli 2.x wraps results as {ok, data}; unwrap so callers keep reading flat fields
+      if (parsed && typeof parsed === 'object' && 'ok' in parsed && 'data' in parsed) {
+        if (parsed.data !== null && typeof parsed.data === 'object') return parsed.data;
+        const text = String(parsed.data ?? '');
+        if (/^\s*[{[]/.test(text)) { try { return JSON.parse(text); } catch {} } // eval of JSON.stringify(...)
+        return { raw: text };
+      }
+      return parsed;
     } catch {
       return { raw: trimmed };
     }
@@ -99,7 +107,7 @@ function runOpencliBrowser(args, { allowFail = false } = {}) {
 function checkDoctor() {
   try {
     const out = execFileSync('opencli', ['doctor'], { encoding: 'utf8' });
-    if (!/\[OK\] Daemon/.test(out) || !/\[OK\] Extension/.test(out)) {
+    if (!(/\[OK\] Daemon/.test(out) && /\[OK\] Extension/.test(out)) && !/"daemonRunning":\s*true[\s\S]*"extensionConnected":\s*true/.test(out)) {
       throw new Error('opencli doctor did not report both Daemon and Extension OK:\n' + out);
     }
     log('[doctor] OpenCLI bridge OK');
