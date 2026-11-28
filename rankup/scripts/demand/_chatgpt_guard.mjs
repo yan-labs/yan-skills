@@ -79,9 +79,17 @@ export function healthFailure({ text = '', login = false, loggedIn = false } = {
   return null;
 }
 export async function checkExit(web, fetcher = fetch, log = console.error) {
-  const response = await fetcher('https://api.country.is/', { signal: AbortSignal.timeout(15000) });
-  if (!response.ok) throw new Error('出口 IP 查询失败；暂停，不发送问题。');
-  const exit = await response.json();
+  let exit;
+  try {
+    const response = await fetcher('https://api.country.is/', { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error('出口 IP 查询失败');
+    exit = await response.json();
+  } catch {
+    const response = await fetcher('https://www.cloudflare.com/cdn-cgi/trace', { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error('出口 IP 查询失败；暂停，不发送问题。');
+    const trace = await response.text();
+    exit = { ip: trace.match(/^ip=(.+)$/m)?.[1], country: trace.match(/^loc=([A-Z]{2})$/m)?.[1] };
+  }
   if (!isIP(exit.ip) || !/^[A-Z]{2}$/.test(exit.country)) throw new Error('出口 IP/国家无法确认；暂停，不发送问题。');
   if (web.exit && web.exit.ip !== exit.ip) throw new Error(`出口 IP 变化：${web.exit.ip} → ${exit.ip}；暂停，请固定代理节点后人工续跑。`);
   if (!web.exit) log(`当前出口 IP：${exit.ip}；国家：${exit.country}（Node 进程出口）`);

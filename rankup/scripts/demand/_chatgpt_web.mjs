@@ -32,6 +32,7 @@ export function parseEvalJson(stdout) {
   const tryParse = (s) => { try { return JSON.parse(s); } catch { return undefined; } };
   for (const cand of [t, t.split('\n').filter(Boolean).pop()]) {
     let v = tryParse(cand);
+    if (v?.ok === true && 'data' in v) v = v.data;
     if (typeof v === 'string') v = tryParse(v);
     if (v && typeof v === 'object' && !Array.isArray(v)) return v;
   }
